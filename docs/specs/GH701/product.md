@@ -6,6 +6,10 @@ GH-701
 
 complexity: large
 
+本 product spec、[`tech.md`](tech.md) 与
+[`security-lifecycle-contract.md`](security-lifecycle-contract.md) 共同构成 GH-701
+的 normative spec set；后者固定 B-019/B-025/B-028 的安全与生命周期协议。
+
 ## 用户问题
 
 VibeGuard 的规则、hook、guard 与本地 observability 已经能保护 Claude Code 和
@@ -171,9 +175,12 @@ GH-701 已完成。
     core evaluation 或逐项日志之前验证完整 count，超限或无法确定 count 时整个
     batch fail-closed，禁止截断或部分执行。host entry 还必须声明同步 response
     deadline；adapter 为 encode 和 termination 各保留固定时间，以剩余总预算约束
-    每项 core 调用。每项在可取消的独立 process group/job boundary 运行；到期时必须
-    终止整个 boundary 并确认全部 child 已 reap，之后才可为当前项及所有未执行项
-    生成闭集 `hook_error` 并返回 fail-closed，禁止遗留进程或 late output/log。
+    每项 core 调用。每项必须在 security/lifecycle appendix §1 的 kernel-enforced、
+    不可逃逸 containment provider 内运行；process group 本身不是 containment，
+    `setsid`、double-fork、reparent 或平台 breakaway 均不能逃出 supervisor 所有权。
+    到期时必须关闭输出、终止整个 boundary，并在 descendant ledger closed、boundary
+    empty 且全部 child 已 reap 后，才可为当前项及所有未执行项生成闭集
+    `hook_error` 并返回 fail-closed，禁止遗留进程或 late output/log。
 20. B-020 同一 batch 的 mixed decisions 必须按固定优先级
     `hook_error > block > escalate > gate > correction > warn > complete > pass`
     产生唯一 host response；每个 core invocation 的 `failed` 或 `hook_error`
@@ -209,24 +216,22 @@ GH-701 已完成。
     lease token 并通过 API 查询恢复。普通 macOS/Linux JSON 文件、rename、
     advisory lock、mtime 或 exclusive claim 都不能排除延迟 old-FD write，不得
     冒充该 capability。file-backed proof/new host 可显式选择
-    `verified_file_setup_v1`：VibeGuard 只输出绑定 base/candidate digest、preserved
-    entries、mode/owner 与 canonical no-follow target 的 exact diff，零磁盘 mutation；
-    用户确认 target 后亲自应用该 diff。verifier 必须在 bounded native probe 前后
-    重开目标并 exact-match candidate bytes/semantic ownership/mode/owner，随后把
-    plan digest、确认、两次 config digest 与 probe 绑定到 manual-verified evidence；
-    只有该 evidence 可产出 active/proof。额外编辑、symlink/path swap、任一重读
-    drift 或 old-FD late write 都保持 `partial/needs_human`。plan 还必须把 reverse
-    diff、base bytes/mode/owner 与 base/candidate digest 封存在本地 0600 manual
-    receipt；receipt 有 planned/active/consumed generation，active evidence 必须绑定
-    exact active receipt digest，成功安装不得删除。candidate probe 失败或
-    clean/disable 时，只有 target 仍 exact-match
-    candidate 与原 receipt，才向用户展示该 reverse diff；用户应用后 verifier
-    no-follow 重读并 exact-match base bytes/ownership/mode/owner，确认旧状态可解析，
-    才撤销 evidence 并报告 restored/not-installed。VibeGuard 不得写 host target；
-    candidate/receipt/current 任一漂移都禁止 stale reverse、保留当前内容并
-    `needs_human`。active receipt 仅在 verified restore/removal 后消费；superseding
-    plan 只有先 durable 写入继承原 clean base/reverse ancestry 的新 receipt、native
-    probe 成功并原子切换 active evidence 后，才能消费旧 receipt。获批 proof host 若既无
+    `verified_file_setup_v1` 必须完整实现 security/lifecycle appendix §3：VibeGuard
+    只输出 exact diff，零 host-target mutation；plan/receipt 以闭集
+    `base_presence: present|absent` 表示初始状态，absent 不得伪造空 base bytes、mode
+    或 owner。用户确认 target 后亲自应用 diff。verifier 必须持有 no-follow parent
+    directory handle 与（若 present）target handle，并把 parent/target filesystem
+    identity、candidate bytes/ownership/mode、loss-detecting watcher 与 bounded native
+    probe 绑定到 evidence；重新解析出的 target 必须仍是同一 identity。byte-identical
+    inode replacement、parent-directory swap、symlink、watcher gap/overflow、额外编辑
+    或 old-FD late write 都保持 `partial/needs_human`。0600 manual receipt 有
+    planned/active/consumed generation，active evidence 绑定 exact receipt digest。
+    present-base reverse 必须由用户恢复并按同一 identity/bytes/metadata 验证；
+    absent-base reverse/clean 必须由用户删除 exact target，并以 watcher 连续性、两次
+    bounded absence observation 与 host-native unregistration 验证。VibeGuard 不得写或
+    删除 host target；任一 drift 禁止 stale reverse。superseding receipt 必须继承
+    original clean ancestry，且只有 verified restore/removal 或新 receipt 生效后才能
+    消费旧 receipt。获批 proof host 若既无
     versioned API 又不能完成 verified-file contract 才必须重新选择。Claude/Codex
     现有 JSON target 依 B-014 走 compatibility lifecycle，不得被静默改成 manual。
 26. B-026 versioned automatic branch 的同一 config 并发 writer 必须由 bounded
@@ -278,16 +283,19 @@ GH-701 已完成。
     protected workflow issuer/identity/ref/SHA，并把 runtime proof SHA、candidate
     head、event/nonce/process/distribution digests 与 redaction inventory digest
     绑定为 attested subjects，缺任一绑定都阻断。
-    native binary 还须拒绝 `LD_PRELOAD`、library-path、危险 `DYLD_*`、debugger/plugin/
-    injection 环境。supervisor 必须在 suspended spawn 恢复前安装平台 loader/executable
-    mapping mediator，并从第一条指令直到 kill/reap 连续记录每次 exec、executable
-    mmap/mprotect、image load 与 unload；每次出现时就以 no-follow bytes 或
-    CodeDirectory/signature exact-match H-001 signed distribution closure，不能等 blocking
-    event 才采样。unknown/anonymous executable、未批准 JIT、late attach、ledger gap/drop/
-    overflow 或任何未批准 load 即使随后 unload 都阻断。final mapping/image snapshot
-    必须与 append-only ledger 一致；attestation 绑定 session/process、closed environment、
-    ledger Merkle root/sequence/gap counters 与 final loaded-code root。平台无法证明完整
-    mediation/trace 时该 H-001 host/release 必须 unsupported；
+    native binary 还须完整实现 security/lifecycle appendix §§1–2：在不可逃逸 execution
+    containment 内拒绝 `LD_PRELOAD`、library-path、危险 `DYLD_*`、debugger/plugin/
+    injection 环境，并阻断 `ptrace`、`/proc/<pid>/mem`、`process_vm_writev`、Mach
+    task/VM write 与 Windows cross-process memory write。supervisor 必须在 suspended
+    spawn 恢复前安装平台 loader/executable-mapping mediator，并从第一条指令直到
+    boundary empty/kill/reap 连续记录 exec、executable mmap/mprotect、image load/unload
+    及保护变更；同时强制 immutable backing、W^X、禁止 anonymous/RWX executable
+    pages，并在 blocking event 和 freeze 后由 supervisor 重算 executable-page roots。
+    patch-then-restore、unknown/anonymous executable、未批准 JIT、late attach、ledger
+    gap/drop/overflow 或任何未批准 load 即使随后 unload 都阻断。final mapping/image
+    snapshot 必须与 append-only ledger 一致；attestation 绑定 containment/descendant
+    closure、ledger root/sequence/gap counters、page roots 与 final loaded-code root。
+    平台无法证明完整 mediation/trace/page integrity 时该 H-001 host/release 必须 unsupported；
     interpreted CLI 还必须绑定 interpreter、canonical argv/entrypoint 与受信发行
     manifest 的只读 package snapshot/Merkle root，禁止 snapshot 外 module load。
     gate-time 路径重读、binary 自报 release/SHA 或 pathname 不能建立 provenance。native
@@ -335,7 +343,7 @@ GH-701 已完成。
     fixture 必须证明 pass/correction/空 fix 均不会替代该 closed fallback。
 34. B-034 decision collector/gate 尚未存在于受保护 main 时，只允许一次
     `bootstrap_once` tranche。该 tranche 只由 ordinary repository routing 的
-    `plan_first` handoff、维护者对 product/tech 的明确 GitHub review、live
+    `plan_first` handoff、维护者对完整 normative spec set 的明确 GitHub review、live
     duplicate-work search、当前 PR CI 与 human merge review 授权；任何可选
     SpecRail packet/evaluator 都不是前置条件或授权来源。task plan 必须覆盖全部
     B-ID；只有 bootstrap tasks 可执行，其余 tasks 全部依赖尚未满足的
@@ -350,10 +358,10 @@ GH-701 已完成。
     protected workflow、collector/schema/gate path set 与全部 contract/blob
     digests 后才能收集可信 decisions，任一缺失或漂移只能是
     `partial/needs_human`，绝不能标为 closed。
-35. B-035 decision record 必须同时绑定 `approved_spec_head_sha`、product.md 原始
-    bytes SHA-256、tech.md 原始 bytes SHA-256 与 canonical decision-input
-    SHA-256。后续 task/implementation HEAD 只有在 approved spec head 是其 ancestor、
-    两份 spec bytes digest 完全相同且重新计算的 decision-input digest 完全相同
+35. B-035 decision record 必须同时绑定 `approved_spec_head_sha`、product.md、
+    tech.md、security-lifecycle-contract.md 三份原始 bytes SHA-256 与 canonical
+    decision-input SHA-256。后续 task/implementation HEAD 只有在 approved spec head
+    是其 ancestor、三份 spec bytes digest 完全相同且重新计算的 decision-input digest 完全相同
     时才能继承批准；task/code/test 的非 decision-sensitive descendant commit 可以
     继续。任一 spec byte、H-001–H-004 option/约束、issue acceptance snapshot、
     proof protocol/release、branch expectation 或 collector trust identity 改变，
@@ -383,18 +391,22 @@ GH-701 已完成。
 - [ ] config transaction 的 versioned CAS/lease、lock contention、TOCTOU drift、
   每个 phase failure、API-based crash recovery/safe rollback 均有确定性证据；
   普通文件自动路径与 delayed old-FD fixtures 必须零写入；verified-file fixture
-  只有用户应用 exact diff、probe 前后 digest/ownership 相同且 native probe 成功才
-  active/proof，任一额外编辑、path swap 或 late write 都保持 partial。
+  只有用户应用 exact diff、probe 前后 candidate bytes/metadata、同一 target inode/file
+  identity 与 parent-directory identity 均匹配，watcher 无 gap 且 native probe 成功才
+  active/proof；byte-identical replacement、parent swap、额外编辑或 late write 都保持 partial。
 - [ ] verified-file failed-probe 与 clean/disable fixtures 仅在 current candidate /
-  receipt 精确匹配时提供用户应用的 reverse diff；base bytes/mode/owner 重验通过后
-  才 restored/not-installed；active receipt 跨成功安装保持 durable，只有 verified
-  removal 或保留原 clean ancestry 的 superseding receipt 生效后才消费；任一第三方
-  drift 都不覆盖并保持 needs-human。
+  receipt 精确匹配时提供用户应用的 reverse diff；present base 的 identity/bytes/
+  metadata 重验通过后才 restored/not-installed；active receipt 跨成功安装保持 durable，只有 verified
+  removal 或保留原 clean ancestry 的 superseding receipt 生效后才消费；absent base
+  不得伪造空 base，clean 必须由用户删除 exact target 并经两次 bounded absence、
+  watcher continuity 与 host-native unregistration 验证；任一第三方 drift 都不覆盖并
+  保持 needs-human。
 - [ ] GH-699/GH-700 README claims 与第三 host proof 各由固定 gate 消费；缺失、
   tampered、stale、wrong-head/event/digest/witness、candidate 可见 credential、
   signing job 执行 candidate、subject blob/认证 manifest 缺失替换或重哈希不符、
-  supervisor injection/sink/scan 缺失或泄漏，以及 native injection、load-then-unload、
-  trace gap/late attach/unknown loaded-code fixtures 全部 nonzero。
+  supervisor injection/sink/scan 缺失或泄漏，以及 containment setsid/double-fork/reparent/
+  breakaway、ptrace/proc-mem/process-memory write、patch-then-restore、RWX/anonymous exec、
+  load-then-unload、trace gap/late attach/unknown loaded-code fixtures 全部 nonzero。
 - [ ] H-001–H-004 decision record 与 maintainer witness 分别通过固定 schema、
   protected collector attestation 和离线 gate；witness source 的 edit/delete/revoke
   在当前 protected run 被重新查询并拒绝；route/task/renderer/closure 都绑定当前
@@ -406,7 +418,7 @@ GH-701 已完成。
   allowlist（含 pinned `public_benchmark_summary` schema）、completion fixture、CI、
   human review 与 merge gate 均通过，且可选 SpecRail 输出不参与授权；merge 前所有
   普通 implementation tasks 保持 blocked。
-- [ ] decision gate 对 approved spec head 的 descendant 仅在 product/tech byte
+- [ ] decision gate 对 approved spec head 的 descendant 仅在三份 normative spec byte
   digests 与 canonical decision-input digest 均不变时 allowed；任一敏感输入变化的
   schema-valid fixture 要求重新收集维护者批准；精确、限时、protected-main
   `trust_rotation` 是修改 trust paths 的唯一通路。

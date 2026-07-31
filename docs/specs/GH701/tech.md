@@ -8,6 +8,11 @@ GH-701
 
 [`product.md`](product.md)
 
+## Normative Security/Lifecycle Appendix
+
+[`security-lifecycle-contract.md`](security-lifecycle-contract.md) is the normative
+B-019/B-025/B-028 protocol and is part of the decision-bound spec set.
+
 ## Codebase Context
 
 以下锚点在 round-3 修订开始时的 PR #712 HEAD
@@ -61,9 +66,9 @@ path/format、runtime pin、真实 CLI fixture 命令和 stop conditions。缺�
 当前受保护 main 尚无本节的 collector/attestation/offline gate，因而 H-001–H-004
 可信 record 不可能先于 bootstrap 存在。解锁顺序固定如下：
 
-1. 当前 product.md/tech.md 先走普通 repository routing 的 `plan_first`：
+1. 当前三份 normative specs 先走 ordinary repository routing 的 `plan_first`：
    handoff 固定 `mode`、artifacts、runtime pinning snapshot、verification owner、
-   stop conditions 与 lane map；维护者必须在 GitHub review 中明确批准两份 spec。
+   stop conditions 与 lane map；维护者必须在 GitHub review 中明确批准完整 spec set。
    Recommended proposals 不因 spec approval 自动成为 H-001–H-004 selections。
 2. coordinator 从 live GitHub issue/PR/branch/review-thread state 做 duplicate-work
    search，并把当前 base SHA、搜索时间、冲突 PR/branch 与结论写入
@@ -111,7 +116,7 @@ protected workflow decision-gate invocation、缺失 task/implementation CI
 consumer binding、任一 contract/version/blob digest 漂移与 path 部分存在；
 这些结果一律为
 `partial/needs_human`，绝不能 closed，也不得重开宽泛 bootstrap。当前 spec PR
-必须先 merge，tasks/bootstrap PR 才能开始，所以 bootstrap 不会把 product/tech
+必须先 merge，tasks/bootstrap PR 才能开始，所以 bootstrap 不会把 normative spec set
 与 control-plane implementation 混入同一次人类批准。
 
 decision contract 的 planned fixed surfaces 为：
@@ -174,13 +179,13 @@ protected run identity 与 candidate HEAD；禁止只读缓存的 allowed JSON�
 generation、口头批准或另一 spec 的 task plan。任一项未获批准、source 被编辑/
 删除/撤销或存在更晚 decision 时保持 `needs_human`，本 spec 不代替维护者选择。
 
-record 的 head contract 固定四个字段：
-`approved_spec_head_sha`、`product_blob_sha256`、`tech_blob_sha256` 与
+record 的 head contract 固定五个字段：`approved_spec_head_sha`、
+`product_blob_sha256`、`tech_blob_sha256`、`security_lifecycle_blob_sha256` 与
 `decision_input_sha256`。`approved_spec_head_sha` 是 spec PR 经维护者批准并 merge
-后、位于 default branch 的 commit；collector 必须验证其 product/tech bytes 与
+后、位于 default branch 的 commit；collector 必须验证完整 spec set bytes 与
 被批准 PR head 完全相同，不能直接使用可能因 squash 而不在 main ancestry 上的
-PR head。product/tech digest 对
-`git cat-file blob <approved_spec_head>:docs/specs/GH701/{product,tech}.md` 的原始
+PR head。三个 blob digest 对
+`git cat-file blob <approved_spec_head>:docs/specs/GH701/{product,tech,security-lifecycle-contract}.md` 的原始
 bytes 计算，不做换行、Unicode 或空白规范化。
 
 `decision_input_sha256` 对 tech.md 内唯一 `gh701-decision-inputs` JSON object 做
@@ -280,11 +285,11 @@ candidate 只有同时满足以下四项才继承 decisions：
 
 1. `git merge-base --is-ancestor <approved_spec_head_sha> <candidate_head>`；
 2. `git merge-base --is-ancestor <collector_trust_head_sha> <candidate_head>`；
-3. candidate product.md/tech.md 原始 bytes digest 与 record 完全相同；
+3. candidate 三份 normative spec 原始 bytes digest 与 record 完全相同；
 4. 从 candidate specs、attested selections/snapshot/facts 与当前 trust-path bytes
    重建的 JCS decision-input digest 与 record 完全相同。
 
-因此 tasks.md、实现代码与 tests 的 descendant commits 可继续，而 product/tech
+因此 tasks.md、实现代码与 tests 的 descendant commits 可继续，而 normative spec
 任一 byte、decision object、selected issue acceptance snapshot、host
 release/protocol、stale branch expectation、workflow path/ref 或 collector trust
 identity 改变都立即 `needs_human`，必须从 protected-main collector 重新收集四项
@@ -366,9 +371,11 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
   count 超限、无法确定或流式输入在第 65 项出现时，整个 batch fail-closed，零项
   进入 evaluation，且只记录 closed `batch_too_large` + capped count metadata。
   禁止 truncation、partial evaluation 或把未评估项当作 pass。
-- 同步 host deadline 必须大于 `RESPONSE_RESERVE_MS = 250` 加 `CORE_TERMINATION_RESERVE_MS = 100`。每个 core invocation 在独立 OS process group（Windows Job Object）运行；
-  hard timeout 取 per-hook 与 `remaining - termination - encode reserve` 较小值。timeout 时停止接收输出、terminate group，grace 到期强制 kill，并以 `waitpid`/Job completion 确认全部 child 已 reap；
-  确认前 encoder 不得返回。随后当前/未执行项均为 sanitized `hook_error: batch_deadline_exceeded`，禁止 late output、log 或后台副作用。
+- 同步 host deadline 必须大于 `RESPONSE_RESERVE_MS = 250` 加
+  `CORE_TERMINATION_RESERVE_MS = 100`。每个 invocation 必须遵守 normative appendix
+  §1 的 non-escapable provider；process group 不构成 containment。timeout 只有在
+  descendant ledger closed、boundary empty、全部 reap 且无 late output 后才能编码
+  sanitized `hook_error: batch_deadline_exceeded`。
 - core 严格按 request_index 依次运行现有 `HookKind`、checks、orchestrators、
   rules 与 guards，每项产生恰好一个 decision；proof adapter 不得复制
   rm/U-16/L1 classifier。每项日志带 batch/request/index，fix instruction 也绑定
@@ -427,25 +434,15 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
 8. `rollback`：任一 apply/probe 失败时，用 journal lease token 查询同一 API；只有 token 仍归属本 transaction、current version 精确等于 apply 返回的 version 且 digest 等于 candidate，
    才以 version CAS 恢复 snapshot。token/version/digest 任一 drift（含 byte-identical newer version）都保留当前内容并输出 `broken/needs_human`、snapshot path/version/digest。
 
-versioned crash recovery 以 journal token 查询 lease/old/new version：candidate 已提交才
-API CAS rollback，base 未变即未 apply，其他 version needs-human；不得从 file digest
-猜测。`verified_file_setup_v1` 只 discover/plan，输出绑定 lifecycle/target、base/candidate
-digest、preserved entries、mode/owner 与 canonical no-follow target 的 apply diff；host
-target 零 mutation。每个 plan 在本地 0700 state durable 写入 0600 manual receipt，含
-receipt_id/generation/state、base bytes/mode/owner、apply/reverse diff 与 digests。已有
-active receipt 不被新 planned receipt 覆盖。用户应用后 verifier 在 native probe 前后
-重开并 exact-match candidate bytes/ownership/mode/owner；probe 成功须先 fsync receipt
-为 active，再原子写绑定 exact receipt digest 的 manual evidence，二者 active 期间保留。
-probe 失败或 clean/disable 时，仅在 current candidate 与对应 planned/active receipt 全部
-exact-match 才展示 reverse；用户应用后重开并验证 base bytes/mode/owner、旧配置可解析、
-managed entry 已恢复/移除，才使 candidate evidence 失效并把 receipt 标记 consumed，报告
-`restored`/`not_installed`。superseding plan 必须让新 receipt 继承 original clean base /
-reverse ancestry；只有新 probe/evidence 原子 active 后才消费旧 receipt。current/receipt
-drift、partial reverse、path swap/late write 均保留内容与 receipts 并 needs-human。
+versioned crash recovery 仍以 journal lease/version CAS 判定 rollback；普通 file digest
+不能替代 storage capability。`verified_file_setup_v1` 必须完整实现 normative appendix
+§3：`base_presence: present|absent`、held no-follow parent/target identities、loss-detecting
+watcher 与 planned→active→consumed durable receipt。present base 用 exact reverse；absent
+base 用用户执行的 exact-target deletion，并验证稳定 absence + host-native unregistration。
+byte-identical inode swap、parent swap、watcher gap、late write/recreate 或 identity/digest
+drift 全部 `needs_human`。VibeGuard 对 host target 零 mutation；active evidence exact-bind
+active receipt，旧 receipt 仅在 verified removal 或 ancestry-preserving supersession 后消费。
 `active` 只来自 committed versioned transaction 或 fresh manual evidence+active receipt。
-
-versioned journal/snapshot 在 commit 后删除；manual receipt 仅在 verified removal 或 safe
-supersession 把该 generation 标记 consumed 后删除。raw bytes/diff 不进 logs；drift 时只输出 durable receipt path+digest。
 
 ### 5. Deterministic README claim evidence
 
@@ -542,19 +539,13 @@ path/size/SHA-256，以固定 byte-search 算法逐 sentinel/sink 要求零匹�
 attestation 绑定 inventory JCS digest、source class、injection receipt、sink manifest、
 算法与逐项零匹配，永不持久化 secret value。candidate 自报、缺 injection/sink、
 非零匹配、scan 后 digest drift 或 candidate 可读 supervisor state 均阻断。
-native supervisor 以 suspended spawn 在第一条指令前安装 H-001 声明的完整 mediator，
-连续记录至 kill/reap：Linux exec/executable mmap+mprotect，macOS pre-resume hardened loader/
-library validation、executable-memory denial 及完整 image load/unload callbacks；每项出现时就以 no-follow bytes 或 CodeDirectory/
-signature exact-match signed dependency closure。append-only ledger 保留已卸载项，并绑定
-sequence/gap/drop/overflow counters、mediator attach receipt 与 final maps/dyld snapshot；
-late attach、任何 gap 或 unknown/anonymous/JIT/load-then-unload 均阻断。平台不能证明完整
-覆盖则该 host/release unsupported。interpreted CLI 仍绑定 interpreter/argv/no-follow
-entrypoint/只读 package root；attestation 绑定 environment、ledger 与 final-code roots。
-candidate kill/reap 后，supervisor no-follow 封存每个 subject blob 到 candidate 不可访问的 protected CAS（SHA-256+size+immutable version），并以独立 workload identity 认证 closed
-role/blob manifest。OIDC signing job 只读下载全部 blobs，先验签 manifest，禁止 checkout/load/execute candidate，逐 byte 重哈希并 exact-match inventory/version 后签 manifest digest 与
-subjects。verifier 绑定两 job/VM identity、credential absence、manifest auth/CAS receipt、
-OIDC workflow/ref/SHA/run 及全部 issue/head/event/process/distribution/snapshot/redaction/
-ledger subjects；missing/extra/duplicate/substituted blob、auth/digest drift 或 job merge 阻断。
+native proof 必须完整实现 normative appendix §1–2：pre-resume non-escapable containment、
+continuous loader/unload ledger、W^X/immutable backing，以及 kernel-enforced denial of
+ptrace、process-memory/proc-mem/Mach VM/Windows debug writes。attestation 绑定 descendant
+closure、policy/denial counters、executable-page and ledger roots；任何 escape、event gap、
+patch-then-restore 或 unsupported provider 都阻断。candidate reap 后仍按本节 protected
+CAS + independently authenticated closed manifest 交付 exact subject blobs；OIDC signer
+先验签 manifest、逐 byte 重哈希并 exact-match inventory/version 后才签 subjects。
 
 maintainer witness 是单独 artifact，由第 1 节同一个受保护 default-branch
 collector 从 fresh GitHub review/comment 只读生成。collector 只接受 PR/issue
@@ -628,36 +619,37 @@ config/payload/log content。
 | B-016 | journal crash recovery/retry | `bash tests/test_setup.sh`；每个 transaction phase kill fixture 后重试，断言 safe rollback 或 needs_human 且无 duplicate registration |
 | B-017 | check/doctor bounded probe evidence | `bash tests/test_setup.sh`；对六个 evidence state 的 fixtures 运行 check/doctor |
 | B-018 | H-004-aware README renderer + dependency gates + journey | decision gate 与 README-claim gate；`strict_four`/`preserve_pr705_extras` positive fixtures 精确渲染，未选/双选/acceptance digest mismatch nonzero；维护者在 fresh home 计时 install → verify → real-host interception |
-| B-019 | decoder `Vec<CanonicalHookRequest>` + cap/deadline | `cargo test --manifest-path vibeguard-runtime/Cargo.toml` 覆盖 64/65/unknown count、总预算到期、process-group kill/reap、无 late output/child 与 deadline 内 fail-closed response |
+| B-019 | decoder batch cap/deadline + non-escapable containment | runtime tests 覆盖 64/65/unknown count、setsid/double-fork/reparent/fork-bomb/nested-job/namespace escape、boundary empty+descendant reaped、无 late output 与 deadline 内 fail-closed response；normative appendix §1 |
 | B-020 | deterministic complete decision aggregator | `cargo test --manifest-path vibeguard-runtime/Cargo.toml` 的 all pairwise mixed decisions（含 hook_error/complete）、`HookResult.failed`/hook_error normalization、hook_error/block/escalate/gate suppress correction、multi-block、fix dedupe/cap fixtures |
 | B-021 | batch/request/log/fix correlation | `cargo test --manifest-path vibeguard-runtime/Cargo.toml`；duplicate/missing/cross-batch ID 与 missing-primary-log negative fixtures |
 | B-022 | v2 top-level hosts/per-hook mappings/non-host entries | `bash tests/test_manifest_contract.sh`；`bash scripts/ci/validate-hooks-manifest.sh` 的 key-set、non-host、contradiction negative fixtures |
 | B-023 | v1 compatibility/deprecation | `bash tests/test_manifest_contract.sh`：v1 read+warning、v1 third-host reject、v2-only writer 与 v1/v2 Claude/Codex golden parity |
 | B-024 | complete unknown matrix | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml` 分别固定 contract/discovery/protocol/runtime outcomes |
-| B-025 | versioned transaction + verified-file lifecycle | `bash tests/test_setup.sh`：CAS+lease positive；manual planned/active/consumed receipt 与 evidence digest binding；failed probe/clean reverse、durable active retention、safe ancestry-preserving supersession；drift/partial reverse/path swap/late write 均 needs-human/零 host mutation |
+| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 present/absent base、verified restore/deletion、held target+parent identity、watcher、planned/active/consumed receipt 与 safe supersession；byte-identical inode/parent swap、recreate/late-write/watcher gap 均 needs-human；normative appendix §3 |
 | B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
-| B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 credential-free execution、authenticated subject-blob handoff+independent rehash、supervisor sentinel scan 与 continuous loaded-code ledger；blob substitution/missing/extra、manifest auth drift、trace gap/late attach/load-then-unload、native injection/JIT、job merge/candidate execution 均 nonzero |
+| B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 subject-blob rehash、sentinel scan、continuous loader + executable-page integrity；ptrace/proc-mem/process_vm_writev/Mach/Windows writes、patch-restore、RWX、trace gap/load-unload、manifest/blob drift 均 nonzero；normative appendix §2 |
 | B-029 | stale branch closure gate | protected GitHub ruleset API fixture：deleted allowed；readonly retain 仅 exact head/owner/unexpired/exact-target update+delete deny/zero bypass allowed；retain→delete without fresh H-003、`ls-remote` only、rule/head drift/new push blocked |
 | B-030 | H-004 mutually exclusive decision + issue acceptance binding | decision-gate fixtures：strict-four allowed；preserve only with matching immutable issue node/digest allowed；missing/double/unsynced/re-witness-missing blocked |
 | B-031 | live-source decision record/attestation + task binding | `bash tests/test_gh701_decision_gate.sh`；current protected run + latest generation 对 eligible descendant HEAD/digests allowed，source edit/delete/revoke/newer selection、offline preview、self-filled/stale/cached/wrong-spec records blocked |
 | B-032 | protected read-only maintainer evidence collector | host-proof harness 验证 separate runtime/witness artifacts、trusted workflow attestation、node/event/head/time/proof-SHA binding；current-run source edit/delete/revoke/supersede recheck 与 generation binding；embedded、cached 或 implementer-filled witness blocked |
 | B-033 | closed primary fix fallback | `cargo test --manifest-path vibeguard-runtime/Cargo.toml`：missing fix 生成 fresh fallback ID；4097-byte/encode failure 保留 existing fix_id；均保持 bounded block 且无 raw/digest leakage |
 | B-034 | ordinary-routing one-time bootstrap tranche | harness 要求完整 B-ID plan、产品 tranche 均 blocked；fixed allowlist/completion fixtures 必须含 supervisor schema/workflow 与 **schemas/public_benchmark_summary.schema.json**，下游 gate 缺 decisions fail closed；host/runtime/setup/README/unlisted/second bootstrap blocked |
-| B-035 | approved spec/trust heads + immutable byte/JCS digest inheritance | `bash tests/test_gh701_decision_gate.sh`：unchanged-spec/trust descendant allowed；任一 non-ancestor、product byte、tech byte、JCS selection/input、acceptance/protocol/branch/trust-path byte drift fixture 全部 `needs_human`；protected-main exact-head/path/digest/expiry `trust_rotation` positive fixture 单次 allowed，self-issued/wildcard/stale/replayed rotation blocked |
+| B-035 | approved spec/trust heads + immutable byte/JCS digest inheritance | decision-gate tests：unchanged 3-spec/trust descendant allowed；任一 non-ancestor、product/tech/security-lifecycle byte、JCS/acceptance/protocol/branch/trust drift 全部 needs-human；protected-main exact trust rotation 单次 allowed，self-issued/wildcard/stale/replay blocked |
 
 ## 数据流
 
-1. 维护者先在 GitHub review 明确批准 product/tech；coordinator 完成 ordinary
+1. 维护者先在 GitHub review 明确批准三份 normative specs；coordinator 完成 ordinary
    `plan_first` handoff 与 live duplicate-work search，生成完整 tasks 后只执行
    `bootstrap_once` allowlist PR。该 PR 经 CI、independent human review/merge 到
    main 后，受保护 collector 才能取得 H-001–H-004 decisions；可选 SpecRail
    packet/evaluator 不参与授权。
 2. 当前 protected CI run 重查 live decision source；offline gate 验证 attestation、
-   generation/revocation、spec/trust ancestry、product/tech bytes 与 JCS input digest；
+   generation/revocation、spec/trust ancestry、三份 spec bytes 与 JCS input digest；
    CI allowed 后 lifecycle 才读取 selection/manifest v2，只读 discover 并生成绑定 base digest 的 exact plan。
 3. plan 按 registry 选择 versioned CAS+lease transaction 或零 mutation 的 verified-file
-   exact diff；后者仅在用户应用、probe 前后 digest/ownership 相同才 active，drift 均 partial。
+   exact diff；后者仅在用户应用、probe 前后 bytes/metadata、held target+parent identities
+   与 watcher continuity 均匹配才 active，drift 均 partial。
 4. host 发送 native event；decoder 校验 host/protocol/version，产生带 batch/request
    correlation 的 ordered canonical request Vec。
 5. core 按 index 独立判定每个 request 并逐项写 sanitized log；执行失败先变成
@@ -691,7 +683,7 @@ config/payload/log content。
   claim 会漂移，必须由单一 validator 重算。
 - 要求 H-001–H-004 decision gate 先批准自身 bootstrap：拒绝。collector/workflow
   尚未在 main 时无法产生可信 attestation；bootstrap 只能由 ordinary
-  `plan_first` handoff、维护者 GitHub product/tech review、live duplicate-work
+  `plan_first` handoff、维护者 GitHub 完整 spec-set review、live duplicate-work
   search、CI、PR review 与 merge gates 授权，并受固定 allowlist 限制。可选
   SpecRail 输出既不需要也不授权该 tranche。
 - 只把 decision 绑定 PR head 或要求所有后续 HEAD exact-equal：拒绝。squash merge
@@ -741,9 +733,9 @@ config/payload/log content。
   oversize primary closed fallback、
   malformed/privacy 与 encode failure。
 - [ ] Lifecycle tests：全 phase、lock/deadlock、versioned CAS/lease 与 crash rollback；
-  verified-file 覆盖 planned→active→consumed、成功后 durable retention、failed-probe/
-  clean reverse、safe supersession positives，以及 early delete、receipt/current drift、
-  partial reverse、path swap/old-FD negatives；host-target write 全由用户执行。
+  verified-file 覆盖 present/absent base、restore/delete、held parent+target identity、watcher、
+  receipt retention/supersession positives，以及 byte-identical inode/parent swap、early
+  receipt delete、partial delete/recreate/old-FD/watcher-gap negatives；target write 全由用户执行。
 - [ ] Evidence tests：README-claim schema/gate 的 protected producer attestation、
   GH-699 exact producer SHA/argv，以及 GH-700 committed Release summary/report/
   publish-intent binding 与 standalone rerun/draft/unsigned/wrong-workflow matrices；
@@ -752,7 +744,8 @@ config/payload/log content。
   source/config matrix；supervisor-owned sentinel injection 与 exact sink-byte scan；
   execution VM credential absence、job separation、signing job no-candidate-code、
   authenticated subject blobs/manifest/re-hash，以及 missing/extra/substituted blob、
-  injection/sink/secret/nonzero/sink drift、trace late/gap/drop/overflow、load-then-unload、
+  injection/sink/secret/nonzero/sink drift、containment escape/nonempty boundary/late output、
+  ptrace/proc-mem/process-memory/Mach/Windows write、patch-restore/RWX、trace gap/load-unload、
   preload/DYLD/plugin/unknown image/JIT negatives；所有
   negative fixtures 先通过 schema 再被 semantic gate 拒绝。
 - [ ] Bootstrap tests：ordinary `plan_first` handoff、维护者 GitHub spec approval +
@@ -761,7 +754,7 @@ config/payload/log content。
   授权能力、main merge 前 collector untrusted、sentinel 后 second bootstrap 拒绝，
   以及普通 tasks 全部等待 decisions。
 - [ ] Head-binding tests：approved default-branch spec head 的 unchanged descendant
-  allowed；squashed/non-ancestor PR head、product/tech 单 byte、JCS key/value、
+  allowed；squashed/non-ancestor PR head、三份 normative spec 单 byte、JCS key/value、
   issue snapshot、release/protocol、branch head 与 workflow trust drift 全部要求
   fresh maintainer collection；exact protected-main rotation 单次 allowed，
   self-issued/wildcard/stale/replayed rotation 全部 blocked。
@@ -779,7 +772,7 @@ bootstrap 尚未 merge 时直接关闭该 PR，不产生 H decision 或产品状
 但尚未收集 decisions 时，若必须回滚 collector/gate/workflow，后续所有普通
 tasks 保持 blocked，不回退为旧的无 gate implement route。已有 decision 后移除或
 更改 bootstrap trust surfaces 会使 collector identity/JCS digest 失效，必须先
-撤销 decision allowed 状态，再经新的 product/tech human approval 设计替代
+撤销 decision allowed 状态，再经新的完整 spec-set human approval 设计替代
 bootstrap；不能用旧 attestation 授权新 gate。
 
 回滚前必须对 rollback target HEAD 重新运行 decision gate，并读取获批 H-004；
