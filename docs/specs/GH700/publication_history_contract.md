@@ -434,15 +434,20 @@ actual successor为 predecessor的后续 record。governance suffix只改变 tru
 owner重放 suffix并从新 predecessor重规划，两个 authorization fence绝不可互换。store 对
 `(expected_length, expected_root, expected_full_prefix_digest, current_fence)` 原子 CAS，
 复算并签发 successor frontier。每次 transition 分为 immutable intent、mutable append
-authorization envelope与 store-signed committed envelope/receipt。publication transition的跨进程稳定
-`transition_operation_id = H(repo_node_id, owner_generation, run_id, run_attempt,
-transition_slot, predecessor_frontier, record_kind, payload_digest)`，不得包含 authorization
-fence；`owner_generation` 永不复用，首条 claim由 server-auth run tuple+frozen plan生成。
+authorization envelope与 store-signed committed envelope/receipt。`transition_operation_id` 是覆盖 38 kinds 的
+closed derivation：publication-domain 34 kinds exact 为
+`SHA256(JCS({v:"GH700:publication-operation-id:v1",repo_node_id,owner_generation,run_id,run_attempt,
+transition_slot,predecessor_frontier,record_kind,payload_digest}))`；三种 normal governance kinds exact 为
+`SHA256(JCS({v:"GH700:governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
+predecessor_frontier,rotation_cutover_certificate_digest}))`；`trust_emergency_root_cutover` exact 为
+`SHA256(JCS({v:"GH700:emergency-governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
+recovery_incident_id,predecessor_frontier,rotation_cutover_certificate_digest}))`。三个分支均不含任何
+authorization fence/lease；unknown branch/field 或交叉使用拒绝。`owner_generation` 永不复用，首条 claim由 server-auth run tuple+frozen plan生成。
 intent 固化 schema/canonicalization version、operation ID、owner generation、run/slot、exact
 predecessor/prior phase、`record_kind` 与 payload digest，`intent_digest=SHA256(JCS(intent))`；
 retry复用同一 intent bytes/digest。append request另携当前 `authorization_fence`、lease
 scope/token与 authenticated actor。store先查同事务永久唯一索引
-`(repo_node_id, operation_id)`：同 digest已存在直接返回原 receipt且不重新验 fence/append，
+`(repo_node_id, transition_operation_id)`：同 intent/payload digest已存在直接返回原 receipt且不重新验 fence/append，
 异 digest永久冲突；不存在才原子验证 current owner generation/fence/lease/exact predecessor，
 append并签发 envelope/receipt，绑定 actual accepted fence、intent/store-envelope digest、
 predecessor/successor与 issuer/key version。stale fence对新 mutation失败，但已提交 old op
