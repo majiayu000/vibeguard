@@ -185,7 +185,7 @@ assert_cmd "malformed state preserves installed snapshot" test \
 assert_cmd "malformed state preserves active wrapper" test \
   "$(shasum -a 256 "${gh719_home}/.vibeguard/run-hook.sh" | cut -d ' ' -f1)" = \
   "${gh719_wrapper_hash}"
-mv "${gh719_home}/.vibeguard/install-state.valid.json" \
+cp "${gh719_home}/.vibeguard/install-state.valid.json" \
   "${gh719_home}/.vibeguard/install-state.json"
 
 printf '%s\n' '{"version":1,"files":[]}' \
