@@ -202,9 +202,14 @@ staged_provenance_digest_or_null,evidence_identities_or_null,failure_manifest_jc
 `{candidate_identity,publication_history_operation_id,publication_history_frontier,recovered_outcome_digest,
 bound_attempt_record_digests}`。unknown kind/field、missing/extra/null-not-declared或 alias拒绝。
 
-append 在同一 `BEGIN IMMEDIATE` transaction验证 expected frontier、ledger lease/fence，并以永久 unique
-index `(repo_node_id,source_identity_key,run_id,run_attempt,attempt_record_kind)` 做 same-bytes幂等、different-
-bytes冲突；写入完整 canonical manifest bytes、record、binding/frontier/watermark后 FULL fsync，并以同一
+append 先从 closed payload 派生
+`attempt_subject_key=SHA256(JCS({v:"GH700:attempt-subject:v1",attempt_record_kind,candidate_identity_or_null,
+failure_scope_or_null,target_or_null,early_attempt_key_or_null}))`：`candidate_failure` 必须写 candidate+scope
+且 target branch 写 exact target，release branch 写 target null；`pipeline_interrupted` 与
+`publication_recovery_binding` 写 candidate 且其余 null；pre-attestation kind 只写 early-attempt key。append 在同一
+`BEGIN IMMEDIATE` transaction验证 expected frontier、ledger lease/fence，并以永久 unique index
+`(repo_node_id,source_identity_key,run_id,run_attempt,attempt_record_kind,attempt_subject_key)` 做 same-bytes幂等、
+different-bytes冲突；写入完整 canonical manifest bytes、record、binding/frontier/watermark后 FULL fsync，并以同一
 frontier CAS external anchor成功或 read-confirm exact ack后才返回 signed receipt。records/manifest
 bytes/frontiers/bindings/watermarks无 TTL、无 delete/truncate/overwrite；artifact
 retention、owner terminal、candidate publish或 schema migration均不缩短 retention。snapshot/WAL restore必须
@@ -248,22 +253,46 @@ accuracy overlap、restart/snapshot rollback、heartbeat-vs-takeover race与 anc
 deployment manifest 的 `bootstrap_governance` exact 为
 `{bootstrap_version,release_identity_root_digest,governance_roster_digest,governance_threshold,
 governance_signer_key_ids,initial_trust_bundle_digest,initial_trust_epoch,first_frontier,
-first_blocked_attempt_frontier,initial_time_high_water,initial_time_proof_digest,bootstrap_approval_digest}`。
+first_blocked_attempt_frontier,initial_time_high_water,initial_time_proof_digest}`。
 release-identity root在 store/history/AWS accounts之外，
 签 roster attestation并把 canonical distinct signer key IDs、`1 <= threshold <= signer_count`、repo/purpose、
-initial trust root/leaf certificates与 epoch钉住；bootstrap approval须由 roster中 distinct threshold signers共同
-签 exact manifest digest。self-signed/TOFU、重复 signer、阈值不足、root/roster/epoch drift均拒绝。
+initial trust root/leaf certificates与 epoch钉住。`bootstrap_manifest_core_digest` exact 为
+`SHA256(JCS(deployment_manifest_core))`，core 是完整 closed deployment manifest payload 且不含任何
+signature/attestation/approval envelope。detached `bootstrap_approval` exact 为
+`{bootstrap_manifest_core_digest,release_identity_attestation_digest,governance_roster_digest,
+governance_threshold,signer_key_ids,threshold_signatures}`；roster 中 distinct threshold signers 只签
+`SHA256(JCS({v:"GH700:bootstrap-manifest-approval:v1",bootstrap_manifest_core_digest}))`，
+`bootstrap_approval_digest=SHA256(JCS(bootstrap_approval))` 仅进入 receipt/anchor，不回填 manifest core。
+self-signed/TOFU、重复 signer、阈值不足、core/signature/root/roster/epoch drift均拒绝。
 
 `first_frontier` 唯一为 length zero：`repo_node_id` exact，`history_length=0`，`history_root` exact 为
 `SHA256(JCS({v:"GH700:history-empty-root:v1",repo_node_id}))`，`full_prefix_digest` exact 为
 `SHA256(JCS({v:"GH700:history-empty-prefix:v1",repo_node_id}))`。
 `first_blocked_attempt_frontier` 同样固定 `ledger_length=0`，root/full-prefix分别由
 `GH700:blocked-attempt-empty-root:v1` / `GH700:blocked-attempt-empty-prefix:v1` 加 `repo_node_id` 做 JCS SHA-256。
+
+history 与 blocked-attempt ledger 共享下列唯一 successor framing，其中
+`domain∈{history,blocked-attempt}`、`leaf_bytes=JCS(exact closed top-level record)`、`u64be` 是 unsigned
+64-bit big-endian，`digest_bytes` 只解码 canonical lowercase `sha256:<64hex>`：
+`leaf_hash=SHA256(UTF8("GH700:"+domain+"-leaf:v1")||0x00||u64be(len(leaf_bytes))||leaf_bytes)`；
+`next_length=prior_length+1`；
+`next_root=SHA256(UTF8("GH700:"+domain+"-root:v1")||0x00||digest_bytes(prior_root)||leaf_hash||u64be(next_length))`；
+`next_full_prefix_digest=SHA256(UTF8("GH700:"+domain+"-prefix:v1")||0x00||
+digest_bytes(prior_full_prefix_digest)||u64be(len(leaf_bytes))||leaf_bytes)`。结果统一编码为 lowercase
+`sha256:<64hex>`；length overflow、non-canonical digest/record bytes或任一重算不等均拒绝。
+下列 framing-only golden 使用 `repo_node_id="R_kgDOGH700"`、上述 length-zero frontier 与
+`leaf_bytes=7b7d` (`{}`，仅隔离验证 hash primitive，record schema 仍必须拒绝它)：
+
+| domain | `leaf_hash` | successor root | successor `full_prefix_digest` |
+| --- | --- | --- | --- |
+| `history` | `sha256:f846a7690345ef0b8217076e8a5b960ed0394701191ea3f497a25a7083304ac1` | `sha256:0781fb121749d9247a26f74f34449715311cf09511ec81ab0103c0b758583bc3` | `sha256:e73400b4b88aa43e6500ab69b4bafee6693cc2a0c733d0228e3e41a3701b6d76` |
+| `blocked-attempt` | `sha256:86a1d6dedf4fb174dee3f38281770624896176b1a89b244b4c0ecf3ca5a07b1c` | `sha256:1ab51f4579df55ede8eb606fd2558a0ebfd4364de7016e16c31dbfc0a71f4153` | `sha256:24c3426a0db6999dc2c3e1dd610bb62ce321fa8fb743237edf0e6306c0bc488f` |
+
 T3 bootstrap只在 DB/anchor均不存在时，以
 threshold approval、RFC3161 quorum initial-time proof和外部 release-identity attestation原子创建 SQLite
 genesis/trust state，再以 DynamoDB epoch-zero conditional transaction锚定 first frontier、zero blocked-ledger
 frontier及 initial time high water；两侧任一已存在只可 byte/digest match，不能重置。bootstrap receipt exact
-绑定 manifest/root/roster/threshold/signer set、first frontier、trust epoch、time proof与 anchor transaction。
+绑定 `bootstrap_manifest_core_digest`/`bootstrap_approval_digest`、root/roster/threshold/signer set、first frontier、trust epoch、time proof与 anchor transaction。
 
 deployment manifest同时必须有独立 `break_glass_governance={recovery_root_digest,recovery_roster_digest,
 recovery_threshold,recovery_signer_key_ids,allowed_causes,minimum_audit_delay_seconds,recovery_policy_digest}`。
@@ -520,15 +549,20 @@ actual successor为 predecessor的后续 record。governance suffix只改变 tru
 owner重放 suffix并从新 predecessor重规划，两个 authorization fence绝不可互换。store 对
 `(expected_length, expected_root, expected_full_prefix_digest, current_fence)` 原子 CAS，
 复算并签发 successor frontier。每次 transition 分为 immutable intent、mutable append
-authorization envelope与 store-signed committed envelope/receipt。publication transition的跨进程稳定
-`transition_operation_id = H(repo_node_id, owner_generation, run_id, run_attempt,
-transition_slot, predecessor_frontier, record_kind, payload_digest)`，不得包含 authorization
-fence；`owner_generation` 永不复用，首条 claim由 server-auth run tuple+frozen plan生成。
+authorization envelope与 store-signed committed envelope/receipt。`transition_operation_id` 是覆盖 38 kinds 的
+closed derivation：publication-domain 34 kinds exact 为
+`SHA256(JCS({v:"GH700:publication-operation-id:v1",repo_node_id,owner_generation,run_id,run_attempt,
+transition_slot,predecessor_frontier,record_kind,payload_digest}))`；三种 normal governance kinds exact 为
+`SHA256(JCS({v:"GH700:governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
+predecessor_frontier,rotation_cutover_certificate_digest}))`；`trust_emergency_root_cutover` exact 为
+`SHA256(JCS({v:"GH700:emergency-governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
+recovery_incident_id,predecessor_frontier,rotation_cutover_certificate_digest}))`。三个分支均不含任何
+authorization fence/lease；unknown branch/field 或交叉使用拒绝。`owner_generation` 永不复用，首条 claim由 server-auth run tuple+frozen plan生成。
 intent 固化 schema/canonicalization version、operation ID、owner generation、run/slot、exact
 predecessor/prior phase、`record_kind` 与 payload digest，`intent_digest=SHA256(JCS(intent))`；
 retry复用同一 intent bytes/digest。append request另携当前 `authorization_fence`、lease
 scope/token与 authenticated actor。store先查同事务永久唯一索引
-`(repo_node_id, operation_id)`：同 digest已存在直接返回原 receipt且不重新验 fence/append，
+`(repo_node_id, transition_operation_id)`：同 intent/payload digest已存在直接返回原 receipt且不重新验 fence/append，
 异 digest永久冲突；不存在才原子验证 current owner generation/fence/lease/exact predecessor，
 append并签发 envelope/receipt，绑定 actual accepted fence、intent/store-envelope digest、
 predecessor/successor与 issuer/key version。stale fence对新 mutation失败，但已提交 old op
@@ -582,7 +616,7 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | `release_mutation_not_applied` | `{owner_generation,mutation_kind,mutation_slot_id,recovery_pending_operation_id,exact_pre_state_digest,exhaustive_negative_discovery_digest,broker_quiescence_receipt_digest}` |
 | `compensation_planned` | `{owner_generation,source_mutation_kind,source_mutation_slot_id,compensation_mutation_kind,compensation_slot,compensation_plan_digest,required_pre_state_digest}` |
 | `compensated` | `{owner_generation,compensation_planned_operation_id,compensation_mutation_bound_operation_id,restored_pre_state_digest,no_extra_resource_receipt_digest}` |
-| `generated_pr_planned` | `{owner_generation,pr_kind,transition_slot,base_ref_oid,reviewed_commit_oid,expected_tree_digest,patch_digest,merge_method,ruleset_digest}` |
+| `generated_pr_planned` | `{owner_generation,pr_kind,transition_slot,base_ref_oid,head_repo_node_id,head_ref,head_ref_nonce_digest,reviewed_commit_oid,expected_tree_digest,patch_digest,merge_method,ruleset_digest,trusted_app_identity_digest,trusted_installation_identity_digest,replacement_chain_digest_or_null}` |
 | `generated_pr_bound` | `{owner_generation,pr_kind,planned_operation_id,pr_node_id,head_ref,head_oid,base_oid,queue_identity_digest,review_digest}` |
 | `generated_pr_revoked` | `{owner_generation,pr_kind,bound_operation_id,pr_node_id,queue_absent_receipt_digest,head_absent_receipt_digest,default_unchanged_receipt_digest}` |
 | `generated_pr_merged` | `{owner_generation,pr_kind,bound_operation_id,pr_node_id,actual_merge_oid,default_before_oid,default_after_oid,actual_tree_digest,surface_blobs_digest}` |
@@ -621,8 +655,12 @@ closed union，且整个 payload恰有一个 branch：
 compensation字段；`draft_deleted`不得缺任一 deletion branch字段。外层
 `exhaustive_negative_discovery_digest`仍须绑定同一线性化快照的 Release/draft/PR/current-marker
 全量发现，不能由 nested evidence替代。
-允许的 phase grammar也闭合：`owner_claimed` 后只可 heartbeat、mutation plan链、`draft_bound`或 takeover；
-`draft_bound`后闭合 upload/update slots才可 `prepared`；prepared valid先接 exact zero receipt再
+允许的 phase grammar对 folded publication phase 闭合：在任一尚有 non-terminal current owner 的
+frontier，`owner_heartbeat` 与 `publication_owner_taken_over` 都是 phase-neutral liveness edge。heartbeat
+只可由当前 generation 在 expiry 前追加；takeover 只可在 expiry 后以 new generation 追加；两者均保留
+candidate、publication phase、slot/pending/blocked state，其 successor 继续按该被保留 phase 的 edge 校验。
+terminal/no-owner frontier 不允许二者。除这两种 liveness edge 及下述 phase-neutral governance edge 外，
+`owner_claimed` 后只可 mutation plan 链或 `draft_bound`；`draft_bound`后闭合 upload/update slots才可 `prepared`；prepared valid先接 exact zero receipt再
 `intent_written(intent_kind=publish_valid)`，prepared non-valid直接接
 `intent_written(intent_kind=publish_nonvalid)`；intent后 publish slot bound才可相应 committed-pending，
 再经 generated PR planned→bound→merged/revoked/replacement链到 `record_kind=publication_terminal`。pre-intent cleanup

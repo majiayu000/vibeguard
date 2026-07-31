@@ -452,11 +452,11 @@ publication 使用 attempt-scoped draft 与统一 durable state machine；唯一
 1. actors 只按 source/candidate→ledger lease→publication lease→branch CAS；等待 review只消费 contract的
    owner-liveness/trusted-time protocol；host/client clock与 job absence不授权续租或 takeover。H-006
    未获 repo release/security maintainer批准时 publication unavailable。
-2. client只调用 contract指定的 durable authority API，并按其 trust/fold、owner-free governance、
+2. client只调用 contract指定的 durable authority API，并按其 history/blocked-ledger successor framing、trust/fold、owner-free governance、
    idempotency、takeover、mutation/broker send-once、recovery与 terminal规则 fail closed；不得直接开 store、
    建立别名或本地重定义 schema；双 API trust、blocked ledger、broker credential、durable inventory、
    trusted-time/high-water、encrypted Object-Lock backup、class-correct signer quorum、global pending gate、external anchor、bootstrap/normal-emergency rotation cutover与 blocked precedence也只消费该 contract。
-3. generated PR须先 planned/bound；response loss完整分页发现 PR/ref后按 authority推进。invalidation plan只绑定
+3. generated PR须在首次 head-ref/commit/PR mutation前按 contract的 closed identity planned/bound；response loss完整分页发现 PR/ref后按 authority推进。invalidation plan只绑定
    pre-merge事实，post-merge receipt才绑定 server返回事实；suffix只消费 contract的 closed union与 tagged cleanup evidence。
 4. protocol surface只绑定 stable identity；attempt plan绑定 mutable base与逐 surface proof，drift须重规划。
    valid plan只可为 rollover、true genesis或 contract-proven post-invalidation；restoration/其它 owner/mixed/drift/缺 receipt均 blocked。
@@ -713,7 +713,7 @@ benchmark execution不接收用户数据；publication网络调用只允许 mani
 1. caller 显式选择的本次 local report；
 2. valid/`publish_nonvalid` release artifacts，以及 `block_release` 的短期
    content-addressed failure bundle；
-3. authority-owned `blocked_attempt_ledger_sqlite_v1` 永久无 TTL namespace，内嵌完整 per-attempt manifest，以 `(source_identity_key,run_id,run_attempt,attempt_record_kind)` unique CAS检索；T3独占 backend/bootstrap/migrate/recover，client只调认证 API，frontier同时进入 external anchor；
+3. authority-owned `blocked_attempt_ledger_sqlite_v1` 永久无 TTL namespace，内嵌完整 per-attempt manifest，以 `(source_identity_key,run_id,run_attempt,attempt_record_kind,attempt_subject_key)` unique CAS检索；subject key按 kind 绑定 exact candidate 及 target/release scope 或 early-attempt identity，同一 matrix attempt 的多 target 失败独立记录；T3独占 backend/bootstrap/migrate/recover，client只调认证 API，frontier同时进入 external anchor；
 4. authority exact closed durable inventory：signed deployment/bootstrap/migration+normal/break-glass governance、RFC3161 proofs+time high water、SQLite DB/WAL/checkpoint与全部 indexes/pending gate、history+attempt records/manifests/bindings/watermarks、capsules+retained keys、broker audit/receipts、独立 S3 Object-Lock encrypted snapshot/manifest/WAL exact versions+AEAD/retention confirmations+KMS refs、online-quorum signatures/lifecycle及 DynamoDB immutable epochs/HEAD CAS+两 frontiers+backup refs+restore/emergency receipts；缺任一项即 blocked。
 temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期 bundle 不得删除第三、
 四项，
