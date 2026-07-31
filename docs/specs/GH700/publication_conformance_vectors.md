@@ -2,7 +2,7 @@
 
 本文件是 [publication_history_contract.md](publication_history_contract.md) 与
 [publication_ledger_contract.md](publication_ledger_contract.md) 的规范性组成部分，唯一拥有两个互不重叠的
-closed registries：下列十三项 hand-authored named vectors，以及本节定义的 43 项 schema-complete generated
+closed registries：下列十四项 hand-authored named vectors，以及本节定义的 43 项 schema-complete generated
 corpus（39 history kinds + 4 blocked-attempt kinds各恰一项）。fixture path是实现阶段必须创建的 canonical
 path；本 Draft冻结生成规则/object/bytes/digest/oracle，不宣称文件或 runner已实现。调用方不得维护第三份
 kind list、fixture object、mutation list、alias或 digest；新增、删除、改名或改变任一 bytes必须更新本
@@ -47,13 +47,19 @@ contract的 attempt-record body；计算 frontier leaf前须包入其 exact `att
 `{mutation_kind:"alias_discriminator",json_pointer,alias}`、
 `{mutation_kind:"missing_required",json_pointer}`、
 `{mutation_kind:"extra_member",json_pointer}`、
-`{mutation_kind:"null_nonnullable",json_pointer}`或
-`{mutation_kind:"unknown_enum_or_const",json_pointer}`，alias exact 为 `{kind,type,record_type}`。
+`{mutation_kind:"null_nonnullable",json_pointer}`、
+`{mutation_kind:"unknown_enum_or_const",json_pointer}`或
+`{mutation_kind:"inapplicable_value",json_pointer,value}`，alias exact 为 `{kind,type,record_type}`。
 `json_pointer`使用 RFC 6901 canonical encoding。unknown mutation把目标值替换 `"__unknown__"`；alias删除
 discriminator并以同值插入 alias；missing删除 member；extra在目标 object插入
 `"__unexpected__":true`；null替换为 null，除此之外 bytes不变。generator递归枚举 positive object及
-resolved schema，descriptor按 `(mutation_kind,json_pointer,alias_or_empty)` ASCII升序，且每个 candidate
-必须由 schema独立验证为 reject，否则生成失败。
+resolved root schema。对 positive instance中每个 scalar或 array-element pointer，汇集 root各 alternative在
+同一 pointer由 `const`/`enum`、各 branch的 `x-gh700-conformance-positive-v1` canonical example或显式
+`x-gh700-inapplicable-values-v1`声明的全部 canonical JSON values，按 `JCS(value)` UTF-8 bytes去重升序；
+除 current value外逐个 only-one-change替换，完整 root schema仍 accept的跳过，每个 reject value都生成
+`inapplicable_value`。descriptor按
+`(mutation_kind,json_pointer,alias_or_empty,value_jcs_or_empty)` UTF-8 bytes升序，非 applicability descriptor
+的最后一项为 empty bytes；任一有限 reject alternative漏发或任一 candidate不被 schema独立 reject都使生成失败。
 
 generated manifest exact 为
 `{schema_version,history_schema_digest,blocked_attempt_schema_digest,history_kind_count,
@@ -144,6 +150,15 @@ checked-in bytes、逐文件 SHA-256、reject-set/cases digest及两端输出。
 每个 mutation fixture的 positive oracle要求 exact kind、single delivery、opaque capsule、nonce/template/effective
 digest三者各自验证；`oracle.reject`八项必须各生成一个 only-one-change negative case并全部 reject。
 
+## Effective request digest
+
+### `release_effective_request_digest_v1`
+
+- Planned canonical path: **tests/fixtures/public_benchmark/publication/release_effective_request_digest_v1.json**
+- Exact fixture object/JCS bytes: `{"case_id":"release_effective_request_digest_v1","expected":"accept","input":{"authorization_context":{"app_node_id":"A_kgDOGH700","credential_kind":"github_app_installation_token_v1","expires_at_unix_seconds":1700003600,"installation_id":700,"issued_at_unix_seconds":1700000000,"issuer_identity_digest":"sha256:1111111111111111111111111111111111111111111111111111111111111111","permission_scopes":["contents:write"],"repository_node_id":"R_kgDOGH700","token_key_id":"test-key-v1","v":"GH700:release-authorization-context:v1"},"body_bytes_b64u":"eyJkcmFmdCI6dHJ1ZSwidGFnX25hbWUiOiJ2MS4wLjAifQ","effective_header_block":[{"name":"authorization","value_b64u":"QmVhcmVyIHRlc3QtdG9rZW4"},{"name":"x-vibeguard-draft-claim","value_b64u":"dGVzdC1kcmFmdC1jbGFpbQ"},{"name":"x-vibeguard-mutation-nonce","value_b64u":"dGVzdC1tdXRhdGlvbi1ub25jZQ"}],"release_effective_request":{"authorization_context_digest":"sha256:f685a8e80c03c7d2e5f9a2cc0eb583831005f9a50c3332f45a41e9d2df4e9024","body_bytes_digest":"sha256:bfad1194117b9952b56beeedd55e65caaed3787bae3b527cca876561e67902bc","body_encoding":"jcs_json_v1","body_length":34,"broker_delivery_id":"sha256:4444444444444444444444444444444444444444444444444444444444444444","effective_header_block_digest":"sha256:d1dad20349b99dac5499ac369214f1ca477d5836e0f0cccef34b88b25df1ba0c","endpoint":{"host_ascii":"api.github.com","path_segments":["repos","octo","demo","releases"],"port":443,"query_pairs":[],"scheme":"https"},"method":"POST","mutation_slot_id":"sha256:3333333333333333333333333333333333333333333333333333333333333333","planned_operation_id":"sha256:2222222222222222222222222222222222222222222222222222222222222222","repo_node_id":"R_kgDOGH700","request_commitment":"sha256:5555555555555555555555555555555555555555555555555555555555555555","request_target_bytes_digest":"sha256:984d8109716a3d7f428b30e76d150be6b04c81f9febed75d9f66c0ef1bb279a9","request_template_digest":"sha256:cbfeb6306e7528b04edd99cbc954ad92f3395588614b2fb610b77b86218addf8","v":"GH700:release-effective-request:v1"},"release_request_template":{"body_encoding":"jcs_json_v1","body_template":{"draft":true,"tag_name":"v1.0.0"},"endpoint":{"host_ascii":"api.github.com","path_segments":["repos","octo","demo","releases"],"port":443,"query_pairs":[],"scheme":"https"},"header_template":[{"name":"authorization","value_parts":[{"part_kind":"literal_utf8","value":"Bearer "},{"part_kind":"secret_placeholder","placeholder_kind":"authorization_credential"}]},{"name":"x-vibeguard-draft-claim","value_parts":[{"part_kind":"secret_placeholder","placeholder_kind":"draft_claim_nonce"}]},{"name":"x-vibeguard-mutation-nonce","value_parts":[{"part_kind":"secret_placeholder","placeholder_kind":"mutation_nonce"}]}],"method":"POST","secret_placeholder_kinds":["authorization_credential","draft_claim_nonce","mutation_nonce"],"v":"GH700:release-request-template:v1"},"request_target_bytes_b64u":"L3JlcG9zL29jdG8vZGVtby9yZWxlYXNlcw"},"oracle":{"effective_request_digest":"sha256:e430629075bbe644ef67529e729ef1733ad6990a5c41d4ec832f976a0f0e8b69","reject":["endpoint_substitution","request_target_encoding_substitution","method_substitution","header_substitution","authorization_substitution","body_substitution","body_length_substitution","template_substitution","plan_substitution"]},"schema_version":"GH700:publication-conformance-vector:v1"}`
+- SHA-256: `ef89d0905d5b76ce55d80bd68fb42b88818e67180f9b0a1c71c78b9377c3f2e8`
+- Oracle: exact target/template/header/auth/body subdigests及 final effective-request digest重算 accept；九项 only-one-change mutation逐项 reject。fixture中的 secret bytes只是假值测试材料，不是 production secret。
+
 ## Generated-PR delivery identity
 
 ### `generated_pr_delivery_send_once_v1`
@@ -182,4 +197,15 @@ digest三者各自验证；`oracle.reject`八项必须各生成一个 only-one-c
 除上述 43 个 normative schema cases与 named fixture negative mutations外，runner还须从 root contract生成获验签的 phase-neutral governance
 record与 same-candidate takeover正例，并拒绝 forged/nonterminal/cross-candidate takeover、wrong governance
 evidence、owner/phase/liveness mutation、current restoration、其它 owner及 unknown record；这些是 generated
-behavioral cases，不得再命名为 hand-authored registry fixture。
+behavioral cases，不得再命名为 hand-authored registry fixture。behavioral generator还须覆盖 takeover/terminal
+run-tuple substitution与 same-payload-different-operation、valid claim→invalidate、missing/wrong invalidation
+context及 direct non-invalidate PR kind；六种 mutation-secret positive须重算 exact effective-request digest并
+逐一拒绝 endpoint/method/header/body/auth/body-length/plan substitution；control API须拒绝 unknown method、
+method/body mismatch、extra/null、peer-role交叉、uid-only/wrong executable、same nonce different bytes、
+same operation different core、response-loss duplicate mutation、bootstrap twice、stale migrate、
+wrong restore kind/backup/anchor及 ready challenge replay；另须拒绝 request-target encoding、secret
+cross-location、unsigned/tampered response、wrong response signer/key version、peer-policy/code-sign/
+environment-protection mismatch及 approval roster/class/incident substitution。
+trust revocation behavioral cases还须逐一拒绝 unknown reason、wrong replacement nullability/class、same key
+ID/version/SPKI、quorum或管理域下降、bootstrap-pinned key、inactive/already-revoked key及
+compromise/loss伪装 scheduled/superseded reason。

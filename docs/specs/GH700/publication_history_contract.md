@@ -16,7 +16,7 @@ client、workflow、benchmark code 均不得另建 store、直接打开数据库
 Actions artifact降级。environment-protected service以单 active replica运行在独立于 runner、
 checkout、Release artifact与 owner lifecycle 的 durable volume；signed deployment manifest的
 closed planned **schemas/publication_authority_deployment.schema.json** 固定
-`{authority_id,backend,authority_identity_digest,policy_epoch,policy_bundle_digest,client_api,control_api,
+`{authority_id,backend,authority_identity_digest,policy_epoch,policy_bundle_digest,client_api,control_api,control_approval_policy,
 publication_store_path,publication_store_lock_path,volume_identity,kms_key_id,retention_policy_digest,
 trust_bundle_digest,blocked_attempt_ledger,trusted_time_service,bootstrap_governance,break_glass_governance,
 restore_anchor_service,restore_backup_service,anchor_signing_policy,predicate_evaluator_roster}`；
@@ -30,12 +30,12 @@ issuer_key_version,public_key_spki_der_b64url,public_key_spki_sha256}`；key ver
 Ed25519 DER的 RFC 4648 URL-safe无 padding编码且 decoded SHA-256须 byte-equal hash，所有 digest/hash为
 lowercase `sha256:<64hex>`并禁止 ambient lookup。reason/predicate闭集只由 [publication_ledger_contract.md](publication_ledger_contract.md)拥有；empty/duplicate/unknown/profile drift使 authority non-ready。
 `client_api` 与 `control_api` 是同一 authority 每次启动同时绑定的 required objects，不是 union/alias/fallback。
-`client_api` exact 为 `{endpoint,transport,api_version,server_identity_bundle_digest,client_auth_policy_digest}`：endpoint是 manifest-pinned absolute HTTPS origin+path且禁 redirect/userinfo/query/fragment，transport exact `tls13_mtls_http2_jcs_v1`，API version exact `GH700:publication-authority-client-api:v1`。`control_api` exact 为 `{socket_path,transport,api_version,server_process_identity_digest,peer_auth_policy_digest}`：socket是 manifest-pinned absolute
+`client_api` exact 为 `{endpoint,transport,api_version,server_identity_bundle_digest,client_auth_policy_digest}`：endpoint是 manifest-pinned absolute HTTPS origin+path且禁 redirect/userinfo/query/fragment，transport exact `tls13_mtls_http2_jcs_v1`，API version exact `GH700:publication-authority-client-api:v1`。`control_api` exact 为 `{socket_path,transport,api_version,server_process_identity_digest,response_signing_key,peer_auth_policy,peer_auth_policy_digest}`：socket是 manifest-pinned absolute
 Unix path，transport exact `unix_peercred_jcs_v1`，API version exact
 `GH700:publication-authority-control-api:v1`，只开放 bootstrap/migrate/recover/ready 方法且永不监听网络。
 两个 API 的每个 request/response/startup receipt都必须绑定相同 top-level `authority_id`、
 `authority_identity_digest`、strictly monotonic `policy_epoch` 与 `policy_bundle_digest`；该 bundle同时
-digest method partition、两端 auth policy、server identities及完整 `predicate_evaluator_roster`。client server bundle由 authority外的
+digest method partition、两端 auth/approval policy、server/response-key identities及完整 `predicate_evaluator_roster`。client server bundle由 authority外的
 release-identity root锚定 exact service ID/issuer/SPKI；client auth policy闭合 repo/workflow/
 environment/ref/run/actor、cert issuer、role与允许 method；control peer policy闭合 executable digest、
 code-sign identity、uid/gid及允许 method。任一 API缺失、单边 rotation、四个 shared值不等、bundle
@@ -465,7 +465,7 @@ PR metadata、日志或报告。`owner_generation_digest=SHA256(JCS(owner_genera
 `generated_pr_review_core` exact object为 `{v:"GH700:generated-pr-review-core:v1",repo_node_id,
 owner_generation,pr_kind,transition_slot,base_ref_oid,head_repo_node_id,head_ref,
 head_ref_nonce_digest,expected_tree_digest,patch_digest,merge_method,ruleset_digest,
-trusted_app_identity_digest,trusted_installation_identity_digest,replacement_chain_digest_or_null}`，其
+trusted_app_identity_digest,trusted_installation_identity_digest,replacement_chain_digest_or_null,invalidation_context_or_null}`；后者仅 `pr_kind=invalidate_current` 时 non-null且 exact `{invalidated_release_identity,evidence_digest,documentation_surface_plan_digest}`，其它 kind须 literal null，其
 `review_core_digest=SHA256(JCS(generated_pr_review_core))`。reviewed commit必须只有一个 exact trailer
 `VibeGuard-Generated-PR-Review-Core: <review_core_digest>`，commit OID/tree/ref与 core逐字段一致。
 `generated_pr_check_identity` exact object为 `{v:"GH700:generated-pr-check-identity:v1",
@@ -615,11 +615,11 @@ closed derivation：`owner_claimed` exact 为
 `SHA256(JCS({v:"GH700:claim-operation-id:v1",repo_node_id,owner_generation,run_id,run_attempt,
 transition_slot,predecessor_frontier,record_kind:"owner_claimed",claim_pre_nonce_core_digest,
 time_bound_request_id}))`；该 ID在 draft nonce/capsule签发前保留，client core/request ID均不含 authority字段。
-其余 publication-domain 34 kinds exact 为
+其余 publication-domain 34 kinds先规范化 operation identity：takeover取 `(new_owner_generation,new_owner_run_id,new_owner_run_attempt)`，terminal-no-publication取 `(terminal_owner_generation,terminal_owner_run_id,terminal_owner_run_attempt)`，其它 kind取 payload `owner_generation`及 signed fold中该 generation-origin的 `run_id/run_attempt`；`transition_slot`来自 immutable intent且 fold-valid。payload/request/fold任一不等须在 operation-ID lookup/append前拒绝。随后 exact 为
 `SHA256(JCS({v:"GH700:publication-operation-id:v1",repo_node_id,owner_generation,run_id,run_attempt,
 transition_slot,predecessor_frontier,record_kind,publication_payload_core_digest,
-trusted_time_proof_request_id_or_null}))`；non-time kind 以完整 payload 作 core 且 request ID 为 literal null，
-heartbeat/takeover以上述 authority core/request ID构造 operation ID；三种 time-dependent kind都在取得 proof后才生成 final payload/payload digest/intent digest。三种 normal governance kinds exact 为
+trusted_time_proof_request_id_or_null}))`；non-time kind以完整 payload作 core且 request ID为 literal null，
+heartbeat/takeover以上述 authority core/request ID构造；三种 time-dependent kind在 proof后才生成 final payload/digest/intent。三种 normal governance kinds exact 为
 `SHA256(JCS({v:"GH700:governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
 predecessor_frontier,rotation_cutover_certificate_digest}))`；`trust_emergency_root_cutover` exact 为
 `SHA256(JCS({v:"GH700:emergency-governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
@@ -664,7 +664,7 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | --- | --- |
 | `owner_claimed` | `{owner_generation,run_id,run_attempt,candidate_tag_identity_digest,frozen_plan_digest,liveness_policy_digest,draft_claim_nonce_digest,nonce_capsule_id,capsule_ciphertext_digest,kms_key_version,trusted_time_proof_digest,prior_time_high_water,new_time_high_water,claim_accepted_at,lease_expires_at}` |
 | `owner_heartbeat` | `{owner_generation,heartbeat_sequence,prior_liveness_operation_id,liveness_policy_digest,trusted_time_proof_digest,prior_time_high_water,new_time_high_water,accepted_at,lease_expires_at}` |
-| `publication_owner_taken_over` | `{candidate_tag_identity_digest,prior_owner_generation,new_owner_generation,prior_owner_terminal_or_expiry_evidence_digest,slot_chain_digest,trusted_time_proof_digest,prior_time_high_water,new_time_high_water,accepted_at,lease_expires_at}` |
+| `publication_owner_taken_over` | `{candidate_tag_identity_digest,prior_owner_generation,new_owner_generation,new_owner_run_id,new_owner_run_attempt,prior_owner_terminal_or_expiry_evidence_digest,slot_chain_digest,trusted_time_proof_digest,prior_time_high_water,new_time_high_water,accepted_at,lease_expires_at}` |
 | `draft_bound` | `{owner_generation,release_node_id,tag_identity_digest,target_commit_oid,draft_claim_nonce_digest,release_mutation_operation_id}` |
 | `prepared` | `{owner_generation,draft_bound_operation_id,asset_manifest_digest,checksums_digest,summary_digest,closed_slot_set_digest}` |
 | `genesis_zero_receipt` | `{owner_generation,first_frontier,verified_prefix_digest,zero_marker_surface_digest,bootstrap_receipt_digest,governance_suffix_digest}` |
@@ -676,11 +676,11 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | `valid_rollback_pending` | `{owner_generation,decurrent_pr_merged_operation_id,rollback_pr_plan_digest,prior_marker_digest}` |
 | `invalidate_current_merged_receipt` | `{owner_generation,generated_pr_merged_operation_id,evidence_digest,invalidated_release_identity,zero_marker_surface_digest}` |
 | `recovered_publication` | `{owner_generation,intent_operation_id,recovery_truth_branch,release_node_id,generated_pr_chain_digest,finalization_receipt_digest}` |
-| `publication_terminal_no_publication` | `{candidate_tag_identity_digest,terminal_owner_generation,complete_generation_chain_digest,closed_slot_chain_digest,draft_cleanup_evidence,exhaustive_negative_discovery_digest}` |
+| `publication_terminal_no_publication` | `{candidate_tag_identity_digest,terminal_owner_generation,terminal_owner_run_id,terminal_owner_run_attempt,complete_generation_chain_digest,closed_slot_chain_digest,draft_cleanup_evidence,exhaustive_negative_discovery_digest}` |
 | `publication_terminal` | `{owner_generation,terminal_kind,release_identity_or_null,generated_pr_chain_digest,closed_slot_chain_digest,finalization_receipt_digest}` |
 | `release_mutation_planned` | `{owner_generation,mutation_kind,transition_slot,mutation_slot_id,plan_core_digest,request_commitment,mutation_nonce_digest,mutation_nonce_capsule_id,broker_delivery_id,capsule_ciphertext_digest,kms_key_version,tag_identity_digest,pre_state_digest,request_template_digest,expected_post_state_digest}` |
 | `release_mutation_bound` | `{owner_generation,mutation_kind,mutation_slot_id,planned_operation_id,request_commitment,broker_delivery_id,effective_request_digest,response_resource_digest,post_state_digest,completed_guard_receipt_digest}` |
-| `release_mutation_recovery_pending` | `{owner_generation,mutation_kind,mutation_slot_id,planned_operation_id,broker_delivery_id,uncertain_outcome_code,send_once_audit_digest}` |
+| `release_mutation_recovery_pending` | `{owner_generation,mutation_kind,mutation_slot_id,planned_operation_id,broker_delivery_id,effective_request_digest,uncertain_outcome_code,send_once_audit_digest}` |
 | `release_mutation_not_applied` | `{owner_generation,mutation_kind,mutation_slot_id,recovery_pending_operation_id,exact_pre_state_digest,exhaustive_negative_discovery_digest,broker_quiescence_receipt_digest}` |
 | `compensation_planned` | `{owner_generation,source_mutation_kind,source_mutation_slot_id,compensation_mutation_kind,compensation_slot,compensation_plan_digest,required_pre_state_digest}` |
 | `compensated` | `{owner_generation,compensation_planned_operation_id,compensation_mutation_bound_operation_id,restored_pre_state_digest,no_extra_resource_receipt_digest}` |
@@ -699,7 +699,7 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | `release_recovery_blocked` | `{owner_generation,intent_operation_id,release_discovery_digest,blocked_reason_code,evidence_digest,retain_owner}` |
 | `trust_leaf_rotated` | `{rotation_id,current_trust_epoch,next_trust_epoch,old_leaf_key_id,new_leaf_key_id,new_leaf_certificate_digest,approval_digest,rotation_cutover_certificate_digest}` |
 | `trust_root_rotated` | `{rotation_id,current_trust_epoch,next_trust_epoch,old_bundle_digest,new_bundle_digest,old_threshold_signature_digest,new_threshold_signature_digest,approval_digest,rotation_cutover_certificate_digest}` |
-| `trust_key_revoked` | `{rotation_id,current_trust_epoch,next_trust_epoch,revoked_key_id,revocation_reason_code,replacement_key_or_bundle_digest_or_null,approval_digest,rotation_cutover_certificate_digest}` |
+| `trust_key_revoked` | `{rotation_id,current_trust_epoch,next_trust_epoch,revoked_key_id,revocation_reason_code,replacement_key_or_bundle_digest_or_null,approval_digest,rotation_cutover_certificate_digest}`；reason/replacement applicability只由 [authority API contract](publication_ledger_contract.md#history-delegated-trust-revocation-values)定义 |
 | `trust_emergency_root_cutover` | `{rotation_id,recovery_incident_id,cause,evidence_digest,current_anchor_digest,current_trust_epoch,next_trust_epoch,old_bundle_digest,new_bundle_digest,recovery_roster_digest,recovery_threshold_signature_digest,audit_log_digest,incident_open_receipt_digest,audit_delay_evidence_digest,trusted_time_proof_digest,backup_set_ref_digest,rotation_cutover_certificate_digest}` |
 
 closed enums exact 为 `intent_kind={publish_valid,publish_nonvalid}`、
@@ -740,7 +740,7 @@ frontier，`owner_heartbeat` 与 `publication_owner_taken_over` 都是 phase-neu
 只可由当前 generation 在 expiry 前追加；`heartbeat_sequence=1` 的 `prior_liveness_operation_id` 必须是建立该 generation 的 `owner_claimed` 或 `publication_owner_taken_over`，后续 sequence 必须引用同 generation 紧邻的 sequence-1 heartbeat；takeover 只可在 expiry 后以 new generation 追加；两者均保留
 candidate、publication phase、slot/pending/blocked state，其 successor 继续按该被保留 phase 的 edge 校验。
 terminal/no-owner frontier 不允许二者。除这两种 liveness edge 及下述 phase-neutral governance edge 外，
-`owner_claimed` 后只可 mutation plan 链或 `draft_bound`；`draft_bound`后闭合 upload/update slots才可 `prepared`。
+`owner_claimed` 后只可 mutation plan 链或 `draft_bound`；唯一直接 generated-PR edge是 folded claim phase（仅可夹 phase-neutral heartbeat/takeover/governance）到 `generated_pr_planned(pr_kind=invalidate_current)`，且 fresh predecessor须证明同一 current-valid release/surfaces byte-equal non-null invalidation context、同 owner/fence/run且无 draft/release-mutation/其它 generated-PR slot；其它直接 PR kind拒绝，最终 invalidation receipt的 identity/evidence须 byte-equal该 context。`draft_bound`后闭合 upload/update slots才可 `prepared`。
 prepared valid只有两条互斥 pre-intent路径：`genesis_zero_receipt|post_invalidation_zero_receipt`→`intent_written(intent_kind=publish_valid,zero receipt non-null)`，或 rollover-one的
 `generated_pr_planned(pr_kind=decurrent)`→`generated_pr_bound`→`generated_pr_merged`→`intent_written(intent_kind=publish_valid,rollover receipt non-null)`；后者仅在 exact receipt提交且 fresh fold证明旧 current被原子移除后可写。
 planned无 effect只可 `generated_pr_not_applied`后以 new slot/head/nonce fresh-reviewed replacement，bound失败
