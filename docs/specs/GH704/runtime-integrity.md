@@ -123,12 +123,18 @@ queued，matching abort 则确认 durable `aborted`；coordinator 返回 digest-
 ready 或 checksummed tombstone/reclaim。未知/损坏 entry fail visible 且禁止覆盖；off transition
 在持有 exclusive delivery lease 时先以 exclusive delivery → project lock 提交 effective off epoch
 与 frozen source state，释放 project lock 后仍持有 delivery lease，再取 global registration lease，
-将该旧 epoch 的 pre-barrier registrations 以 digest/epoch CAS 提交为 checksummed
-`off_frozen` administrative tombstone 并回收 live slot。它不写/删 source semantic journal；
+将该旧 epoch 的 pre-barrier 或 barrier-ready-but-unclaimed registrations 以
+digest/epoch/state CAS 提交为 checksummed `off_frozen` administrative tombstone 并回收
+live slot。它不写/删 source semantic journal；
 canonical `projection_prepared`/activation receipts 保持冻结，re-enable 只能 bounded rebind
 并重新发布，或由 approved maintenance drain 处理。worker 自身从不写 project journal。
 因为该路径不同时持 project/registry locks，且 registration 仍只用 project→registry，
-不形成 lock inversion；off project 也不会用 orphan 永久耗尽 live registry capacity。
+不形成 lock inversion；off project 也不会用 inert/ready orphan 永久耗尽
+live registry capacity。ready worker 只能在 shared delivery lease 下把 exact body/digest
+幂等 durable 转入 sequencer reservation，再以 state CAS 把 source slot 改为 claimed
+tombstone/reclaim；crash 依 reservation ID 补 CAS。该 CAS 先于 exclusive off 获胜时，
+reservation/outbox 已独立持有 work 且 source slot 同样可回收，off 只冻结后续 delivery；
+exclusive off 先获胜时，writer-fair lease 禁止 ready worker 新 claim。
 global view 仍只在 barrier 后可见。decision、
 consumer/status/aggregate/precision/Learn 仍只 join barrier；project coordinator 最后在同一 lock
 下消费 durable receipt slot 并提交 `projection_done`。
@@ -144,8 +150,13 @@ max_atomic_recovery_bytes(schema_version) = max over every legal recovery transi
   + sum(maximum encoded length of every WAL transition, journal/queue record,
         marker, metadata generation, consumer record and receipt T must write/fsync)
 )
-max_atomic_recovery_ms(schema_version, platform, storage_class) = max over T of (
-  approved worst-case lock/open/stat/read/write/fsync/marker/receipt duration for T
+max_atomic_recovery_ms(schema_version, platform, storage_class) = max over T of max(
+  approved worst-case normal completion duration for T,
+  max over each legal blocking fault point F of (
+    approved worst-case prefix before F + operation_deadline(F)
+    + cancel/escalate/terminate/join-or-reap(F)
+    + durable-boundary/no-background-write verification(F)
+  )
 )
 ```
 
@@ -153,11 +164,13 @@ max_atomic_recovery_ms(schema_version, platform, storage_class) = max over T of 
 也不能只计算 payload。例如同一 edge 必须同时写 WAL transition 与 queue metadata 时，两者
 连同该 edge 的其它 required reads/writes 都进入求和，再与其它 edge 的总和取最大值。
 policy 只有在 `reconcile_io_max_bytes >= max_atomic_recovery_bytes`、`reconcile_batch_max > 0`，
-且 `reconcile_deadline_ms >= max_atomic_recovery_ms + fixed_scheduling_guard_ms` 时有效；任一
+且 `reconcile_deadline_ms >= max_atomic_recovery_ms + fixed_scheduling_guard_ms` 时有效；此
+time floor 已包含 bounded cancellation teardown，guard 只覆盖 admission/scheduling。任一
 `floor - 1` 在 provider/cache/journal 前拒绝。处理每个 oldest-first work item 前同时证明
 remaining byte budget 与 remaining deadline 分别足以完成该 item 的 exact worst-case
-atomic edge；任一不足则在开始前停止并报告 backlog，零新写入。实际
-open/stat/read/write/fsync/marker/receipt 全部计入 byte/time counters。supported I/O backend
+atomic edge，其中 time 为 exact edge normal-or-fault-teardown maximum + scheduling guard；任一
+不足则在开始前停止并报告 backlog，零新写入。实际 open/stat/read/write/fsync/
+marker/receipt 与 cancel/escalate/join/reap/verify 全部计入 byte/time counters。supported I/O backend
 必须对每个 blocking operation 强制 deadline/cancellation；timeout 后只能留在既定的
 crash-safe WAL boundary，并且 hook 返回前必须证明 operation 已取消/终止、无后台续写。
 无法证明 bounded I/O 的 backend 在开始 edge 前返回 `unavailable`，禁止侥幸启动。
@@ -166,7 +179,8 @@ queue metadata 只保留两个 checksummed fixed-size generations、committed cu
 与 oldest timestamp。startup/hook 只读 fixed header，再按 cursor oldest-first 处理；不得完整
 反序列化 index、扫描 journal、其它 project 或 HOME。测试必须覆盖每种 state edge 的最大
 record、byte/time `floor - 1` rejection、exact floors 完成一条最大 transition、剩余任一
-budget 不足时零写入、slow/hung injected I/O 取消后只留 recoverable durable boundary，
+budget 不足时零写入、slow/hung injected I/O 在 exact fault+teardown floor 内取消/
+终止/回收并只留 recoverable durable boundary，teardown `floor - 1` 零 edge 写入，
 以及 malformed length/offset/digest。
 
 ## 4. Serialized global offset append
@@ -198,7 +212,8 @@ append/fsync 与 durable applied/tail commit 完成**：
    writer pending 后禁止新 shared admission，不得使 off transition 饥饿。直接改 config 只有
    经该 acknowledged transition 才生效，status/doctor 在此前显示 `opt_out_pending`。
    effective off 只 defer matching key，不得打开 source L2 journal/写 slot；它按第 2 节
-   freeze/reclaim pre-barrier registration，re-enable 只能由 source coordinator bounded rebind，
+   freeze/reclaim pre-barrier 与 barrier-ready-unclaimed registration；re-enable 只能由
+   source coordinator bounded rebind，
    或由另行批准的 maintenance drain 处理；
 7. receipt worker 从 outbox oldest-first 打开 exact route，以 no-follow temp write + file fsync +
    atomic create-if-absent 写 keyed slot，再 fsync route directory。此后它只提交 global
