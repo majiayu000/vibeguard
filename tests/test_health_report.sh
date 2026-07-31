@@ -46,30 +46,46 @@ RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
 export VIBEGUARD_RUNTIME="${RUNTIME}"
 
 # --- Fixtures --------------------------------------------------------------
+# Fixture timestamps are generated relative to now. The report filters events by
+# a rolling `--days` window, so hardcoded dates silently age out of it and turn
+# these assertions red on a date unrelated to any code change.
+fixture_ts() {
+  local hours_ago="$1"
+  python3 -c "
+import datetime, sys
+moment = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=int(sys.argv[1]))
+print(moment.strftime('%Y-%m-%dT%H:%M:%SZ'))
+" "${hours_ago}"
+}
+
+EVENT_TS_PASS="$(fixture_ts 24)"
+EVENT_TS_WARN="$(fixture_ts 23)"
+EVENT_TS_BLOCK="$(fixture_ts 22)"
+
 EVENTS="${TMP_DIR}/events.jsonl"
-cat > "${EVENTS}" <<'JSONL'
-{"ts":"2026-07-01T00:00:01Z","session":"s1","hook":"pre-bash-guard","decision":"pass","duration_ms":10,"client":"codex"}
-{"ts":"2026-07-01T00:00:02Z","session":"s1","hook":"post-edit-guard","decision":"warn","reason":"U-16","rule":"U-16","duration_ms":30,"client":"codex"}
-{"ts":"2026-07-01T00:00:03Z","session":"s2","hook":"pre-bash-guard","decision":"block","reason":"SEC-01","rule":"SEC-01","duration_ms":5,"client":"claude"}
+cat > "${EVENTS}" <<JSONL
+{"ts":"${EVENT_TS_PASS}","session":"s1","hook":"pre-bash-guard","decision":"pass","duration_ms":10,"client":"codex"}
+{"ts":"${EVENT_TS_WARN}","session":"s1","hook":"post-edit-guard","decision":"warn","reason":"U-16","rule":"U-16","duration_ms":30,"client":"codex"}
+{"ts":"${EVENT_TS_BLOCK}","session":"s2","hook":"pre-bash-guard","decision":"block","reason":"SEC-01","rule":"SEC-01","duration_ms":5,"client":"claude"}
 JSONL
 
 # Scorecard with a rule (RS-03) that never appears in the event log, so the
 # 30-day window must flag it as a zero-trigger downgrade candidate.
 SCORECARD="${TMP_DIR}/scorecard.json"
-cat > "${SCORECARD}" <<'JSON'
-{"rules":{"RS-03":{"stage":"warn","precision":null,"samples":0,"tp":0,"fp":0,"acceptable":0,"last_fp_ts":null,"stage_entered_ts":"2026-01-01T00:00:00Z","notes":"unwrap"}}}
+cat > "${SCORECARD}" <<JSON
+{"rules":{"RS-03":{"stage":"warn","precision":null,"samples":0,"tp":0,"fp":0,"acceptable":0,"last_fp_ts":null,"stage_entered_ts":"$(fixture_ts 4800)","notes":"unwrap"}}}
 JSON
 
 TRIAGE_CLEAN="${TMP_DIR}/triage-clean.jsonl"
-cat > "${TRIAGE_CLEAN}" <<'JSONL'
-{"ts":"2026-06-01T00:00:00Z","rule":"RS-03","verdict":"tp"}
-{"ts":"2026-06-02T00:00:00Z","rule":"RS-03","verdict":"fp"}
+cat > "${TRIAGE_CLEAN}" <<JSONL
+{"ts":"$(fixture_ts 48)","rule":"RS-03","verdict":"tp"}
+{"ts":"$(fixture_ts 47)","rule":"RS-03","verdict":"fp"}
 JSONL
 
 # A triage candidate with no rule id must land in the backlog, not crash.
 TRIAGE_NORULE="${TMP_DIR}/triage-norule.jsonl"
-cat > "${TRIAGE_NORULE}" <<'JSONL'
-{"ts":"2026-06-03T00:00:00Z","verdict":"unclassified","context":"W-13 event with no rule id"}
+cat > "${TRIAGE_NORULE}" <<JSONL
+{"ts":"$(fixture_ts 46)","verdict":"unclassified","context":"W-13 event with no rule id"}
 JSONL
 
 # A malformed JSONL line must fail the whole report loudly.
