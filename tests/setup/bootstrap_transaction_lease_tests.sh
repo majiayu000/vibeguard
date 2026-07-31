@@ -104,6 +104,23 @@ for legacy_pending_owner_state in zombie reused matching; do
       test "${BOOTSTRAP_SETUP_LEASE_LIVENESS}" = ambiguous
     ' _ "${pending_owner_lease}"
 done
+assert_cmd "setup gate exits when the owner identity changes" \
+  env REPO_DIR="${REPO_DIR}" bash -c '
+    set -euo pipefail
+    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    gate_rc=0
+    bootstrap_setup_gate_wait "$1" "$$" Reused_Jan_1_00:00:00_1970 2 || gate_rc=$?
+    test "${gate_rc}" -eq 125
+  ' _ "${pending_owner_root}/missing-gate"
+assert_cmd "setup gate wait has a deterministic attempt bound" \
+  env REPO_DIR="${REPO_DIR}" bash -c '
+    set -euo pipefail
+    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    bootstrap_process_snapshot "$$"
+    gate_rc=0
+    bootstrap_setup_gate_wait "$1" "$$" "${BOOTSTRAP_PROCESS_IDENTITY}" 2 || gate_rc=$?
+    test "${gate_rc}" -eq 124
+  ' _ "${pending_owner_root}/missing-gate"
 
 lease_revalidation_root="${TMP_HOME}/bootstrap-lease-revalidation"
 lease_revalidation_file="${lease_revalidation_root}/.bootstrap.lock.lease.revalidation"

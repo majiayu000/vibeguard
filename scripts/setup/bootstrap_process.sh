@@ -221,6 +221,18 @@ bootstrap_setup_job_is_stopped() {
   grep -qFx -- "${leader_pid}" <<< "${stopped_jobs}"
 }
 
+bootstrap_setup_gate_wait() {
+  local gate_file="$1" owner_pid="$2" owner_identity="$3" max_attempts="$4" attempt
+  for ((attempt = 0; attempt < max_attempts; attempt += 1)); do
+    [[ -f "${gate_file}" ]] && return 0
+    bootstrap_process_identity_liveness "${owner_pid}" "${owner_identity}"
+    [[ "${BOOTSTRAP_PROCESS_IDENTITY_LIVENESS}" == active ]] || return 125
+    sleep 0.02
+  done
+  [[ -f "${gate_file}" ]] && return 0
+  return 124
+}
+
 bootstrap_setup_tty_is_foreground() {
   local terminal_state
   [[ -t 0 ]] || return 1
@@ -251,11 +263,7 @@ bootstrap_run_setup_with_lease() {
   set -m
   BOOTSTRAP_SETUP_LAUNCHING=1
   (
-    while [[ ! -f "${gate_file}" ]]; do
-      bootstrap_process_identity_liveness "${owner_pid}" "${owner_identity}"
-      [[ "${BOOTSTRAP_PROCESS_IDENTITY_LIVENESS}" == "active" ]] || exit 125
-      sleep 0.02
-    done
+    bootstrap_setup_gate_wait "${gate_file}" "${owner_pid}" "${owner_identity}" 500 || exit $?
     exec env PYTHONDONTWRITEBYTECODE=1 bash "${setup_path}" "$@"
   ) &
   leader_pid=$!
