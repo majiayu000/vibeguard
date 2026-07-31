@@ -147,7 +147,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    inherited `GIT_*` repository/config-selection variables，不能被 `GIT_DIR`/
    `GIT_WORK_TREE` 等重定向。Git 必须从 installer/release-owned 的 absolute、no-follow、
    digest/receipt-bound executable capability 执行；禁止 basename、shell 或 inherited `PATH`
-   选择 executable，verify/exec 间 identity 改变必须拒绝。Git 返回的 canonical root 还必须是 canonical payload cwd
+   选择 executable，verify/exec 间 identity 改变必须拒绝。runtime 还必须跨 Git discovery
+   持有 payload directory 的 no-follow stable identity handle，并在返回后复核；同 pathname 被
+   rename/swap 为另一 directory 时拒绝；Git 必须从 retained capability 启动，禁止只把可变
+   pathname 传给 `-C`。Git 返回的 canonical root 还必须是 canonical payload cwd
    自身或其 component-aware ancestor；repo-local gitdir/`core.worktree` 把 root 指到
    payload ancestry 外时拒绝。四个 payload cwd 字段全部缺失表示不存在合法 enable source，
    必须直接保持 off 和 L1 输出 parity，不能读取 ambient project 或生成 L2 error。
@@ -155,7 +158,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    所需的 source/dependency 数据或写 L2 cache/metrics；现有 L1 decision、输出和
    latency gate 仍按原合同运行。off/kill switch 生效时不得打开或重放既有 L2 WAL/
    journal；pending backlog 原样冻结，只能由单独批准的 maintenance drain 处理。重新
-   enable 后先 bounded reconciliation，排空前不得启动新 L2。
+   enable 后先 bounded reconciliation，排空前不得启动新 L2。跨项目 projector/receipt worker
+   也必须持有 matching eligibility epoch 的 bounded delivery lease；off 生效后不得写 source slot/
+   marker，旧 epoch 只能由 source coordinator 显式 rebind 或 approved maintenance drain。
 3. B-003: L1 与 L2 必须保留独立的 decision、reason、latency、error 与 evidence identity；
    最终组合 decision 只能来自获批的闭集 precedence table。L2 缺失、错误或超时不得
    被记录成 L2 pass，也不得覆盖 L1 block。
@@ -280,7 +285,7 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     L1 仍运行且既有 L1 block 保留。projector 必须拥有单一 durable group-commit state
     machine；三个 consumer 只能按 group/event/digest 写不可见 staged/provisional version。
     closed transition 是 `prepared → journaled → staged → commit_prepared → activating →
-    all_activated → projection_prepared → projection_queued → done → projection_done`；
+    projection_prepared → all_activated → projection_queued → done → projection_done`；
     barrier 前允许 durable abort + 幂等 rollback，barrier 后只允许向前恢复。canonical
     outcome、任一 consumer activation、precision、Learn 与 aggregate 单独都不可见；
     **所有 reader 只 join 同一 `all_activated` barrier digest**。barrier 绑定 decision、
@@ -295,18 +300,20 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     或 shell free-text projection 作为第二权威源。既有 L1 dual logging 行为不变；
     GH-704 global event/status 只允许从 `all_activated` barrier 做 idempotent derived
     projection，绑定 source event ID/barrier digest 与 durable projection receipt。
-    project WAL 在 queue append 前先 durable `projection_prepared`，保存 expected queue offset 与 bounded
-    derived body/digest；exact-offset append/fsync 后才写 `projection_queued` 并允许
-    semantic `done`。global worker 必须使用跨 project/key/shard 的唯一 deadline-bounded
+    全部 activation receipts 匹配后、`all_activated` 前，project coordinator 必须先在 bounded
+    global source registry durable 注册 inert route/body/barrier digest/eligibility epoch；worker 只在
+    exact barrier durable 后执行。barrier + registration 后才写 `projection_queued` 并允许
+    semantic `done`，因此 dormant source 不需被扫描/重启也可发现 work。global worker 必须使用跨 project/key/shard 的唯一 deadline-bounded
     append sequencer：同一 lease 从 allocator reservation 一直持有到该 expected offset 的
     append/fsync、`projection_applied` 与 allocator tail commit 完成；earlier reservation 未
     applied 时禁止 later offset append。reservation 自身携带 bounded derived body、source
     project identity 与 independently routable receipt route/body。释放 reservation 前必须在
     同一 lease/metadata generation 把 applied marker + allocator tail 与 checksummed global
-    receipt-outbox intent 原子提交；outbox worker 只按 exact registered project-state route +
+    receipt-outbox intent 原子提交；outbox worker 取得 matching source delivery lease 后只按 exact route +
     content-addressed receipt key/digest 写独立 create-if-absent slot，不共享 project append offset；
-    slot file fsync、atomic create 与 route-directory fsync 全部成功后才可 `receipt_applied`/
-    `projection_done`/reclaim。恢复只按 earliest reservation 或 receipt
+    slot file fsync、atomic create 与 route-directory fsync 全部成功后才可 global
+    `receipt_applied`/reclaim；它不得写 project journal。只有 source coordinator/approved maintenance
+    route 在同一 project lock 下消费 slot 后可写 `projection_done`。恢复只按 earliest reservation 或 receipt
     intent 的 exact key/offset/digest 判断，禁止扫描 project/HOME/global log、跳洞、丢 receipt
     或释放 reservation 后由 per-key writer 乱序 append。
     derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
@@ -349,6 +356,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     legacy adapter 以 `run_post_hooks=true` 调用现有 child-Bash L1 hook，semantic path 也必须在
     cache/provider/WAL 前 short-circuit 且零 L2 state。只有 app-server 确认 edit 已成功应用、
     绑定 exact before/after change identity 后，才能在 owning Rust process 内执行一次 L2；
+    `SessionState` cap 不得淘汰 pending completion；全 pending 时须在接受新 patch 前 typed
+    backpressure，missing retained completion 必须 fail visible，不能 silent `None`。
     若 host 没有 completion callback，
     该 host/trigger 的 L2 为 `unavailable`，禁止轮询或从 filesystem timestamp 猜完成。
 
@@ -362,10 +371,12 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 - [ ] process cwd 与 absolute hook payload cwd 指向不同 project、process cwd + payload `.`
       以及 payload cwd 缺失/relative/非法、`GIT_DIR` + `GIT_WORK_TREE` 指向另一 opted-in
       project、repo-local gitdir + external `core.worktree`、redirected `.vibeguard.json`
-      hostile inherited PATH fake Git、verified Git replacement/revocation fixtures，证明只有
+      hostile inherited PATH fake Git、verified Git/payload-directory replacement/revocation fixtures，证明只有
       release-owned absolute executable 与 no-follow、ancestry-bound payload project 可以请求 opt-in；
       Codex app-server 必须把 trusted thread cwd 写入 canonical payload，而不是只设 child
       process cwd；cwd 全缺失保持 off/L1 parity，其它错误路径零 provider/cache/metrics。
+- [ ] app-server thread cap+1、all-pending、乱序/重复 completion fixtures 证明不淘汰已接受
+      pending patch，满载在 mutation 前 backpressure，且每个 completion exactly once 或显式失败。
 - [ ] invented API 与 semantic test weakening 均通过真实 Core production path 的
       positive、matched negative、unknown、malformed 和 failure fixtures；没有
       benchmark-only detector。

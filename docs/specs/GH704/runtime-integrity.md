@@ -67,6 +67,13 @@ allowlist 重建，并删除 inherited `PATH`、`GIT_*`、`PWD`、`CDPATH`。ide
 之间改变、receipt revoked、symlink/reparse/non-regular、hostile PATH fake Git 或 absolute file
 被替换时全部 fail visible，且零 config/cache/provider/metrics。
 
+调用 Git 前还必须 no-follow 打开 payload directory，并保持 directory handle/capability 到 root
+acceptance 与 config open；Unix 以 retained fd/fchdir，Windows 以 retained handle + child cwd
+volume/file-ID handshake 让 Git 从该对象启动，禁止只把 mutable pathname 交给 `-C`。Git 返回后
+重开 root handle，做 stable-ID/component containment，并复核 path 仍指 retained payload。
+rename/swap（含执行中换入再换回）、同 path 新建、A/B replacement 任一发生都 fail visible；
+canonical pathname 字符串相同不能证明同一 project。
+
 ### 1.3 Sidecar artifact identity
 
 `sidecar_artifact_identity` 是实际将被执行的 artifact，而不是 model alias 或 provider kind：
@@ -90,7 +97,7 @@ graph 固定为：
 
 ```text
 prepared → journaled → staged → commit_prepared → activating[bitmap]
-  → all_activated → projection_prepared → projection_queued → done → projection_done
+  → projection_prepared → all_activated → projection_queued → done → projection_done
 before all_activated: * → abort_prepared → aborted
 ```
 
@@ -100,12 +107,15 @@ decision、ordered stage receipts 与 expected activation receipts。三个 cons
 完整 barrier body/digest 与 expected journal offset；partial activation 只按 exact key/digest
 补齐，或在 durable `abort_prepared` 后回滚整个 group。barrier 后只允许向前恢复。
 
-全部 activation receipts 匹配后才 append/fsync canonical `all_activated` barrier。decision、
-任一 consumer、status、aggregate、precision 与 Learn 都必须 join 同一 barrier digest；barrier
-前数据为空且不计数。barrier 后先 durable
-`projection_prepared {queue_key, expected_queue_offset, bounded_derived_body, barrier_digest,
-record_digest}`，再 exact-offset append/fsync queue 和提交 `projection_queued`。queue 后才
-`done`，global receipt 后才 `projection_done`。
+全部 activation receipts 匹配后，coordinator 在仍持有 project lock 时先把 inert
+`projection_prepared {source_route, queue_key, bounded_derived_body, barrier_digest,
+record_digest, eligibility_epoch}` 写入 runtime-owned bounded global source registry 并 fsync；
+global worker 必须在 exact source route 证明 matching `all_activated` 前保持它不可执行。随后才
+append/fsync canonical barrier，并提交引用该 registration 的 `projection_queued`；queue + barrier +
+registration durable 后才 `done`。因此 crash 若无 barrier 则 global 无可见数据，若已有 barrier
+则任何 project worker 都可从 bounded registry 恢复，不依赖 source 再启动或扫描。decision、
+consumer/status/aggregate/precision/Learn 仍只 join barrier；project coordinator 最后在同一 lock
+下消费 durable receipt slot 并提交 `projection_done`。
 
 ## 3. Bounded recovery admission
 
@@ -156,11 +166,17 @@ append/fsync 与 durable applied/tail commit 完成**：
    `receipt_prepared {route, bounded_receipt_body, source barrier/record digest}` outbox intent
    原子提交到同一 metadata generation；只有该 generation durable 后才释放 lease、回收
    reservation body；
-6. receipt worker 从 outbox oldest-first 打开 exact registered route，以 no-follow temp file
-   write + file fsync + atomic create-if-absent 写 keyed receipt slot，再 fsync registered route
-   directory；只有 directory fsync 成功后才能提交 `receipt_applied`、`projection_done` 或回收
-   outbox。slot 已存在且 digest 相同也必须证明 directory durability 后才补 marker；同 key
-   不同 digest 才 `needs_repair`。同一 project 多个未 flush intent 使用不同 keys，可任意 recovery order。
+6. projector/receipt worker 处理 source intent 前取得 deadline-bounded shared delivery lease，
+   验证 exact registered eligibility/kill-switch epoch 仍 enabled；off/drift 时只 defer，该 key 不
+   阻塞其它 project/key，且不得打开 source L2 journal 或写 slot。off transition 取得 exclusive
+   lease，故其生效后不会出现晚到写；re-enable 只能由 source coordinator 显式 rebind backlog，
+   或由另行批准的 maintenance drain 处理；
+7. receipt worker 从 outbox oldest-first 打开 exact route，以 no-follow temp write + file fsync +
+   atomic create-if-absent 写 keyed slot，再 fsync route directory。此后它只提交 global
+   `receipt_applied`/reclaim；不得写 project journal/`projection_done`。slot 已存在且 digest 相同
+   也必须证明 directory durability；不同 digest 才 `needs_repair`。project coordinator/approved
+   maintenance route 取得同一 project lock 后消费 slot并写 `projection_done`。同一 project 多个
+   keys 可任意 delivery order，不会产生多个 group-state writers。
 
 因此 reservation A 未 applied 时，reservation B 不能 append；不会出现 later offset 先落盘、
 earlier offset 留洞。crash recovery 只查 earliest reservation、exact key/offset/digest：缺 record
@@ -188,15 +204,19 @@ post-hook request 与 in-process semantic completion gate 分离：approval、de
 in-progress apply 全部在 semantic cache/provider/WAL 前零活动；只有 app-server-owned
 completion event 绑定已应用的 exact before/after identity 后在 owning process 内执行一次。
 协议没有 trusted completion callback 时，该 trigger 的 L2 必须 `unavailable`，禁止轮询猜测。
+`SessionState` 达到 thread cap 时不得淘汰任何仍有 pending patch/completion 的 thread；若全部
+slot pending，必须在接受新 patch 前返回 typed bounded backpressure。completion 查不到 retained
+pending identity 时必须 fail visible，不能静默 `None`；fixture 覆盖 cap+1、乱序 completion、
+retry/duplicate，并证明每个已接受 patch 恰好一次完成或具名 unavailable。
 
 最小证明矩阵还必须包含：
 
-- hostile PATH fake Git、verified Git replacement/revocation 与 ancestry/config no-follow cases；
+- hostile PATH fake Git、Git/payload-directory replacement、revoke 与 ancestry/config no-follow cases；
 - inherited session spoof、captured child value replay、app-server trusted-session conflict/rotation
   与 cross-session cache isolation；
 - sidecar byte/version/target/protocol/manifest/attestation/revoke 的 eligibility + cache + evidence
   invalidation；
-- approval/decline/failed apply 零 semantic activity，以及 completion 后 exactly-once delivery；
-- every group edge、partial activation、barrier/queue/outbox/receipt create/directory-fsync crash；
+- approval/decline/failed apply 零 semantic activity，thread-cap backpressure 与 completion exactly once；
+- every group edge、pre-barrier global registration、off-epoch defer/rebind、outbox/receipt fsync crash；
 - every maximum record 的 recovery floor、dormant-project receipt recovery，以及 concurrent
   projects/shards 严格 offset append order。
