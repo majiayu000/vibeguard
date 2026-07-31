@@ -20,14 +20,14 @@ operation_request_digest,body}`；`operation_request_digest` 是删除自身后�
 | method | exact request `body` | exact success `result` |
 | --- | --- | --- |
 | `get_publication_head` | `{}` | `{current_head_receipt}` |
-| `claim_publication_owner` | `{intent,publication_lease_authorization,secret_channel_binding}` | `{transition_receipt,nonce_capsule_receipt}` |
-| `renew_publication_owner` | `{intent,publication_lease_authorization,trusted_time_proof_request}` | `{transition_receipt}` |
-| `takeover_publication_owner` | `{intent,publication_lease_authorization,trusted_time_proof_request}` | `{transition_receipt}` |
+| `claim_publication_owner` | `{time_bound_intent,time_bound_request_id,publication_lease_authorization,secret_channel_binding}` | `{transition_receipt,nonce_capsule_receipt}` |
+| `renew_publication_owner` | `{time_bound_intent,time_bound_request_id,publication_lease_authorization}` | `{transition_receipt}` |
+| `takeover_publication_owner` | `{time_bound_intent,time_bound_request_id,publication_lease_authorization}` | `{transition_receipt}` |
 | `append_publication_transition` | `{intent,append_authorization}` | `{transition_receipt}` |
 | `plan_release_mutation` | `{intent,append_authorization,secret_channel_binding}` | `{planned_transition_receipt,mutation_capsule_receipt}` |
 | `deliver_release_mutation` | `{planned_operation_id,broker_delivery_id,delivery_authorization}` | `{delivery_state,transition_receipt_or_null,send_once_audit_digest}` |
 | `recover_release_mutation` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipt}` |
-| `plan_generated_pr` | `{intent,append_authorization}` | `{planned_transition_receipt}` |
+| `plan_generated_pr` | `{intent,append_authorization}` | `{planned_transition_receipt,generated_pr_delivery_id}` |
 | `deliver_generated_pr` | `{planned_operation_id,generated_pr_delivery_id,delivery_authorization}` | `{delivery_state,transition_receipt_or_null,send_once_audit_digest}` |
 | `recover_generated_pr` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipt}` |
 | `append_blocked_attempt` | `{attempt_record,expected_attempt_subject_key,ledger_append_authorization}` | `{attempt_record_receipt,blocked_attempt_frontier_receipt}` |
@@ -35,6 +35,15 @@ operation_request_digest,body}`；`operation_request_digest` 是删除自身后�
 | `list_blocked_attempts` | `{source_identity_key,candidate_identity_or_null,run_id_or_null,run_attempt_or_null,attempt_record_kind_or_null,attempt_subject_key_or_null,page_cursor_or_null,page_size}` | `{attempt_records,next_page_cursor_or_null,enumeration_snapshot_receipt}` |
 | `commit_reconciliation_watermark` | `{reconciliation_watermark,terminal_listing_proof,ledger_append_authorization}` | `{watermark_receipt,blocked_attempt_frontier_receipt}` |
 | `get_blocked_attempt_frontier` | `{}` | `{blocked_attempt_frontier_receipt}` |
+
+`time_bound_intent` exact 为 `{record_kind,publication_payload_core,predecessor_frontier}`；method与
+`record_kind`只允许 `{claim_publication_owner:owner_claimed,renew_publication_owner:owner_heartbeat,
+takeover_publication_owner:publication_owner_taken_over}`。client计算
+`time_bound_request_id=SHA256(JCS({v:"GH700:time-bound-request:v1",repo_node_id,method,
+time_bound_intent}))`，authority须重算。client不得提交 nonce、`nonce_digest`、TSA request/token、trusted interval、
+accepted time、expiry或 high-water result；T3 authority从 proof-free core构造这些值及
+`trusted_time_proof_request_id`，验证 quorum并提交 high water后才返回 transition receipt。三种 method除
+claim独有的 `secret_channel_binding`外使用同一 proof-ownership boundary；extra proof field一律拒绝。
 
 success response exact 为
 `{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,
@@ -47,6 +56,15 @@ authority_non_ready,internal_durability_failure}`；`retry_class` exact 为
 `{never,after_fresh_read,after_new_authorization,same_request_read_confirm_only}`。
 `outcome_uncertain`只配 `same_request_read_confirm_only`；unknown method/code/field、method/body/result
 错配、null-not-declared或 error/result并存均拒绝，不得 fallback。
+
+`plan_generated_pr` success中的 `generated_pr_delivery_id`必须按 history contract从 committed
+`planned_operation_id`及其 exact plan identity唯一重算。authority在同一 plan transaction建立永久 unique index
+`(repo_node_id,generated_pr_delivery_id)`，值绑定 `{planned_operation_id,plan_record_digest,
+generated_pr_delivery_state}`；same ID/same plan只返原 receipt，same ID/different plan永久冲突。
+`deliver_generated_pr`须 byte-equal该 index ID，broker outbox、delivery attempt、send-once audit与 recovery均以该
+ID作唯一 key；首次 authenticated send后任何重放只可 read-confirm，不得以新 ID再次 create。missing index、
+caller-chosen ID、plan mismatch、第二次 send或 index/outbox/audit不一致均 `operation_conflict`并保留 owner；
+`recover_generated_pr`必须从 `planned_operation_id`反查同一 index/ID，不能建立 replacement delivery identity。
 
 ## Ledger authorization and receipts
 
@@ -61,8 +79,9 @@ accepted_ledger_fence,record_digest,store_envelope_digest,anchor_receipt_digest,
 `{record_digest,attempt_subject_key,source_identity_key,run_id,run_attempt,attempt_record_kind,
 successor_frontier,store_envelope_digest}`。
 `binding_record_receipt` exact 为
-`{binding_record_digest,bound_attempt_record_digests,candidate_identity,source_identity_key,run_id,
-run_attempt,successor_frontier,store_envelope_digest}`。
+`{binding_record_digest,binding_kind,bound_attempt_record_digests,
+post_intent_success_proof_digest_or_null,candidate_identity,source_identity_key,run_id,run_attempt,
+successor_frontier,store_envelope_digest}`。
 `watermark_receipt` exact 为
 `{watermark_digest,terminal_listing_proof_digest,max_terminal_run_id,max_terminal_run_attempt,
 terminal_attempt_count,covered_record_set_digest,prior_watermark_digest_or_null,successor_frontier,
@@ -103,10 +122,35 @@ publication_recovery_binding}`。
   candidate_identity_or_null,selected_policy_or_null,staged_provenance_digest_or_null,
   evidence_identities_or_null,failure_manifest_jcs,failure_manifest_digest}`，四个 `*_or_null`字段必须 literal null。
 - `publication_recovery_binding.payload` exact 为
-  `{candidate_identity,publication_history_operation_id,publication_history_frontier,
-  recovered_outcome_digest,bound_attempt_record_digests}`。
+  `{binding_kind,candidate_identity,publication_history_operation_id,publication_history_frontier,
+  recovered_outcome_digest,bound_attempt_record_digests,post_intent_success_proof_digest_or_null}`。
 
 unknown kind/field、missing/extra/null-not-declared或 alias拒绝。
+
+blocked-attempt value schema也是 closed contract：`selected_policy={block_release,publish_nonvalid}`，
+`effective_action={block_release,publish_nonvalid}`；两者通常相等，只有 selected `publish_nonvalid` 的
+prerequisite失败允许 effective `block_release`。下列四字段 exact 为：
+
+- `closed_reason_code={required_target_missing,report_schema_invalid,evidence_schema_invalid,
+  checksum_missing_or_mismatch,provenance_invalid,summary_unavailable,summary_invalid,policy_unapproved,
+  publication_prerequisite_failed}`。`failure_scope=target`只允许前五项且 target non-null；`release`只允许
+  后四项且 `required_platforms_or_null`/`failed_summary_digest_or_null` non-null。`policy_unapproved`只配
+  effective `block_release`；`publication_prerequisite_failed`只配 selected `publish_nonvalid`、effective
+  `block_release`；其余 code要求 selected/effective相等。
+- `interruption_conclusion={cancelled,timed_out,failure}`；只适用于 `pipeline_interrupted`，且
+  `pipeline_interrupted_pre_attestation.conclusion`必须使用同一 union。
+- `interruption_stage={owner_claimed_no_draft,draft_bound_cleanup,prepared_cleanup,
+  decurrent_pr_revocation,rollback_cleanup,mutation_compensation,cleanup_finalization}`；它只适用于
+  `pipeline_interrupted`且必须匹配 history fold中最后一个已验证 phase/cleanup receipt。
+- `missing_evidence` exact object为 `{schema_version,missing_field_codes}`，schema version exact
+  `GH700:missing-evidence:v1`；`missing_field_codes`是 UTF-8 bytewise升序、去重、非空 array，item closed union为
+  `{candidate_identity,selected_policy,staged_provenance,evidence_identities,report_identity,
+  evidence_identity,checksum_identity,summary_digest,publish_sentinel_receipt}`。
+  `pipeline_interrupted`只允许后五项；`pipeline_interrupted_pre_attestation`没有该 payload field，但其
+  `failure_manifest_jcs`内的 exact `missing_evidence`必须是前四项全量集合
+  `["candidate_identity","evidence_identities","selected_policy","staged_provenance"]`。
+
+unknown/alias/inapplicable enum value、wrong order、duplicate/empty missing list或表外 field均 schema-invalid。
 
 ## Subject identity and binding
 
@@ -118,14 +162,33 @@ candidate_identity_or_null,failure_scope_or_null,target_or_null,early_attempt_ke
 `append_blocked_attempt.expected_attempt_subject_key`必须 byte-equal重算值，不能作为 authority输入真源。
 
 `binding_intent` exact 为
-`{source_identity_key,run_id,run_attempt,candidate_identity,source_attempt_record_digests,
-publication_history_operation_id,publication_history_frontier,recovered_outcome_digest}`。
-`source_attempt_record_digests`按 digest bytes升序、去重且非空。authority必须逐项读取永久 record，证明它们
-共享 exact `repo_node_id/source_identity_key/run_id/run_attempt`；pre-attestation record的 server ref/tag/source
-必须与 `candidate_identity`精确匹配，任何 already-bound、cross-source/candidate、missing或 ambiguous record拒绝。
-authority只按该 intent构造 `attempt_record_kind=publication_recovery_binding`：top-level source/run tuple来自
-已验证共同 tuple，payload的 `bound_attempt_record_digests` byte-equal intent列表，其余四字段 byte-equal intent。
-binding record与索引/frontier在同一事务提交；client不得提交另一个 record body或选择不同 subject key。
+`{binding_kind,source_identity_key,run_id,run_attempt,candidate_identity,source_attempt_record_digests,
+post_intent_success_proof_or_null,publication_history_operation_id,publication_history_frontier,
+recovered_outcome_digest}`，其中 `binding_kind={source_attempt_records,post_intent_success}`。
+`source_attempt_record_digests`始终按 digest bytes升序且去重。
+
+`source_attempt_records` branch要求该 list非空、proof为 null。authority逐项读取永久 record，证明共享 exact
+`repo_node_id/source_identity_key/run_id/run_attempt`；pre-attestation record的 server ref/tag/source必须与
+`candidate_identity`精确匹配，任何 already-bound、cross-source/candidate、missing或 ambiguous record拒绝。
+
+`post_intent_success` branch要求 list exact `[]`且 proof non-null。proof exact object为
+`{schema_version,repo_node_id,source_identity_key,run_id,run_attempt,candidate_identity,
+terminal_attempt_key,recovered_publication_operation_id,predecessor_intent_operation_id,
+publication_history_frontier,recovered_outcome_digest,server_terminal_receipt_digest,
+zero_source_attempt_snapshot_receipt_digest}`，schema version exact
+`GH700:post-intent-success-binding-proof:v1`。authority须验 server-auth terminal attempt与 outer tuple exact，
+stable ledger enumeration snapshot证明该 tuple没有 failure/interruption record，并从 signed history重放证明
+`predecessor_intent_operation_id`是同 candidate owner chain的 committed `intent_written`，
+`recovered_publication_operation_id`是其合法 terminal recovery successor，frontier/outcome digest exact。
+只有 matching public Release或 matching intent-bound draft完成的 post-intent success可走此 branch；blocked、
+pre-intent cleanup或 ambiguous truth不得伪装 success。
+
+authority只按 validated branch构造 `attempt_record_kind=publication_recovery_binding`：payload
+`bound_attempt_record_digests` byte-equal intent list；success branch另写
+`post_intent_success_proof_digest_or_null=SHA256(JCS(post_intent_success_proof))`，source branch写 null。
+top-level source/run tuple来自已验证 records或 proof，不能只信 client。binding record、proof capsule、unique index与
+frontier在同一事务提交；client不得提交另一个 record body或选择不同 subject key。success binding本身就是该
+terminal attempt的 canonical permanent reconciliation record，watermark不再要求虚构 failure record。
 
 ## Stable enumeration
 

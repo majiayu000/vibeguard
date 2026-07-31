@@ -200,7 +200,9 @@ client_auth_policy_digest}`，endpoint为无 redirect/query/fragment的 manifest
 exact `tls13_mtls_rfc3161_sha256_v1`，threshold至少二且不超过 source数。source须独立 administration/
 signing root；ambient DNS/proxy/CA、TOFU、同 root重复 signer、unknown policy/algorithm均拒绝。
 
-每个 time-dependent transition 先冻结 `publication_payload_core`：它是该 kind 的 final payload 去掉所有
+T10 wire client只提交 ledger contract定义的 proof-free `time_bound_intent`与可重算
+`time_bound_request_id`；T3 authority验证 method/kind/predecessor后，才为每个 time-dependent transition冻结
+`publication_payload_core`：它是该 kind 的 final payload 去掉所有
 proof-produced fields（`trusted_time_proof_digest`、trusted interval/new high water、accepted-at/expiry）后的 closed object，
 并保留 known prior high water。然后生成 fresh 256-bit nonce，`nonce_b64u` 是其32 bytes的 canonical
 unpadded base64url encoding，并计算
@@ -224,7 +226,8 @@ heartbeat only-if-alive 判定要求 `trusted_upper_bound < prior lease_expires_
 `trusted_lower_bound > lease_expires_at`，边界相等或 uncertainty跨 expiry均拒绝。lease expiry仍按获批 H-006
 由 `accepted_at`计算。proof unavailable、anchor CAS不确定、source/policy/threshold drift、high-water rollback/
 fork或 SQLite↔anchor mismatch使所有 time-dependent transition fail closed；绝不 clamp到 host time、猜 expiry或
-以 job absence接管。T3独占 `trusted_time.rs` client/proof/high-water persistence，T10只能提交 time-bound intent；
+以 job absence接管。T3独占 nonce、`nonce_digest`、TSA request/token、proof capsule及 high-water persistence；
+T10只能提交 time-bound intent/request ID且不能提交或覆盖任何 proof-produced field；
 T12须用真实 RFC3161-compatible independent test signers覆盖 host forward/backward jump、replay、quorum split、
 accuracy overlap、restart/snapshot rollback、heartbeat-vs-takeover race与 anchor ack-loss。
 
@@ -437,6 +440,11 @@ review_core_digest,trusted_app_identity_digest,trusted_installation_identity_dig
 `check_identity_digest=SHA256(JCS(generated_pr_check_identity))`；required check的 `external_id`必须 exact
 等于该 digest，且 check App/installation/head SHA/ref均匹配。ref、commit trailer、check三者任一缺失或
 不一致均不能 bind/merge；每次 replacement必须新 slot、nonce、ref、review core、commit与 check identity。
+planned transition提交后，authority唯一派生
+`generated_pr_delivery_id=SHA256(JCS({v:"GH700:generated-pr-delivery-id:v1",repo_node_id,
+planned_operation_id,owner_generation,pr_kind,transition_slot,head_ref_nonce_digest,review_core_digest,
+check_identity_digest}))`；它不回填 planned payload，因而不形成 operation-ID cycle，但必须进入 signed
+plan receipt与 broker send-once index。client不得选择或替换该 ID。
 
 `required_documentation_surfaces`是 protocol批准的稳定闭集；每项只绑定
 `surface_id`、canonical repo-relative path、locale/marker grammar、renderer logical ID/version/
