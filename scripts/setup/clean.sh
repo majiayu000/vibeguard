@@ -207,31 +207,42 @@ clean_launchd_scheduler_deactivate() {
   fi
 }
 
-clean_systemd_scheduler_deactivate() {
+clean_systemd_stop_and_verify_unit() {
+  local unit="$1" label="$2"
   local stop_rc=0 active_state="" active_rc=0
-  local disable_rc=0 enabled_state="" enabled_rc=0
+  systemctl --user stop "${unit}" >/dev/null 2>&1 || stop_rc=$?
+  active_state="$(
+    LC_ALL=C systemctl --user is-active "${unit}" 2>/dev/null
+  )" || active_rc=$?
+  case "${active_state}" in
+    inactive|failed|unknown)
+      return 0
+      ;;
+    *)
+      if [[ "${stop_rc}" -ne 0 ]]; then
+        red "ERROR: failed to stop scheduled GC ${label}; ${label} is not proven inactive (stop_rc=${stop_rc}, state=${active_state:-empty}, rc=${active_rc}); preserving systemd units and cleaning receipt"
+      else
+        red "ERROR: scheduled GC ${label} is not proven inactive after stop (state=${active_state:-empty}, rc=${active_rc}); preserving systemd units and cleaning receipt"
+      fi
+      return 1
+      ;;
+  esac
+}
+
+clean_systemd_scheduler_deactivate() {
+  local disable_rc=0 runtime_disable_rc=0 enabled_state="" enabled_rc=0
   [[ "$(uname)" == "Linux" ]] || return 0
   if ! command -v systemctl >/dev/null 2>&1; then
     red "ERROR: cannot deactivate scheduled GC: systemctl is unavailable; preserving systemd units and cleaning receipt"
     return 1
   fi
-  systemctl --user stop vibeguard-gc.timer >/dev/null 2>&1 || stop_rc=$?
-  active_state="$(
-    LC_ALL=C systemctl --user is-active vibeguard-gc.timer 2>/dev/null
-  )" || active_rc=$?
-  case "${active_state}" in
-    inactive|failed|unknown)
-      ;;
-    *)
-      if [[ "${stop_rc}" -ne 0 ]]; then
-        red "ERROR: failed to stop scheduled GC systemd timer; timer is not proven inactive (stop_rc=${stop_rc}, state=${active_state:-empty}, rc=${active_rc}); preserving systemd units and cleaning receipt"
-      else
-        red "ERROR: scheduled GC systemd timer is not proven inactive after stop (state=${active_state:-empty}, rc=${active_rc}); preserving systemd units and cleaning receipt"
-      fi
-      return 1
-      ;;
-  esac
+  clean_systemd_stop_and_verify_unit \
+    vibeguard-gc.timer "systemd timer" || return 1
+  clean_systemd_stop_and_verify_unit \
+    vibeguard-gc.service "systemd service" || return 1
   systemctl --user disable vibeguard-gc.timer >/dev/null 2>&1 || disable_rc=$?
+  systemctl --user disable --runtime vibeguard-gc.timer >/dev/null 2>&1 \
+    || runtime_disable_rc=$?
   enabled_state="$(
     LC_ALL=C systemctl --user is-enabled vibeguard-gc.timer 2>/dev/null
   )" || enabled_rc=$?
@@ -239,8 +250,8 @@ clean_systemd_scheduler_deactivate() {
     disabled|masked|not-found)
       ;;
     *)
-      if [[ "${disable_rc}" -ne 0 ]]; then
-        red "ERROR: failed to disable scheduled GC systemd timer; timer is not proven disabled (disable_rc=${disable_rc}, state=${enabled_state:-empty}, rc=${enabled_rc}); preserving systemd units and cleaning receipt"
+      if [[ "${disable_rc}" -ne 0 || "${runtime_disable_rc}" -ne 0 ]]; then
+        red "ERROR: failed to disable scheduled GC systemd timer; timer is not proven disabled (disable_rc=${disable_rc}, runtime_disable_rc=${runtime_disable_rc}, state=${enabled_state:-empty}, rc=${enabled_rc}); preserving systemd units and cleaning receipt"
       else
         red "ERROR: scheduled GC systemd timer is not proven disabled (state=${enabled_state:-empty}, rc=${enabled_rc}); preserving systemd units and cleaning receipt"
       fi
@@ -384,7 +395,10 @@ clean_scheduled_gc() {
 
 echo "Cleaning VibeGuard installation..."
 
-ensure_setup_runtime_available >/dev/null 2>&1 || true
+if ! ensure_setup_runtime_available >/dev/null 2>&1; then
+  red "ERROR: vibeguard-runtime is required to safely remove managed high-context files"
+  exit 1
+fi
 
 clean_repo_git_hooks
 clean_tracked_project_git_hooks

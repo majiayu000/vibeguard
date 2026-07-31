@@ -597,13 +597,34 @@ check_claude_home_installation() {
 }
 
 clean_claude_home_installation() {
+  local md_cleanup_result="NOT_FOUND"
+  local settings_cleanup_result="SKIP"
+
   if [[ -f "${CLAUDE_DIR}/CLAUDE.md" ]]; then
-    local result
-    result=$(setup_runtime setup-md-remove "${CLAUDE_DIR}/CLAUDE.md" 2>/dev/null || echo "ERROR")
-    case "${result}" in
+    md_cleanup_result="$(
+      setup_runtime setup-md-remove "${CLAUDE_DIR}/CLAUDE.md" 2>/dev/null
+    )" || md_cleanup_result="ERROR"
+    case "${md_cleanup_result}" in
       REMOVED) yellow "Removed VibeGuard rules from ~/.claude/CLAUDE.md" ;;
       NOT_FOUND) yellow "No VibeGuard rules found in ~/.claude/CLAUDE.md" ;;
-      *) red "Failed to clean CLAUDE.md" ;;
+      *)
+        red "Failed to clean CLAUDE.md"
+        return 1
+        ;;
+    esac
+  fi
+
+  if [[ -f "${SETTINGS_FILE}" ]]; then
+    settings_cleanup_result="$(
+      settings_remove "${SETTINGS_FILE}" 2>/dev/null
+    )" || settings_cleanup_result="ERROR"
+    case "${settings_cleanup_result}" in
+      CHANGED) yellow "Removed VibeGuard hooks from settings.json" ;;
+      SKIP) ;;
+      *)
+        red "Failed to clean VibeGuard hooks from settings.json"
+        return 1
+        ;;
     esac
   fi
 
@@ -644,14 +665,5 @@ clean_claude_home_installation() {
   if [[ -d "${HOME}/.claude/rules/vibeguard" ]]; then
     rm -rf "${HOME}/.claude/rules/vibeguard"
     yellow "Removed native rules from ~/.claude/rules/vibeguard/"
-  fi
-
-  if [[ -f "${SETTINGS_FILE}" ]]; then
-    local clean_result
-    if clean_result=$(settings_remove "${SETTINGS_FILE}" 2>/dev/null); then
-      if [[ "${clean_result}" == "CHANGED" ]]; then
-        yellow "Removed VibeGuard hooks from settings.json"
-      fi
-    fi
   fi
 }
