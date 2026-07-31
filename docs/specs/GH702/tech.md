@@ -220,7 +220,7 @@ Recommended H-004 layout（未批准）：
   receipts/<source_storage_key>/<target>/<profile>.json  derived/read-only view
   transactions/<transaction_id>/
     plan.json
-    journal.json
+    journal.json                       closed applied manifest + recovery transitions
     before/
     staged/
   locks/ownership.lock
@@ -333,11 +333,11 @@ staged state 或未提交 generation。pointer switch 后只允许 journal final
 这些失败不撤销已提交语义，而由下次 recovery 幂等完成。floor fsync 是 roll-forward-only
 prepared boundary：之后旧 pointer 低于 floor 并 fail closed；必须保留 journal/generation/state
 并重试或恢复目标 switch，禁止 rollback 或降低 floor，长期失败进入 `needs_repair`。
-interrupt 后下次 mutation 必须先
-按 canonical order 取得 ownership/target locks 并 recover unfinished journal。rollback
-只依据 journal，不扫描 HOME；
-rollback 失败保留 before/staged/journal 并返回 `needs_repair`，禁止删除诊断证据或继续装
-另一版本。
+interrupt 后下次 mutation 先按 canonical order 取得 ownership/target/policy/runtime-state locks。
+post-floor recovery 重读 exact host ID、adapter/compatibility/config-root digest，并将 closed applied
+manifest 每个 normalized file/config key 的 owner/reservation/current digest 与 journal expected-after
+逐项 CAS；missing/extra/mismatch 时 append+fsync `repair_required`、保留 foreign bytes/config 与全部
+journal/before/applied evidence、返回 `needs_repair`，不得 switch、重写、出 committed receipt 或继续装。
 
 commit 前，management 在 ownership/target locks 后取得 policy lock，再取 runtime-state lock；
 两锁持有到 old-state snapshot、新 state fsync 与 active pointer durable switch。等价 CAS 实现须在
@@ -629,8 +629,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-013 target compatibility | Capability/host resolver | unknown host, incompatible protocol, unsupported capability, missing Core and valid Claude/Codex fixtures produce distinct closed statuses and cannot be promoted by override |
 | B-014 runtime privacy/capability | Sealed capability registry + sandbox boundary | network/credential/path/log access sentinels and child-env capture prove undeclared access never runs or persists |
 | B-015 transaction state machine | Transaction journal + authenticated generation anchor | pre-floor failures rollback；post-floor failures preserve evidence and roll forward exact switch；coherent local replay mismatches external root |
-| B-016 scoped rollback/repair | Transaction rollback/recovery | pre-floor injections restore before digests；post-floor switch failures retain evidence and roll forward；recovery failure reports needs_repair |
-| B-017 interruption recovery | Journal recovery + confirmation epochs | partial state fixture asserts ordered locks + recovery precede discovery/plan；confirmation timeout holds no lock；post-confirm generation/evidence/time drift forces re-plan/re-confirm |
+| B-016 scoped rollback/repair | Transaction rollback/recovery | pre-floor restores before digests；post-floor every applied/host/config CAS match rolls forward；any drift preserves state/evidence and needs_repair |
+| B-017 interruption recovery | Journal recovery + confirmation epochs | crash fixtures mutate each applied entry, host/adapter and config root；none may switch pointer, publish receipt or start a new plan |
 | B-018 complete committed receipt | Receipt schema/writer + source storage key | official receipt requires event digest；local requires not_applicable + absent event；all block receipts bind committed policy and finite decision/override horizons/fallback；local round-trip needs no publisher sentinel |
 | B-019 ownership preservation | Planner + reservation + structured config adapters | update/remove succeeds only when current state matches receipt after digest；matching before but not after is drift；fresh conflict/cancel preserves canaries |
 | B-020 dependency graph | Dependency resolver + set generation | missing/cycle/range/undeclared recursion zero-apply；same publisher+pack+version/different digest conflicts，while same publisher+version/different pack names coexist；valid graph uses one pointer |

@@ -210,15 +210,21 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     user-state tree 内的 JSON 只可作 mirror，不能作为 anti-rollback authority。runtime 拒绝低于 floor 的旧 pointer replay；
     floor fsync 是 roll-forward-only prepared boundary：此前失败可 rollback；此后必须保留
     journal/generation/state 并重试或恢复 exact pointer switch，不能 rollback、降低 floor 或猜测
-    目标 generation；switch 前不得声称 installed，长期失败进入 `needs_repair`。
+    目标 generation。recovery 必须在原 canonical locks 下重验 exact host/adapter/config-root identity
+    与 applied manifest 的每个 file/config entry、reservation/owner、expected-after digest；只有 closed
+    set 全等才可 switch。任一 missing/extra/mismatch 都保留现场进入 `needs_repair`，不得重写漂移、
+    commit receipt/ownership 或声称 installed。
 16. B-016: stage、verify、host apply、audit 或 floor fsync 前的 receipt preparation 失败时，
     系统必须只回滚本 transaction 已记录的 owned changes并恢复精确 before state；floor fsync
-    后则禁止 rollback，只能按 B-015 roll forward。rollback/recovery 失败都必须 nonzero、保留
-    evidence 并进入 `needs_repair`，不得声称 installed。
+    后则禁止 rollback，只能按 B-015 重验后 roll forward。post-floor drift 必须 append+fsync
+    repair transition、nonzero 并保留 journal/before/applied evidence；不得用 B-019 的 before/after
+    数据覆盖当前用户/host state，也不得生成 committed receipts。rollback/recovery 失败均进入
+    `needs_repair`，不得声称 installed。
 17. B-017: 取消、中断、超时或进程崩溃后不得留下未提交的新 active pointer。下一次任何
     mutation 必须先按 canonical order 取得 HOME-wide ownership lock 与对应 target locks，
     识别 unfinished transaction，并按 immutable
-    journal 完成 rollback/recovery；只有 recovery 完成并重新验证 committed generation
+    journal 完成 rollback/recovery；recovery 必须重算完整 applied-set digest 并逐项 CAS，而非抽样
+    或只验证 generation。只有 recovery 完成并重新验证 committed generation
     后才可进行新 transaction 的 discovery、staging、planning 或 confirmation。interactive
     confirmation 必须有获批的 bounded deadline，等待期间不得持有 exclusive mutation
     locks；确认后必须按同一顺序重新取锁，并对 base generation、ownership、authoritative
