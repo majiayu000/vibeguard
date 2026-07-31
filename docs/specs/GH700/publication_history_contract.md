@@ -117,26 +117,27 @@ wrapped_data_key_set_digest,aead_contract_digest,retention_until,legal_hold_stat
 `{backup_set_core_digest,snapshot_get_receipt_digest,manifest_get_receipt_digest,wal_get_receipt_digest,
 retention_receipt_digest,legal_hold_receipt_digest}`，`backup_confirmation_digest=SHA256(JCS(backup_confirmation))`，
 `backup_set_ref={backup_set_core,backup_set_core_digest,backup_confirmation_digest}`；三者都不包含自己的 digest。SQLite snapshot、
-recovery manifest和 WAL（包括 canonical empty WAL）分别使用 fresh 256-bit data key与 96-bit nonce执行
-`aes_256_gcm_siv_v1` authenticated encryption。`successor_frontiers={publication_history_frontier,blocked_attempt_frontier}` exact，两个 frontier都含 full-prefix且来自同一 successor；
-`successor_frontiers_digest=SHA256(JCS(successor_frontiers))`并编码 lowercase `sha256:<64hex>`。每个 object先构造 exact KMS context
-`{schema_version:"GH700:backup-data-key-context:v1",authority_id,repo_node_id,backup_id,object_kind,
-successor_frontiers_digest,prior_anchor_digest}`，再调用一次 `GenerateDataKey(KeyId=manifest exact ARN,
-KeySpec="AES_256",EncryptionContext=exact context)`；只接受32-byte plaintext与对应 `CiphertextBlob`，plaintext只在
-内存完成该 object加密后立即清零且绝不落盘/上传，wrapped data-key bytes exact 为 `CiphertextBlob`。immutable
-object header保留 nonce、exact KMS context、wrapped data-key bytes、tag和
-`AAD=JCS({authority_id,repo_node_id,backup_id,object_kind,successor_frontiers,time_high_water,plaintext_digest,
-prior_anchor_digest})`；encrypt及 restore/decrypt都从 AAD exact frontiers重算 digest并要求 byte-equal KMS context字段，三者禁止明文或 unauthenticated compression。上传后须 exact-version strong GET，重算
-ciphertext/header/wrapped-key digest并确认 retention+legal hold；wrong key ARN/spec/context、重复 data key、
-plaintext残留或任何对象未确认都不能签 anchor或释放 receipt。
-
-DB successor transaction 只固化 exact `anchor_plan_core={authority_id,authority_identity_digest,policy_epoch,
-repo_node_id,anchor_schema_version,restore_epoch,latest_frontier,blocked_attempt_ledger_frontier,time_high_water,
-time_proof_digest,transition_class,prior_anchor_digest,backup_id,anchor_plan_id}` 及
-`anchor_plan_core_digest=SHA256(JCS(anchor_plan_core))`；core 禁止包含任何 snapshot/WAL digest、object version、
-`backup_set_ref*`、confirmation、final payload/request ID。exact-version backup 确认后才构造 final anchor payload
-`{anchor_plan_core,anchor_plan_core_digest,snapshot_digest,wal_digest,backup_resource_identity,backup_set_ref,
-backup_set_ref_digest,anchor_request_id}`，其中 `backup_set_ref_digest=SHA256(JCS(backup_set_ref))`且
+recovery manifest和 WAL（包括 canonical empty WAL）分别用 fresh 256-bit data key与96-bit nonce执行 `aes_256_gcm_siv_v1`。
+canonical ordered preimage exact 为 `successor_frontiers_preimage={v:"GH700:successor-frontiers:v1",frontiers:
+[{frontier_kind:"publication_history",frontier:{repo_node_id,history_length,history_root,full_prefix_digest}},
+{frontier_kind:"blocked_attempt_ledger",frontier:{repo_node_id,ledger_length,ledger_root,full_prefix_digest}}]}`；array顺序
+固定、两个 frontier来自同一 successor；`successor_frontiers_digest=SHA256(JCS(successor_frontiers_preimage))`编码
+lowercase `sha256:<64hex>`。每个 object先构造 exact KMS context `{schema_version:"GH700:backup-data-key-context:v1",
+authority_id,repo_node_id,backup_id,object_kind,successor_frontiers_digest,prior_anchor_digest}`，再调用一次
+`GenerateDataKey(KeyId=manifest exact ARN,KeySpec="AES_256",EncryptionContext=exact context)`；只接受32-byte plaintext与
+对应 `CiphertextBlob`，plaintext只在内存完成该 object加密后立即清零且绝不落盘/上传，wrapped data-key bytes exact 为
+`CiphertextBlob`。immutable object header保留 nonce、exact KMS context、wrapped data-key bytes、tag和
+`AAD=JCS({authority_id,repo_node_id,backup_id,object_kind,successor_frontiers_preimage,time_high_water,plaintext_digest,
+prior_anchor_digest})`；encrypt及 restore/decrypt都从 AAD exact frontiers重算 digest并要求 byte-equal context；禁止明文或
+unauthenticated compression。上传后 exact-version strong GET并重算 ciphertext/header/wrapped-key digest及确认 retention+
+legal hold；wrong key ARN/spec/context、重复 data key、plaintext残留或任一对象未确认都不能签 anchor或释放 receipt。
+DB successor transaction只固化 exact `anchor_plan_core={authority_id,authority_identity_digest,policy_epoch,repo_node_id,
+anchor_schema_version,restore_epoch,latest_frontier,blocked_attempt_ledger_frontier,time_high_water,time_proof_digest,
+transition_class,privileged_transition_or_null,prior_anchor_digest,backup_id,anchor_plan_id}` 及其 JCS SHA-256；core禁止包含
+snapshot/WAL digest、object version、`backup_set_ref*`、confirmation、final payload/request ID。exact-version backup确认
+后才构造 final anchor payload `{anchor_plan_core,anchor_plan_core_digest,snapshot_digest,wal_digest,
+backup_resource_identity,backup_set_ref,backup_set_ref_digest,anchor_request_id}`，其中
+`backup_set_ref_digest=SHA256(JCS(backup_set_ref))`且
 `anchor_request_id=SHA256(JCS({v:"GH700:anchor-request:v1",anchor_plan_core_digest,backup_set_ref_digest}))`。
 两个 frontier 含 exact `full_prefix_digest`；external HEAD/epoch row保留完整 object keys/version IDs/crypto+retention locator而非只留 digest，
 snapshot/WAL plaintext digests必须与该已确认 encrypted set一致。
@@ -149,7 +150,7 @@ credential TTL。signer各自 strong-read HEAD，验证 exact prior、successor/
 governance/emergency或取得 maintainer key。OIDC→mTLS credential绑定 workload/environment/request digest且单次使用；
 key启用/轮换/撤销需 privileged threshold批准、manifest epoch提升、old+new quorum overlap receipt及历史 public key永久
 保留，expired/revoked key不得签新请求。privileged class仅 `{bootstrap,migration,restore,governance,
-emergency_root_cutover}`，继续要求独立 maintainer或 break-glass threshold离线批准；两类 signature不可互换。
+break_glass_incident_open,emergency_root_cutover}`，继续要求独立 maintainer或 break-glass threshold离线批准；两类 signature不可互换。非 incident-open anchor的 `privileged_transition_or_null`必须 literal null。
 每个 committed history/attempt/time successor须在释放成功 receipt或允许 broker write前，以 prior digest+epoch作为
 conditional CAS推进 anchor。ack丢失只可
 strong-read同 epoch row+HEAD并 byte/digest-match同 request ID确认，不得重写；并发/stale CAS只能一胜，
@@ -307,13 +308,10 @@ approval同时签该 exact recovery contract；缺失、阈值不足、同管理
 当 normal leaf/root rotation因 active key过期/撤销或 current threshold不可达而不可能满足 pre-state trust时，唯一
 恢复路径是 `trust_emergency_root_cutover`。authority先冻结 publication/broker与 normal governance，strong-read
 DynamoDB HEAD和其 exact encrypted backup set，完成 restore-grade AEAD/full-prefix/time-high-water验证；rollback、
-fork、pending anchor或 backup缺失时不得开始。然后构造 exact
-`incident_open_intent={schema_version:"GH700:break-glass-incident-open:v1",repo_node_id,recovery_incident_id,cause,
-current_anchor_digest,current_frontier,current_trust_epoch,recovery_policy_digest}`，`incident_open_intent_digest=SHA256(JCS(incident_open_intent))`；T3以 normal RFC3161 quorum生成
-incident-open proof及 interval，并 conditional anchor immutable `INCIDENT#<recovery_incident_id>` row。exact
-`incident_open_receipt={incident_open_intent_digest,trusted_time_proof_digest,trusted_lower_bound,
-trusted_upper_bound,prior_time_high_water,new_time_high_water,anchor_epoch,anchor_transaction_digest}`，其 `incident_open_receipt_digest=SHA256(JCS(incident_open_receipt))`；same incident same bytes幂等，异值冲突。
-
+fork、pending anchor或 backup缺失时不得开始。然后构造 exact `incident_open_intent={schema_version:"GH700:break-glass-incident-open:v1",repo_node_id,recovery_incident_id,cause,current_anchor_digest,current_publication_frontier,current_blocked_attempt_frontier,current_trust_epoch,recovery_policy_digest}`；两 frontier须 byte-equal HEAD且含 full-prefix，digest exact `SHA256(JCS(incident_open_intent))`。
+T3以 normal RFC3161 quorum生成 proof/interval后，在 global `anchor_commit_gate`内 transaction+FULL fsync永久 unique `incident_open_index[(repo_node_id,recovery_incident_id)]`、exact intent/proof bytes与 `db_committed_anchor_pending`；plan保持两 frontier不变、单调推进 time high water，且 `privileged_transition_or_null={transition_kind:"break_glass_incident_open",recovery_incident_id,incident_open_intent_digest,trusted_time_proof_digest,trusted_lower_bound,trusted_upper_bound}`。
+随后严格复用唯一 DB→encrypted snapshot/manifest/WAL exact-version backup→`break_glass_incident_open` threshold signature→同一 transaction append `EPOCH#<restore_epoch>`并 CAS `HEAD`→strong-read确认的 closed model；禁止 incident-specific DynamoDB row。exact `incident_open_receipt={incident_open_intent_digest,trusted_time_proof_digest,trusted_lower_bound,trusted_upper_bound,prior_time_high_water,new_time_high_water,anchor_plan_core_digest,backup_set_ref_digest,epoch_anchor_receipt_digest}`，digest为 `SHA256(JCS(incident_open_receipt))`。
+gate的 plan/finalized crash与 ack-loss规则原样适用；确认前零 receipt/cutover，same incident/same bytes返原 receipt，异值冲突。snapshot、recovery manifest、EPOCH signed payload与 restore replay必须完整包含并核验 incident index/state/proof/receipt及两 frontier。
 cutover须取得另一个 fresh trusted-time proof，exact
 `audit_delay_evidence={incident_open_receipt_digest,incident_open_trusted_upper_bound,
 cutover_trusted_lower_bound,minimum_audit_delay_seconds,cutover_trusted_time_proof_digest}`；intent digest须重算且 byte-equal anchored receipt字段，evidence的 receipt digest/upper bound须 byte-equal该 receipt，cutover lower bound/proof digest须 byte-equal fresh verified proof，minimum须 byte-equal manifest的 governance值，且 only-if
@@ -321,8 +319,8 @@ cutover_trusted_lower_bound,minimum_audit_delay_seconds,cutover_trusted_time_pro
 `audit_delay_evidence_digest=SHA256(JCS(audit_delay_evidence))`；interval overlap、host/client time、未 anchored
 open receipt、pre-state drift或 time-high-water rollback均拒绝。
 distinct recovery threshold signer只对含 `{incident_open_receipt_digest,audit_delay_evidence_digest}`的
-`{repo_node_id,cause,evidence_digest,current_anchor_digest,current_frontier,current_trust_epoch,new_bundle_digest,
-next_trust_epoch,recovery_incident_id,audit_log_digest,incident_open_receipt_digest,audit_delay_evidence_digest}`
+`{repo_node_id,cause,evidence_digest,current_anchor_digest,current_publication_frontier,current_blocked_attempt_frontier,
+current_trust_epoch,new_bundle_digest,next_trust_epoch,recovery_incident_id,audit_log_digest,incident_open_receipt_digest,audit_delay_evidence_digest}`
 做 domain-separated offline approval；new bundle须有全新 root、
 满足正常 threshold的 signer roster、单调 next epoch与 release-identity attestation。special envelope只接受该
 bootstrap-pinned recovery chain，不要求已失效 old key；它 append exact-predecessor emergency record，再将新的 encrypted
@@ -331,7 +329,8 @@ anchor确认前 old state仍 active且零 write/receipt；确认后只从 anchor
 cause证据、参与 signer、incident-open/cutover trusted-time proofs与 intervals、backup/anchor request/read-back及 cutover receipt永久保留且可独立审计；
 不能改写旧 history、降低 time/frontier、重置 bootstrap或跳过 external anchor。recovery roster本身不足 threshold时
 系统保持 blocked，只能通过另一个已 bootstrap-pinned recovery threshold，绝无单人/admin/manual DB bypass。
-
+approval的 `current_anchor_digest`必须 byte-equal incident-open EPOCH/HEAD successor digest，两个 current frontier必须
+byte-equal该 anchor内的 unchanged frontiers；任何 pre-state drift都须重新开始新的 incident。
 first history record的 predecessor必须是 first frontier并由 initial trusted leaf签名，或按上述 special envelope
 执行 exact emergency cutover；其后 `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked,
 trust_emergency_root_cutover}` 可在首次 eligible valid publication之前按各自 normal/emergency authorization追加。
