@@ -252,11 +252,17 @@ accuracy overlap、restart/snapshot rollback、heartbeat-vs-takeover race与 anc
 deployment manifest 的 `bootstrap_governance` exact 为
 `{bootstrap_version,release_identity_root_digest,governance_roster_digest,governance_threshold,
 governance_signer_key_ids,initial_trust_bundle_digest,initial_trust_epoch,first_frontier,
-first_blocked_attempt_frontier,initial_time_high_water,initial_time_proof_digest,bootstrap_approval_digest}`。
+first_blocked_attempt_frontier,initial_time_high_water,initial_time_proof_digest}`。
 release-identity root在 store/history/AWS accounts之外，
 签 roster attestation并把 canonical distinct signer key IDs、`1 <= threshold <= signer_count`、repo/purpose、
-initial trust root/leaf certificates与 epoch钉住；bootstrap approval须由 roster中 distinct threshold signers共同
-签 exact manifest digest。self-signed/TOFU、重复 signer、阈值不足、root/roster/epoch drift均拒绝。
+initial trust root/leaf certificates与 epoch钉住。`bootstrap_manifest_core_digest` exact 为
+`SHA256(JCS(deployment_manifest_core))`，core 是完整 closed deployment manifest payload 且不含任何
+signature/attestation/approval envelope。detached `bootstrap_approval` exact 为
+`{bootstrap_manifest_core_digest,release_identity_attestation_digest,governance_roster_digest,
+governance_threshold,signer_key_ids,threshold_signatures}`；roster 中 distinct threshold signers 只签
+`SHA256(JCS({v:"GH700:bootstrap-manifest-approval:v1",bootstrap_manifest_core_digest}))`，
+`bootstrap_approval_digest=SHA256(JCS(bootstrap_approval))` 仅进入 receipt/anchor，不回填 manifest core。
+self-signed/TOFU、重复 signer、阈值不足、core/signature/root/roster/epoch drift均拒绝。
 
 `first_frontier` 唯一为 length zero：`repo_node_id` exact，`history_length=0`，`history_root` exact 为
 `SHA256(JCS({v:"GH700:history-empty-root:v1",repo_node_id}))`，`full_prefix_digest` exact 为
@@ -285,7 +291,7 @@ T3 bootstrap只在 DB/anchor均不存在时，以
 threshold approval、RFC3161 quorum initial-time proof和外部 release-identity attestation原子创建 SQLite
 genesis/trust state，再以 DynamoDB epoch-zero conditional transaction锚定 first frontier、zero blocked-ledger
 frontier及 initial time high water；两侧任一已存在只可 byte/digest match，不能重置。bootstrap receipt exact
-绑定 manifest/root/roster/threshold/signer set、first frontier、trust epoch、time proof与 anchor transaction。
+绑定 `bootstrap_manifest_core_digest`/`bootstrap_approval_digest`、root/roster/threshold/signer set、first frontier、trust epoch、time proof与 anchor transaction。
 
 deployment manifest同时必须有独立 `break_glass_governance={recovery_root_digest,recovery_roster_digest,
 recovery_threshold,recovery_signer_key_ids,allowed_causes,minimum_audit_delay_seconds,recovery_policy_digest}`。
