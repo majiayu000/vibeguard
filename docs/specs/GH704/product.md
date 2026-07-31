@@ -167,8 +167,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    crash 后不得遗留进程、锁、临时原文或继续启动新请求。
 10. B-010: cold/warm `core_us` 与每个真实 installed hook path（至少 direct 与
     Codex wrapper）的 `hook_e2e_ms` 必须作为独立 fixture/result 分开测量 P50/P95/P99/
-    max、样本数、platform、model identity 与 cache state；不得把两个 installed path
-    合并计时或共用一个结果。未达到 H-006 或现有 hook SLA 时相关 rollout 状态不得提升。
+    max、样本数、platform、model identity 与 cache state。core fixture 固定为
+    `semantic-defense-core-cold-cache` / `semantic-defense-core-warm-cache`，installed
+    fixture 固定为 direct/wrapper × cold/warm；core 与 installed path 不得合并计时、
+    共用结果或互相替代。未达到 H-006 或现有 hook SLA 时相关 rollout 状态不得提升。
 11. B-011: cache key 必须绑定 exact input digest、dependency inventory digest、
     detector/model/protocol/policy identity、项目 scope 与 `session_id`；source/dependency/
     model/policy/project/session 改变必须失效。仅同一 project + session 内的并发相同请求
