@@ -19,7 +19,31 @@ SH
 cat > "${standalone_systemd_bin}/systemctl" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${VIBEGUARD_TEST_SYSTEMCTL_LOG}"
-exit 0
+[[ "${1:-}" == "--user" ]] && shift
+case "${1:-}" in
+  stop|disable|daemon-reload|list-timers)
+    exit 0
+    ;;
+  is-active)
+    printf 'inactive\n'
+    exit 3
+    ;;
+  is-enabled)
+    printf 'disabled\n'
+    exit 1
+    ;;
+  enable)
+    if [[ "${VIBEGUARD_TEST_SYSTEMD_ENABLE_FAIL_ONCE:-0}" == "1" \
+      && ! -e "${VIBEGUARD_TEST_SYSTEMD_FAIL_MARKER}" ]]; then
+      : > "${VIBEGUARD_TEST_SYSTEMD_FAIL_MARKER}"
+      exit 1
+    fi
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
 SH
 chmod +x "${standalone_systemd_bin}/uname" "${standalone_systemd_bin}/systemctl"
 
@@ -38,11 +62,23 @@ assert_cmd "fresh standalone install writes both systemd units" bash -c \
   "${standalone_fresh_home}/.config/systemd/user/vibeguard-gc.timer"
 
 standalone_fresh_receipt="${standalone_fresh_home}/.vibeguard/scheduler-ownership"
-mkdir -p "$(dirname "${standalone_fresh_receipt}")"
-printf 'schema=1\nkind=systemd\nphase=managed\nservice_sha256=%s\ntimer_sha256=%s\n' \
-  "$(shasum -a 256 "${standalone_fresh_home}/.config/systemd/user/vibeguard-gc.service" | awk '{print $1}')" \
-  "$(shasum -a 256 "${standalone_fresh_home}/.config/systemd/user/vibeguard-gc.timer" | awk '{print $1}')" \
-  > "${standalone_fresh_receipt}"
+standalone_fresh_service_sha="$(
+  shasum -a 256 \
+    "${standalone_fresh_home}/.config/systemd/user/vibeguard-gc.service" \
+    | awk '{print $1}'
+)"
+standalone_fresh_timer_sha="$(
+  shasum -a 256 \
+    "${standalone_fresh_home}/.config/systemd/user/vibeguard-gc.timer" \
+    | awk '{print $1}'
+)"
+assert_cmd "fresh standalone install records exact systemd ownership" bash -c \
+  'grep -qFx "phase=managed" "$3" \
+    && grep -qFx "service_sha256=$1" "$3" \
+    && grep -qFx "timer_sha256=$2" "$3"' _ \
+  "${standalone_fresh_service_sha}" \
+  "${standalone_fresh_timer_sha}" \
+  "${standalone_fresh_receipt}"
 : > "${standalone_fresh_log}"
 assert_cmd "documented systemd installer preserves valid-owned refresh behavior" \
   env HOME="${standalone_fresh_home}" \
@@ -51,6 +87,8 @@ assert_cmd "documented systemd installer preserves valid-owned refresh behavior"
   bash "${REPO_DIR}/scripts/install-systemd.sh"
 assert_cmd "valid-owned standalone refresh still invokes systemd" \
   test -s "${standalone_fresh_log}"
+
+source "${REPO_DIR}/tests/setup/systemd_refresh_transaction_tests.sh"
 
 standalone_malformed_home="${TMP_HOME}/standalone-systemd-malformed-home"
 standalone_malformed_dir="${standalone_malformed_home}/.config/systemd/user"
@@ -159,6 +197,21 @@ cat > "${systemd_remove_bin}/systemctl" <<'SH'
 #!/usr/bin/env bash
 [[ "${1:-}" == "--user" ]] && shift
 case "${VIBEGUARD_TEST_SYSTEMD_REMOVE_MODE:-success}:${1:-}" in
+  service-active:stop)
+    [[ "${2:-}" == "vibeguard-gc.service" ]] && exit 9
+    exit 0
+    ;;
+  service-active:is-active)
+    if [[ "${2:-}" == "vibeguard-gc.service" ]]; then
+      printf 'active\n'
+      exit 0
+    fi
+    printf 'inactive\n'
+    exit 3
+    ;;
+  service-active:*)
+    exit 0
+    ;;
   success:stop|success:disable|success:daemon-reload) exit 0 ;;
   success:is-active) printf 'inactive\n'; exit 3 ;;
   success:is-enabled) printf 'disabled\n'; exit 1 ;;
@@ -207,6 +260,30 @@ assert_cmd "failed systemd deactivation preserves units and ownership receipt" b
   "${systemd_remove_failure_dir}/vibeguard-gc.service" \
   "${systemd_remove_failure_dir}/vibeguard-gc.timer" \
   "${systemd_remove_failure_receipt}"
+
+systemd_service_failure_home="${TMP_HOME}/systemd-service-failure-home"
+systemd_service_failure_dir="${systemd_service_failure_home}/.config/systemd/user"
+systemd_service_failure_receipt="${systemd_service_failure_home}/.vibeguard/scheduler-ownership"
+mkdir -p "${systemd_service_failure_dir}" \
+  "$(dirname "${systemd_service_failure_receipt}")"
+printf '[Service]\n' > "${systemd_service_failure_dir}/vibeguard-gc.service"
+printf '[Timer]\n' > "${systemd_service_failure_dir}/vibeguard-gc.timer"
+printf 'schema=1\nkind=systemd\nphase=managed\nservice_sha256=%s\ntimer_sha256=%s\n' \
+  "$(shasum -a 256 "${systemd_service_failure_dir}/vibeguard-gc.service" | awk '{print $1}')" \
+  "$(shasum -a 256 "${systemd_service_failure_dir}/vibeguard-gc.timer" | awk '{print $1}')" \
+  > "${systemd_service_failure_receipt}"
+systemd_service_failure_rc=0
+HOME="${systemd_service_failure_home}" PATH="${systemd_remove_bin}:${PATH}" \
+  VIBEGUARD_TEST_SYSTEMD_REMOVE_MODE=service-active \
+  bash "${REPO_DIR}/scripts/install-systemd.sh" --remove >/dev/null 2>&1 \
+  || systemd_service_failure_rc=$?
+assert_cmd "systemd remover fails when oneshot service inactivity is not proven" \
+  test "${systemd_service_failure_rc}" -ne 0
+assert_cmd "active service preserves standalone units and ownership receipt" bash -c \
+  'test -f "$1" && test -f "$2" && test -f "$3"' _ \
+  "${systemd_service_failure_dir}/vibeguard-gc.service" \
+  "${systemd_service_failure_dir}/vibeguard-gc.timer" \
+  "${systemd_service_failure_receipt}"
 
 systemd_reload_failure_home="${TMP_HOME}/systemd-reload-failure-home"
 systemd_reload_failure_dir="${systemd_reload_failure_home}/.config/systemd/user"
