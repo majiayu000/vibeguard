@@ -28,7 +28,7 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 | H-001 | 默认与 consent 模式 | `install_confirmed_default_on`：受支持平台的完整安装计划明确列出本地周任务；用户确认整体安装后默认注册，并提供同层级 `--no-weekly-value` opt-out | `first_run_prompt`；维持 `opt_in_only` | 未批准 |
 | H-002 | 平台与 scheduler | `macos_launchd_linux_systemd`；同一 owned value scheduler 同时承载本地 coverage-authority heartbeat，Draft cadence/expiry 为 5/15 分钟；Windows 明确 `unsupported`，不得回退 cron 或伪报成功 | Linux 继续 `cron`；仅 macOS；不同 heartbeat cadence/expiry | 未批准 |
 | H-003 | 价值 taxonomy 与 decision 集 | `versioned_local_taxonomy`：独立、闭集、版本化；headline 只统计已批准的真实 rule `block`，与 GH-700 名称对齐但不等待其实现 | 与 GH-700 共用同一 taxonomy 并形成硬依赖；统计 `block+correction` | 未批准 |
-| H-004 | window、scope 与 catch-up | `previous_local_calendar_week_global`：用户本地时区、上一个完整周、global scope；首次不足整周标 `partial_coverage`，missed run 最多补一次 | rolling 7 days；per-project 周报；UTC calendar week | 未批准 |
+| H-004 | window、scope、catch-up 与 snapshot budgets | `previous_local_calendar_week_global`：用户本地时区、上一个完整周、global scope；首次不足整周标 `partial_coverage`，missed run 最多补一次；批准时还必须固定 `max_source_files`、`max_uncompressed_bytes`、`max_snapshot_elapsed_ms`，本 Draft 不替维护者填写数值 | rolling 7 days；per-project 周报；UTC calendar week；不同 bounded budget values | 未批准 |
 | H-005 | privacy 与 export | `allowlisted_local_export`：默认仅本地；分享文件只含闭集计数、窗口、coverage、taxonomy version 和摘要 digest；分享必须由用户显式导出，无网络/剪贴板副作用 | 含 rule IDs 的扩展分享；显式上传集成 | 未批准 |
 | H-006 | 用户 surface | `separate_value_summary`：简洁 value summary 与完整 maintainer health report 分离，均支持 Markdown/JSON | 在完整 health report 顶部增加可分享 section；仅 Markdown | 未批准 |
 | H-007 | install/upgrade/disable/clean 生命周期 | `transactional_owned_job`：只管理 VibeGuard-owned job 与独立 coverage-authority state，失败不报告安装完成，opt-out 跨升级保留，clean 移除 job 但默认保留报告 | scheduler/authority 失败只降级为 warning；clean 默认删除报告 | 未批准 |
@@ -135,7 +135,9 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 24. B-024 历史摘要的保留期和上限必须固定且可见；ownership evidence 必须按 B-042
     独立于当前 summary schema/version。retention 只删除 receipt 与当前打开对象的
     non-reusable identity、digest 和 artifact identity 全部匹配且超期的历史 summary；
-    不删除 event logs、手工 export、用户移动/改名/替换的文件。
+    claim 与删除都必须由平台 primitive 对 expected identity 做 atomic conditional 操作；
+    平台无法提供时必须保留 candidate 并 fail visible。不删除 event logs、手工 export、
+    用户移动/改名/替换的文件。
 25. B-025 升级遇到 GH-556 已存在的 opt-in health scheduler 时，必须识别其
     surface、参数和 owner；不得静默把它替换成 value scheduler、创建重复 job，
     或把旧 opt-in 当成 H-001 的 consent evidence。
@@ -202,13 +204,17 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 39. B-039 `summary_digest` 只绑定稳定内容：source event-set、完整 window（含
     `coverage_status`）、`data_status`、closed status reason、scope、taxonomy、exact
     producer version、producer schema 与 counts；不得包含 `generated_at`、attempt time 或 renderer metadata。
-    同一稳定输入重试必须得到同一 digest，不同 evidence 必须得到不同 digest。
+    同时存在多个 failure facts 时，producer 必须先收集完整 closed candidate set，再按 tech 固定优先级
+    选择唯一 `status_reason`；不得依赖扫描或错误发现顺序。同一稳定输入重试必须得到同一 digest，
+    不同 evidence 必须得到不同 digest。
 40. B-040 scheduler lifecycle、artifact freshness、report data status 与
     ownership/retention health 是四个正交的
     closed dimensions；任一维缺失、未知或非法组合均 fail visible，不能用 `no_data`/
     `stale` 覆盖健康 active scheduler，也不能用 active 掩盖 stale/invalid artifact。合法
     artifact/data/retention combination 必须由 tech 的 closed table 固定，不能留给
-    schema/renderer 自选；retention failure 不得伪装成 scheduler `broken`。
+    schema/renderer 自选；从未提交 ownership receipt 但已存在 malformed/foreign current 时，
+    `invalid + null + not_initialized` 是合法且必须可表示的组合。retention failure 不得伪装成
+    scheduler `broken`。
 41. B-041 summary generation、publish 和 retention 必须与 disable/clean/upgrade 使用
     同一有界 lock/lease 顺序。每次 enable/disable/clean 以及任何改变 wrapper/runtime/
     taxonomy/schema 或 generator inputs 的 upgrade 必须推进 durable monotonic lifecycle
@@ -218,7 +224,10 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 42. B-042 retention ownership 必须由独立、版本化、durable 的 owned-artifact evidence
     证明，而不能只靠 artifact 通过当前 schema 或历史路径 receipt。删除前必须用 no-follow
     打开的 current file identity、artifact digest 与随机 artifact identity 重新匹配 receipt；
-    任一不匹配均视为用户替换/unknown，保留文件并在独立 retention health 维度报错。
+    取得 lifecycle lock 后仍只能用绑定 expected non-reusable identity 的 atomic conditional
+    claim/unlink，普通 pathname rename/unlink 不构成授权。claim 后必须在 private quarantine
+    重开并再次匹配同一 identity；任一步竞态、不匹配或平台不支持 conditional primitive 均视为
+    用户替换/unknown，保留原路径与任何已 claim 对象，不删除并在独立 retention health 维度报错。
     ledger 损坏时停止删除，不得猜测或删除 unknown 文件。
 
 ## 验收标准
@@ -251,7 +260,8 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
   ownership/retention health 的组合以及 stale/tampered evidence 给出确定性、可操作结果。
 - [ ] generation 与 disable/clean/upgrade 的 race 不产生 lifecycle 成功后的 late publish；
   clean 或 input-changing upgrade 前已启动但仍在等待 lock 的 generator 被旧 token 拒绝；
-  retention 遇到跨 schema receipt、损坏 ledger 或用户替换 path 时停止不安全删除并保持文件不变。
+  retention 遇到跨 schema receipt、损坏 ledger、缺少 identity-conditional primitive 或用户在
+  verify/claim/delete barrier 替换 path 时停止不安全删除并保持用户对象不变。
 - [ ] checkout 与 GH-699 payload/package-manager entry 的真实 smoke 输出同一
   taxonomy/version/count/digest，并证明 payload 运行不依赖 repository checkout。
 

@@ -61,7 +61,8 @@ spec approval 必须把 H-001 至 H-008 的 selected value 写回 product/tech�
 
 H-002 还必须附 local coverage authority backend、heartbeat cadence/expiry 与 owned job
 identity；H-003 必须附闭集 taxonomy snapshot；H-004 必须附 window/timezone/catch-up
-状态机；H-005 必须附 share allowlist；H-007 必须附 scheduler/authority failure、recovery
+状态机与明确正整数 `max_source_files`、`max_uncompressed_bytes`、`max_snapshot_elapsed_ms`
+snapshot budgets；H-005 必须附 share allowlist；H-007 必须附 scheduler/authority failure、recovery
 和 clean policy。
 缺任一 selection-specific 字段时 spec 仍是 Draft。
 
@@ -118,6 +119,11 @@ envelope：
 `complete_nonempty|complete_empty|source_missing|ledger_gap|ledger_corrupt|
 writer_coverage_unavailable|archive_missing|archive_corrupt|archive_tombstoned|
 legacy_evidence|snapshot_changed|budget_exceeded`，禁止 free text 或扩展值。
+producer 必须先完成 candidate fact collection，再从所有适用的 partial reasons 按固定高到低顺序
+`ledger_corrupt > writer_coverage_unavailable > ledger_gap > source_missing > archive_corrupt >
+archive_missing > archive_tombstoned > legacy_evidence > snapshot_changed > budget_exceeded`
+选择唯一 `status_reason`；扫描/枚举/错误发现顺序不得改变选择。`complete_empty` 或
+`complete_nonempty` 只在 candidate set 没有任何 partial reason 且 coverage complete 时选择。
 `no_data` 只允许 `coverage_status=complete`、`status_reason=complete_empty` 且 event set 为空；
 任何 coverage 缺口优先产生 `partial_coverage`，即使 event set 同样为空。`counts` 在
 `no_data` 或 `partial_coverage` 时必须为 null/absent（最终形状由获批 H-004 固定），
@@ -256,9 +262,15 @@ chain digest。mutable lifecycle
 state 只记录已提交 ledger head，不作为唯一 ownership 证据。
 历史 retention 在 lifecycle lock 内从安全 parent directory handle 以 no-follow 打开 candidate，
 重新计算 digest/length、读取 embedded `artifact_id` 并核对 current file identity；全部与 receipt
-一致后才可 atomic rename 到 private quarantine，重开并再次核对同一 identity 后删除。路径相同但
-inode/birth marker、digest 或 artifact ID 不同，或验证期间发生 race，必须按用户替换/unknown
-保留并把 `retention_health` 降级；不能要求 artifact 通过当前 summary schema，但旧 receipt
+一致后，claim 必须由平台 primitive 在同一 parent handle 下执行“仅当 source directory entry 仍映射
+expected non-reusable identity 且 quarantine name 不存在时 atomic rename”。普通 pathname rename、
+先 compare 后 rename 或覆盖既有 quarantine 均禁止；平台无 identity-conditional claim primitive 时
+自动 retention 对该 candidate unsupported，保持原路径不变并设 `retention_health=degraded`。
+成功 claim 后从 mode 0700 private quarantine 以 no-follow 重开，再核对同一 identity/digest/artifact ID；
+最终 unlink 同样必须 identity-conditional。post-claim mismatch/race 时不得删除或无条件 restore；保留
+原路径上的任何用户对象与 quarantine 对象，记录可操作 recovery evidence，并设
+`retention_health=blocked`。路径相同但 inode/birth marker、digest 或 artifact ID 不同，或任一 barrier
+发生 race，都按用户替换/unknown 处理。不能要求 artifact 通过当前 summary schema，但旧 receipt
 必须携带可验证的 identity version 才能删除。ledger chain/nonce/head 损坏或矛盾时停止全部
 自动删除并设 `retention_health=blocked`，不得改写 `scheduler_state`。receipt/state/publish
 必须通过同一 pending→atomic commit 恢复协议。
@@ -297,8 +309,8 @@ schemas/weekly-value-state.schema.json 约束，至少包含：
   `repair_action` closed 为 `none|manual_enable|repair_target|retry_install`；两者只
   解释 `broken` 的恢复路径，不形成新的 lifecycle state。
 
-`scheduler_state` 不限制其它三个维度；每个 lifecycle 值只能与下表 25 个
-artifact/data/retention combination 组合，因此形成 exact 4 × 25 closed legal matrix，
+`scheduler_state` 不限制其它三个维度；每个 lifecycle 值只能与下表 26 个
+artifact/data/retention combination 组合，因此形成 exact 4 × 26 closed legal matrix，
 而不是由 renderer 猜测：
 
 | `artifact_state` | legal `data_status` | legal `retention_health` | combination 数 | 语义 |
@@ -306,7 +318,7 @@ artifact/data/retention combination 组合，因此形成 exact 4 × 25 closed l
 | `current` | `ok|no_data|partial_coverage` | `healthy|degraded|blocked` | 9 | current artifact 已验证；retention failure 不改变它的数据真值 |
 | `stale` | `ok|no_data|partial_coverage` | `healthy|degraded|blocked` | 9 | 保留上一个已验证 artifact，但 freshness 不再成立 |
 | `missing` | `null` | `healthy|degraded|blocked|not_initialized` | 4 | 没有可验证 current；history ledger 可独立存在或尚未初始化 |
-| `invalid` | `null` | `healthy|degraded|blocked` | 3 | current evidence 不可验证，禁止沿用旧 data status |
+| `invalid` | `null` | `healthy|degraded|blocked|not_initialized` | 4 | current evidence 不可验证，禁止沿用旧 data status；`not_initialized` 表示从未提交 receipt 但已有 malformed/foreign current |
 
 其它 combination、unknown enum、缺任一维度均 schema-invalid，并在对应维度 fail visible；
 例如 `active+current+no_data+blocked` 与 `disabled_by_user+stale+ok+degraded` 合法，
@@ -471,6 +483,7 @@ JSON：
     "tests/hooks/test_log_timer.sh",
     "tests/hooks/test_post_build_check.sh",
     "tests/hooks/test_post_edit_churn.sh",
+    "tests/hooks/test_pre_bash_guard.sh",
     "tests/hooks/test_pre_edit_guard.sh",
     "tests/hooks/test_precommit_nested_roots.sh",
     "tests/setup/install_flow_tests.sh",
@@ -497,6 +510,7 @@ JSON：
     "vibeguard-runtime/src/event_coverage_tests.rs",
     "vibeguard-runtime/src/event_schema.rs",
     "vibeguard-runtime/src/hook_checks.rs",
+    "vibeguard-runtime/src/hook_checks_bash.rs",
     "vibeguard-runtime/src/hook_checks_common.rs",
     "vibeguard-runtime/src/hook_checks_history.rs",
     "vibeguard-runtime/src/hook_checks_tests.rs",
@@ -558,7 +572,7 @@ JSON：
 
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
-| B-001 decisions are explicit and complete | Spec approval gate and H decision snapshot | focused workflow check rejects missing/double H selection before tasks; manual review compares selected values with updated manifest |
+| B-001 decisions are explicit and complete | Spec approval gate and H decision snapshot | focused workflow check rejects missing/double H selection and H-004 without all three positive snapshot budgets before tasks；manual review compares selected values with updated manifest |
 | B-002 default install produces scheduled summary after one install confirmation | setup plan + value scheduler integration | `bash tests/test_setup.sh` fresh macOS/Linux fixtures assert summary + 5m/15m heartbeat plan disclosure, one confirmation, active job and next-window artifact |
 | B-003 narrow GH-556 supersession | surface dispatch in wrapper/installer | `bash tests/test_health_report_scheduler.sh` asserts standalone health remains opt-in/default-health while setup invokes explicit value surface |
 | B-004 opt-out creates no job | setup option + weekly state | `bash tests/test_setup.sh` asserts `--no-weekly-value`, no manager entry and `disabled_by_user` |
@@ -581,7 +595,7 @@ JSON：
 | B-021 no automatic egress or clipboard | wrapper/runtime static and dynamic fixtures | `bash tests/test_payload.sh` PATH stubs fail on network/open/clipboard commands; explicit local writes still pass |
 | B-022 secure atomic local writes | wrapper temp/permission/symlink checks | interrupted write, mode 0600, same-dir rename, symlink/non-owned-output negative fixtures |
 | B-023 health/value surfaces independent | wrapper/installer closed surface dispatch | `bash tests/test_health_report_scheduler.sh` installs/disables each identity independently and compares outputs |
-| B-024 bounded owned retention | current-identity receipts + value history cleanup | stale/fresh/boundary/manual-export fixtures prove only expired entries whose opened file ID/digest/artifact ID still match are removed；same-path user replacement is preserved |
+| B-024 bounded owned retention | current-identity receipts + identity-conditional value history cleanup | stale/fresh/boundary/manual-export fixtures prove only expired entries whose opened file ID/digest/artifact ID still match are removed；deterministic replace-before-claim、replace-at-claim、replace-before-unlink and unsupported-primitive fixtures preserve user objects and fail visible |
 | B-025 existing health job migration safety | migration detector | legacy launchd/cron fixtures remain byte-identical while new value state does not claim legacy consent |
 | B-026 disabled state survives upgrade | weekly-value state schema + setup migration | two-version install fixture keeps `disabled_by_user`; missing-field fixture follows approved visible migration |
 | B-027 legal transitions require probe | lifecycle transition gate | direct file injection/history-only/executable-only fixtures remain non-active; explicit enable + probe becomes active |
@@ -592,14 +606,14 @@ JSON：
 | B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` current clients accepted; unknown/incompatible/missing-identity evidence excluded with coverage gap |
 | B-033 artifact evidence binding | stable content digest verifier + doctor/export | generated/attempt metadata changes preserve digest；tampered coverage/data/status reason/evidence/window/taxonomy changes alter/reject digest |
 | B-034 interruption recovery | pending state + atomic publish/lifecycle recovery | kill-at-each-phase fixtures followed by retry leave one owned job/current artifact and no temp/pending success claim |
-| B-035 closed live+archive snapshot | versioned coverage ledger + side-channel spool + independent monotonic coverage authority + GC-compatible reader | continuous 5m heartbeat over an empty window proves no-data；dual ledger/spool loss leaves an unresolved authority attempt sequence and is partial；late/missing heartbeat、authority crash/restart、15m expiry and recovery gap are partial；GC/concurrent fixtures cover pre-scan loss、safe watermark compaction and missing/corrupt archive；`bash tests/hooks/test_pre_edit_guard.sh` proves coverage failure never changes guard decision/exit semantics |
-| B-036 structured classification at creation | event schema v2 + all Rust/shell writers and searched v1 consumers | schema/hook/Rust CLI fixtures require contract-versioned typed fields and typed protocol codes while preserving v1 health/stats/metrics/session/history consumers；unknown schema is fail-visible |
+| B-035 closed live+archive snapshot | versioned coverage ledger + side-channel spool + independent monotonic coverage authority + GC-compatible reader | continuous 5m heartbeat over an empty window proves no-data；dual ledger/spool loss leaves an unresolved authority attempt sequence and is partial；late/missing heartbeat、authority crash/restart、15m expiry and recovery gap are partial；H-004-selected file/byte/time budget boundaries deterministically produce complete or `budget_exceeded`；GC/concurrent fixtures cover pre-scan loss、safe watermark compaction and missing/corrupt archive；`bash tests/hooks/test_pre_edit_guard.sh` proves coverage failure never changes guard decision/exit semantics |
+| B-036 structured classification at creation | event schema v2 + all Rust/shell writers, `hook_checks_bash.rs`, and searched v1 consumers | `vibeguard-runtime/tests/cli_hook_checks.rs` and `bash tests/hooks/test_pre_bash_guard.sh` require pre-Bash typed decision reason codes before orchestrator logging；remaining schema/hook/Rust CLI fixtures preserve v1 health/stats/metrics/session/history consumers and make unknown schema fail visible |
 | B-037 byte-stable event identity | writer-generated event ID + GC byte preservation | append→rotate→gzip→read fixture preserves ID; copy dedupes, real retry differs, legacy/duplicate ID downgrades coverage |
 | B-038 headline publication gate | summary schema + all renderers | empty, partial and invalid evidence fixtures assert null/absent counts in internal/share/Markdown; complete nonempty evidence may contain true zero |
-| B-039 stable summary digest | canonical stable-content projection | same evidence with different generated/attempt/renderer metadata yields identical digest；exact coverage/data/status reason/producer version/event/taxonomy/window changes differ |
-| B-040 orthogonal state dimensions | state schema + doctor/verify | exact 4 × 25 scheduler × artifact/data/retention table proves no dimension overwrites another；every omitted/extra/unknown combination fails visible |
+| B-039 stable summary digest | canonical stable-content projection + fixed status precedence | permutations of the same simultaneous failure facts select the same highest-precedence reason/digest；generated/attempt/renderer metadata changes preserve digest；exact coverage/data/status reason/producer version/event/taxonomy/window changes differ |
+| B-040 orthogonal state dimensions | state schema + doctor/verify | exact 4 × 26 scheduler × artifact/data/retention table includes `invalid+null+not_initialized` and proves no dimension overwrites another；every omitted/extra/unknown combination fails visible |
 | B-041 generation/lifecycle exclusion | one lifecycle lock + snapshot-bound generation fence + pending transaction | deterministic barriers race publish/retention against disable/clean/input-changing upgrade；pre-operation queued waiter with old generation/snapshot token exits zero-write，including upgrade success and rollback |
-| B-042 current-object ownership | versioned receipt + no-follow current identity verification | matching old identity versions may be bounded；same-path replace/in-place edit/symlink/race/corrupt ledger fixtures preserve candidate，set degraded/blocked retention health and keep scheduler truth unchanged |
+| B-042 current-object ownership | versioned receipt + identity-conditional claim/unlink + post-claim verification | matching old identity versions may be bounded；barriers at verify→claim、claim→reopen and reopen→unlink plus unsupported primitive、same-path replace、in-place edit、symlink and corrupt ledger fixtures preserve user objects/quarantine evidence，set degraded/blocked retention health and keep scheduler truth unchanged |
 
 ## 数据流
 
@@ -676,7 +690,7 @@ bootstrap 边界，不属于 summary producer。
   parity smoke 限制风险。
 - **Platform**：launchd/systemd 的时区、DST、missed-run 与权限语义不同。窗口由
   wrapper 显式计算，runtime 复核；未获批平台 fail visible。
-- **Performance**：周度扫描可能遇到大量 gzip archives。获批 H-004/H-007 必须固定
+- **Performance**：周度扫描可能遇到大量 gzip archives。获批 H-004 必须固定
   file/byte/time budgets；snapshot 打开 handle 后可释放 GC lock，但 generator 仍持有
   lifecycle lock。任何超限只能 partial/failed，不能截断后声称 complete。
 - **Concurrency / data loss**：GC rotation、generator publish、coverage authority heartbeat 与
@@ -702,7 +716,7 @@ bootstrap 边界，不属于 summary producer。
   preservation、authority state ownership、repeat/concurrent install、missed run、generation-vs-disable/clean/upgrade race、
   current-identity retention、same-path user replacement、pre-clean/pre-upgrade queued generator fence、
   interrupt recovery。
-- [ ] Setup lifecycle：默认 plan disclosure、`--no-weekly-value`、unsupported、exact 4 × 25
+- [ ] Setup lifecycle：默认 plan disclosure、`--no-weekly-value`、unsupported、exact 4 × 26
   orthogonal-state doctor/verify matrix、clean/purge ownership。
 - [ ] Payload：无 Python/checkout/network 的 unpacked payload install → scheduled
   summary → doctor → clean；checkout/payload exact semantic parity。
