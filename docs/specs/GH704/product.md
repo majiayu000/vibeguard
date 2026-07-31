@@ -323,7 +323,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     projection_prepared → all_activated → projection_queued → done → projection_done`；
     barrier 前允许 durable abort + 幂等 rollback，barrier 后只允许向前恢复。canonical
     outcome、任一 consumer activation、precision、Learn 与 aggregate 单独都不可见；
-    **所有 reader 只 join 同一 `all_activated` barrier digest**。barrier 绑定 decision、
+    project-local canonical reader 只 join 同一 `all_activated` barrier digest；global aggregate/
+    status 与 enforcement/history reader 还必须 join matching durable projection acknowledgement，
+    缺少时 lag + empty/zero-use。barrier 绑定 decision、
     ordered stage/activation receipts、schema/identity 与前序 digest；partial activation
     必须按 exact key/digest 幂等补齐或回滚。每一 transition/consumer 的 before/after
     crash 都必须有“不可见且不计数”的负例。完成前不得声称 tracked precision、Learn
@@ -394,8 +396,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     run 使用同一状态和 identities，并区分 `off/unavailable/error/unknown/advisory/
     block/pass`。无数据为空值；不得隐藏 L2 error、raw source、secret、完整 HOME path
     或未脱敏 model output。completed advisory/block/pass 只能从 canonical project
-    `all_activated` barrier 渲染，且所有 consumer reader/aggregate 必须 join 同一 barrier
-    digest；已持久化但 barrier 前的 failure 从 bounded WAL/queue
+    `all_activated` barrier 渲染；project-local consumer join barrier，global aggregate/status 与
+    enforcement/history 还必须 join matching durable projection acknowledgement。已持久化但 barrier 前的 failure 从 bounded WAL/queue
     渲染。lock/WAL open/initial prepare 之前的 failure，以 typed in-memory error 作为仅限
     当前 hook response 的权威源，标记 `persistence_unavailable`、`finalized=false`、
     empty decision/event ID；后续 status 不得伪造历史，只显示 durable no-data + current
@@ -450,7 +452,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 - [ ] canonical structured `rule_id/signal_id/evidence_digest` 从 runtime 唯一投影到
       precision、metrics 和 Learn；project journal 是唯一权威，bounded reconciliation
       对超大/失败 backlog 停止新 L2 增长，global projection failure 可见且重放收敛，
-      单一 group-commit 的 `all_activated` barrier 是所有 reader/aggregate 唯一可见点，
+      单一 group-commit 的 `all_activated` barrier 是 project-local reader 唯一可见点；global/
+      enforcement/history 还需 globally enumerable matching projection acknowledgement，
       partial activation 可幂等补齐/回滚，reconcile byte/time cap 的最小合法值能完成最大 atomic
       record，slow/hung I/O 的 cancellation teardown 也进 floor 且无返回后续写，concurrent global registration 串行且 orphan 可 completion/tombstone/reclaim，
       prepare/queue/sequencer 不丢 payload、不重用 offset 且 serialized append 无洞；applied reservation 在释放前原子转入 exact-route keyed receipt
