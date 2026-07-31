@@ -1,10 +1,11 @@
 # GH700 Publication History Contract
 
-本文件是 `product.md` B-017/B-018 与 `tech.md` publication machine 的规范性组成部分，
-隔离完整 publication ownership、mutation-secret、append-only history、blocked-attempt ledger、trusted time、trust/fold 与
-owner-liveness 概念边界。引用方可以通过链接或行为场景引用这里已经定义的 identifier，
+本文件与 [publication authority API / blocked-attempt contract](publication_ledger_contract.md) 及
+[publication conformance vectors](publication_conformance_vectors.md) 共同构成 `product.md` B-017/B-018
+与 `tech.md` publication machine 的规范性组成部分，隔离 publication ownership、mutation-secret、
+append-only history、trusted time、trust/fold 与 owner-liveness 概念边界。引用方可以通过链接或行为场景引用这里已经定义的 identifier，
 但不得复制、改名或局部覆盖这里的字段集合、枚举、canonical bytes、secret boundary
-或 fail-closed 语义；冲突时本文件的 exact machine-facing identifiers为唯一真源。
+或 fail-closed 语义；冲突时三份 contract各自拥有的 exact machine-facing identifiers为唯一真源。
 
 ## Concrete durable authority
 
@@ -42,34 +43,9 @@ canonical SQLite file且必须位于该 volume，禁止默认/相对/temp路径�
 reconciler/workflow GitHub token始终 read-only，target write credential只存在于 authority sole broker的
 environment secret provider，client绝不接收、转发或记录它。
 
-`client_api` method discriminator 是 closed union `{get_publication_head,claim_publication_owner,renew_publication_owner,takeover_publication_owner,append_publication_transition,plan_release_mutation,deliver_release_mutation,recover_release_mutation,
-plan_generated_pr,deliver_generated_pr,recover_generated_pr,append_blocked_attempt,bind_blocked_attempt,list_blocked_attempts,commit_reconciliation_watermark,get_blocked_attempt_frontier}`。每个 request exact envelope 为 `{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,repo_node_id,
-request_nonce,expected_publication_frontier_or_null,expected_blocked_attempt_frontier_or_null,
-operation_request_digest,body}`，`operation_request_digest` 是删除自身后整个 envelope 的 JCS SHA-256。
-全部 method 的 exact body/success receipt 如下：
-
-| method | exact request `body` | exact success `result` |
-| --- | --- | --- |
-| `get_publication_head` | `{}` | `{current_head_receipt}` |
-| `claim_publication_owner` | `{intent,publication_lease_authorization,secret_channel_binding}` | `{transition_receipt,nonce_capsule_receipt}` |
-| `renew_publication_owner` | `{intent,publication_lease_authorization,trusted_time_proof_request}` | `{transition_receipt}` |
-| `takeover_publication_owner` | `{intent,publication_lease_authorization,trusted_time_proof_request}` | `{transition_receipt}` |
-| `append_publication_transition` | `{intent,append_authorization}` | `{transition_receipt}` |
-| `plan_release_mutation` | `{intent,append_authorization,secret_channel_binding}` | `{planned_transition_receipt,mutation_capsule_receipt}` |
-| `deliver_release_mutation` | `{planned_operation_id,broker_delivery_id,delivery_authorization}` | `{delivery_state,transition_receipt_or_null,send_once_audit_digest}` |
-| `recover_release_mutation` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipt}` |
-| `plan_generated_pr` | `{intent,append_authorization}` | `{planned_transition_receipt}` |
-| `deliver_generated_pr` | `{planned_operation_id,generated_pr_delivery_id,delivery_authorization}` | `{delivery_state,transition_receipt_or_null,send_once_audit_digest}` |
-| `recover_generated_pr` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipt}` |
-| `append_blocked_attempt` | `{attempt_record,attempt_subject_key,ledger_append_authorization}` | `{attempt_record_receipt,blocked_attempt_frontier_receipt}` |
-| `bind_blocked_attempt` | `{source_attempt_record_digests,publication_history_operation_id,publication_history_frontier,recovered_outcome_digest,ledger_append_authorization}` | `{binding_record_receipt,blocked_attempt_frontier_receipt}` |
-| `list_blocked_attempts` | `{source_identity_key,candidate_identity_or_null,run_id_or_null,run_attempt_or_null,attempt_record_kind_or_null,attempt_subject_key_or_null,page_cursor_or_null,page_size}` | `{attempt_records,next_page_cursor_or_null,enumeration_snapshot_digest}` |
-| `commit_reconciliation_watermark` | `{source_identity_key,candidate_identity_or_null,watermark_record_digests,expected_prior_watermark_digest_or_null,ledger_append_authorization}` | `{watermark_receipt,blocked_attempt_frontier_receipt}` |
-| `get_blocked_attempt_frontier` | `{}` | `{blocked_attempt_frontier_receipt}` |
-
-response是 closed union：success exact `{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,operation_request_digest,response_nonce,result}`；error exact为相同公共字段加 `{error:{code,retry_class,evidence_digest_or_null}}`且无 `result`，两者的 `operation_request_digest`必须 byte-equal request字段。
-`code` exact为 `{invalid_request,unauthenticated,unauthorized,wrong_authority,policy_drift,method_not_allowed,stale_frontier,stale_fence,lease_expired,operation_conflict,dependency_unavailable,outcome_uncertain,authority_non_ready,internal_durability_failure}`，`retry_class` exact为 `{never,after_fresh_read,after_new_authorization,same_request_read_confirm_only}`。
-`outcome_uncertain`只配 `same_request_read_confirm_only`；unknown method/code/field、method/body/result错配、null-not-declared或 error/result并存均拒绝，不得 fallback。
+`client_api` 的 method/request/result/error exact wire contract只由
+[publication_ledger_contract.md](publication_ledger_contract.md)定义；本文件只定义 authority transport、
+publication history与 shared durability boundary，不复制 method schema。
 
 service启动先取得同 manifest钉住的 process lock，验证 volume支持 kernel lock与 durable `fsync`，再以 SQLite WAL、`journal_mode=WAL`、`synchronous=FULL`、foreign keys及
 `BEGIN IMMEDIATE`运行。history head/leaf、operation/rotation/slot unique indexes、owner/fence、
@@ -207,57 +183,11 @@ epoch、pending-gate serialization、ack loss read-confirm、DB-commit↔backup�
 bucket/version/KMS/credential/trust、missing/tampered ciphertext/tag/AAD/manifest/WAL、PITR新表替换、bootstrap replay、
 routine signer loss/rotation/revocation与 privileged signed restore；mock/in-memory结果不能作为通过证据。
 
-## Concrete blocked-attempt ledger
+## Blocked-attempt ledger boundary
 
-B-029 唯一 production backend 是同一 authority database 内的
-`blocked_attempt_ledger_sqlite_v1` namespace，由计划中的
-planned **vibeguard-runtime/src/publication_authority/blocked_attempt_ledger.rs** 实现；它不是
-`publication_history` alias，也不能降级为 Actions artifact、attestation pointer、job summary或 checkout
-JSON。deployment manifest 的 `blocked_attempt_ledger` exact 为
-`{backend,namespace,api_version,retention_class}`，值 exact 为
-`{backend:"blocked_attempt_ledger_sqlite_v1",namespace:"blocked_attempt_v1",
-api_version:"GH700:blocked-attempt-ledger-api:v1",retention_class:"permanent_no_ttl_v1"}`。
-T3 store/deployment single writer独占 planned **schemas/blocked_attempt_ledger.schema.json**、SQLite
-tables `{blocked_attempt_records,blocked_attempt_unique_keys,blocked_attempt_bindings,
-blocked_attempt_frontiers,reconciliation_watermarks}`、bootstrap/migration/recovery；T10 completion client只可
-经 `client_api` 调 exact methods `{append_blocked_attempt,bind_blocked_attempt,
-list_blocked_attempts,commit_reconciliation_watermark,get_blocked_attempt_frontier}`。两域共用 DB/WAL/fsync、
-process lock、snapshot与 external anchor但使用独立 repository-ledger lease/fence、operation ID/index，
-publication owner/fence绝不授权 ledger append，ledger fence也绝不授权 publication mutation。
-
-ledger frontier exact 为 `{repo_node_id,ledger_length,ledger_root,full_prefix_digest}`。record exact top-level
-object为 `{schema_version,attempt_record_kind,repo_node_id,source_identity_key,run_id,run_attempt,
-predecessor_frontier,payload}`，闭集 `attempt_record_kind` 仅为
-`{candidate_failure,pipeline_interrupted,pipeline_interrupted_pre_attestation,
-publication_recovery_binding}`：`candidate_failure.payload` exact 为
-`{candidate_identity,failure_scope,target_or_null,required_platforms_or_null,failed_summary_digest_or_null,
-failure_manifest_jcs,failure_manifest_digest,bundle_digest,selected_policy,effective_action,closed_reason_code}`；
-`failure_scope` exact 为 `{target,release}`；target branch要求 non-null `target`且两个 release字段为 null，
-release branch反之。`pipeline_interrupted.payload` exact 为
-`{candidate_identity,staged_provenance_digest,interruption_conclusion,interruption_stage,publish_sentinel_audit_digest,
-missing_evidence,failure_manifest_jcs,failure_manifest_digest}`；
-`pipeline_interrupted_pre_attestation.payload` exact 为 `{workflow_id,head_sha,server_ref_type,server_ref_name,
-event,conclusion,early_attempt_key,candidate_identity_or_null,selected_policy_or_null,
-staged_provenance_digest_or_null,evidence_identities_or_null,failure_manifest_jcs,failure_manifest_digest}`且四个
-`*_or_null`字段必须 literal null；`publication_recovery_binding.payload` exact 为
-`{candidate_identity,publication_history_operation_id,publication_history_frontier,recovered_outcome_digest,
-bound_attempt_record_digests}`。unknown kind/field、missing/extra/null-not-declared或 alias拒绝。
-
-append 先从 closed payload 派生
-`attempt_subject_key=SHA256(JCS({v:"GH700:attempt-subject:v1",attempt_record_kind,candidate_identity_or_null,
-failure_scope_or_null,target_or_null,early_attempt_key_or_null}))`：`candidate_failure` 必须写 candidate+scope
-且 target branch 写 exact target，release branch 写 target null；`pipeline_interrupted` 与
-`publication_recovery_binding` 写 candidate 且其余 null；pre-attestation kind 只写 early-attempt key。append 在同一
-`BEGIN IMMEDIATE` transaction验证 expected frontier、ledger lease/fence，并以永久 unique index
-`(repo_node_id,source_identity_key,run_id,run_attempt,attempt_record_kind,attempt_subject_key)` 做 same-bytes幂等、
-different-bytes冲突；写入完整 canonical manifest bytes、record、binding/frontier/watermark后 FULL fsync，并以同一
-frontier CAS external anchor成功或 read-confirm exact ack后才返回 signed receipt。records/manifest
-bytes/frontiers/bindings/watermarks无 TTL、无 delete/truncate/overwrite；artifact
-retention、owner terminal、candidate publish或 schema migration均不缩短 retention。snapshot/WAL restore必须
-同时达到 external anchor的 `blocked_attempt_ledger_frontier`，重放全部 records/unique indexes/bindings/
-watermarks并核对 full-prefix；缺 manifest bytes、older/forked frontier或未闭合 terminal attempt时 authority
-non-ready且 publish gate blocked。真实 durable-volume fixture须覆盖 concurrent append、same-key different
-bytes、crash/fsync/disk-full、artifact deletion、snapshot rollback与 exact manifest恢复；mock不算通过。
+B-029 的 backend、record union、binding、pagination、terminal completeness watermark、retention、restore 与
+client API 只由 [publication_ledger_contract.md](publication_ledger_contract.md) 定义。它与 publication
+history 共用 durable DB/backup/anchor gate，但 authorization domain、frontier、fence与 operation index保持独立。
 
 ## Rollback-resistant trusted time
 
@@ -272,7 +202,10 @@ signing root；ambient DNS/proxy/CA、TOFU、同 root重复 signer、unknown pol
 
 每个 time-dependent transition 先冻结 `publication_payload_core`：它是该 kind 的 final payload 去掉所有
 proof-produced fields（`trusted_time_proof_digest`、trusted interval/new high water、accepted-at/expiry）后的 closed object，
-并保留 known prior high water。然后生成 fresh 256-bit nonce 及 typed `nonce_digest`，计算
+并保留 known prior high water。然后生成 fresh 256-bit nonce，`nonce_b64u` 是其32 bytes的 canonical
+unpadded base64url encoding，并计算
+`nonce_digest=SHA256(JCS({v:"GH700:trusted-time-nonce:v1",authority_id,repo_node_id,
+owner_generation,run_id,run_attempt,transition_slot,record_kind,nonce_b64u}))`，再计算
 `trusted_time_proof_request_id=SHA256(JCS({v:"GH700:trusted-time-proof-request:v1",authority_id,repo_node_id,
 owner_generation,run_id,run_attempt,transition_slot,predecessor_frontier,record_kind,
 publication_payload_core_digest,prior_time_high_water,nonce_digest}))`；它与 payload core 先按下述 closed derivation
@@ -479,10 +412,31 @@ PR metadata。create/bind response loss须完整分页枚举 draft/open/closed/m
 ref并核对完整 tuple：唯一 active match在重读 latest signed frontier/fence/ruleset后 CAS bound；
 唯一 merged match按 kind进入 receipt/rollback/marker/row恢复；closed match先 revoke再
 replacement。ordinary/stale zero保留 owner且不得重发 non-idempotent create；仅同一线性化快照
-覆盖 PR+ref的 authenticated exhaustive negative receipt及 broker quiescence可证明不存在，此时 append `generated_pr_revoked` 的 unbound branch后才可 new slot。多匹配、tuple/creator
+覆盖 PR+ref的 authenticated exhaustive negative receipt及 broker quiescence可证明不存在，此时 append
+`generated_pr_not_applied`后才可 new slot。多匹配、tuple/creator
 不符、分页/权限不全、rate-limit/5xx/timeout或无强一致 absence API，按 kind进入对应 recovery
 blocked variant。旧 fence late bind、reopen/ref ABA、stale check/review与 ruleset bypass均由
 latest-frontier merge gate拒绝。
+
+generated PR nonce由 mutation broker/HSM签发为 uniform 256-bit one-time value，`nonce_b64u`只能是
+32-byte nonce的 canonical unpadded base64url。唯一公开承诺为
+`head_ref_nonce_digest=SHA256(JCS({v:"GH700:generated-pr-head-nonce:v1",repo_node_id,
+owner_generation,pr_kind,transition_slot,nonce_b64u}))`；raw nonce不得进入 history、commit、check、
+PR metadata、日志或报告。`owner_generation_digest=SHA256(JCS(owner_generation))`，exact ref为
+`refs/heads/vibeguard/gh700/<owner_generation_digest>/<pr_kind>/<transition_slot_decimal>/
+<head_ref_nonce_digest>`；两 digest path component均为 lowercase 64-hex且不带 `sha256:`。
+`generated_pr_review_core` exact object为 `{v:"GH700:generated-pr-review-core:v1",repo_node_id,
+owner_generation,pr_kind,transition_slot,base_ref_oid,head_repo_node_id,head_ref,
+head_ref_nonce_digest,expected_tree_digest,patch_digest,merge_method,ruleset_digest,
+trusted_app_identity_digest,trusted_installation_identity_digest,replacement_chain_digest_or_null}`，其
+`review_core_digest=SHA256(JCS(generated_pr_review_core))`。reviewed commit必须只有一个 exact trailer
+`VibeGuard-Generated-PR-Review-Core: <review_core_digest>`，commit OID/tree/ref与 core逐字段一致。
+`generated_pr_check_identity` exact object为 `{v:"GH700:generated-pr-check-identity:v1",
+repo_node_id,owner_generation,pr_kind,transition_slot,head_repo_node_id,head_ref,head_oid,
+review_core_digest,trusted_app_identity_digest,trusted_installation_identity_digest,ruleset_digest}`，其
+`check_identity_digest=SHA256(JCS(generated_pr_check_identity))`；required check的 `external_id`必须 exact
+等于该 digest，且 check App/installation/head SHA/ref均匹配。ref、commit trailer、check三者任一缺失或
+不一致均不能 bind/merge；每次 replacement必须新 slot、nonce、ref、review core、commit与 check identity。
 
 `required_documentation_surfaces`是 protocol批准的稳定闭集；每项只绑定
 `surface_id`、canonical repo-relative path、locale/marker grammar、renderer logical ID/version/
@@ -516,7 +470,9 @@ mixed zero/one、跨 surface version/summary不一致、缺 surface、闭集外 
 缺 exact terminal invalidation/fresh zero receipt及其它 zero-marker state均 fail closed。
 `intent_written`须绑定对应 plan receipt与已 human-approved的 exact new-current patch/review/base
 digest；base/CAS变化即重审。valid ownership以 fenced CAS推进
-`valid_zero_marker → intent_written → release_committed_valid_marker_pending`。Release commit后
+`genesis_zero_receipt|post_invalidation_zero_receipt → intent_written →
+release_committed_valid_marker_pending`，或以 committed
+`generated_pr_merged(pr_kind=decurrent)` rollover receipt进入同一 intent。Release commit后
 worker消失时，reconciler只从 existing prepared owner+intent+public sentinel幂等补齐。
 
 de-current PR未 merge时取消须先以 higher-fence CAS进入
@@ -607,8 +563,8 @@ actual successor为 predecessor的后续 record。governance suffix只改变 tru
 owner重放 suffix并从新 predecessor重规划，两个 authorization fence绝不可互换。store 对
 `(expected_length, expected_root, expected_full_prefix_digest, current_fence)` 原子 CAS，
 复算并签发 successor frontier。每次 transition 分为 immutable intent、mutable append
-authorization envelope与 store-signed committed envelope/receipt。`transition_operation_id` 是覆盖 38 kinds 的
-closed derivation：publication-domain 34 kinds exact 为
+authorization envelope与 store-signed committed envelope/receipt。`transition_operation_id` 是覆盖 39 kinds 的
+closed derivation：publication-domain 35 kinds exact 为
 `SHA256(JCS({v:"GH700:publication-operation-id:v1",repo_node_id,owner_generation,run_id,run_attempt,
 transition_slot,predecessor_frontier,record_kind,publication_payload_core_digest,
 trusted_time_proof_request_id_or_null}))`；non-time kind 以完整 payload 作 core 且 request ID 为 literal null，
@@ -649,7 +605,7 @@ record schema是 versioned closed union。每条 history leaf exact top-level ob
 authorization fence/lease/actor只在 append envelope，committed receipt只在 envelope inventory，不得塞入
 immutable leaf。唯一 discriminator是 `record_kind`；`kind`/`type`/`record_type`/alias/unknown均拒绝。
 frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_digest}`，canonical digest使用
-`jcs-rfc8785-v1`。exact union只有下表 38 kinds；payload列是 closed required field set，missing/extra field
+`jcs-rfc8785-v1`。exact union只有下表 39 kinds；payload列是 closed required field set，missing/extra field
 一律 schema-invalid，nullable字段仅在显式写 `*_or_null` 时允许 canonical null。
 
 | `record_kind` | exact `payload` fields |
@@ -676,9 +632,10 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | `release_mutation_not_applied` | `{owner_generation,mutation_kind,mutation_slot_id,recovery_pending_operation_id,exact_pre_state_digest,exhaustive_negative_discovery_digest,broker_quiescence_receipt_digest}` |
 | `compensation_planned` | `{owner_generation,source_mutation_kind,source_mutation_slot_id,compensation_mutation_kind,compensation_slot,compensation_plan_digest,required_pre_state_digest}` |
 | `compensated` | `{owner_generation,compensation_planned_operation_id,compensation_mutation_bound_operation_id,restored_pre_state_digest,no_extra_resource_receipt_digest}` |
-| `generated_pr_planned` | `{owner_generation,pr_kind,transition_slot,base_ref_oid,head_repo_node_id,head_ref,head_ref_nonce_digest,reviewed_commit_oid,expected_tree_digest,patch_digest,merge_method,ruleset_digest,trusted_app_identity_digest,trusted_installation_identity_digest,replacement_chain_digest_or_null}` |
+| `generated_pr_planned` | `{owner_generation,pr_kind,transition_slot,base_ref_oid,head_repo_node_id,head_ref,head_ref_nonce_digest,review_core_digest,check_identity_digest,reviewed_commit_oid,expected_tree_digest,patch_digest,merge_method,ruleset_digest,trusted_app_identity_digest,trusted_installation_identity_digest,replacement_chain_digest_or_null}` |
 | `generated_pr_bound` | `{owner_generation,pr_kind,planned_operation_id,pr_node_id,head_ref,head_oid,base_oid,queue_identity_digest,review_digest}` |
-| `generated_pr_revoked` | `{owner_generation,pr_kind,planned_operation_id,bound_operation_id_or_null,pr_node_id_or_null,queue_absent_receipt_digest,head_absent_receipt_digest,default_unchanged_receipt_digest,exhaustive_negative_discovery_digest,broker_quiescence_receipt_digest}` |
+| `generated_pr_not_applied` | `{owner_generation,pr_kind,planned_operation_id,head_ref_nonce_digest,exhaustive_pr_ref_negative_discovery_digest,broker_quiescence_receipt_digest,default_unchanged_receipt_digest}` |
+| `generated_pr_revoked` | `{owner_generation,pr_kind,planned_operation_id,bound_operation_id,pr_node_id,queue_absent_receipt_digest,head_absent_receipt_digest,default_unchanged_receipt_digest,exhaustive_negative_discovery_digest,broker_quiescence_receipt_digest}` |
 | `generated_pr_merged` | `{owner_generation,pr_kind,bound_operation_id,pr_node_id,actual_merge_oid,default_before_oid,default_after_oid,actual_tree_digest,surface_blobs_digest}` |
 | `release_mutation_recovery_blocked` | `{owner_generation,mutation_kind,mutation_slot_id,plan_digest,blocked_reason_code,evidence_digest,retain_owner}` |
 | `draft_recovery_blocked` | `{owner_generation,draft_claim_nonce_digest,draft_create_mutation_slot_id,blocked_reason_code,evidence_digest,retain_owner}` |
@@ -717,6 +674,12 @@ closed union，且整个 payload恰有一个 branch：
 compensation字段；`draft_deleted`不得缺任一 deletion branch字段。外层
 `exhaustive_negative_discovery_digest`仍须绑定同一线性化快照的 Release/draft/PR/current-marker
 全量发现，不能由 nested evidence替代。
+`generated_pr_planned` response loss只允许下列 closed recovery：唯一 exact active PR/ref match写
+`generated_pr_bound`；唯一 merged match写 `generated_pr_merged`；同一 authenticated exhaustive snapshot
+证明 PR/ref/queue均无 effect，且 broker quiescent、default unchanged时写 `generated_pr_not_applied`；其余
+ambiguous结果写对应 PR recovery-blocked record。`generated_pr_not_applied`是 terminal slot closure，不能
+rebind/reopen；继续尝试只能从 fresh transition slot、nonce、ref、review core、commit与 check identity创建
+replacement。`generated_pr_revoked`只关闭已 bound且确认未 merge的 PR，不得代替 no-effect proof。
 允许的 phase grammar对 folded publication phase 闭合：在任一尚有 non-terminal current owner 的
 frontier，`owner_heartbeat` 与 `publication_owner_taken_over` 都是 phase-neutral liveness edge。heartbeat
 只可由当前 generation 在 expiry 前追加；`heartbeat_sequence=1` 的 `prior_liveness_operation_id` 必须是建立该 generation 的 `owner_claimed` 或 `publication_owner_taken_over`，后续 sequence 必须引用同 generation 紧邻的 sequence-1 heartbeat；takeover 只可在 expiry 后以 new generation 追加；两者均保留
@@ -725,7 +688,10 @@ terminal/no-owner frontier 不允许二者。除这两种 liveness edge 及下�
 `owner_claimed` 后只可 mutation plan 链或 `draft_bound`；`draft_bound`后闭合 upload/update slots才可 `prepared`。
 prepared valid只有两条互斥 pre-intent路径：`genesis_zero_receipt|post_invalidation_zero_receipt`→`intent_written(intent_kind=publish_valid,zero receipt non-null)`，或 rollover-one的
 `generated_pr_planned(pr_kind=decurrent)`→`generated_pr_bound`→`generated_pr_merged`→`intent_written(intent_kind=publish_valid,rollover receipt non-null)`；后者仅在 exact receipt提交且 fresh fold证明旧 current被原子移除后可写。
-planned/bound失败只可 revoke后以 new slot/head/nonce fresh-reviewed replacement或 `decurrent_pr_recovery_blocked`；`generated_pr_revoked` 的 bound branch要求 `bound_operation_id_or_null`/`pr_node_id_or_null`均 non-null，unbound no-effect branch要求二者均 null且 negative-discovery 与 broker-quiescence receipts证明 planned create无 remote effect，混合 branch非法；merged取消只走 `valid_rollback_pending`，且最多一个未撤销 gate。prepared non-valid直接接 `intent_written(intent_kind=publish_nonvalid)`；intent后 publish slot bound才可相应 committed-pending，再经 generated PR链到 `record_kind=publication_terminal`。pre-intent cleanup
+planned无 effect只可 `generated_pr_not_applied`后以 new slot/head/nonce fresh-reviewed replacement，bound失败
+只可 revoke后 replacement或 `decurrent_pr_recovery_blocked`；merged取消只走 `valid_rollback_pending`，且最多
+一个未撤销 gate。prepared non-valid直接接 `intent_written(intent_kind=publish_nonvalid)`；intent后 publish slot
+bound才可相应 committed-pending，再经 generated PR链到 `record_kind=publication_terminal`。pre-intent cleanup
 只以 `publication_terminal_no_publication` 结束；invalidation只以 planned→bound→merged→
 `invalidate_current_merged_receipt`→`record_kind=publication_terminal, terminal_kind=invalidation_completed`结束。
 recovery pending只可到 bound/not-applied/compensation/对应 blocked；八 blocked kinds均保留 owner且非 terminal。
@@ -755,27 +721,8 @@ liveness不变；closed union外 record均拒绝。
 
 ## Conformance vectors
 
-本 contract拥有 Rust/Python/shell共用的 machine-facing vectors；调用方只引用这些 fixture，
-不得各自复制 enum、字段集合或 canonical bytes：
-
-- `frontier_valid_v1` 的 exact JCS bytes为
-  `{"full_prefix_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","history_length":7,"history_root":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","repo_node_id":"R_kgDOGH700"}`，
-  SHA-256为 `e52c3472ae93b565704e4f26a97f02260e7c9d2c724b8add3350a7f7317edf73`；
-  frontier/discriminator/mutation aliases均为 negative vectors。
-- `blocked_record_kinds_valid_v1`逐一覆盖 closed blocked union；unknown/alias逐条 reject。
-  mutation secret-boundary vectors逐 kind验证唯一 digest、opaque capsule/delivery、template/effective
-  digests，并拒绝 raw/reversible nonce、secret-bearing request/history bytes、错误 placeholder 数量、
-  capsule/slot/operation替换及二次 send。
-- `post_invalidation_suffix_no_draft_v1`是 terminal no-publication positive vector，使用
-  `draft_never_existed`及完整 negative/quiescence/not-applied evidence；同一场景改为缺失、unknown、
-  wrong tag、带 bound/recovered draft、带 publish intent/public Release或任一 pending/blocked/in-flight
-  slot时逐项 reject。
-- `post_invalidation_suffix_draft_deleted_v1`是另一个 positive vector，使用 `draft_deleted`及 exact
-  bound/recovered draft、closed delete/compensation receipt、post-delete absence/quiescence evidence；
-  缺失、伪造、未闭合、wrong-draft deletion evidence或实际无 draft时逐项 reject。
-- 其余 suffix vectors逐一覆盖获验签的 phase-neutral governance record与 same-candidate takeover，
-  并拒绝 forged/nonterminal/cross-candidate takeover、wrong governance evidence、owner/phase/liveness
-  mutation、current restoration、其它 owner与 unknown record。
+所有 named vector的 canonical fixture object、exact JCS bytes、SHA-256、path与 accept/reject oracle只在
+[publication_conformance_vectors.md](publication_conformance_vectors.md)定义；调用方不得复制或改写。
 
 ## Owner liveness
 
