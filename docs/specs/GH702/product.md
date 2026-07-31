@@ -327,12 +327,14 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     必须来自 current approved `evaluation_policy_digest`，而不是 pack author、环境变量、
     README、install command 或 artifact-embedded publication policy 临时覆盖。policy
     更新必须在不改写 bundle/index identity 的前提下重算 eligibility；Core-owned
-    authoritative local evaluation-policy pointer 一旦切换，runtime 必须在下一次 enforcement
-    比较其 exact `(digest, generation, validity_evidence_digest)` 与 committed generation；任一
+    authoritative local evaluation-policy pointer 一旦切换，runtime 必须在下一次可能执行 committed/
+    promoted block 前比较其 exact `(digest, generation, validity_evidence_digest)` 与 committed
+    generation；任一
     identity drift 即使 digest 后来相同，也立即使用 warn/off fallback、durably latch
     `policy_changed + audit_required`；pointer/floor
-    缺失、malformed 或 pointer generation 低于 floor 时则是 `runtime_guard_unavailable`，必须
-    拒绝本次操作并非零返回，不能通过 fallback 放行。两者都不能等旧 horizon 到期。status
+    缺失、malformed 或 pointer generation 低于 floor 时则是 `runtime_guard_unavailable`；候选 block
+    必须拒绝本次操作并非零返回，不能通过 fallback 放行，但 committed warn/off 不得升级为 denial。
+    两者都不能等旧 horizon 到期。status
     同时显示 publication、committed evaluation 与 authoritative active evaluation policy
     identities。每次 policy activation 还必须在 Core-owned policy lock 下先写入并 fsync closed
     pending intent，绑定目标 policy digest、validity evidence 及前后 generation，再原子推进并
@@ -340,9 +342,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     fsync pointer 与 parent directory；只有两次 fsync 成功才可标 journal complete/清理。其间崩溃
     必须从 intent 确定性重放同一 pointer+fsync roll-forward，不能凭新 floor 猜目标 policy。
     runtime 同时验证 pointer generation 不低于该 floor。floor mirror 必须绑定 Core installation、
-    user principal、anchor schema 与 policy leaf identity，并与独立 `core_monotonic_anchor_v1`
-    backend 当前 counter/root/leaf digest exact 相等；旧 user-state snapshot 即使 coherent 也因
-    external root 不回退而失配。旧 pointer replay 即使 digest 再次
+    user principal、anchor schema、policy leaf identity 及独立单调 `(leaf_counter, leaf_digest)`；fresh
+    backend root proof 必须认证该 exact leaf state，但 sibling leaf 推进 shared root 只刷新 proof，
+    不得使未变的 policy mirror 失效。旧 user-state snapshot 即使 coherent 也因 leaf authority
+    不回退而失配。旧 pointer replay 即使 digest 再次
     匹配 committed generation 也必须按 unavailable 拒绝，floor 缺失/损坏同样 fail closed。
     management commit 必须在最终校验前取得同一 policy lock，并持有到 active-generation
     pointer switch 完成；若使用等价 CAS，必须在 installation floor/external anchor 推进前完成
@@ -357,7 +360,12 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     local override，不能改写该 official default。任何 committed block 必须带 finite、
     本地可检查的 `decision_valid_until` 与预先计算的 warn/off expiry fallback；runtime
     每次 enforcement 都检查该 horizon，并通过 Core-owned、per-installation durable trusted
-    time high-water 检测回退：任意 `runtime_time < last_trusted_runtime_time`，即使仍位于
+    time high-water 检测回退。该 anchor path 只适用于 committed record 带 official/local block
+    basis 且 pre-runtime decision 为 block 的候选；即使本次随后因 expiry/rollback 选择 fallback，
+    仍须推进 high-water 并锁存 reason，防止旧 block 复活。committed decision 本就是
+    warn/off（包括 no-data/below-floor）的规则不访问 anchor，anchor failure 也不得把它升级为 denial。
+    候选 block 遇到任意
+    `runtime_time < last_trusted_runtime_time`，即使仍位于
     evaluation/expiry interval 内，也必须立即忽略旧 block、使用 fallback 并显示
     `clock_rollback + audit_required`。high-water state 必须按 active generation 隔离并由同一
     installation-scope pointer 选择；runtime 必须按 canonical order 取得 policy lock 与
@@ -372,9 +380,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     并持锁直到新 state fsync 与 active pointer switch 完成，禁止 runtime 在交接窗口推进旧 state。
     high-water 缺失、损坏、身份不匹配或 bounded retry 后仍无法锁定/原子推进时必须拒绝本次
     操作并非零返回，不能降为 warn/off 后放行，也不能因进程重启静默降低 high-water。
-    high-water/`clock_epoch`/sequence 每次推进都须以相同 external root 的 installation leaf
-    CAS 为 authority，本地 runtime-state 只是 authenticated mirror；backend 缺失、不可验证或
-    restore 后 counter/root/leaf 任一不等必须 `runtime_guard_unavailable`，不得执行旧 block。
+    high-water/`clock_epoch`/sequence 每次推进都须以独立单调 time leaf CAS 为 authority，本地
+    runtime-state 只是 authenticated mirror；shared root 上 sibling leaf 的合法推进只刷新 inclusion
+    proof。候选 block 遇到 backend 缺失、proof 不可验证或 restore 后 leaf counter/digest 不等必须
+    `runtime_guard_unavailable`，不得执行旧 block；既有 warn/off 仍保持其 precision semantics。
     rollback 后普通 fresh audit 不能降低同一 clock epoch 的 high-water；恢复必须走显式
     trusted-clock reconciliation，在 locks 下验证 Core-approved time evidence、重新 audit，
     递增 `clock_epoch` 并把 reconciliation evidence 与新 generation/runtime state 通过同一

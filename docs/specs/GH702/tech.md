@@ -237,11 +237,11 @@ Recommended H-004 layout（未批准）：
   overrides/<source_storage_key>/<target>/<profile>.json
 ```
 
-三个 mirror 的 authority 是 user-state tree 外的 authenticated monotonic root；exact record identity、
-durable pre-CAS intent、two-generation mirror、commit journal、barrier 与 crash matrix 只由 supporting
-contract 定义。runtime/management 要求 backend attestation 与 selected mirror exact 相等；coherent
-HOME restore 或 unknown root transition fail closed，而已证明 external target 的 local lag 必须从
-intent/journal roll forward，不能永久停在 unavailable。backend/platform 选择仍未批准。
+三个 mirror 的 authority 是 user-state tree 外、各自独立单调的 backend leaf；共享 root 只提供可刷新
+inclusion proof。record identity、intent、two-generation mirror、journal/barrier/crash matrix 只由
+supporting contract 定义。runtime/management 要求 fresh proof 认证 selected mirror 的 exact leaf
+counter/digest；sibling leaf 推进 root 不得使 mirror 失效，unknown same-leaf transition 才 fail closed。
+已证明 target leaf 的 local lag 从 intent/journal roll forward。backend/platform 选择仍未批准。
 
 `source_storage_key` 是 closed union：official 为
 `official/<normalized_publisher>/<normalized_pack>`；local 为
@@ -462,18 +462,15 @@ normalized evaluation-time 变化产生新 digest 并触发 audit，即使 colla
 这包括只跨越 freshness/expiry/revocation window、其他 bytes 均未变化的情况。
 active block 失去 eligibility 时按 H-008 action 事务降级，失败进入 `needs_repair`。
 
-runtime hot path 每次 enforcement 先取得 bounded `policy.lock`，在锁内读取 policy pointer/floor，
-再取得 per-installation runtime-state lock 并读取 active pointer/installation floor/state；两锁
-持有到 decision 执行结束，且执行紧邻前重验全部 identity。policy pointer 必须 valid、generation
-`>= floor`，且 exact `(digest, generation, validity_evidence_digest)` 等于 committed identity；任一
-drift 即使 digest 后来相同，也锁存 `policy_changed + audit_required` 并使用 semantic fallback。
-pointer/floor/state 缺失、malformed、replay 或任一 lock/CAS 失败为 `runtime_guard_unavailable`，
-保守拒绝并非零返回。对可信时间先验证 `runtime_time >= last_trusted_runtime_time`，再 CAS 推进
-high-water，随后才判断 evaluation/decision/override horizon；因此 block 与 expiry fallback 都
-持久化本次 observation。expiry、horizon invalid 或其他 semantic fallback 还在同一 state
-锁存 closed reason + `audit_required`，runtime 不得因后续时钟或 policy bytes 返回旧值而清除。
-clock rollback 只有显式 reconciliation 可恢复；其他 official block 需 fresh audit，promotion
-还需 fresh confirmation。
+runtime 先读取 committed block basis；本就是 warn/off（包括 no-data/below-floor）的 record 保持原
+decision，不进入 anchor，也不能因 anchor unavailable 变成 denial。只有 committed official/local
+block candidate 才取得 bounded `policy.lock` 与 per-installation runtime-state lock；即使随后因
+expiry/rollback 选择 fallback，仍推进 high-water 并锁存 reason，防止旧 block 复活。两锁
+持有到执行结束并紧邻执行重验 pointer/floor/state。policy identity drift 锁存 `audit_required` 并用
+semantic fallback；候选 block 的 pointer/state/leaf proof 缺失、malformed、replay 或 lock/CAS 失败才是
+`runtime_guard_unavailable` 并保守拒绝。fresh proof 可有 sibling CAS 产生的较新 shared-root identity，
+但必须认证 exact leaf counter/digest。可信时间先 CAS 推进 high-water 再判断 horizons；fallback 同样
+锁存 reason，clock rollback 只有 reconciliation 可恢复；promotion 还需 fresh confirmation。
 hot path 不联网，也不等待后台 scheduler 或用户先运行命令。
 
 ### 8. Registry governance、publish 与 revocation
@@ -637,7 +634,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
 | B-027 policy-owned thresholds | Policy journal + external anchor CAS | pre-CAS intent/fence and barrier bind exact authority；rotation/reinstall/backend identity drift cannot reuse old decision；post-floor drift rolls forward suspended |
-| B-028 insufficient evidence degrades | Anchored generation-scoped runtime guard | every hook advances high-water via authenticated IPC/external CAS；lost-response target resumes；expiry/policy drift latches audit_required；rollback cannot restore block |
+| B-028 insufficient evidence degrades | Anchored generation-scoped runtime guard | committed warn/off/no-data skip anchor；block-basis fallback still latches time；cross-leaf CAS preserves sibling mirrors；lost response resumes |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
 | B-031 same gate for core/community | Shared eligibility function | identical evidence inputs under curated/community publishers yield identical eligibility; badge/high severity cannot bypass |
