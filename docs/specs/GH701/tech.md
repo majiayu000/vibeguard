@@ -768,10 +768,10 @@ config/payload/log content。
 - [ ] Real host acceptance：获批 released CLI/session 的 native multi-request
   blocking event 与 fresh-home journey；模拟、direct wrapper/runtime/demo 不能
   生成 proof kind 或替代 maintainer witness。
-- [ ] Full focused verification：runtime `cargo fmt -- --check` / check / test（均用
-  `--manifest-path vibeguard-runtime/Cargo.toml`）；hook/manifest validators；manifest、
-  setup、Codex runtime、behavior tests；doc path/command validators、local-contract quick、
-  `git diff --check`。
+- [ ] Full focused verification：`cargo fmt --manifest-path vibeguard-runtime/Cargo.toml -- --check`；`cargo check --manifest-path vibeguard-runtime/Cargo.toml`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml`；
+  `bash scripts/ci/validate-hooks.sh`；`bash scripts/ci/validate-hooks-manifest.sh`；`bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；
+  `bash tests/test_codex_runtime.sh`；`bash tests/test_behavior_eval.sh`；`bash scripts/ci/validate-doc-paths.sh`；`bash scripts/ci/validate-doc-command-paths.sh`；
+  `bash scripts/local-contract-check.sh --quick`；`git diff --check`。
 
 ## 回滚方案
 
