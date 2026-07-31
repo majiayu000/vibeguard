@@ -26,12 +26,12 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 | ID | 待批准选择 | Draft recommendation | 互斥备选 | 状态 |
 | --- | --- | --- | --- | --- |
 | H-001 | 默认与 consent 模式 | `install_confirmed_default_on`：受支持平台的完整安装计划明确列出本地周任务；用户确认整体安装后默认注册，并提供同层级 `--no-weekly-value` opt-out | `first_run_prompt`；维持 `opt_in_only` | 未批准 |
-| H-002 | 平台与 scheduler | `macos_launchd_linux_systemd`；同一 owned value scheduler 同时承载本地 coverage-authority heartbeat，Draft cadence/expiry 为 5/15 分钟；Windows 明确 `unsupported`，不得回退 cron 或伪报成功 | Linux 继续 `cron`；仅 macOS；不同 heartbeat cadence/expiry | 未批准 |
+| H-002 | 平台与 scheduler | `macos_launchd_linux_systemd`；同一 owned value scheduler 同时承载本地 coverage-authority heartbeat，Draft cadence/expiry 为 5/15 分钟，批准时以正整数 `heartbeat_cadence_seconds`/`heartbeat_expiry_seconds` 固定；Windows 明确 `unsupported`，不得回退 cron 或伪报成功 | Linux 继续 `cron`；仅 macOS；不同 heartbeat cadence/expiry | 未批准 |
 | H-003 | 价值 taxonomy 与 decision 集 | `versioned_local_taxonomy`：独立、闭集、版本化；headline 只统计已批准的真实 rule `block`，与 GH-700 名称对齐但不等待其实现 | 与 GH-700 共用同一 taxonomy 并形成硬依赖；统计 `block+correction` | 未批准 |
-| H-004 | window、scope、catch-up 与 snapshot budgets | `previous_local_calendar_week_global`：用户本地时区、上一个完整周、global scope；首次不足整周标 `partial_coverage`，missed run 最多补一次；批准时还必须固定 `max_source_files`、`max_uncompressed_bytes`、`max_snapshot_elapsed_ms`，本 Draft 不替维护者填写数值 | rolling 7 days；per-project 周报；UTC calendar week；不同 bounded budget values | 未批准 |
+| H-004 | window、scope、catch-up 与 snapshot budgets | `previous_local_calendar_week_global`：用户本地时区、上一个完整周、global scope；首次不足整周标 `partial_coverage`，missed run 最多补一次；批准时还必须固定正整数 `maximum_catch_up_duration_seconds`、`max_source_files`、`max_uncompressed_bytes`、`max_snapshot_elapsed_ms`，本 Draft 不替维护者填写数值 | rolling 7 days；per-project 周报；UTC calendar week；不同 bounded duration/budget values | 未批准 |
 | H-005 | privacy 与 export | `allowlisted_local_export`：默认仅本地；分享文件只含闭集计数、窗口、coverage、`data_status`、`status_reason`、taxonomy version 和摘要 digest；分享必须由用户显式导出，无网络/剪贴板副作用 | 含 rule IDs 的扩展分享；显式上传集成 | 未批准 |
 | H-006 | 用户 surface | `separate_value_summary`：简洁 value summary 与完整 maintainer health report 分离，均支持 Markdown/JSON | 在完整 health report 顶部增加可分享 section；仅 Markdown | 未批准 |
-| H-007 | install/upgrade/disable/clean 生命周期 | `transactional_owned_job`：只管理 VibeGuard-owned job 与独立 coverage-authority state，失败不报告安装完成，opt-out 跨升级保留，clean 移除 job 但默认保留报告 | scheduler/authority 失败只降级为 warning；clean 默认删除报告 | 未批准 |
+| H-007 | install/upgrade/disable/clean/retention 生命周期 | `transactional_owned_job`：只管理 VibeGuard-owned job 与独立 coverage-authority state，失败不报告安装完成，opt-out 跨升级保留，clean 移除 job 但默认保留报告；批准时还须固定正整数 `retention_horizon_seconds`、`hard_history_cap_entries`、`hard_history_cap_bytes` 及 `no_auto_delete|capability_attested` backend policy，本 Draft 不代填 | scheduler/authority 失败只降级为 warning；clean 默认删除报告；不同 retention/cap/backend policy | 未批准 |
 | H-008 | host coverage | `canonical_log_all_supported_hosts`：统计所有能写 canonical event log 的当前受支持 host，不等待 GH-701；未知/不兼容 host 不进入 headline | 仅 Claude/Codex；等待 GH-701 adapter registry | 未批准 |
 
 ## 目标
@@ -137,10 +137,10 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 24. B-024 历史摘要的保留期和上限必须固定且可见；ownership evidence 必须按 B-042
     独立于当前 summary schema/version。retention 只删除 receipt 与安全打开对象的
     non-reusable identity、digest 和 artifact identity 全部匹配且超期的历史 summary；
-    Linux/macOS 必须使用 B-042 的 parent-handle、平台 no-replace rename、private quarantine
-    与 post-claim reverify 协议。平台/文件系统无法提供该协议时保留 candidate、fail visible，
-    并在硬上限前停止新增 history，不能以“不删除”为由让 owned history 无界增长。不删除
-    event logs、手工 export 或用户移动/改名/替换的文件。
+    标准 Linux/macOS 用户可写路径没有 atomic compare-by-identity unlink，默认不得 auto-delete。
+    只有 H-007 明确批准且 runtime attestation 通过 B-042 完整 capability contract 的 backend 才能
+    auto-retire；否则保留 candidate、fail visible，并在下一次写入将触及任一 hard cap 前停止新增
+    history，不能以“不删除”为由无界增长。不删除 event logs、手工 export 或用户文件。
 25. B-025 升级遇到 GH-556 已存在的 opt-in health scheduler 时，必须识别其
     surface、参数和 owner；不得静默把它替换成 value scheduler、创建重复 job，
     或把旧 opt-in 当成 H-001 的 consent evidence。
@@ -188,16 +188,17 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     必须形成明确 gap；authority heartbeat 过期、sequence 不连续或 authority 恢复为新 epoch 时，
     从最后可信 heartbeat 到 durable recovery checkpoint 的区间同样是 gap。只有 heartbeat 链完整
     覆盖整个 window、全部 attempt sequence 已闭合且 source snapshot 有效时，空 event set 才可成为
-    `no_data`；任一 gap 相交都必须为 `partial_coverage`。仅 active value authority 注册的 host parent
-    才能启动需要记录的 canonical caller：authority/parent 必须在 caller 启动前 durable 创建 invocation
-    slot 并取得短租约 acknowledgement，caller 不能负责创建首个可观察证据。pre-spawn handoff 失败
-    会消耗 parent launch lease、留下未确认 slot 并阻止旧 epoch 续租；caller 仍执行原 guard decision，
-    expiry/recovery 后只能产生 gap。opt-out/unsupported 不启动 authority、不创建 slot，也不产生逐事件
+    `no_data`；任一 gap 相交都必须为 `partial_coverage`。仅 active value authority 注册的 resident host
+    parent 才能启动需要记录的 canonical caller：parent 必须先生成 `invocation_id`，authority 在 caller
+    启动前 durable fsync matching slot/reservation 并返回 acknowledgement，caller 不能创建首个证据。
+    pre-slot failure 不得启动 canonical caller 或产生不可见 attempt；launcher 必须按 host hook failure
+    contract fail visible，pre-hook 保持既有 fail-closed、post-hook 保持既有 visible non-success 语义，且缺少
+    parent quiescence ack 会阻止旧 epoch 续租。opt-out/unsupported 不启动 authority、不创建 slot，也不产生逐事件
     coverage failure；后续显式 enable 必须开启新 epoch，`enabled_at` 之前及首个完整覆盖 window 前均为
     `partial_coverage`。authority journal 必须按最大 retention/catch-up
     horizon 做有界、可验证 checkpoint/compaction，不能丢失未闭合 sequence 或 gap 证明。
-    coverage reservation/spool/authority 失败不得改变原 guard decision、blocking 语义或退出码，
-    但必须产生 visible telemetry。
+    caller 已启动后的 reservation/spool/authority failure 不得改变其 guard decision、blocking 语义或
+    退出码，但必须 visible。
 36. B-036 进入 value taxonomy 的事件必须在 canonical event 创建边界持久化 closed、
     schema-versioned `event_id`、`rule_id`、`reason_code`、classification status 与
     classification contract version/digest；status 只证明 typed producer contract，不得提前
@@ -236,13 +237,12 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     复核 matching enabled generation。disable/clean 只有在阻止新 generation 且旧 generation
     已完成、取消并确认无后续 publish，或明确失败回滚后才能报告成功。
 42. B-042 retention ownership 必须由独立、版本化、durable 的 owned-artifact evidence
-    证明，而不能只靠 artifact 通过当前 schema 或历史路径 receipt。删除前必须在 locked、no-follow
-    parent handle 下打开 candidate，以 file identity、digest 与随机 artifact identity 重新匹配 receipt；
-    Linux 使用 `renameat2(RENAME_NOREPLACE)`，macOS 使用 `renameatx_np(RENAME_EXCL|RENAME_NOFOLLOW_ANY)`，把该 directory
-    entry claim 到 mode 0700 private quarantine 的不可预测空名称。claim 后必须重开并再次匹配同一
-    identity/content 才能 unlink；mismatch/race 不得删除，且只能 no-replace 安全恢复或保留 quarantine
-    evidence。缺 syscall/文件系统保证时不 auto-delete，达到 hard history cap 后拒绝新增 history 并
-    fail visible；不得改写用户 replacement。ledger 损坏时同样停止删除。
+    证明，而不能只靠 artifact 通过当前 schema 或历史路径 receipt。标准 Linux/macOS pathname
+    rename/unlink、no-replace rename 加 reverify
+    都不构成 compare-by-identity delete capability，用户可写路径默认 `no_auto_delete`。只有 attested backend
+    同时提供 atomic expected-identity claim、同 identity delete/retire、crash recovery 与 replacement-race
+    evidence 时才可 auto-retire；capability 缺失或失效即停止删除，并在下一历史写将触及 approved entries/
+    bytes cap 前 fail visible、保留 current 与 candidate。ledger 损坏时同样停止删除和新增 history。
 
 ## 验收标准
 
@@ -259,10 +259,10 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 - [ ] live log 与跨月/当月 overflow archives 在同一 snapshot 中产生相同稳定 event set；
   durable coverage ledger 能发现 scan 前已丢失/过期的 archive；archive 缺失/损坏/竞态、
   带 event-time interval 的 writer gap、legacy identity 与 incomplete evidence 均不能发布数值 headline。
-  连续且未过期的 authority heartbeat + 空 attempt set 可证明 complete-empty；pre-caller handoff 失败
-  留下 parent-preallocated slot，dual ledger/spool loss 留下未闭合 sequence，两者都只能 partial；
+  连续且未过期的 authority heartbeat + 空 attempt set 可证明 complete-empty；caller 只在 parent ID 对应的
+  authority-opened durable slot ack 后启动，dual ledger/spool loss 留下未闭合 sequence，两者都只能 partial；
   opt-out/unsupported 没有 authority 或逐事件 diagnostic，后续 enable 在首个完整 window 前保持 partial；
-  coverage failure 不改变原 guard decision/exit semantics，且 reservation 通过官方 hook P95 gates。
+  caller 已启动后的 coverage failure 不改变其 guard decision/exit semantics，且 reservation 通过官方 hook P95 gates。
 - [ ] canonical writer 在 Rust、shell 与 Python authorized-discard 路径持久化 closed event/rule/reason identities；
   unknown/incompatible host、unclassified v2、missing/conflicting event identity 各映射确定的 closed reason；
   free-text-only 行为降级可见，且不要求 GH-704 先批准或实现。
