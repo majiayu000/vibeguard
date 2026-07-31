@@ -256,26 +256,31 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     初始化使用；此后上一 release frontier 仅作下界，reader 必须取得 store 签名的最新单调
     current-head receipt、重放 prefix并证明精确结束于该 head。store 对
     `(expected_length, expected_root, expected_full_prefix_digest, current_fence)` 原子 CAS，
-    复算并签发 successor frontier。每次 transition 先冻结 repo-scoped、跨进程可重建的
-    `transition_operation_id = H(repo_node_id, owner_key, run_id, run_attempt, transition_slot,
-    predecessor_frontier, expected_fence)`；首条 claim 另绑定 server-auth run tuple与 frozen
-    plan digest。canonical record 包含 schema/canonicalization version、kind、operation ID、
-    exact predecessor、owner/phase、expected/new fence及 payload digest，且
-    `record_digest = SHA256(jcs-rfc8785-v1(record_preimage))`；retry 必须复用完全相同 bytes，
-    timestamp/heartbeat/deadline须预冻结或仅由 store写入 receipt。store 与 append同事务维护
-    `(repo_node_id, transition_operation_id)` 唯一索引，并签发绑定 operation/digest、
-    predecessor/successor/fence/issuer 的 successor receipt。
-    append acknowledgement 不确定时必须读取 signed latest head并从可信下界完整重放：exact
-    operation恰出现一次且 digest相同则接受其 receipt及合法 suffix fold；operation absent且
-    current frontier精确等于原 predecessor才可用同 ID/bytes/digest重试；absent但 head已前进
-    禁止把旧 record rebase，合法 takeover/terminal suffix按 fold恢复，仍需 transition则重验并
-    用新 predecessor/fence/operation规划。same ID不同 digest/重复、incompatible successor、
-    fork/截断/不完整 replay或 fence复用均 fail closed并进入相应 blocked；完整 frontier而非
-    重复 phase防 ABA。该规则覆盖所有 record kinds。record schema 是 versioned closed discriminated union，
+    复算并签发 successor frontier。每次 transition 分为 immutable intent、mutable append
+    authorization envelope与 store-signed committed envelope/receipt。跨进程稳定
+    `transition_operation_id = H(repo_node_id, owner_generation, run_id, run_attempt,
+    transition_slot, predecessor_frontier, record_kind, payload_digest)`，不得包含 authorization
+    fence；`owner_generation` 永不复用，首条 claim由 server-auth run tuple+frozen plan生成。
+    intent 固化 schema/canonicalization version、operation ID、owner generation、run/slot、
+    exact predecessor/prior phase、kind与 payload digest，`intent_digest=SHA256(JCS(intent))`；
+    retry复用同一 intent bytes/digest。append request另携当前 `authorization_fence`、lease
+    scope/token与 authenticated actor。store先查同事务永久唯一索引
+    `(repo_node_id, operation_id)`：同 digest已存在直接返回原 receipt且不重新验 fence/append，
+    异 digest永久冲突；不存在才原子验证 current owner generation/fence/lease/exact predecessor，
+    append并签发 envelope/receipt，绑定 actual accepted fence、intent/store-envelope digest、
+    predecessor/successor与 issuer/key version。stale fence对新 mutation失败，但已提交 old op
+    只能取回原 receipt。
+    ack不确定时重放 signed latest prefix：已提交 exact op接受 receipt及合法 suffix fold；未提交
+    old fence失败，同 owner generation取得新 fence后以相同 intent重新授权；head advanced禁止
+    rebase，按 takeover/terminal suffix恢复，仍需 transition则从新 predecessor/new generation
+    或 slot规划 new op。takeover前未提交的旧 generation intent永久失效；takeover前已提交则先
+    接受 receipt再 fold suffix。same ID异 digest/重复、receipt/index/envelope不一致、
+    incompatible successor、fork/截断/不完整 replay或 fence/generation复用均 blocked；完整
+    frontier防 ABA。该规则覆盖所有 record kinds。record schema 是 versioned closed discriminated union，
     canonical digest 使用 `jcs-rfc8785-v1`，覆盖 owner claim、draft binding、prepared、
     generated-PR plan/binding/revocation、receipt、intent、commit、takeover、六类 recovery-blocked、
-    `recovered_publication` 与 terminal；每项绑定 owner key、prior phase/frontier、
-    expected/new fence、payload digest 与受信 issuer/workflow/subject，deterministic fold
+    `recovered_publication` 与 terminal；intent绑定 owner generation、prior phase/frontier与
+    payload，store envelope绑定 actual expected/new fence及受信 issuer，deterministic fold
     唯一导出 active owner/phase，非法 transition/fence/owner 直接拒绝。缺失、尾部截断、
     fork、过期 fence 或 checkout 自报 anchor 均 fail closed。
     所有 generated PR及 replacement 统一使用
