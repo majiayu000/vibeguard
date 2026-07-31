@@ -46,11 +46,32 @@ RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
 export VIBEGUARD_RUNTIME="${RUNTIME}"
 
 # --- Fixtures --------------------------------------------------------------
+IFS=' ' read -r EVENT_PASS_TS EVENT_WARN_TS EVENT_BLOCK_TS STALE_EVENT_TS < <(
+  python3 - <<'PY'
+from datetime import datetime, timedelta, timezone
+
+now = datetime.now(timezone.utc)
+recent = now - timedelta(minutes=5)
+timestamps = (
+    recent,
+    recent + timedelta(seconds=1),
+    recent + timedelta(seconds=2),
+    now - timedelta(days=60),
+)
+print(" ".join(ts.strftime("%Y-%m-%dT%H:%M:%SZ") for ts in timestamps))
+PY
+)
+
 EVENTS="${TMP_DIR}/events.jsonl"
-cat > "${EVENTS}" <<'JSONL'
-{"ts":"2026-07-01T00:00:01Z","session":"s1","hook":"pre-bash-guard","decision":"pass","duration_ms":10,"client":"codex"}
-{"ts":"2026-07-01T00:00:02Z","session":"s1","hook":"post-edit-guard","decision":"warn","reason":"U-16","rule":"U-16","duration_ms":30,"client":"codex"}
-{"ts":"2026-07-01T00:00:03Z","session":"s2","hook":"pre-bash-guard","decision":"block","reason":"SEC-01","rule":"SEC-01","duration_ms":5,"client":"claude"}
+cat > "${EVENTS}" <<JSONL
+{"ts":"${EVENT_PASS_TS}","session":"s1","hook":"pre-bash-guard","decision":"pass","duration_ms":10,"client":"codex"}
+{"ts":"${EVENT_WARN_TS}","session":"s1","hook":"post-edit-guard","decision":"warn","reason":"U-16","rule":"U-16","duration_ms":30,"client":"codex"}
+{"ts":"${EVENT_BLOCK_TS}","session":"s2","hook":"pre-bash-guard","decision":"block","reason":"SEC-01","rule":"SEC-01","duration_ms":5,"client":"claude"}
+JSONL
+
+STALE_EVENTS="${TMP_DIR}/stale-events.jsonl"
+cat > "${STALE_EVENTS}" <<JSONL
+{"ts":"${STALE_EVENT_TS}","session":"stale","hook":"pre-bash-guard","decision":"block","reason":"SEC-01","rule":"SEC-01","duration_ms":5,"client":"claude"}
 JSONL
 
 # Scorecard with a rule (RS-03) that never appears in the event log, so the
@@ -163,6 +184,11 @@ EMPTY_EVENTS="${TMP_DIR}/empty-events.jsonl"
 : > "${EMPTY_EVENTS}"
 empty_json="$(run_report --days 7 --log-file "${EMPTY_EVENTS}" --triage-file "${TRIAGE_CLEAN}" --format json)"
 assert_contains "$empty_json" '"block_counts_status": "no_data"' "empty event window JSON prioritizes no-data state"
+
+header "30-day window filters stale events"
+stale_json="$(run_report --days 30 --log-file "${STALE_EVENTS}" --triage-file "${TRIAGE_CLEAN}" --format json)"
+assert_contains "$stale_json" '"no_data": true' "event older than 30 days is filtered from the report"
+assert_contains "$stale_json" '"total_triggers": 0' "filtered stale event does not contribute a trigger"
 
 header "malformed block counts fail loudly"
 for bad_mode in bad_structure bad_arithmetic; do
