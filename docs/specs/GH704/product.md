@@ -336,15 +336,18 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     GH-704 global event/status 只允许从 `all_activated` barrier 做 idempotent derived
     projection，绑定 source event ID/barrier digest 与 durable projection receipt。
     全部 activation receipts 匹配后、`all_activated` 前，project coordinator 必须先在 bounded
-    global source registry 的 unique slot durable 注册 inert route/body/barrier/eligibility；publication
+    global source registry 的 unique live slot + per-source frozen-lag administrative token durable 注册 inert route/body/barrier/eligibility；publication
     由 deadline-bounded lease + checksummed generations 跨 project 串行，worker 只在 exact barrier
     durable 后执行。orphan 由同一 source coordinator 完成 barrier/abort，再用 digest receipt CAS
-    ready/tombstone/reclaim；ready worker 必须先在 registry CAS 持久化 claim ID/body/
-    reservation digest，释放 registry 后才创建 sequencer reservation，禁止 reserve-before-claim；
-    crash/off 对 claim 与 exact reservation 做 absent-abort 或 matching completion。requested off 在
+    ready/tombstone/reclaim；ready worker 必须先在 registry CAS 持久化 claim ID/body 与
+    offset-independent reservation seed digest，释放 registry 后才由 sequencer 分配 offset、原子
+    创建 full reservation digest，再 CAS bind/reclaim，禁止预猜 offset/reserve-before-claim；
+    enabled crash 对 absent reservation 必须 exact recreate，只有 matching durable off-preparing 可
+    freeze，matching reservation 才 completion，任一 identity mismatch fail visible。requested off 在
     exclusive delivery 下进入 off-preparing，释放 project lock 后再取 registry lease，
     将旧 epoch pre-barrier 或 barrier-ready-unclaimed orphan CAS 为 checksummed
-    `off_frozen` administrative tombstone 并回收 live slot，不删 canonical backlog。禁止
+    `off_frozen` administrative tombstone，将预留的 per-source administrative token 转成全局可枚举
+    frozen lag ref 后回收 live slot，不删 canonical backlog、不从 aggregate proof 消失。禁止
     global→project lock inversion、覆盖或以 off project 永占 capacity。barrier + registration 后才写 `projection_queued` 并允许
     semantic `done`，因此 dormant source 不需被扫描/重启也可发现 work。global worker 必须使用跨 project/key/shard 的唯一 deadline-bounded
     append sequencer：同一 lease 从 allocator reservation 一直持有到该 expected offset 的
@@ -355,7 +358,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     receipt-outbox intent 原子提交；outbox worker 取得 matching source delivery lease 后只按 exact route +
     content-addressed receipt key/digest 写独立 create-if-absent slot，不共享 project append offset；
     slot file fsync、atomic create 与 route-directory fsync 全部成功后才可 global
-    `receipt_applied`/reclaim；它不得写 project journal。只有 source coordinator/approved maintenance
+    `receipt_applied`/reclaim；若 closed capability proof 表明 route 已永久删除/替换，则同一 metadata
+    root 把 exact intent/lag/rebind key 转入 per-source durable quarantine 并释放 shared outbox，
+    新 route/epoch 只能 bounded rebind 后完成，不能影响其他 project 或伪称 completed。worker 不得写 project journal。只有 source coordinator/approved maintenance
     route 按 shared delivery lease → project lock 持有至 fsync 才可写 `projection_done`。恢复只按 earliest reservation 或 receipt
     intent 的 exact key/offset/digest 判断，禁止扫描 project/HOME/global log、跳洞、丢 receipt
     或释放 reservation 后由 per-key writer 乱序 append。off-preparing 必须先用同一
@@ -400,7 +405,7 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     degraded/lag 与空 semantic data，不得报 `ok` 或 `NO DATA`。legacy v1 只能显示
     `legacy_untracked` + 空 semantic data，不得破坏旧 payload 或伪装 v2。Codex status、
     quality grader、constraint-frequency reader 与 Rust hook/log history readers 也必须对 semantic
-    kinds join exact barrier；pre-barrier/aborted/global-lag row 不得被当成 latest success、
+    kinds join exact barrier + matching `projection_done` receipt；pre-barrier/aborted/global-lag row 不得被当成 latest success、
     grade 证据、rule hit 或后续 enforcement history。
 36. B-036: 正常、失败、timeout 与 interruption 都必须清理 GH-704 自建的 bounded
     temporary state；取消后停止新 inference，保留最小 structured audit，返回与 H-007
@@ -445,7 +450,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       partial activation 可幂等补齐/回滚，reconcile byte/time cap 的最小合法值能完成最大 atomic
       record，slow/hung I/O 的 cancellation teardown 也进 floor 且无返回后续写，concurrent global registration 串行且 orphan 可 completion/tombstone/reclaim，
       prepare/queue/sequencer 不丢 payload、不重用 offset 且 serialized append 无洞；applied reservation 在释放前原子转入 exact-route keyed receipt
-      outbox，同 project 多 intent 不共享 offset，dormant source project 也可无扫描补 receipt；
+      outbox，同 project 多 intent 不共享 offset，dormant source project 也可无扫描补 receipt；永久
+      删除/替换的 route 进入 per-source durable rebindable quarantine 并释放 shared outbox capacity；
       ready 先 claim 后 reserve，active absent-reservation claim 必须恢复 exact reservation；仅 matching off-preparing 可 freeze，且 config 反转/漂移不得用 stale request 提交 off；
       false-positive report/triage 只接受 finalized typed identity，observe v1/v2 兼容且 aggregate proof 从 retained completed index + 全量 ordered barrier/lag refs + stable global root/four subgenerations/watermark 构造，health/Codex-status/quality-grader/constraint-frequency 与 Rust enforcement-history readers 对 lag/unfinalized 统一 degraded/empty/零计数；free-text/global mirror 不再是权威路径。
 - [ ] trusted session 不能由 inherited env/payload 选择；session spoof/conflict/rotation 均在

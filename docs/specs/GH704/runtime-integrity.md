@@ -108,9 +108,11 @@ decision、ordered stage receipts 与 expected activation receipts。三个 cons
 补齐，或在 durable `abort_prepared` 后回滚整个 group。barrier 后只允许向前恢复。
 
 全部 activation receipts 匹配后，coordinator 在仍持有 project lock 时取得 deadline-bounded
-global registration lease，在 checksummed fixed-capacity generations 中 reserve unique slot，写入并
-fsync inert `projection_prepared {source_route, queue_key, bounded_derived_body, barrier_digest,
-record_digest, eligibility_epoch}`，再原子提交 generation；project→registration 是唯一锁序，
+global registration lease，先证明 live slot 与 per-source frozen-lag quota 均有容量，再由一个
+global metadata root 原子发布 registry subgeneration 中的 unique live slot + reserved
+`frozen_lag_token_id/exact_frozen_lag_identity`，并 fsync inert `projection_prepared {source_route,
+queue_key, bounded_derived_body, barrier_digest, record_digest, eligibility_epoch}`；任一 full 时零
+durable write。project→registration 是唯一锁序，
 global worker 不反向持 registry lease 取得 project lock。随后才 append/fsync canonical barrier，
 提交引用 slot 的 `projection_queued`，barrier + registration durable 后才 `done`。worker 在 exact
 source route 证明 matching barrier 前保持 entry inert；并发 project publication、reserve/commit
@@ -120,27 +122,33 @@ crash 按 slot/generation 幂等恢复，full 时在 barrier 前 visible backpre
 lease → source project lock 调用**同一 coordinator recovery**：receipts complete 则补 barrier/
 queued，matching abort 则确认 durable `aborted`；coordinator 返回 digest-bound ready/abort receipt
 后释放 project/delivery locks，dispatcher 才重新取得 registry lease，以 compare-and-swap 提交
-ready 或 checksummed tombstone/reclaim。未知/损坏 entry fail visible 且禁止覆盖；requested
+ready，或在 abort tombstone/reclaim 的同一 root transition 释放 frozen-lag token。未知/损坏 entry fail visible 且禁止覆盖；requested
 off 在 exclusive delivery lease → project lock 下先提交 durable `off_preparing {old_epoch,
 requested_config_identity, requested_config_digest, cursor}`：它立即禁止新 L2/shared admission，但还不是 effective
 off。释放 project lock 后仍持 delivery lease，再取 global registration lease，将旧
 epoch 的 pre-barrier 或 barrier-ready-but-unclaimed registrations 以 digest/epoch/state CAS
-提交为 checksummed `off_frozen` administrative tombstone 并回收 live slot。它不写/
+提交为 checksummed `off_frozen` administrative tombstone，并在同一 registry subgeneration/root
+把 admission 时预留的 per-source administrative token 转为 globally enumerable
+`frozen_lag_ref {source,event,barrier,claim_digest,old_epoch,request_digest}` 后回收 live slot。
+该 bounded/retained plane 不计 live-work capacity，按 source quota 隔离且供 aggregate 枚举。它不写/
 删 source semantic journal；
 canonical `projection_prepared`/activation receipts 保持冻结，re-enable 只能 bounded rebind
 并重新发布，或由 approved maintenance drain 处理。worker 自身从不写 project journal。
 因为该路径不同时持 project/registry locks，且 registration 仍只用 project→registry，
 不形成 lock inversion；off project 也不会用 inert/ready orphan 永久耗尽
 live registry capacity。ready worker 只能在 shared delivery lease 下先用 registry state CAS
-提交 `claim_prepared {claim_id, exact body/digest, reservation_digest}`，释放 registry lease 后
-才幂等 durable 创建 exact sequencer reservation，然后重新取 registry lease CAS 为
-claimed tombstone/reclaim；从不 reserve-before-claim，也不同时持 registry/sequencer leases。
-crash 留下 claim-prepared 时先查 exact claim/reservation digest：普通 active recovery 在 matching
+提交 offset-independent `claim_prepared {claim_id, exact body/digest, reservation_seed_digest}`，
+释放 registry lease 后才由 sequencer 分配 offset，并原子创建携带 offset/tail 的 full
+`reservation_digest`；随后重取 registry lease CAS 为 `reservation_bound {reservation_id,
+reservation_digest}`，再在 claimed tombstone/reclaim 的同一 root transition 释放未使用的
+frozen-lag token。从不预猜 offset/reserve-before-claim，也不同时
+持 registry/sequencer leases。crash 留下 claim-prepared 时先以 claim ID/seed/body 核对 reservation：普通 active recovery 在 matching
 effective enabled identity/epoch 下若 reservation 不存在，必须从 claim body 幂等创建 exact
 reservation，禁止转为 off-frozen；只有 matching old epoch/request digest 的 durable `off_preparing`
-才可把 absent-reservation claim CAS 为 `off_frozen`，并保留可 bounded rebind 的 canonical
-`projection_prepared`/barrier reference。matching reservation 正常前进；off-preparing 才必须先完成
-第 4 节 allocator/outbox/receipt drain 再回收 slot；digest mismatch 一律 `needs_repair`。
+才可把 absent-reservation claim CAS 为带 frozen-lag ref 的 `off_frozen`，并保留可 bounded rebind 的
+canonical `projection_prepared`/barrier reference。matching reservation 必须先把 full digest CAS
+回 claim 再正常前进；seed/body/full digest mismatch 一律 `needs_repair`。off-preparing 才必须先完成
+第 4 节 allocator/outbox/receipt drain 再回收 slot。
 global view 仍只在 barrier 后可见。decision、
 consumer/status/aggregate/precision/Learn 仍只 join barrier；project coordinator 最后在同一 lock
 下消费 durable receipt slot 并提交 `projection_done`。
@@ -197,11 +205,14 @@ append/fsync 与 durable applied/tail commit 完成**：
 
 1. 先从 allocator WAL oldest-first 恢复最早 committed reservation；存在未 applied reservation
    时不准分配或 append 更晚 offset；
-2. 先证明 completed index 尚有一条 closed-max entry，再在单一 checksummed global metadata root
-   generation 中原子提交 allocator reservation 与 completed-index reserved token
+2. 先证明 completed index 与 per-source route-quarantine 各有一条 closed-max entry，再在单一
+   checksummed global metadata root generation 中原子提交 allocator reservation、completed-index
+   与 quarantine reserved tokens
    `{reservation_id, identity_key, expected_offset, barrier_digest, bounded_derived_body,
    record_digest, source_project_identity, receipt_route, bounded_receipt_body, new_tail,
-   completed_index_token_id, exact_completed_ref_identity}`；capacity full 时在任何 durable write 前
+   reservation_seed_digest, reservation_digest, completed_index_token_id,
+   exact_completed_ref_identity, quarantine_token_id}`；full reservation digest 绑定实际 allocated
+   offset/new tail；任一 capacity full 时在任何 durable write 前
    visible backpressure；
 3. 在同一 lease 下为 exact key durable 写 `projection_prepared`，只在 expected offset
    append/fsync derived record；
@@ -239,8 +250,8 @@ append/fsync 与 durable applied/tail commit 完成**：
    rebind/consume durable slots，或由另行批准的 maintenance drain 处理；
 7. receipt worker 从 outbox oldest-first 打开 exact route，以 no-follow temp write + file fsync +
    atomic create-if-absent 写 keyed slot，再 fsync route directory。此后它只提交 global
-   `receipt_applied`/reclaim，并在同一 committed generation 将 reserved token 转为上述 completed
-   ref；不得写 project journal/`projection_done`。slot 已存在且 digest 相同
+   `receipt_applied`/reclaim，并在同一 root generation 将 completed-index token 转为上述 completed
+   ref、释放未使用的 quarantine token；不得写 project journal/`projection_done`。slot 已存在且 digest 相同
    也必须证明 directory durability；不同 digest 才 `needs_repair`。project coordinator/approved
    maintenance route 必须按 shared delivery lease → project lock 的固定顺序取得 matching epoch，
    并持有两者直到 slot 验证与 `projection_done` fsync；off 同样按 exclusive lease → project lock，
@@ -255,13 +266,26 @@ root 指向且 reservation/token ID + exact ref identity 全匹配的 pair：mat
 补 receipt-applied/reclaim，且 token 不再计 capacity；每个 commit 前后 crash、full 与 mismatch
 都必须证明无 token leak、无 reservation stall、无 completed-proof gap。
 
+route open 的 permission/timeout 等 transient failure 仍以有界 retry/age 留在 outbox；只有
+no-follow capability 检查以 closed evidence 证明 registered state-root 被删除或替换，才算 permanent。
+此时必须在一个 root generation 中把 exact route/body/barrier/ref/rebind key 与 lag identity 转入
+outbox subgeneration 的 durable per-source `route_quarantine` administrative plane，消费预留 token
+并回收 live outbox slot；它按 source quota 隔离，不能阻塞其他 project，aggregate 仍枚举该 lag。
+source coordinator 注册 new exact route/epoch 后只能 bounded rebind quarantined intent、重新完成
+keyed slot 和 completed-ref transaction，并在同一 completion root 释放 quarantine token；未经
+rebind 不得伪称 completed。token 缺失/错配/corrupt
+均 `needs_repair` 且只 backpressure 对应 source；测试覆盖 transient/permanent 分类、delete/replace、
+quarantine crash/replay、cross-source capacity isolation、normal-path token reuse、release 前后 crash、
+full/mismatch 与 rebind。frozen ref bounded rebind 时同一 root 将 ref 还原为 reserved token + live
+registration；正常 claim 再释放，禁止泄漏或重复分配。
+
 因此 reservation A 未 applied 时，reservation B 不能 append；不会出现 later offset 先落盘、
 earlier offset 留洞。crash recovery 只查 earliest reservation、exact key/offset/digest：缺 record
 则补 append，匹配 record 则补 marker/tail/outbox intent/receipt slot，不匹配则 `needs_repair`。crash 在
 applied 与 tail/outbox generation 之间时 reservation 仍 committed，可幂等重建；generation
-之后即使 source project 永不再运行，outbox 也独立携带 exact route/body。route inaccessible/
-identity mismatch 保持 pending lag；requested off 则保持 off-preparing，不得提交 effective
-off 后留 live intent。outbox 无法为下一最大 receipt admission 时在新 reservation
+之后即使 source project 永不再运行，outbox 也独立携带 exact route/body。temporary route failure
+保持 pending lag，proved-permanent failure 进入上述 quarantine；requested off 则保持 off-preparing，
+不得提交 effective off 后留 live intent。outbox 无法为下一最大 receipt admission 时在新 reservation
 前 backpressure。禁止扫描 global/project/HOME log、跳洞、重新分配 offset 或按 per-key 并发
 append。allocator/index/outbox full/corrupt/timeout 保持 `projection_lag` + 空 global data，不能
 反写 canonical project decision。
@@ -275,7 +299,8 @@ fixed entry/byte maximum 保留 H-014 批准的 query/retention window 内全部
 freshness overflow 必须 unavailable + empty，禁止回退扫描。reader 先读取 committed global
 metadata root generation + 其引用的四个 checksummed subgenerations +
 allocator tail/watermark，再按 query identity/window 有界枚举全部 in-scope state，生成稳定
-ordered `barrier_refs` 与 ordered `lag_refs`（包括 ready-registry、reservation 与 outbox lag），
+ordered `barrier_refs` 与 ordered `lag_refs`（包括 live/frozen registry、reservation、outbox 与
+route-quarantine lag），
 其中 successful refs 只来自 completed index，最后重读 root + 四个 subgenerations/tail。前后任一变化必须在同一 deadline 内 bounded
 retry；重试仍 drift 则 `projection_lag/unavailable` + 空 semantic aggregate。
 
