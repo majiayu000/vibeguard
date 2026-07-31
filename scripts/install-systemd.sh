@@ -114,18 +114,20 @@ scheduler_stop_and_verify_unit() {
 }
 
 scheduler_verify_deactivated() {
-  local disable_rc=0 enabled_state="" enabled_rc=0
+  local disable_rc=0 runtime_disable_rc=0 enabled_state="" enabled_rc=0
   scheduler_stop_and_verify_unit \
     vibeguard-gc.timer "vibeguard-gc.timer" || return 1
   scheduler_stop_and_verify_unit \
     vibeguard-gc.service "vibeguard-gc.service" || return 1
   systemctl --user disable vibeguard-gc.timer >/dev/null 2>&1 || disable_rc=$?
+  systemctl --user disable --runtime vibeguard-gc.timer >/dev/null 2>&1 \
+    || runtime_disable_rc=$?
   enabled_state="$(LC_ALL=C systemctl --user is-enabled vibeguard-gc.timer 2>/dev/null)" \
     || enabled_rc=$?
   case "${enabled_state}" in
     disabled|masked|not-found) ;;
     *)
-      red "ERROR: vibeguard-gc.timer is not proven disabled (disable_rc=${disable_rc}, state=${enabled_state:-empty}, rc=${enabled_rc}); preserving units and receipt."
+      red "ERROR: vibeguard-gc.timer is not proven disabled (disable_rc=${disable_rc}, runtime_disable_rc=${runtime_disable_rc}, state=${enabled_state:-empty}, rc=${enabled_rc}); preserving units and receipt."
       return 1
       ;;
   esac
@@ -476,7 +478,12 @@ if [[ "${INSTALL_REFRESH}" == "1" ]] \
   :
 elif [[ "${INSTALL_REFRESH}" == "1" ]] \
   && ! scheduler_verify_deactivated; then
+  if ! scheduler_restore_install_transaction; then
+    red "ERROR: failed to deactivate prior systemd units and rollback was incomplete; inspect ${INSTALL_WORK_DIR}."
+    exit 1
+  fi
   rm -rf -- "${INSTALL_WORK_DIR}"
+  red "ERROR: failed to deactivate prior systemd units; restored the previous scheduler state."
   exit 1
 else
   if ! mv -f -- "${STAGED_SERVICE}" "${SERVICE_DEST}" \
@@ -500,6 +507,16 @@ if ! systemctl --user enable --now vibeguard-gc.timer 2>/dev/null; then
   fi
   rm -rf -- "${INSTALL_WORK_DIR}"
   red "ERROR: Timer could not be started; restored the previous scheduler state."
+  exit 1
+fi
+if [[ "${INSTALL_REFRESH}" == "1" && "${PRIOR_SERVICE_ACTIVE}" == "1" ]] \
+  && ! systemctl --user start vibeguard-gc.service >/dev/null 2>&1; then
+  if ! scheduler_restore_install_transaction; then
+    red "ERROR: service restart failed and rollback was incomplete; inspect ${INSTALL_WORK_DIR}."
+    exit 1
+  fi
+  rm -rf -- "${INSTALL_WORK_DIR}"
+  red "ERROR: service restart failed; restored the previous scheduler state."
   exit 1
 fi
 

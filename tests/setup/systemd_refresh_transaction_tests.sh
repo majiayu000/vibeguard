@@ -116,14 +116,20 @@ case "${1:-}" in
     if [[ "${2:-}" == "vibeguard-gc.timer" ]]; then
       rm -f -- "${VIBEGUARD_TEST_SYSTEMD_ACTIVE}"
     elif [[ "${2:-}" == "vibeguard-gc.service" ]]; then
-      rm -f -- "${VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE}"
+      if [[ "${VIBEGUARD_TEST_SYSTEMD_SERVICE_STILL_ACTIVE_ONCE:-0}" == "1" \
+        && ! -e "${VIBEGUARD_TEST_SYSTEMD_SERVICE_STILL_ACTIVE_MARKER}" ]]; then
+        touch "${VIBEGUARD_TEST_SYSTEMD_SERVICE_STILL_ACTIVE_MARKER}"
+      else
+        rm -f -- "${VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE}"
+      fi
     fi
     exit 0
     ;;
   disable)
-    rm -f -- "${VIBEGUARD_TEST_SYSTEMD_ENABLED}"
-    if [[ -n "${VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME:-}" ]]; then
+    if [[ "${2:-}" == "--runtime" ]]; then
       rm -f -- "${VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME}"
+    else
+      rm -f -- "${VIBEGUARD_TEST_SYSTEMD_ENABLED}"
     fi
     exit 0
     ;;
@@ -343,6 +349,72 @@ assert_cmd "runtime-enabled refresh restores units and receipt byte-for-byte" ba
 assert_cmd "runtime-enabled refresh restores runtime enablement exactly" bash -c \
   'test -e "$1" && test ! -e "$2"' _ \
   "${runtime_refresh_enabled_runtime}" "${runtime_refresh_enabled}"
+
+successful_service_home="${TMP_HOME}/standalone-systemd-successful-service-refresh-home"
+successful_service_active="${successful_service_home}/.systemctl-vibeguard-gc-active"
+successful_service_service_active="${successful_service_home}/.systemctl-vibeguard-gc-service-active"
+successful_service_enabled="${successful_service_home}/.systemctl-vibeguard-gc-enabled"
+successful_service_enabled_runtime="${successful_service_home}/.systemctl-vibeguard-gc-enabled-runtime"
+successful_service_activated="${successful_service_home}/.systemctl-vibeguard-gc-activated"
+mkdir -p "${successful_service_home}"
+env HOME="${successful_service_home}" "${post_activation_hash_env[@]}" \
+  VIBEGUARD_TEST_SYSTEMD_ACTIVE="${successful_service_active}" \
+  VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE="${successful_service_service_active}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED="${successful_service_enabled}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME="${successful_service_enabled_runtime}" \
+  VIBEGUARD_TEST_HASH_ACTIVATED="${successful_service_activated}" \
+  VIBEGUARD_TEST_HASH_FAIL_PATH="${successful_service_home}/not-this-run" \
+  bash "${REPO_DIR}/scripts/install-systemd.sh" >/dev/null
+touch "${successful_service_service_active}"
+rm -f -- "${successful_service_activated}"
+env HOME="${successful_service_home}" "${post_activation_hash_env[@]}" \
+  VIBEGUARD_REPO_DIR="${standalone_alt_repo}" \
+  VIBEGUARD_TEST_SYSTEMD_ACTIVE="${successful_service_active}" \
+  VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE="${successful_service_service_active}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED="${successful_service_enabled}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME="${successful_service_enabled_runtime}" \
+  VIBEGUARD_TEST_HASH_ACTIVATED="${successful_service_activated}" \
+  VIBEGUARD_TEST_HASH_FAIL_PATH="${successful_service_home}/not-this-run" \
+  bash "${REPO_DIR}/scripts/install-systemd.sh" >/dev/null
+assert_cmd "successful refresh restarts a previously active service" \
+  test -e "${successful_service_service_active}"
+
+deactivation_rollback_home="${TMP_HOME}/standalone-systemd-deactivation-rollback-home"
+deactivation_rollback_active="${deactivation_rollback_home}/.systemctl-vibeguard-gc-active"
+deactivation_rollback_service_active="${deactivation_rollback_home}/.systemctl-vibeguard-gc-service-active"
+deactivation_rollback_enabled="${deactivation_rollback_home}/.systemctl-vibeguard-gc-enabled"
+deactivation_rollback_enabled_runtime="${deactivation_rollback_home}/.systemctl-vibeguard-gc-enabled-runtime"
+deactivation_rollback_activated="${deactivation_rollback_home}/.systemctl-vibeguard-gc-activated"
+deactivation_rollback_still_active_marker="${deactivation_rollback_home}/.systemctl-service-still-active-once"
+mkdir -p "${deactivation_rollback_home}"
+env HOME="${deactivation_rollback_home}" "${post_activation_hash_env[@]}" \
+  VIBEGUARD_TEST_SYSTEMD_ACTIVE="${deactivation_rollback_active}" \
+  VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE="${deactivation_rollback_service_active}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED="${deactivation_rollback_enabled}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME="${deactivation_rollback_enabled_runtime}" \
+  VIBEGUARD_TEST_HASH_ACTIVATED="${deactivation_rollback_activated}" \
+  VIBEGUARD_TEST_HASH_FAIL_PATH="${deactivation_rollback_home}/not-this-run" \
+  bash "${REPO_DIR}/scripts/install-systemd.sh" >/dev/null
+touch "${deactivation_rollback_service_active}"
+deactivation_rollback_rc=0
+env HOME="${deactivation_rollback_home}" "${post_activation_hash_env[@]}" \
+  VIBEGUARD_REPO_DIR="${standalone_alt_repo}" \
+  VIBEGUARD_TEST_SYSTEMD_ACTIVE="${deactivation_rollback_active}" \
+  VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE="${deactivation_rollback_service_active}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED="${deactivation_rollback_enabled}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME="${deactivation_rollback_enabled_runtime}" \
+  VIBEGUARD_TEST_HASH_ACTIVATED="${deactivation_rollback_activated}" \
+  VIBEGUARD_TEST_HASH_FAIL_PATH="${deactivation_rollback_home}/not-this-run" \
+  VIBEGUARD_TEST_SYSTEMD_SERVICE_STILL_ACTIVE_ONCE=1 \
+  VIBEGUARD_TEST_SYSTEMD_SERVICE_STILL_ACTIVE_MARKER="${deactivation_rollback_still_active_marker}" \
+  bash "${REPO_DIR}/scripts/install-systemd.sh" >/dev/null 2>&1 \
+  || deactivation_rollback_rc=$?
+assert_cmd "partial deactivation failure returns nonzero" \
+  test "${deactivation_rollback_rc}" -ne 0
+assert_cmd "partial deactivation rollback restores timer, service, and enablement" bash -c \
+  'test -e "$1" && test -e "$2" && test -e "$3"' _ \
+  "${deactivation_rollback_active}" "${deactivation_rollback_service_active}" \
+  "${deactivation_rollback_enabled}"
 
 remove_rollback_home="${TMP_HOME}/standalone-systemd-remove-rollback-home"
 remove_rollback_service="${remove_rollback_home}/.config/systemd/user/vibeguard-gc.service"
