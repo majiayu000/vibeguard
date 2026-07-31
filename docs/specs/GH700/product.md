@@ -499,9 +499,9 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     持有 early/candidate leases 后 union 进 watermark；无法证明精确匹配的 record 永久
     保持 unbound，不得由“同 commit 的下一个 candidate”接管。tuple/digest 冲突或归属歧义
     均 fail closed；不得读取 workflow 自由文本或跳过该 attempt。
-    reconciler workflow 的显式 least-permission map 至少为 `actions: read`、
-    `contents: write`、`pull-requests: write`；protected environment 只授予该 workflow，
-    default branch 仍只能经 human-reviewed PR/CAS 修改。所有 release attempts、
+    reconciler workflow 的 GitHub token显式固定为 `actions: read`、`contents: read`、
+    `pull-requests: read`；mTLS client identity只可请求 authority执行已规划 operation，所有 GitHub
+    write credential仅存在于 sole authority/broker，default branch仍只能经 human-reviewed PR/CAS修改。所有 release attempts、
     reconciler 与 publish gate 必须共享 candidate/source-identity
     路由的 serialized lease（禁止 cancel-in-progress）、repository ledger lease和合并后的 attested reconciliation
     watermark；新 attempt 与 publish 在持锁状态下必须枚举同 candidate/source identity 的
@@ -590,8 +590,8 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
       nonvalid row 都必须有
       pre-transition durable owner、intent 前 receipt、retained authenticated publication
       history并恢复到 terminal；draft/Release 不匹配则 `release_recovery_blocked`。
-      reconciler 仅用显式
-      `actions: read`/`contents: write`/`pull-requests: write`。
+      reconciler GitHub token仅用显式
+      `actions: read`/`contents: read`/`pull-requests: read`，write credential仅 authority/broker可持有。
 - [ ] unavailable/inconclusive/interrupted/legacy-schema 及 process-tree/report/schema/
       cleanup terminal errors 均非零退出、blank headline，且不会把历史数字冒充当前 release。
 
