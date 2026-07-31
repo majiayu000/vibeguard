@@ -341,7 +341,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     durable 后执行。orphan 由同一 source coordinator 完成 barrier/abort，再用 digest receipt CAS
     ready/tombstone/reclaim；ready worker 必须先在 registry CAS 持久化 claim ID/body 与
     offset-independent reservation seed digest，释放 registry 后才由 sequencer 分配 offset、原子
-    创建 full reservation digest，再 CAS bind/reclaim，禁止预猜 offset/reserve-before-claim；
+    创建 full reservation digest + allocator-side durable claim binding；binding 保留到 registry CAS
+    acknowledgement，applied/outbox reclaim crash 后也不得误建第二 reservation。禁止预猜 offset/reserve-before-claim；
     enabled crash 对 absent reservation 必须 exact recreate，只有 matching durable off-preparing 可
     freeze，matching reservation 才 completion，任一 identity mismatch fail visible。requested off 在
     exclusive delivery 下进入 off-preparing，释放 project lock 后再取 registry lease，
@@ -359,7 +360,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     content-addressed receipt key/digest 写独立 create-if-absent slot，不共享 project append offset；
     slot file fsync、atomic create 与 route-directory fsync 全部成功后才可 global
     `receipt_applied`/reclaim；若 closed capability proof 表明 route 已永久删除/替换，则同一 metadata
-    root 把 exact intent/lag/rebind key 转入 per-source durable quarantine 并释放 shared outbox，
+    root 把 exact intent/lag/rebind key 转入 independently checksummed per-source durable quarantine，
+    发布全局 lag stub并释放 shared outbox/completed capacity；closed permanent ACL-denied proof 同样
+    quarantine，corrupt source root 不得阻止 shared root advance，
     新 route/epoch 只能 bounded rebind 后完成，不能影响其他 project 或伪称 completed。worker 不得写 project journal。只有 source coordinator/approved maintenance
     route 按 shared delivery lease → project lock 持有至 fsync 才可写 `projection_done`。恢复只按 earliest reservation 或 receipt
     intent 的 exact key/offset/digest 判断，禁止扫描 project/HOME/global log、跳洞、丢 receipt

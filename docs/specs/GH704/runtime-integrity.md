@@ -139,11 +139,15 @@ canonical `projection_prepared`/activation receipts 保持冻结，re-enable 只
 live registry capacity。ready worker 只能在 shared delivery lease 下先用 registry state CAS
 提交 offset-independent `claim_prepared {claim_id, exact body/digest, reservation_seed_digest}`，
 释放 registry lease 后才由 sequencer 分配 offset，并原子创建携带 offset/tail 的 full
-`reservation_digest`；随后重取 registry lease CAS 为 `reservation_bound {reservation_id,
-reservation_digest}`，再在 claimed tombstone/reclaim 的同一 root transition 释放未使用的
+`reservation_digest`，且同一 allocator/root commit 留下 durable `claim_binding {claim_id,
+seed_digest,reservation_id,full_digest,state}`；它在 reservation body/outbox reclaim 后仍可 bounded
+discover，直到 registry CAS acknowledgement。随后重取 registry lease CAS 为 `reservation_bound {reservation_id,
+reservation_digest}`，再在 claimed tombstone/reclaim 的同一 root transition acknowledgement 并释放 binding 与未使用的
 frozen-lag token。从不预猜 offset/reserve-before-claim，也不同时
-持 registry/sequencer leases。crash 留下 claim-prepared 时先以 claim ID/seed/body 核对 reservation：普通 active recovery 在 matching
-effective enabled identity/epoch 下若 reservation 不存在，必须从 claim body 幂等创建 exact
+持 registry/sequencer leases。crash 留下 claim-prepared 时先以 claim ID/seed/body 查 stable root 的
+binding/reservation/outbox：matching applied/outbox binding 只补 registry acknowledgement，in-flight
+binding 继续原 reservation；只有三者均 absent，普通 active recovery 在 matching
+effective enabled identity/epoch 下才从 claim body 幂等创建 exact
 reservation，禁止转为 off-frozen；只有 matching old epoch/request digest 的 durable `off_preparing`
 才可把 absent-reservation claim CAS 为带 frozen-lag ref 的 `off_frozen`，并保留可 bounded rebind 的
 canonical `projection_prepared`/barrier reference。matching reservation 必须先把 full digest CAS
@@ -261,21 +265,29 @@ allocator、outbox 与 completed index 各有独立 subgeneration，但所有跨
 单一 global metadata root generation 原子发布；因此 receipt completion 同时发布 completed ref、
 `receipt_applied` 与 outbox reclaim，completed ref 未 durable 时 reclaim 不可见。recovery 只接受
 root 指向且 reservation/token ID + exact ref identity 全匹配的 pair：matching pair 幂等前进；
-旧 root 外的 token-only/reservation-only torn copy 回退到前一 committed root；committed root 内
+旧 root 外的 token-only/reservation-only torn copy 回退到前一 committed root；matching claim binding
+保留到 registry acknowledgement 后才 GC。committed root 内
 任一缺失/错配则 `needs_repair`，禁止 append、reclaim 或重用 token。matching completed ref 可幂等
 补 receipt-applied/reclaim，且 token 不再计 capacity；每个 commit 前后 crash、full 与 mismatch
 都必须证明无 token leak、无 reservation stall、无 completed-proof gap。
 
-route open 的 permission/timeout 等 transient failure 仍以有界 retry/age 留在 outbox；只有
-no-follow capability 检查以 closed evidence 证明 registered state-root 被删除或替换，才算 permanent。
-此时必须在一个 root generation 中把 exact route/body/barrier/ref/rebind key 与 lag identity 转入
-outbox subgeneration 的 durable per-source `route_quarantine` administrative plane，消费预留 token
-并回收 live outbox slot；它按 source quota 隔离，不能阻塞其他 project，aggregate 仍枚举该 lag。
-source coordinator 注册 new exact route/epoch 后只能 bounded rebind quarantined intent、重新完成
-keyed slot 和 completed-ref transaction，并在同一 completion root 释放 quarantine token；未经
+route open 的 timeout、single permission error 等仍以有界 retry/age 留在 outbox。permanent 的 closed
+platform table 只接受删除/替换 proof，或在 policy-bound attempts/horizon 前后 route identity、
+owner/ACL digest 与 worker credential capability 均稳定且每次返回同一 non-transient access-denied，
+并由 source coordinator 证明无 valid writer capability；缺任一 evidence 仍 transient。
+permanent 时先写/fsync independently checksummed per-source quarantine root 的 staged exact
+route/body/barrier/ref/rebind entry；再由一个 global root atomically reclaim live outbox、释放 global
+completed-index token、消费 quarantine token并发布 bounded `quarantine_lag_stub {source,event,
+barrier,per_source_root_id,entry_digest}`。root 前 crash 忽略/回收 staged orphan且 outbox 仍 live；root
+后 stub 保证 lag 全局可枚举。shared allocator/outbox validation 不读取 per-source root；其后损坏只把
+该 source 标记 `needs_repair`，不能阻止其他 source 的 root advance。
+source coordinator 注册 new exact route/epoch 后只能 bounded rebind quarantined intent；先原子
+重新取得 global completed-index capacity token，再恢复 live outbox/keyed slot/completed-ref transaction，
+并在同一 completion root 删除 lag stub、释放 quarantine token；capacity 不足只阻塞该 source。未经
 rebind 不得伪称 completed。token 缺失/错配/corrupt
 均 `needs_repair` 且只 backpressure 对应 source；测试覆盖 transient/permanent 分类、delete/replace、
-quarantine crash/replay、cross-source capacity isolation、normal-path token reuse、release 前后 crash、
+quarantine permission/delete/replace、staged/root crash replay、post-commit per-source corruption、
+cross-source capacity isolation、completed-token release/reacquire、normal-path token reuse、release 前后 crash、
 full/mismatch 与 rebind。frozen ref bounded rebind 时同一 root 将 ref 还原为 reserved token + live
 registration；正常 claim 再释放，禁止泄漏或重复分配。
 
