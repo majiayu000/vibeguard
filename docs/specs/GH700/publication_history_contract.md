@@ -263,6 +263,24 @@ initial trust root/leaf certificates与 epoch钉住；bootstrap approval须由 r
 `SHA256(JCS({v:"GH700:history-empty-prefix:v1",repo_node_id}))`。
 `first_blocked_attempt_frontier` 同样固定 `ledger_length=0`，root/full-prefix分别由
 `GH700:blocked-attempt-empty-root:v1` / `GH700:blocked-attempt-empty-prefix:v1` 加 `repo_node_id` 做 JCS SHA-256。
+
+history 与 blocked-attempt ledger 共享下列唯一 successor framing，其中
+`domain∈{history,blocked-attempt}`、`leaf_bytes=JCS(exact closed top-level record)`、`u64be` 是 unsigned
+64-bit big-endian，`digest_bytes` 只解码 canonical lowercase `sha256:<64hex>`：
+`leaf_hash=SHA256(UTF8("GH700:"+domain+"-leaf:v1")||0x00||u64be(len(leaf_bytes))||leaf_bytes)`；
+`next_length=prior_length+1`；
+`next_root=SHA256(UTF8("GH700:"+domain+"-root:v1")||0x00||digest_bytes(prior_root)||leaf_hash||u64be(next_length))`；
+`next_full_prefix_digest=SHA256(UTF8("GH700:"+domain+"-prefix:v1")||0x00||
+digest_bytes(prior_full_prefix_digest)||u64be(len(leaf_bytes))||leaf_bytes)`。结果统一编码为 lowercase
+`sha256:<64hex>`；length overflow、non-canonical digest/record bytes或任一重算不等均拒绝。
+下列 framing-only golden 使用 `repo_node_id="R_kgDOGH700"`、上述 length-zero frontier 与
+`leaf_bytes=7b7d` (`{}`，仅隔离验证 hash primitive，record schema 仍必须拒绝它)：
+
+| domain | `leaf_hash` | successor root | successor `full_prefix_digest` |
+| --- | --- | --- | --- |
+| `history` | `sha256:f846a7690345ef0b8217076e8a5b960ed0394701191ea3f497a25a7083304ac1` | `sha256:0781fb121749d9247a26f74f34449715311cf09511ec81ab0103c0b758583bc3` | `sha256:e73400b4b88aa43e6500ab69b4bafee6693cc2a0c733d0228e3e41a3701b6d76` |
+| `blocked-attempt` | `sha256:86a1d6dedf4fb174dee3f38281770624896176b1a89b244b4c0ecf3ca5a07b1c` | `sha256:1ab51f4579df55ede8eb606fd2558a0ebfd4364de7016e16c31dbfc0a71f4153` | `sha256:24c3426a0db6999dc2c3e1dd610bb62ce321fa8fb743237edf0e6306c0bc488f` |
+
 T3 bootstrap只在 DB/anchor均不存在时，以
 threshold approval、RFC3161 quorum initial-time proof和外部 release-identity attestation原子创建 SQLite
 genesis/trust state，再以 DynamoDB epoch-zero conditional transaction锚定 first frontier、zero blocked-ledger
