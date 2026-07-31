@@ -95,7 +95,8 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
    `lease_expires_at=min(accepted_at+3600, claim_accepted_at+604800)`，不严格延长 expiry
    的 heartbeat 拒绝；到 7 日上限后禁止续租，待 expiry 后才可 takeover。获批值、批准者
    roster 与 approval digest 全部进入 `liveness_policy_digest`；缺失或未批准则 publication
-   preflight 为 `unavailable`。**
+   preflight 为 `unavailable`。accepted time只来自 [publication_history_contract.md](publication_history_contract.md)
+   的 RFC3161 quorum proof与外部 anchor high water；host/client clock、job absence或回退快照不授权 expiry。**
 
 ## Behavior Invariants
 
@@ -267,7 +268,7 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     interception 口径与 rate、false-positive rate、状态及报告链接；latency 不允许静默
     reduction，每个 production surface 必须有独立 P95/status 列（或独立子行），列集合与
     顺序来自 protocol schedule。数字不得手工编辑；表格必须明确它代表哪个 release。
-    publication ownership、mutation-secret、append-only history、trust/fold 与 owner-liveness
+    publication ownership、mutation-secret、append-only history、blocked-attempt ledger、trusted time、trust/fold 与 owner-liveness
     的完整规范性 contract 位于 [publication_history_contract.md](publication_history_contract.md)；
     该文档全部属于 B-017/B-018 acceptance surface；product/tech/tasks只引用其 machine-facing
     identifiers、secret boundary与 conformance vectors，不在调用方复制字段集合、枚举、canonical
@@ -298,14 +299,14 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     attestation 写权限外，只能取得 environment-protected、attempt-bound 的 Release
     mutation 权限：仅可按 durable claim 枚举/bind/delete exact draft；revoke owner gate、
     disable auto-merge/dequeue、close exact pending de-current PR并 compare-delete exact head；
-    按已验签 `publish_intent` 完成/验证同一 draft；或按 durable owner创建/supersede exact
+    按已验签 `intent_written` 完成/验证同一 draft；或按 durable owner创建/supersede exact
     de-current/rollback/new-current/nonvalid-row/invalidate-current recovery PR并等待 human review/merge；
     不得直接写 default branch，也不得创建或改写其他 tag/release。任何新 mutation 前必须
     审计 publish sentinels；post-intent 严格按 B-029 三分支真值表恢复，不能依赖已终止 job。
     发布路径必须使用 attempt-scoped draft two-phase commit：先按 B-017 唯一锁顺序 CAS
     `owner_claimed`，再创建并 bind private draft；只有 `draft_bound` 可上传
     assets/checksums/summary，完整重验后 CAS `prepared`。valid 选择并证明 `genesis_zero`、
-    `rollover_one` 或 `post_invalidation_zero` receipt 后再写不可变 `publish_intent`；`publish_nonvalid` 的 intent
+    `rollover_one` 或 `post_invalidation_zero` receipt 后再写不可变 `intent_written`；`publish_nonvalid` 的 intent
     绑定 exact unmarked-row plan。最后以唯一 draft→published 作为 commit point。prepared
     且无可见动作的取消可删 exact draft并 terminal；pending de-current PR 必须先撤销 merge
     authority并取得 revocation receipt，已 merge de-current 则进入可接管的 reviewed rollback；
@@ -464,6 +465,11 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     bytes 完全相同，每次 retry 也产生不同、不可覆盖且可独立检索的 attempt record；随后
     job 非零退出，GitHub Release、release page/assets 与 README candidate current row
     均不创建。
+
+    永久 store/API/retention/recovery 的唯一合同是
+    [publication_history_contract.md](publication_history_contract.md) 中的
+    `blocked_attempt_ledger_sqlite_v1`；T3拥有 backend/bootstrap/migration/recovery，completion client
+    只能调用 manifest-pinned ledger methods，短期 artifact、pointer或 mock均不能满足本条。
 
     required-platform 输入各自通过但 decision 不一致、缺输入或 aggregation 失败时，
     release-scoped 分支必须绑定 canonical failed-summary preimage/digest、完整
