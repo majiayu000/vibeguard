@@ -576,7 +576,7 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | `prepared` | `{owner_generation,draft_bound_operation_id,asset_manifest_digest,checksums_digest,summary_digest,closed_slot_set_digest}` |
 | `genesis_zero_receipt` | `{owner_generation,first_frontier,verified_prefix_digest,zero_marker_surface_digest,bootstrap_receipt_digest,governance_suffix_digest}` |
 | `post_invalidation_zero_receipt` | `{owner_generation,invalidation_receipt_operation_id,invalidation_suffix_digest,zero_marker_surface_digest,terminal_chain_digest,governance_suffix_digest}` |
-| `intent_written` | `{owner_generation,intent_kind,prepared_operation_id,zero_marker_receipt_operation_id_or_null,unmarked_row_plan_digest_or_null,summary_digest,release_manifest_digest}` |
+| `intent_written` | `{owner_generation,intent_kind,prepared_operation_id,zero_marker_receipt_operation_id_or_null,new_current_pr_plan_digest_or_null,unmarked_row_plan_digest_or_null,summary_digest,release_manifest_digest}` |
 | `release_committed_valid_marker_pending` | `{owner_generation,intent_operation_id,release_node_id,published_release_digest,new_current_pr_plan_digest}` |
 | `release_committed_nonvalid_row_pending` | `{owner_generation,intent_operation_id,release_node_id,published_release_digest,nonvalid_row_pr_plan_digest}` |
 | `valid_decurrent_pr_cancel_pending` | `{owner_generation,decurrent_pr_bound_operation_id,higher_fence_receipt_digest,cancel_plan_digest}` |
@@ -612,6 +612,9 @@ closed enums exact 为 `intent_kind={publish_valid,publish_nonvalid}`、
 `pr_kind={decurrent,rollback,new_current,nonvalid_row,invalidate_current}`、
 `terminal_kind={published_valid,published_nonvalid,rollback_restored,invalidation_completed}`及
 `recovery_truth_branch={matching_public_release,matching_intent_bound_draft}`；`retain_owner`必须 literal `true`。
+`intent_written(intent_kind=publish_valid)` 必须在 publish slot 前将 human-reviewed exact base/patch/review
+identity 作 non-null `new_current_pr_plan_digest_or_null` 绑定，且 `unmarked_row_plan_digest_or_null`为 null；
+`publish_nonvalid` 则反之。两者同时 null/non-null 或 commit 后才首次出现 new-current plan 均 schema-invalid。
 `release_mutation_recovery_blocked.mutation_kind`只允许
 `{draft_update,draft_delete,asset_upload,asset_delete,publish}`，`draft_create`只允许
 `draft_recovery_blocked`。broker audit、capsule、KMS refs、external anchor、time proof、PR/Release discovery与
