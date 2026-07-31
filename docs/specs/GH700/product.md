@@ -246,9 +246,20 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     default-branch blob digest 与“没有 current marker”做 freshness 重验，永久记录绑定
     PR merge SHA、前后 blob digest 的 `marker_transition_receipt`，然后才允许 intent 绑定
     该 receipt；commit 后再以
-    独立 human-reviewed PR 添加新 row/current marker，完成或 rollback 后才释放 lease。
-    该 PR 停滞或拒绝期间允许没有 current marker，但其它 candidate 不得进入 marker 状态机，
-    绝不允许旧版本继续显示为 current。`publish_nonvalid` 不进入去旧/current
+    独立 human-reviewed PR 添加新 row/current marker。intent 还必须绑定发布前已生成并
+    human-approved 的 exact new-current patch digest/review identity；base/CAS 改变就重新审核。
+    Release commit 后立即把 durable `publication_ownership_record` 置为
+    `post_commit_marker_pending`，绑定 candidate、fence epoch、intent/release/summary、
+    new-current PR/head 与 protocol-owned positive `new_current_deadline_ms`。执行 lease 可过期，
+    ownership 不可丢失：PR closed/rejected、deadline/heartbeat 到期或 worker 消失时，
+    completion reconciler/scheduled audit 必须 CAS 取得更高 fence epoch，使旧 token 失效，
+    重验 public Release==intent、zero marker、无其它 marker merge 后，将旧 PR 标为
+    superseded并从验签 summary 生成 replacement PR，重新 human review；接管者只能恢复同一
+    candidate，不能发布下一 candidate。明确拒绝且无获批 replacement 时 append
+    `marker_recovery_blocked`（reason/reviewer/PR identities），释放短期执行 lease但保留
+    fail-closed ownership；任何下一 candidate 都必须阻断并报警，直到 human-approved
+    replacement 以新 fence/CAS 合并。exact new-current merge 后 ownership terminal，才释放
+    repository publication lease。`publish_nonvalid` 不进入去旧/current
     创建状态机：其新 row 永不带 current marker，已有 latest-valid row 可继续标
     `current valid benchmark`。
 18. B-018: release 报告无效、缺平台或 pipeline 中断时必须按获批的闭集
@@ -280,9 +291,9 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     最后以唯一 draft→published 状态切换作为 commit point。marker transition 前取消由
     reconciler 删除 draft并记录 interruption；marker transition 后、intent 前取消必须先
     通过 human-reviewed rollback PR 恢复 receipt 绑定的旧 marker，恢复后才删除 draft；
-    intent 后取消由 reconciler
-    幂等完成/验证同一已准备 draft；commit 后只允许验证该 intent 绑定的完整 public release，
-    不存在公开 partial-assets 合法状态。
+    intent 后取消由 reconciler幂等完成/验证同一已准备 draft；commit 后必须按 B-017 的
+    ownership/takeover 状态机完成 new-current；只允许验证 intent 绑定的完整 public release，
+    不存在 public partial-assets 或无 owner 的 zero-marker 合法状态。
 19. B-019: 官方 report schema 与 corpus schema 的不兼容变更必须提升各自 schema
     version。旧 binary 不认识新 corpus、或新 renderer 无法验证旧 report 时必须明确
     `unavailable`，不能猜字段、静默丢字段或重新解释旧 headline。兼容读取只能是显式、

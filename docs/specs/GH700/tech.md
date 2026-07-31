@@ -446,20 +446,19 @@ typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏�
 
 publication 使用 attempt-scoped two-phase draft：
 
-1. phase A 创建 run/attempt-bound **private draft Release**，上传全部 assets/checksums/
-   reports/summary，逐项下载重验并证明无缺失/额外 asset；README current row 尚不创建；
-2. desired final state 为 `valid` 时，先取得 renewable、fenced `repository_publication_lease`；在任何 `publish_intent` 前，以 default-branch CAS 合并
-   只移除旧 current 的 human-reviewed PR，重验 marker count 为零，并永久 append 绑定
-   lease token、PR merge SHA、前后 blob digest 的 `marker_transition_receipt`；
-   `publish_nonvalid` 跳过 marker transition且 receipt null；
+1. phase A 创建 attempt-bound private draft，上传/下载重验全部 assets；README row 尚不创建；
+2. valid 先取得 renewable/fenced `repository_publication_lease`；intent 前以 default-branch
+   CAS 合并 de-current PR，重验 zero marker并 append 绑定 fence/merge SHA/blob digests 的
+   `marker_transition_receipt`；`publish_nonvalid` 跳过 transition且 receipt null；
 3. 持 candidate/publication leases 重验 watermark、draft 与 receipt，才写不可覆盖
    `publish_intent`，绑定 draft/tag/source/assets/summary/policy/final state/receipt；
-4. 唯一 commit point 是把 draft 切为 published。transition 前取消删除 draft；valid
-   transition 后、intent 前取消必须按 receipt 创建精确恢复旧 marker 的 PR，待 human
-   review/merge 与 freshness 验证后才删 draft；intent 后取消则按 intent 幂等完成同一
-   draft。commit 后只验证 public Release 与 intent byte-for-byte 对齐；
-5. valid commit 后仍持同一 fenced lease/CAS 合并独立 human-reviewed new-current PR；rollback/new-current 后才释放。`publish_nonvalid` 只加无 current row并保留 latest-valid marker；
-   重试只复用同一 intent/draft identity，不创建第二个 release。
+4. draft→published 是唯一 commit point；transition 前取消删 draft；transition 后 intent 前
+   先经 human-reviewed rollback恢复旧 marker再删；intent 后按 intent 幂等完成同一 draft；
+5. valid intent 先绑定 human-approved new-current patch/review/base digest；commit 后 append durable
+   `publication_ownership_record(candidate/fence/intent/release/summary/PR/head/deadline/heartbeat, phase=post_commit_marker_pending)`。PR拒绝/超时/owner消失
+   时 reconciler 以 CAS 提升 fence，验 release/intent/zero-marker 后 supersede并建同 candidate
+   replacement PR；拒绝无 replacement 则 attest `marker_recovery_blocked`，短 lease 可释放但
+   ownership 阻断下一 candidate。exact human-reviewed merge 后 ownership terminal才释放。
 
 required target 不能原生执行时显式 `unavailable` 并使 summary non-valid；非 required
 target unavailable 只展示、不阻断。不得用 host/cross binary 贴 native 目标标签；若
@@ -512,19 +511,18 @@ candidate 不创建 GitHub Release、release page/assets 或 README candidate cu
 hard-cancel、runner loss、job/workflow timeout 不能依赖上述 wrapper 继续运行。另设
 completion reconciler，由 release workflow 的终态事件触发。其 source 只读、attestation
 store 可追加，并通过 protected environment 取得 narrowly scoped `contents: write`；
-该权限只允许删除尚无 marker transition 的精确 private draft、在已验签
-`publish_intent` 后完成/验证同一 draft，或按 `marker_transition_receipt` 创建精确恢复旧
-marker 的 PR 并等待 human review/merge；不得直接写 default branch或改写其它 release。
-reconciler 优先用
-`(repo, workflow_id, candidate tag/source commit, run_id, run_attempt)` 查询预发布阶段已
+该权限只允许删除 transition 前的精确 draft、按 intent 完成同一 draft、按 receipt 创建
+rollback PR，或按 `publication_ownership_record` supersede旧 PR并创建同 candidate 的
+new-current replacement；所有 marker PR 都须 human review/CAS，不得直接写 default branch。
+reconciler 优先用 `(repo, workflow_id, candidate tag/source commit, run_id, run_attempt)` 查询预发布阶段已
 attested 的 staged identity。若结论为 cancelled/timed_out/failure 且
 normal-path attempt record 不存在，reconciler 生成 failure-manifest schema 的
 `pipeline_interrupted` 分支：report/evidence/checksum identity 为显式 null，
 `missing_evidence` 为闭集，保留 staged provenance、selected/effective policy、
-interruption conclusion/stage 与 publication phase。phase A 无 intent/receipt 时删除
-private draft；有 receipt 无 intent 时先恢复并 freshness 验证旧 marker，再删 draft；
-已有 publish_intent 时转为
-恢复路径，完成或验证唯一 committed Release，而不是伪报 sentinels absent。它按
+interruption conclusion/stage 与 publication phase。无 intent/receipt 时删 draft；有 receipt
+无 intent 时恢复旧 marker再删；有 intent 则完成/验证唯一 Release；post-commit marker
+pending 时 deadline/heartbeat/rejection 触发更高 fence takeover，先验 intent/release、
+zero-marker/ownership再建 replacement，而不是伪报 sentinels absent。它按
 `jcs-rfc8785-v1` 计算 attempt-bound digest并把完整 manifest
 attest/append 到相同永久 store。重复终态 delivery 对相同 bytes 幂等；相同 identity
 已有不同 bytes 时冲突失败且报警，绝不覆盖。normal-path record 已存在时只重验并退出。
@@ -557,7 +555,8 @@ attested reconciliation watermark（覆盖最大 terminal run/attempt 与 record
 存在 unreconciled attempt、run listing/permanent store 不可用、不同内容冲突或 watermark
 落后时 fail closed；reconciler 也按 canonical lock order 持 source/candidate、
 `repository_ledger_lease` 与 marker 路径的 `repository_publication_lease`，append 后才推进
-watermark；lease token/CAS 失效即停写并由同 candidate 恢复，不能并发发布或后补 evidence。
+watermark；lease token/CAS 失效即停写；durable ownership 只允许同 candidate takeover，
+`marker_recovery_blocked` 阻断下一 publication，不能并发发布或后补 evidence。
 
 `publish_nonvalid` 则必须先发布该 candidate 的 schema-valid non-valid report/evidence，
 再创建同版本 README row：每个 non-valid axis cell 为空并显示 status、closed reason code
