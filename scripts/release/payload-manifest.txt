@@ -44,6 +44,7 @@ scripts/project-init.sh
 scripts/setup/bootstrap-lib.sh
 scripts/setup/bootstrap_birth_token.jxa
 scripts/setup/bootstrap_identity.sh
+scripts/setup/bootstrap_lease_terminal.sh
 scripts/setup/bootstrap_lease_retirement.sh
 scripts/setup/bootstrap_process.sh
 scripts/setup/bootstrap_termination.sh

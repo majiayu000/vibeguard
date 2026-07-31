@@ -48,7 +48,7 @@ assert_cmd "dead pre-claim candidate is cleaned during successful recovery" bash
 retirement_prepare_stage() {
   local root="$1" stage="$2" nonce="$3"
   local lease="${root}/.bootstrap.lock.lease.${nonce}"
-  local claim="${lease}.claim" evidence reap
+  local claim="${lease}.claim" evidence reap phase phase_file
   retirement_make_lease "${lease}" "${nonce}"
   retirement_create_dead_claim "${lease}" "${nonce}" "${root}/work"
   bootstrap_setup_retirement_read "${claim}"
@@ -70,10 +70,18 @@ retirement_prepare_stage() {
   case "${stage}" in
     rm_reap_crash) rm -f -- "${reap}" ;;
     rm_evidence_crash) rm -f -- "${evidence}" ;;
+    claim_only)
+      rm -f -- "${reap}" "${evidence}"
+      for phase in delete_intent retired retire_intent evidenced; do
+        phase_file="$(bootstrap_setup_retirement_phase_path \
+          "${claim}" "${BOOTSTRAP_RETIRE_CLAIM_NONCE}" "${phase}")"
+        rm -f -- "${phase_file}"
+      done
+      ;;
   esac
 }
 
-for retirement_crash_stage in ln_crash mv_crash rm_reap_crash rm_evidence_crash; do
+for retirement_crash_stage in ln_crash mv_crash rm_reap_crash rm_evidence_crash claim_only; do
   retirement_root="${TMP_HOME}/bootstrap-retirement-${retirement_crash_stage}"
   retirement_nonce="retire-${retirement_crash_stage}"
   retirement_lease="${retirement_root}/.bootstrap.lock.lease.${retirement_nonce}"
@@ -95,7 +103,8 @@ for retirement_crash_stage in ln_crash mv_crash rm_reap_crash rm_evidence_crash;
     ' _ "${retirement_lease}" "${retirement_root}"
 done
 
-for retirement_kill_stage in ln_crash mv_crash rm_reap_crash rm_evidence_crash; do
+for retirement_kill_stage in ln_crash mv_crash rm_reap_crash rm_evidence_crash \
+  terminal_phase_crash; do
   kill_root="${TMP_HOME}/bootstrap-retirement-kill-${retirement_kill_stage}"
   kill_nonce="kill-${retirement_kill_stage}"
   kill_lease="${kill_root}/.bootstrap.lock.lease.${kill_nonce}"
@@ -105,7 +114,7 @@ for retirement_kill_stage in ln_crash mv_crash rm_reap_crash rm_evidence_crash; 
   case "${retirement_kill_stage}" in
     ln_crash) kill_command=ln ;;
     mv_crash) kill_command=ln ;;
-    rm_reap_crash|rm_evidence_crash) kill_command=rm ;;
+    rm_reap_crash|rm_evidence_crash|terminal_phase_crash) kill_command=rm ;;
   esac
   real_kill_command="$(command -v "${kill_command}")"
   cat > "${kill_bin}/${kill_command}" <<'SH'
@@ -115,7 +124,7 @@ last=""
 for argument in "$@"; do last="${argument}"; done
 "${REAL_RETIREMENT_TOOL:?}" "$@"
 case "${RETIREMENT_KILL_STAGE:?}:${last}" in
-  ln_crash:*.evidence.*|mv_crash:*.reap.*|rm_reap_crash:*.reap.*|rm_evidence_crash:*.evidence.*)
+  ln_crash:*.evidence.*|mv_crash:*.reap.*|rm_reap_crash:*.reap.*|rm_evidence_crash:*.evidence.*|terminal_phase_crash:*.evidenced)
     kill -KILL "${PPID}"
     ;;
 esac
@@ -138,6 +147,7 @@ SH
     bootstrap_setup_lease_clear_inactive "$3" 99999998 "$4"
     test ! -e "$3"
     test ! -e "${3}.claim"
+    test -z "$(find "$2" -maxdepth 1 -name "*.claim.*" -print -quit)"
   ' _ "${BOOTSTRAP_LIB}" "${kill_root}" "${kill_lease}" "${kill_nonce}"
 done
 

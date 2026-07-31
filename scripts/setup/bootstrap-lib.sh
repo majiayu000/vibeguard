@@ -544,10 +544,14 @@ fi
 source "${BOOTSTRAP_TERMINATION_LIB}"
 
 BOOTSTRAP_LEASE_RETIREMENT_LIB="${BOOTSTRAP_SETUP_LIB_DIR}/bootstrap_lease_retirement.sh"
-if [[ ! -f "${BOOTSTRAP_LEASE_RETIREMENT_LIB}" ]]; then
+BOOTSTRAP_LEASE_TERMINAL_LIB="${BOOTSTRAP_SETUP_LIB_DIR}/bootstrap_lease_terminal.sh"
+if [[ ! -f "${BOOTSTRAP_LEASE_RETIREMENT_LIB}" \
+  || ! -f "${BOOTSTRAP_LEASE_TERMINAL_LIB}" ]]; then
   bootstrap_error "missing bootstrap lease retirement helper: ${BOOTSTRAP_LEASE_RETIREMENT_LIB}"
   return 1
 fi
+# shellcheck source=scripts/setup/bootstrap_lease_terminal.sh
+source "${BOOTSTRAP_LEASE_TERMINAL_LIB}"
 # shellcheck source=scripts/setup/bootstrap_lease_retirement.sh
 source "${BOOTSTRAP_LEASE_RETIREMENT_LIB}"
 

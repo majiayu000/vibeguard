@@ -74,23 +74,6 @@ bootstrap_setup_retirement_phase_read() {
   done
 }
 
-bootstrap_setup_retirement_dead_candidates_clear() {
-  local claim_file="$1" candidate suffix claimant_pid claimant_identity
-  for candidate in "${claim_file}.candidate."*; do
-    [[ -e "${candidate}" || -L "${candidate}" ]] || continue
-    suffix="${candidate#"${claim_file}.candidate."}"
-    claimant_pid="${suffix%%.*}"
-    suffix="${suffix#*.}"
-    claimant_identity="${suffix%.*}"
-    [[ "${claimant_pid}" =~ ^[1-9][0-9]*$ ]] || continue
-    bootstrap_process_identity_is_strong "${claimant_identity}" || continue
-    bootstrap_process_identity_liveness "${claimant_pid}" "${claimant_identity}"
-    if [[ "${BOOTSTRAP_PROCESS_IDENTITY_LIVENESS}" == "dead" ]]; then
-      rm -f -- "${candidate}" || return 1
-    fi
-  done
-}
-
 bootstrap_setup_retirement_claim_create() {
   local lease_file="$1" owner_pid="$2" lease_nonce="$3"
   local evidence_path="${4:-}" reap_path="${5:-}" initial_phase="${6:-claimed}"
@@ -251,7 +234,7 @@ bootstrap_setup_retirement_legacy_adopt() {
 bootstrap_setup_retirement_help() {
   local lease_file="$1" owner_pid="$2" lease_nonce="$3"
   local claim_file="${lease_file}.claim" directory="${lease_file%/*}"
-  local evidence_path reap_path phase_file phase
+  local evidence_path reap_path terminal_file
   bootstrap_setup_retirement_read "${claim_file}" || return 1
   [[ "${BOOTSTRAP_RETIRE_OWNER_PID}" == "${owner_pid}" \
     && "${BOOTSTRAP_RETIRE_LEASE_NONCE}" == "${lease_nonce}" \
@@ -267,6 +250,20 @@ bootstrap_setup_retirement_help() {
     "${claim_file}" "${BOOTSTRAP_RETIRE_CLAIM_NONCE}" || return 1
   bootstrap_setup_retirement_inventory \
     "${lease_file}" "${owner_pid}" "${lease_nonce}" || return 1
+
+  terminal_file="$(bootstrap_setup_retirement_terminal_path \
+    "${claim_file}" "${BOOTSTRAP_RETIRE_CLAIM_NONCE}")"
+  if [[ -e "${terminal_file}" || -L "${terminal_file}" ]] \
+    || [[ "${BOOTSTRAP_RETIRE_LEASE_PRESENT}" == "0" \
+      && "${BOOTSTRAP_RETIRE_EVIDENCE_PRESENT}" == "0" \
+      && "${BOOTSTRAP_RETIRE_REAP_PRESENT}" == "0" ]]; then
+    if [[ ! -e "${terminal_file}" && ! -L "${terminal_file}" ]]; then
+      bootstrap_hard_link_no_follow "${claim_file}" "${terminal_file}" || return 1
+    fi
+    bootstrap_setup_retirement_terminal_cleanup \
+      "${lease_file}" "${owner_pid}" "${lease_nonce}" "${terminal_file}"
+    return
+  fi
 
   if [[ "${BOOTSTRAP_RETIRE_PHASE}" == "claimed" ]]; then
     [[ "${BOOTSTRAP_RETIRE_LEASE_PRESENT}" == "1" \
@@ -344,12 +341,9 @@ bootstrap_setup_retirement_help() {
     [[ "${BOOTSTRAP_RETIRE_LEASE_PRESENT}" == "0" \
       && "${BOOTSTRAP_RETIRE_EVIDENCE_PRESENT}" == "0" \
       && "${BOOTSTRAP_RETIRE_REAP_PRESENT}" == "0" ]] || return 1
-    for phase in delete_intent retired retire_intent evidenced; do
-      phase_file="$(bootstrap_setup_retirement_phase_path \
-        "${claim_file}" "${BOOTSTRAP_RETIRE_CLAIM_NONCE}" "${phase}")"
-      rm -f -- "${phase_file}" || return 1
-    done
-    rm -f -- "${claim_file}" || return 1
+    bootstrap_hard_link_no_follow "${claim_file}" "${terminal_file}" || return 1
+    bootstrap_setup_retirement_terminal_cleanup \
+      "${lease_file}" "${owner_pid}" "${lease_nonce}" "${terminal_file}"
   fi
 }
 
@@ -357,6 +351,13 @@ bootstrap_setup_lease_retire_inactive() {
   local lease_file="$1" owner_pid="$2" lease_nonce="$3" claim_file="${1}.claim"
   local marker_present=0 marker
   if [[ ! -e "${claim_file}" && ! -L "${claim_file}" ]]; then
+    for marker in "${claim_file}."*.terminal; do
+      if [[ -e "${marker}" || -L "${marker}" ]]; then
+        bootstrap_setup_retirement_terminal_adopt \
+          "${lease_file}" "${owner_pid}" "${lease_nonce}"
+        return
+      fi
+    done
     for marker in "${lease_file}.evidence."* "${lease_file}.reap."*; do
       [[ -e "${marker}" || -L "${marker}" ]] && marker_present=1
     done
