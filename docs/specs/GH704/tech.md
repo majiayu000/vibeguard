@@ -133,8 +133,10 @@ canonicalize 或无法求 git root 时返回可见 `unavailable/error`，且 pro
 metrics activity 为零；override 指向 sibling/
 external opt-in file 时保持 off。任何
 `VIBEGUARD_SEMANTIC_DEFENSE*` enable env 同样无效且不能作为隐式默认。
-Codex app-server adapter 必须让 `codex_app_server_core.rs` 的 `SessionState` 生成并携带不可由
-client thread ID/env 在 restart 后重现的 server-owned session capability；semantic Core 在
+Codex app-server adapter 的 actual session container/lifecycle router
+`vibeguard-runtime/src/codex_app_server.rs` 必须持有 `codex_app_server_core.rs` 定义的
+`SessionState`，并让 core 生成不可由 client thread ID/env 在 restart 后重现的 server-owned
+session capability；semantic Core 在
 owning Rust process 内消费 in-memory capability，Bash child 只运行 L1，不能从 stdin/env/cwd/file
 获得 L2 capability。adapter 把 trusted thread cwd 复制到每个 pre/post payload top-level `cwd`；
 只设 child cwd 不算 identity。thread cap 不得淘汰 pending completion；all-pending 时接受新 patch
@@ -468,7 +470,7 @@ budget 数值。
 `.github/workflows/semantic-assets.yml` 生成并绑定 release 的外部 asset。这样
 `complete: true` 只表示该 reference path 的 repo source、schema、policy、asset build/
 install、doctor/status、canonical latency runner、tests 与 docs surface 无遗漏，不表示
-H-001–H-020 已批准。当前共 146 条唯一 repo paths：105 条 existing、41 条 planned。
+H-001–H-020 已批准。当前共 147 条唯一 repo paths：106 条 existing、41 条 planned。
 `semantic-sidecar/` 是新 product root，因此 `docs/directory-map.md` 必须同步登记。任一
 决定改变 provider、ecosystem、host、packaging、policy、status route 或 tests 时，
 必须先修订此 manifest；`tasks.md` 不得增加未列 surface。
@@ -484,6 +486,7 @@ H-001–H-020 已批准。当前共 146 条唯一 repo paths：105 条 existing�
     "vibeguard-runtime/benches/semantic_defense_core_us.rs",
     "vibeguard-runtime/src/lib.rs",
     "vibeguard-runtime/src/main.rs",
+    "vibeguard-runtime/src/codex_app_server.rs",
     "vibeguard-runtime/src/codex_app_server_core.rs",
     "vibeguard-runtime/src/codex_app_server_file_changes.rs",
     "vibeguard-runtime/src/codex_app_server_hooks.rs",
@@ -603,6 +606,7 @@ H-001–H-020 已批准。当前共 146 条唯一 repo paths：105 条 existing�
     "docs/specs/GH704/product.md",
     "docs/specs/GH704/tech.md",
     "docs/specs/GH704/runtime-integrity.md",
+    "docs/specs/GH704/verification.md",
     "docs/specs/GH704/tasks.md"
   ]
 }
@@ -615,99 +619,19 @@ Complete-path cross-check：
 | New product root | `semantic-sidecar/`; `docs/directory-map.md` | directory-map/doc-path validators plus semantic sidecar cargo checks |
 | Canonical L2 core latency | `vibeguard-runtime/src/lib.rs`; planned **vibeguard-runtime/benches/semantic_defense_core_us.rs**; planned **tests/bench_semantic_core.sh**; `tests/test_hook_perf_contract.sh`; `docs/internal/benchmarks/benchmark-design.md`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | `main.rs` and in-process runner import the same public production entrypoint；runner executes cold/warm `core_us` fixtures exactly once；every initial/confirmation cold sample resets and proves empty cache/provider state outside timing, every warm sample prewarms and proves exact-identity hit；contract test rejects duplicate/path-loaded core implementations and fixes IDs/timing boundary/identity/cache/budget/confirmation/result/CI wiring and compile-only smoke |
 | Canonical L2 installed latency | `tests/bench_hook_latency.sh`; `tests/test_hook_perf_contract.sh`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | canonical runner executes four path-specific direct/wrapper × cold/warm `hook_e2e_ms` installed-hook fixtures exactly once；every cold sample independently resets cache/provider-start state and every warm sample proves prewarm outside timing；contract test fixes IDs/path/budget/cache/confirmation/CI/result wiring |
-| Project-scoped opt-in + trusted execution identity | `schemas/vibeguard-project.schema.json`; `scripts/lib/project_config_validate.py`; `tests/test_gc_config.sh`; `tests/test_setup.sh`; `vibeguard-runtime/src/{git_root,project_config,codex_app_server_core,codex_app_server_file_changes,codex_app_server_hooks,codex_app_server_strategies,codex_app_server_strategies_tests,hook_orchestrator,hook_orchestrator_context,hook_orchestrator_post_edit}.rs`; `vibeguard-runtime/tests/project_config_cli.rs`; planned **vibeguard-runtime/src/semantic_defense/{config,identity,cache,provider}.rs**; planned **tests/hooks/test_semantic_defense.sh** | closed config；server session capability；pending-safe thread cap；Bash L1-only；Git executable + retained payload-directory identity；no-follow ancestry config |
+| Project-scoped opt-in + trusted execution identity | `schemas/vibeguard-project.schema.json`; `scripts/lib/project_config_validate.py`; `tests/test_gc_config.sh`; `tests/test_setup.sh`; `vibeguard-runtime/src/{git_root,project_config,codex_app_server,codex_app_server_core,codex_app_server_file_changes,codex_app_server_hooks,codex_app_server_strategies,codex_app_server_strategies_tests,hook_orchestrator,hook_orchestrator_context,hook_orchestrator_post_edit}.rs`; `vibeguard-runtime/tests/project_config_cli.rs`; planned **vibeguard-runtime/src/semantic_defense/{config,identity,cache,provider}.rs**; planned **tests/hooks/test_semantic_defense.sh** | actual wrapper owns `SharedState` session container/router；core owns capability semantics；pending-safe thread cap；Bash L1-only；Git executable + retained payload-directory identity；no-follow ancestry config |
 | Canonical project journal + bounded reconciliation | `vibeguard-runtime/src/event_schema.rs`; `vibeguard-runtime/src/hook_orchestrator.rs`; `vibeguard-runtime/src/hook_orchestrator_post_edit.rs`; planned **vibeguard-runtime/src/semantic_defense/runtime_signal.rs**; `schemas/event-log.schema.json`; planned **tests/hooks/test_runtime_rule_signals.sh**; `tests/test_observability_schemas.sh`; `docs/specs/GH704/runtime-integrity.md` | one group writer；pre-barrier bounded global registration；serialized append；receipt worker never writes project marker；eligibility lease freezes off backlog；bounded recovery |
 | Install/config doctor | `setup.sh`; `scripts/setup/check.sh`; `scripts/setup/runtime_config_health.sh`; `scripts/lib/status_report.sh`; `tests/test_setup_check.sh`; `tests/test_setup.sh` | doctor/`--check` human/JSON/exit/no-data identity matrix and installed payload route |
 | Per-run status | `vibeguard-runtime/src/hook_status.rs`; `hook_status_render.rs`; `hook_status_tests.rs`; `schemas/hook-status.schema.json`; `tests/test_hook_status.sh` | human/JSON/schema carry exact semantic state and identities from one canonical event |
 | Typed reader/schema migration | `schemas/observe-output.schema.json`; schemas/fixtures；observe modules/CLI；`vibeguard-runtime/src/{hook_checks,hook_checks_history,hook_checks_tests,log_query,hook_orchestrator_learn,hook_orchestrator_post_edit_history,hook_orchestrator_post_edit_history_unit_tests,hook_orchestrator_post_edit_history_tests}.rs`; `vibeguard-runtime/tests/{cli_hook_checks,cli_log_commands}.rs`; `scripts/{stats.sh,health-report.py,quality-grader.sh,gc/reflection_digest.py,report-false-positive.py,constraints/count_active_constraints.py,setup/targets/codex-home.sh}` plus focused tests | exact v1 + aggregate-verifiable v2 fixtures；project canonical joins barrier；project history joins `projection_done`；global aggregate/status joins `project_acknowledged`；pending/aborted/lag empty；Learn errors typed/zero candidate |
 | Learn signal contract | `vibeguard-runtime/src/hook_orchestrator_learn.rs`; `schemas/learn-signal.schema.json`; `tests/test_workflow_contracts.sh`; `tests/test_learn_adoption.sh` | new semantic-defense signal/typed source positives and invalid classification/action/path preserve action space；log-tail/metrics errors fail-visible，never no-data |
 | Semantic release assets | `.github/workflows/release.yml`; `.github/workflows/semantic-assets.yml`; `tests/test_release_workflow.sh`; `tests/test_payload.sh`; `scripts/release/payload-manifest.txt` | release contract fixes same-tag checksums, attestations, dependency metadata, target matrix, explicit install provenance and revoke/rollback behavior for every semantic artifact |
-| U-22 measured coverage | planned **scripts/ci/self-application/u22-critical-files.json**; `scripts/ci/self-application/check-u22-coverage.sh`; tests/manifests/Cargo/CI | runtime/sidecar each ≥80%；100% line+branch: runtime `{git_root,project_config,codex_app_server_core,codex_app_server_file_changes,codex_app_server_hooks,codex_app_server_strategies,hook_orchestrator_context,hook_orchestrator,hook_orchestrator_post_edit,hook_orchestrator_post_edit_history,hook_orchestrator_learn,hook_checks,hook_checks_history,log_query,event_schema}.rs`、`observe/{aggregate,prometheus,read,render,stats_summary}.rs`、`semantic_defense/{mod,config,identity,protocol,provider,inventory,inventory_adapters/mod,inventory_adapters/typescript_npm,test_weakening,runtime_signal,cache,metrics}.rs`、sidecar `{protocol,sandbox}.rs`；每个 critical file 恰一次携带非空 exact `owner_suites`，gate 双向核对 Product-to-Test mapping/Cargo exact name/shell selector，missing/empty/unknown/duplicate/zero-match/rename-drift/无反向 owner、condition arms 与 aggregate masking 均失败；independent B-001/B-003/B-009/B-011–B-015/B-017–B-020/B-022–B-028/B-035/B-037 matrices map every branch ID |
+| U-22 measured coverage | planned **scripts/ci/self-application/u22-critical-files.json**; `scripts/ci/self-application/check-u22-coverage.sh`; tests/manifests/Cargo/CI | runtime/sidecar each ≥80%；100% line+branch: runtime `{git_root,project_config,codex_app_server,codex_app_server_core,codex_app_server_file_changes,codex_app_server_hooks,codex_app_server_strategies,hook_orchestrator_context,hook_orchestrator,hook_orchestrator_post_edit,hook_orchestrator_post_edit_history,hook_orchestrator_learn,hook_checks,hook_checks_history,log_query,event_schema}.rs`、`observe/{aggregate,prometheus,read,render,stats_summary}.rs`、`semantic_defense/{mod,config,identity,protocol,provider,inventory,inventory_adapters/mod,inventory_adapters/typescript_npm,test_weakening,runtime_signal,cache,metrics}.rs`、sidecar `{protocol,sandbox}.rs`；每个 critical file 恰一次携带非空 exact `owner_suites`，gate 双向核对 [verification.md](verification.md) 的 Product-to-Test mapping/Cargo exact name/shell selector，missing/empty/unknown/duplicate/zero-match/rename-drift/无反向 owner、condition arms 与 aggregate masking 均失败；independent B-001/B-003/B-009/B-011–B-015/B-017–B-020/B-022–B-028/B-035/B-037 matrices map every branch ID |
 
-## Product-to-Test Mapping
+## Verification contract and data flow
 
-Planned shell/Python test entrypoints below must accept the named case selector and reject unknown
-selectors nonzero。Rust names are exact full test names to create in the planned modules；每条
-focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.sh` 必须先解析本表，
-对 `cargo test -- --list` 的 exact full-name count 断言为 1。零匹配、重名或 rename drift
-均须 nonzero，不能依赖 libtest 的 “running 0 tests” 成功退出。因此 tasks 不能把这些验证
-退化成“人工观察”、substring-only filter 或无 selector 的 broad suite。
-
-| Behavior invariant | Implementation area | Verification |
-| --- | --- | --- |
-| B-001 approval gate | payload project identity + config/policy join | `bash tests/hooks/test_semantic_defense.sh project_scoped_opt_in`、`payload_directory_replacement` + config CLI/setup tests；missing cwd off；path swap/Git redirect/PATH/replacement/config race/external env/stale approval 全部零 provider/cache/metrics |
-| B-002 flag-off parity | hook orchestration | `bash tests/hooks/test_semantic_defense.sh flag_off_parity`、`bash tests/hooks/test_runtime_rule_signals.sh disable_freezes_pending_backlog`、`bash tests/hooks/test_runtime_rule_signals.sh cross_project_receipt_freeze`、`bash tests/hooks/test_runtime_rule_signals.sh direct_opt_out_acknowledgement`、`bash tests/hooks/test_runtime_rule_signals.sh stable_missing_config_off_identity`、`bash tests/hooks/test_runtime_rule_signals.sh source_off_live_capacity_drain`、`bash tests/hooks/test_runtime_rule_signals.sh source_off_completed_capacity_handoff`、`bash tests/hooks/test_runtime_rule_signals.sh source_off_retained_ack_history`、`bash tests/hooks/test_runtime_rule_signals.sh off_terminal_proof`、`bash tests/hooks/test_runtime_rule_signals.sh off_request_admin_adoption`、`bash tests/hooks/test_runtime_rule_signals.sh frozen_lag_query_scope`、`bash tests/hooks/test_runtime_rule_signals.sh off_preparing_config_reversal`、`bash tests/hooks/test_runtime_rule_signals.sh off_preparing_new_off_restart`；receipt_delivered/pending off-blocking；retained acknowledged history nonblocking；stable missing-config TOCTOU；adopt-all or terminal-all closure；no age-delete/leak |
-| B-003 L1/L2 precedence | policy reducer | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::tests::l1_l2_precedence_total_function -- --exact` |
-| B-004 closed inputs | config/protocol schemas | `bash tests/hooks/test_semantic_defense.sh closed_schema_inputs` 与 `bash tests/test_runtime_config_schema.sh` |
-| B-005 exact model + sidecar identity | identity/provenance + release contract | `bash tests/hooks/test_semantic_defense.sh model_identity_provenance`、`sidecar_artifact_identity_invalidation`、`bash tests/setup/semantic_asset_install_tests.sh provenance` 与 `bash tests/test_release_workflow.sh`；逐字段 removal/digest/platform/license/protocol mismatch；sidecar byte/version/target/manifest/attestation/revoke 任一变化同时使 approval/eligibility、cache、precision 与 status evidence 失效；每个 same-tag asset 证明 checksum、attestation、dependency metadata、target matrix 与 install provenance |
-| B-006 untrusted output | protocol/provider sandbox | `bash tests/hooks/test_semantic_defense.sh untrusted_provider_output`；malformed/extra/injection/tool/oversize fixture 的 mutation canary 不变 |
-| B-007 input privacy | request builder/redactor | `bash tests/hooks/test_semantic_defense.sh input_privacy_redaction`；比较 request/log golden 并扫描 secret/path canary |
-| B-008 network policy | provider/install boundary | `bash tests/hooks/test_semantic_defense.sh runtime_network_and_fallback` 与 `bash tests/setup/semantic_asset_install_tests.sh explicit_network_only` |
-| B-009 bounded execution | provider/cache | `bash tests/hooks/test_semantic_defense.sh timeout_oom_crash_cancel`；逐项断言 child reaped、无后续 request、bounded root clean |
-| B-010 latency evidence | synchronous canonical core + installed-hook runners and metrics contract | `bash tests/bench_semantic_core.sh --runs=30 --confirmation-runs=30 --fail-on-regression` 必须各执行一次 `semantic-defense-core-cold-cache`、`semantic-defense-core-warm-cache`，以 `core_us` versioned result 固定 production entrypoint、timing boundary、cache state、identity、P50/P95/P99/max、approved budget 与 confirmation；`bash tests/bench_hook_latency.sh --runs=3 --confirmation-runs=3 --fail-on-regression` 必须各执行一次 `semantic-defense-direct-cold-cache`、`semantic-defense-direct-warm-cache`、`semantic-defense-codex-wrapper-cold-cache` 与 `semantic-defense-codex-wrapper-warm-cache` installed-hook fixture；两个 runner 的 initial/confirmation batch 都必须逐 sample 记录 timing 外的 cold reset-empty 或 warm prewarm-hit evidence，任一 reset/prewarm/canary 失败 nonzero；`bash tests/test_hook_perf_contract.sh` 对两类 surface 的六个 exact IDs、compile-only smoke、budget table、CI/result contract、per-sample cache/provider reset、identity/confirmation wiring 做 exact-count 检查，缺任一类证据或互相替代均失败；`bash tests/hooks/test_semantic_defense.sh synchronous_advisory_delivery` 证明 provider 完成前不返回、advisory 在同一次 response 且无后台 queue/later delivery；`latency_evidence_shape` 校验 path-specific identity-bound result |
-| B-011 cache identity | cache + app-server owner | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::cache::tests::identity_invalidation_and_isolation -- --exact` 与 `bash tests/hooks/test_semantic_defense.sh trusted_session_identity`；captured values/restart/spoof/conflict/rotation/missing/drift cannot reuse partition |
-| B-012 API scope | TypeScript/npm inventory resolver | `bash tests/hooks/test_semantic_defense.sh typescript_npm_inventory_scope`；覆盖 supported/unknown/generated/dynamic/feature/version/missing inventory |
-| B-013 production-only API detector | Core handler + GH-700 adapter | `python3 eval/test_semantic_eval.py production_entrypoint_only`；拒绝 test-only/case-ID/path-existence mapping |
-| B-014 deterministic W-12 baseline | test-weakening join | `bash tests/unit/test_sec11_review_guards.sh` 与 `bash tests/hooks/test_semantic_defense.sh w12_baseline_identity` |
-| B-015 semantic weakening edges | semantic test detector | `bash tests/hooks/test_semantic_defense.sh semantic_test_weakening_edges`；覆盖 parameterized/property/snapshot/tolerance/generated/unsupported |
-| B-016 independent evidence | semantic eval schemas | `python3 eval/test_semantic_eval.py independent_evidence_and_reviewers`；覆盖 empty side、digest mismatch、ground-truth-from-output |
-| B-017 honest metrics | deterministic scorer + semantic evidence schema | `python3 eval/test_semantic_eval.py metric_arithmetic_and_slices`；覆盖 TP/FP/FN/TN/unclassified/error/zero-denominator，并证明 exact sidecar artifact drift 产生独立 slice、旧 precision 不可复用 |
-| B-018 promotion/demotion | eligibility pure function | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::metrics::tests::eligibility_matrix -- --exact` |
-| B-019 complete block gate | policy reducer | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::tests::block_requires_every_gate -- --exact` |
-| B-020 typed signal | runtime signal + every consumer | `bash tests/hooks/test_runtime_rule_signals.sh schema_identity`、`bash tests/test_observability_schemas.sh observe_output_v1_v2_migration`、`bash tests/test_observability_schemas.sh observe_output_mixed_barrier_lag`、`bash tests/test_observability_schemas.sh observe_output_aggregate_snapshot`、`bash tests/test_observability_schemas.sh project_acknowledged_reader_boundary`、`bash tests/test_observability_schemas.sh completed_projection_index_retention`、`bash tests/hooks/test_runtime_rule_signals.sh completed_projection_capacity_token_recovery`、`bash tests/hooks/test_runtime_rule_signals.sh administrative_token_lifecycle_recovery`、`bash tests/hooks/test_runtime_rule_signals.sh claim_binding_reclaim_crash`、`bash tests/hooks/test_runtime_rule_signals.sh off_frozen_lag_proof`、`bash tests/hooks/test_runtime_rule_signals.sh quarantine_lag_query_scope`、`bash tests/hooks/test_runtime_rule_signals.sh unreachable_registration_query_scope`、`bash tests/hooks/test_runtime_rule_signals.sh receipt_route_quarantine_rebind`、`bash tests/hooks/test_runtime_rule_signals.sh receipt_delivered_route_quarantine`、`bash tests/hooks/test_runtime_rule_signals.sh quarantine_permission_and_corruption_isolation`、`bash tests/test_gc_scheduled.sh semantic_projection_barrier_gc`、`bash tests/test_gc_scheduled.sh receipt_delivered_retention_handoff`、`bash tests/test_gc_scheduled.sh unacknowledged_receipt_retention`、`bash tests/test_report_false_positive.sh semantic_barrier_identity`、`bash tests/test_health_report.sh semantic_projection_lag`、`bash tests/test_codex_status.sh semantic_barrier_status`、`bash tests/test_codex_status.sh semantic_projection_lag`、`bash tests/test_quality_grader.sh semantic_barrier_projection`、`bash tests/hooks/test_count_active_constraints.sh semantic_barrier_frequency`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_orchestrator_post_edit_history::tests::semantic_pending_aborted_do_not_affect_decision -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_orchestrator_post_edit_history::tests::semantic_projection_lag_does_not_affect_decision -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_orchestrator_post_edit_history::review_tests::semantic_pending_aborted_do_not_affect_churn_w14_w15_escalation -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_orchestrator_post_edit_history::review_tests::semantic_projection_lag_does_not_affect_churn_w14_w15_escalation -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_checks_history::tests::semantic_pending_aborted_do_not_count -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_checks_history::tests::semantic_projection_lag_does_not_count -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_checks::tests::semantic_pending_aborted_do_not_change_fast_decision -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_checks::tests::semantic_projection_lag_does_not_change_fast_decision -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml log_query::tests::semantic_pending_aborted_do_not_count -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml log_query::tests::semantic_projection_lag_does_not_count -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml --test cli_hook_checks post_edit_history_ignores_unfinalized_semantic_rows -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml --test cli_log_commands semantic_queries_ignore_unfinalized_rows -- --exact`；all lag zero use |
-| B-021 baseline/delta ownership | rule registry | `bash tests/hooks/test_runtime_rule_signals.sh baseline_delta_registry`；reason-only delta 不计数 |
-| B-022 two distinct rules | W-rule corpus | `bash tests/hooks/test_runtime_rule_signals.sh two_distinct_rule_deltas`；覆盖两套独立正负/错误/history/retry 与 duplicate signal negative |
-| B-023 W-02 evidence | W-02 reducer | `bash tests/hooks/test_runtime_rule_signals.sh w02_hypothesis_attempt_evidence` |
-| B-024 W-12 attribution | W-12 reducer | `bash tests/hooks/test_runtime_rule_signals.sh w12_signal_attribution`；三种 signal kind 与去重 precedence |
-| B-025 corrupt history | history reader | `bash tests/hooks/test_runtime_rule_signals.sh corrupt_and_cross_scope_history` |
-| B-026 W state machine | runtime signal module | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::runtime_signal::tests::transition_replay_concurrency_matrix -- --exact` |
-| B-027 fail-visible group commit | project WAL + reconciler | `bash tests/hooks/test_runtime_rule_signals.sh projection_write_failures_preserve_l1`、`bounded_reconciliation_backlog`、`atomic_recovery_io_floor`、`atomic_recovery_time_floor`、`blocking_recovery_io_cancel`、`bounded_project_lock`、`pre_barrier_global_registration`、`concurrent_global_registration`、`orphan_registration_recovery`、`bash tests/hooks/test_runtime_rule_signals.sh pre_barrier_unreachable_isolation`、`off_orphan_slot_reclamation`；byte/time floor-1 zero writes；hung exact floor includes teardown/reap/verify；pre-barrier + ready off capacity reclaimed；unreachable ref retains body and query-window inclusion/exclusion |
-| B-028 single authority + projection | journal + global sequencer/outbox | `bash tests/hooks/test_runtime_rule_signals.sh one_canonical_projection`、`bash tests/hooks/test_runtime_rule_signals.sh derived_global_projection_recovery`、`bash tests/hooks/test_runtime_rule_signals.sh cross_project_offset_reservation`、`bash tests/hooks/test_runtime_rule_signals.sh keyed_receipt_slots`、`bash tests/hooks/test_runtime_rule_signals.sh receipt_directory_fsync_recovery`、`bash tests/hooks/test_runtime_rule_signals.sh receipt_project_lock_ownership`、`bash tests/hooks/test_runtime_rule_signals.sh source_off_receipt_defer`、`bash tests/hooks/test_runtime_rule_signals.sh claim_before_reservation_recovery`、`bash tests/hooks/test_runtime_rule_signals.sh active_claim_absent_reservation_recovery`、`bash tests/hooks/test_runtime_rule_signals.sh reservation_seed_offset_binding`、`bash tests/hooks/test_runtime_rule_signals.sh claim_binding_reclaim_crash`、`bash tests/hooks/test_runtime_rule_signals.sh source_off_outbox_drain`、`bash tests/hooks/test_runtime_rule_signals.sh receipt_route_quarantine_rebind`、`bash tests/hooks/test_runtime_rule_signals.sh receipt_delivered_route_quarantine`、`bash tests/hooks/test_runtime_rule_signals.sh quarantine_lag_query_scope`、`bash tests/hooks/test_runtime_rule_signals.sh quarantine_permission_and_corruption_isolation`、`bash tests/hooks/test_runtime_rule_signals.sh quarantine_alternate_root_isolation`、`bash tests/hooks/test_runtime_rule_signals.sh quarantine_primary_alternate_handoff_crash`、`bash tests/hooks/test_runtime_rule_signals.sh quarantine_rebind_dual_capacity`、`bash tests/hooks/test_runtime_rule_signals.sh quarantine_rebind_route_replacement`、`bash tests/hooks/test_runtime_rule_signals.sh quarantine_rebind_replacement_staging_capacity`、`bash tests/hooks/test_runtime_rule_signals.sh quarantine_retirement_before_token_reuse`、`bash tests/hooks/test_runtime_rule_signals.sh quarantine_retirement_pending_recovery`、`bash tests/hooks/test_runtime_rule_signals.sh projection_done_global_ack_recovery`、`bash tests/hooks/test_runtime_rule_signals.sh quarantine_ack_pending_transfer`、`bash tests/hooks/test_runtime_rule_signals.sh administrative_token_lifecycle_recovery`；binding/ack/quarantine crash exact；worker no marker |
-| B-029 candidate identity | Learn schema/analyzer | `bash tests/test_workflow_contracts.sh` 与 `bash tests/test_learn_adoption.sh semantic_candidate_identity`；semantic-defense signal/typed source 的 valid fixture 与 invalid classification/action/path 全部固定，multi-session replay 后 ID/count/window/privacy 精确相等 |
-| B-030 deterministic Learn core | Learn analyzer/model adapter | `bash tests/test_learn_adoption.sh semantic_candidate_without_model`；provider disabled/crash 时 identity/count/state 不变 |
-| B-031 human adoption gate | Learn adoption | `bash tests/test_learn_adoption.sh semantic_candidate_human_gate`；preview read-only，仅 explicit adopt/skip/snooze 变更 |
-| B-032 outcome verification | Learn outcome evaluator | `bash tests/test_learn_adoption.sh semantic_candidate_outcomes`；fresh/absent/regressed 与 raw-source export canary |
-| B-033 GH-700 boundary | production mapping contract | `python3 eval/test_semantic_eval.py gh700_core_mapping_boundary`；拒绝 headline/paired/aggregate precision 输入 |
-| B-034 GH-702 boundary | capability/policy contract | `bash tests/hooks/test_semantic_defense.sh gh702_sealed_core_boundary`；携带 executable/model/provider 或 unapproved policy 必须失败 |
-| B-035 truthful rendering | doctor/status/observe/stats/health/readers | B-020 consumer commands plus `bash tests/test_setup_check.sh semantic_projection_rendering`、`bash tests/test_hook_status.sh semantic_projection_rendering`、`bash tests/hooks/test_semantic_defense.sh status_rendering_and_redaction`、`bash tests/test_observe.sh semantic_barrier_projection`、`bash tests/test_stats.sh semantic_barrier_projection`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_orchestrator_learn::tests::recent_log_error_is_fail_visible -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_orchestrator_learn::tests::metrics_error_is_fail_visible -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_orchestrator_learn::tests::projection_lag_has_zero_suggestion -- --exact`；project canonical barrier vs project history `projection_done` vs global `project_acknowledged`；v1 legacy；mixed lag empty；all formats agree |
-| B-036 cleanup/rollback | provider/cache/hook lifecycle | `bash tests/hooks/test_semantic_defense.sh cleanup_interrupt_and_l1_rollback`；success/error/timeout/SIGINT matrix |
-| B-037 completion-backed post-edit | app-server lifecycle | `bash tests/hooks/test_semantic_defense.sh codex_post_edit_requires_completion`、`codex_thread_cap_pending_backpressure`；pre-completion zero L2；accepted patch exactly once；cap+1/all-pending backpressure before mutation；missing state visible；duplicate/no-callback safe |
-
-## 数据流
-
-```text
-approved config/policy + verified semantic asset
-  → eligible runtime identity
-
-completed host event + project/session/change
-  → L1 deterministic result
-  → approved minimal semantic input + dependency inventory
-  → input digest/cache
-  → bounded local provider
-  → closed semantic result
-  → deterministic detector/W-rule reducer
-  → candidate hook decision
-  → project WAL prepared intent + queue-metadata commit (fsync)
-  → project durable typed pending event at expected offset (fsync)
-  → WAL journaled transition (fsync)
-  → one durable group commit by event/group digest
-       ├─ staged/provisional latency/outcome metrics + receipt
-       ├─ staged/provisional exact-identity precision + receipt
-       └─ staged/provisional Learn defense_gap + receipt
-  → inert bounded global source registration (fsync; barrier-gated)
-  → project all_activated barrier (ordered stage/activation receipt digests)
-       ├─ release barrier-joined hook decision/status
-       ├─ expose Learn candidate → explicit human adopt → later verify/regressed
-       └─ any global worker verifies barrier + eligibility epoch
-              → serialized projection + exact-route durable receipt outbox
-              → keyed slot + global receipt_delivered lag (reclaim; quarantine token retained)
-              → source projection_done → global project_acknowledged, or quarantine lag
-```
-
-外部调用在 Recommended path 中仅存在于显式 semantic asset install/update；runtime 与
-Learn 默认零网络。raw source/prompt/model output 不持久化。cache、event、precision 和
-Learn state 的位置、retention 与 delete/export 仍由 H-004/H-005/H-012/H-014/H-016/
-H-020 批准。
+Exact Product-to-Test ownership、zero-match-fail selector contract 与 end-to-end 数据流移至
+[verification.md](verification.md)，作为本设计的同级 normative verification supplement。
 
 ## 备选方案
 
@@ -740,51 +664,8 @@ H-020 批准。
 
 ## 测试计划
 
-- [ ] Unit tests: closed schemas、identity joins、protocol parser、precedence、inventory、
-      semantic weakening、W state machine、cache、scorer、eligibility 与 redaction。
-- [ ] Integration tests: Claude/Codex production hooks、real sidecar failure matrix、structured
-      projection、precision/Learn、planned **tests/setup/semantic_asset_install_tests.sh** 的
-      install/update/revoke、`tests/test_setup.sh`、payload/no-clone 和 interruption。
-- [ ] Regression tests: 现有 W-12/W-16/W-02/W-13/W-14/W-15、runtime config/event schema、
-      project opt-in schema/parser/isolation、precision tracker、Learn schema/adoption、
-      observability legacy/current fixtures、release asset checksums/attestations/metadata、
-      payload、hook manifest、两 crate 独立 ≥80% line coverage；closed critical inventory
-      覆盖 final reducer/mod、inventory/adapters、test weakening、runtime signal、metrics、Learn reader、
-      Git/project config/context/orchestrator/event schema、cache/journal recovery 与 sidecar
-      protocol/sandbox 的所有 decision/isolation/durability 分支 100% line + branch
-      coverage。独立合同
-      必须对 inventory/mandatory set 任一方向差异、每个 critical file 的 missing/empty/unknown
-      exact `owner_suites`、suite 反向零 owner、selector zero-match/rename drift、aggregate masking、
-      path-normalization 和每个关键文件低于 100% 失败；以及 docs contracts。
-- [ ] Performance tests: cold/warm core 和 installed hook P50/P95/P99/max、large diff/
-      inventory、parallel sessions、timeout/cancel；cold/warm L2 必须分别通过
-      planned **tests/bench_semantic_core.sh** core runner、`tests/bench_hook_latency.sh` installed
-      runner 和 `tests/test_hook_perf_contract.sh` contract，不得静默调整现有 SLA。
-- [ ] Manual security review: model/license/provenance、asset attestation、process sandbox、
-      source/secret privacy、network/API key、prompt injection、feedback/export 与 release
-      rollback。
-- [ ] Required broad verification after implementation:
-      `cargo check --manifest-path vibeguard-runtime/Cargo.toml`;
-      `cargo test --manifest-path vibeguard-runtime/Cargo.toml`;
-      `cargo check --manifest-path semantic-sidecar/Cargo.toml`;
-      `cargo test --manifest-path semantic-sidecar/Cargo.toml`;
-      `bash tests/test_u22_coverage.sh`;
-      `bash scripts/ci/self-application/check-u22-coverage.sh`;
-      `bash scripts/ci/validate-hooks.sh`;
-      `bash scripts/ci/validate-hooks-manifest.sh`;
-      `bash tests/setup/semantic_asset_install_tests.sh`;
-      `bash tests/test_setup.sh`;
-      `bash tests/test_setup_check.sh`;
-      `bash tests/test_hook_status.sh`;
-      `bash tests/test_observability_schemas.sh`;
-      `bash tests/test_release_workflow.sh`;
-      `bash tests/test_workflow_contracts.sh`;
-      planned **bash tests/bench_semantic_core.sh --runs=30 --confirmation-runs=30 --fail-on-regression**;
-      `bash tests/bench_hook_latency.sh --runs=3 --confirmation-runs=3 --fail-on-regression`;
-      `bash tests/test_hook_perf_contract.sh`;
-      `bash tests/test_manifest_contract.sh`;
-      `bash tests/test_workflow_contracts.sh`;
-      `bash scripts/local-contract-check.sh --quick`.
+Unit、integration、regression、performance、manual security review 与 required broad
+verification 的完整清单移至 [verification.md](verification.md)。该迁移不改变任何验证要求。
 
 ## 回滚方案
 
