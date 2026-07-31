@@ -447,10 +447,10 @@ typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏�
    publish+README；否则 `release_recovery_blocked` 并保留 owner。
 publication 使用 attempt-scoped draft 与一个统一 durable state machine：
 1. actors 只按 source/candidate → ledger lease → publication lease → branch CAS；禁止反向；等待 review 可释放短 lease，但 active durable owner仍阻断新 candidate。
-2. frontier 为 `(repo_node_id, history_length, history_root, full_prefix_digest)`；length-zero genesis仅在 store 无 head时初始化，prior-release frontier只作下界。reader取得签名 latest
-   head并精确重放；append原子 CAS完整 expected frontier+fence，store复算/签发 successor。
-   versioned closed union以 `jcs-rfc8785-v1` 覆盖 claim/binding/prepared/generated-PR plan|binding|revocation/receipt/intent/commit/takeover/六类 blocked/recovered/terminal，绑定 owner、prior phase/
-   frontier、expected/new fence、payload与 issuer identity；deterministic fold拒绝缺失/截断/fork/非法 transition/过期 fence。
+2. frontier 为 `(repo_node_id, history_length, history_root, full_prefix_digest)`；reader取得 signed latest head并精确重放，append原子 CAS完整 predecessor+fence；length-zero genesis仅限 store无 head。
+   每 record冻结 server-auth repo/run/owner/slot/full-predecessor/fence派生的 operation ID、timestamp与 JCS digest/same retry bytes；store同事务 unique-index `(repo_node_id,operation_id)`并签发绑定 op/digest/predecessor/successor/fence/issuer 的 receipt。
+   ack不确定先 replay：exact op+digest一次→接受及 fold合法 suffix；absent+exact predecessor→同 bytes重试；absent+advanced→禁止 rebase，按 takeover/terminal恢复或新 fence/op重规划；ID冲突/重复/incompatible/fork/截断/不完整 replay→blocked。
+   versioned closed union覆盖 claim/binding/prepared/generated-PR plan|binding|revocation/receipt/intent/commit/takeover/六类 blocked/recovered/terminal；deterministic fold与完整 frontier/fence拒绝 phase/fence/资源 ABA。
 3. 首次 Release API/PR mutation前 append `owner_claimed`，绑定 server-auth repo/workflow/run/ref、candidate/tag/source、plan digests、fence与 claim nonce；create response后、upload前 append
    exact release-node `draft_bound`，重验 manifest后 CAS `prepared`。response loss只按 nonce+repo/tag/source查找：唯一 match先 higher-fence bind；仅 authenticated exhaustive negative receipt可 terminal。
    stale/ordinary zero保持 owner重试；分页/权限不全、rate-limit/5xx、歧义/mismatch或无 negative-proof
