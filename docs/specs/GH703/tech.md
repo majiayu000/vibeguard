@@ -118,12 +118,17 @@ envelope：
 `data_status` closed 为 `ok`、`no_data`、`partial_coverage`；`status_reason` closed 为
 `complete_nonempty|complete_empty|source_missing|ledger_gap|ledger_corrupt|
 writer_coverage_unavailable|archive_missing|archive_corrupt|archive_tombstoned|
-legacy_evidence|snapshot_changed|budget_exceeded`，禁止 free text 或扩展值。
+event_identity_conflict|event_identity_missing|incompatible_host|unknown_host|
+unclassified_event|legacy_evidence|snapshot_changed|budget_exceeded`，禁止 free text 或扩展值。
 producer 必须先完成 candidate fact collection，再从所有适用的 partial reasons 按固定高到低顺序
 `ledger_corrupt > writer_coverage_unavailable > ledger_gap > source_missing > archive_corrupt >
-archive_missing > archive_tombstoned > legacy_evidence > snapshot_changed > budget_exceeded`
+archive_missing > archive_tombstoned > event_identity_conflict > event_identity_missing >
+incompatible_host > unknown_host > unclassified_event > legacy_evidence > snapshot_changed > budget_exceeded`
 选择唯一 `status_reason`；扫描/枚举/错误发现顺序不得改变选择。`complete_empty` 或
 `complete_nonempty` 只在 candidate set 没有任何 partial reason 且 coverage complete 时选择。
+映射固定为 unknown host → `unknown_host`、known host/incompatible contract → `incompatible_host`、
+v2 `unclassified` → `unclassified_event`、v2 identity 缺失 → `event_identity_missing`、同一 `event_id`
+对应不同 canonical tuple → `event_identity_conflict`；只有缺 v2 identity 的真实 v1 row 才是 `legacy_evidence`。
 `no_data` 只允许 `coverage_status=complete`、`status_reason=complete_empty` 且 event set 为空；
 任何 coverage 缺口优先产生 `partial_coverage`，即使 event set 同样为空。`counts` 在
 `no_data` 或 `partial_coverage` 时必须为 null/absent（最终形状由获批 H-004 固定），
@@ -145,8 +150,11 @@ vibeguard-runtime/src/observe/weekly_value.rs：
    start < end、offset/timezone 一致和输入有界。
 2. Reader 对 canonical global log 使用 writer/GC 已有的 `<log>.lock.d` 协议，并读取
    planned manifest 中 event-log coverage schema artifact 约束的两代 checksummed coverage ledger，
-   以及与 guard result/exit channel 隔离的 durable side-channel spool。Draft recommendation 还要求
-   同一 owned value scheduler 承载一个本地、单写者 coverage authority；authority journal 使用
+   以及与 guard result/exit channel 隔离的 durable side-channel spool。Draft recommendation 只在
+   value scheduler 为 `active` 时承载本地单写者 coverage authority；`disabled_by_user`/unsupported
+   不启动 authority、不创建 heartbeat/slot，也不让 canonical writer 报逐事件 coverage failure。
+   后续显式 enable 必须创建新 fenced epoch；`enabled_at` 前的区间和第一个未被连续 heartbeat 完整
+   覆盖的查询 window 一律 partial，不能借历史无 authority 区间证明 complete。authority journal 使用
    独立路径、lock、fsync/atomic-commit 域，不能与 ledger、spool 或 canonical log 共用故障域。
    recommendation 的 `heartbeat_cadence` 为 5 分钟、`heartbeat_expiry` 为 15 分钟；H-002/H-007
    必须批准或替换这两个有界值后才能 implementation。ledger 以 monotonic
@@ -155,11 +163,11 @@ vibeguard-runtime/src/observe/weekly_value.rs：
    length/digest，以及 retention tombstone 和 `earliest_provable_window_start` watermark。
    authority 在每个 cadence deadline 前 durable append+fsync digest-linked
    `{authority_id, authority_epoch, heartbeat_sequence, heartbeat_at, expires_at}`；下一 heartbeat
-   必须引用前一 digest，且不得把迟到 heartbeat 回填为连续。每个 canonical Rust/shell/Python
-   authorized-discard writer 入口在任何 event ID/CSPRNG/classification/append 工作前必须同步进入
-   authority，在同一 journal
-   durable 分配严格递增且不复用的 `{authority_epoch, attempt_sequence, attempted_at}` reservation token；
-   canonical entrypoint 不得自行合成、缓存或跳过 token。writer 再把该 token 与 conservative half-open
+   必须引用前一 digest，且不得把迟到 heartbeat 回填为连续。active epoch 先向每个 registered host
+   parent durable 预配 fenced、one-use launch lease；parent 必须在启动 canonical Rust/shell/Python
+   authorized-discard caller 前让 authority fsync `invocation_open` 和严格递增、不复用的
+   `{authority_epoch, attempt_sequence, attempted_at}` reservation token。caller 不能创建首个 slot，
+   也不得在无 durable acknowledgement 时被当成 covered invocation。writer 再把该 token 与 conservative half-open
    `coverage_interval` 写入 ledger，主 ledger 不可写时写入 spool；时钟不可信时，interval 从
    last durable authority heartbeat 开始并保持 open，直到 recovery time 封闭。
    canonical row append+fsync 成功后才 commit matching event ID/tail；失败则保留带 interval 的 gap。
@@ -167,14 +175,16 @@ vibeguard-runtime/src/observe/weekly_value.rs：
    reconcile。ledger 与 spool 都不可写时，authority reservation 保持 pending，并 durable append
    closed `dual_channel_gap`；它只有在 matching canonical row 和 ledger commit 都验证后才可闭合，
    不能因为重试或后来 heartbeat 成功而抹去。writer 必须保留原 guard decision、blocking 语义和退出码，
-   同时向 stderr/closed diagnostic 发出 `coverage_recording_failed`。
+   同时向 stderr/closed diagnostic 发出 `coverage_recording_failed`。authority IPC 必须复用常驻本地进程、
+   使用有界等待且不得为每次 invocation 启动新进程；durable acknowledgement 仍须满足现有 hook P95 gate，
+   不能用异步未落盘 acknowledgement 绕过 latency contract。
 
-   writer-to-authority handoff 使用独立于 journal 的 authority-owned ingress fence。launcher 必须先
-   atomic claim `{fence_generation, invocation_nonce, claimed_at, lease_expires_at}` slot；authority 只有在
-   fsync `ingress_open` 与 matching attempt reservation 后才返回短租约 acknowledgement。heartbeat
-   续租为 two-phase fence：先封闭当前 generation、禁止旧 generation 新 claim，再确认全部 claimed
-   slots 已 acknowledged/closed；任一 unacknowledged/expired slot，或 fence/journal/lock probe 失败，
-   都禁止 commit 下一 heartbeat，使旧 lease 自然 expiry。launcher 可继续原 guard decision，但
+   writer-to-authority handoff 使用独立于 journal 的 authority-owned ingress fence。每个 registered parent
+   的预配 slot 已在 caller 前含 `{fence_generation, invocation_nonce, claimed_at, lease_expires_at}`；pre-spawn
+   handoff/ack 失败会留下该 slot unacknowledged，并使 parent 无法提交本 cadence 的 quiescence ack。heartbeat
+   续租为 two-phase fence：先封闭当前 generation、禁止旧 generation 新 slot，再确认全部 registered parent
+   quiescence ack 和 slots 已 acknowledged/closed；任一缺失/unacknowledged/expired slot，或 fence/journal/lock
+   probe 失败，都禁止 commit 下一 heartbeat，使旧 lease 自然 expiry。parent 仍须运行 caller 并保留原 guard decision，但
    inaccessible journal 的旧 epoch 不能授权 complete coverage。恢复必须创建新 fenced epoch，并先
    durable commit 从 `min(last_trusted_heartbeat_at, earliest_unacknowledged_claim_at)` 到
    `recovered_at` 的 recovery gap；crash/suspend/reboot 同样不能续接旧链。reader 要求 digest-linked heartbeat lease
@@ -273,20 +283,16 @@ weekly-value ownership schema 约束 CSPRNG `artifact_id`（同时嵌入 artifac
 versioned file identity（platform file ID + device/inode/birth marker）、owner nonce 与 ledger
 chain digest。mutable lifecycle
 state 只记录已提交 ledger head，不作为唯一 ownership 证据。
-历史 retention 在 lifecycle lock 内从安全 parent directory handle 以 no-follow 打开 candidate，
-重新计算 digest/length、读取 embedded `artifact_id` 并核对 current file identity；全部与 receipt
-一致后，claim 必须由平台 primitive 在同一 parent handle 下执行“仅当 source directory entry 仍映射
-expected non-reusable identity 且 quarantine name 不存在时 atomic rename”。普通 pathname rename、
-先 compare 后 rename 或覆盖既有 quarantine 均禁止；平台无 identity-conditional claim primitive 时
-自动 retention 对该 candidate unsupported，保持原路径不变并设 `retention_health=degraded`。
-成功 claim 后从 mode 0700 private quarantine 以 no-follow 重开，再核对同一 identity/digest/artifact ID；
-最终 unlink 同样必须 identity-conditional。post-claim mismatch/race 时不得删除或无条件 restore；保留
-原路径上的任何用户对象与 quarantine 对象，记录可操作 recovery evidence，并设
-`retention_health=blocked`。路径相同但 inode/birth marker、digest 或 artifact ID 不同，或任一 barrier
-发生 race，都按用户替换/unknown 处理。不能要求 artifact 通过当前 summary schema，但旧 receipt
-必须携带可验证的 identity version 才能删除。ledger chain/nonce/head 损坏或矛盾时停止全部
-自动删除并设 `retention_health=blocked`，不得改写 `scheduler_state`。receipt/state/publish
-必须通过同一 pending→atomic commit 恢复协议。
+历史 retention 在 lifecycle lock 内持有 no-follow parent directory fd；Linux 用 `openat2`
+(`RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS`) + `renameat2(RENAME_NOREPLACE)`，macOS 用 `openat(O_NOFOLLOW)` +
+`renameatx_np(RENAME_EXCL|RENAME_NOFOLLOW_ANY)`。先从 handle 重算 digest/length、读取 embedded `artifact_id` 并核对 receipt/file
+identity，再把 source entry claim 到 mode 0700 private quarantine 的 CSPRNG 空名称；禁止普通 absolute-path
+rename、覆盖 quarantine 或跨 filesystem claim。claim 后立即从 quarantine parent fd no-follow 重开，只有
+identity/digest/artifact ID 仍全等才 unlink。mismatch/race 不 unlink；source 名为空时只可 no-replace 安全恢复，
+否则保留 quarantine evidence 和 source 上的 replacement，设 `retention_health=blocked`。缺 syscall、filesystem
+语义或 identity version 时不 auto-delete，保持 candidate 并设 degraded；若保留它将达到获批 hard history cap，
+generator 必须在写新 history 前 fail visible、保留 current，不得让 owned history 继续增长。ledger 损坏同样
+停止删除和新增 history，不改 `scheduler_state`。receipt/state/publish 走同一 pending→atomic commit 协议。
 
 ### 5. 独立 scheduler identity 与状态机
 
@@ -467,6 +473,7 @@ JSON：
     "schemas/weekly-value-taxonomy.schema.json",
     "scripts/CLAUDE.md",
     "scripts/authorized-discard.py",
+    "scripts/ci/validate-hook-perf.sh",
     "scripts/constraints/count_active_constraints.py",
     "scripts/gc/gc-logs.sh",
     "scripts/gc/gc-rule-budget.sh",
@@ -499,6 +506,7 @@ JSON：
     "tests/hooks/test_pre_bash_guard.sh",
     "tests/hooks/test_pre_edit_guard.sh",
     "tests/hooks/test_precommit_nested_roots.sh",
+    "tests/bench_hook_latency.sh",
     "tests/setup/install_flow_tests.sh",
     "tests/setup/syntax_manifest_tests.sh",
     "tests/test_authorized_discard.sh",
@@ -508,6 +516,7 @@ JSON：
     "tests/test_health_report.sh",
     "tests/test_health_report_scheduler.sh",
     "tests/test_hook_health.sh",
+    "tests/test_hook_perf_contract.sh",
     "tests/test_hook_status.sh",
     "tests/test_learn_adoption.sh",
     "tests/test_observability_schemas.sh",
@@ -588,8 +597,8 @@ JSON：
 | B-001 decisions are explicit and complete | Spec approval gate and H decision snapshot | focused workflow check rejects missing/double H selection and H-004 without all three positive snapshot budgets before tasks；manual review compares selected values with updated manifest |
 | B-002 default install produces scheduled summary after one install confirmation | setup plan + value scheduler integration | `bash tests/test_setup.sh` fresh macOS/Linux fixtures assert summary + 5m/15m heartbeat plan disclosure, one confirmation, active job and next-window artifact |
 | B-003 narrow GH-556 supersession | surface dispatch in wrapper/installer | `bash tests/test_health_report_scheduler.sh` asserts standalone health remains opt-in/default-health while setup invokes explicit value surface |
-| B-004 opt-out creates no job | setup option + weekly state | `bash tests/test_setup.sh` asserts `--no-weekly-value`, no manager entry and `disabled_by_user` |
-| B-005 unsupported platform fail-visible | platform resolver | `bash tests/test_setup.sh` Windows/unknown fixture asserts no fallback job and `unsupported_platform` |
+| B-004 opt-out creates no job | setup option + weekly state | `bash tests/test_setup.sh` asserts `--no-weekly-value`, no manager/authority/slot, no per-event coverage diagnostic and `disabled_by_user`; later enable starts a new partial epoch |
+| B-005 unsupported platform fail-visible | platform resolver | `bash tests/test_setup.sh` Windows/unknown fixture asserts no fallback job/authority and `unsupported_platform` |
 | B-006 one owned identity and third-party preservation | installer upsert/remove | `bash tests/test_health_report_scheduler.sh` repeated install plus third-party launchd/systemd fixtures |
 | B-007 registration failure rollback | lifecycle snapshot/probe/rollback | `bash tests/test_setup.sh` launchd/systemd write/load/probe failure matrix; setup completion absent and owned before-state restored |
 | B-008 exact half-open window metadata | weekly-value CLI parser and wrapper window calculator | `cargo test --manifest-path vibeguard-runtime/Cargo.toml weekly_value_window`; shell fixtures cover timezone/DST boundary |
@@ -608,7 +617,7 @@ JSON：
 | B-021 no automatic egress or clipboard | wrapper/runtime static and dynamic fixtures | `bash tests/test_payload.sh` PATH stubs fail on network/open/clipboard commands; explicit local writes still pass |
 | B-022 secure atomic local writes | wrapper temp/permission/symlink checks | interrupted write, mode 0600, same-dir rename, symlink/non-owned-output negative fixtures |
 | B-023 health/value surfaces independent | wrapper/installer closed surface dispatch | `bash tests/test_health_report_scheduler.sh` installs/disables each identity independently and compares outputs |
-| B-024 bounded owned retention | current-identity receipts + identity-conditional value history cleanup | stale/fresh/boundary/manual-export fixtures prove only expired entries whose opened file ID/digest/artifact ID still match are removed；deterministic replace-before-claim、replace-at-claim、replace-before-unlink and unsupported-primitive fixtures preserve user objects and fail visible |
+| B-024 bounded owned retention | parent-fd receipt verification + Linux/macOS no-replace quarantine | stale/fresh/boundary/manual-export fixtures prove only reverified expired entries are removed；replace-before/during/after-claim and unsupported-platform fixtures preserve bytes, fail visible and stop new history at the hard cap |
 | B-025 existing health job migration safety | migration detector | legacy launchd/cron fixtures remain byte-identical while new value state does not claim legacy consent |
 | B-026 disabled state survives upgrade | weekly-value state schema + setup migration | two-version install fixture keeps `disabled_by_user`; missing-field fixture follows approved visible migration |
 | B-027 legal transitions require probe | lifecycle transition gate | direct file injection/history-only/executable-only fixtures remain non-active; explicit enable + probe becomes active |
@@ -616,12 +625,12 @@ JSON：
 | B-029 clean removes only owned control state | setup clean + installer remove | `bash tests/test_setup.sh` preserves third-party jobs/history/exports by default and deletes owned reports only with approved purge |
 | B-030 doctor/verify orthogonal state truth | setup check four-dimension evaluator | matrix covers lifecycle × freshness/data × retention health，including active+no_data+blocked-retention，plus target/digest/ownership drift |
 | B-031 checkout/payload parity | payload manifest and no-clone smoke | `bash tests/test_payload.sh` exact schema/taxonomy/count/digest parity, no Python/network/checkout |
-| B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` current clients accepted; unknown/incompatible/missing-identity evidence excluded with coverage gap |
+| B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` maps unknown/incompatible/missing-identity evidence to exact closed reasons and excludes it with a coverage gap |
 | B-033 artifact evidence binding | stable content digest verifier + doctor/export | generated/attempt metadata changes preserve digest；tampered coverage/data/status reason/evidence/window/taxonomy changes alter/reject digest |
 | B-034 interruption recovery | pending state + atomic publish/lifecycle recovery | kill-at-each-phase fixtures followed by retry leave one owned job/current artifact and no temp/pending success claim |
-| B-035 closed live+archive snapshot | versioned coverage ledger + side-channel spool + fenced bounded coverage authority + GC-compatible reader | failed handoff leaves an unacknowledged ingress fence and prevents heartbeat renewal；expiry/recovery is partial；checkpoint/compaction keeps two generations, chain roots, sequences and unresolved gaps within the catch-up horizon；continuous 5m heartbeat over empty input proves no-data；dual store loss、budget boundaries、GC races and missing/corrupt archives remain covered；hook guard result/exit is unchanged |
-| B-036 structured classification at creation | event schema v2 + Rust/shell/Python authorized-discard writers, `hook_checks_bash.rs`, and searched v1 consumers | pre-Bash tests require typed reason codes；`bash tests/test_authorized_discard.sh` requires `python_authorized_discard_decision` from the typed Python boundary；remaining schema/hook/Rust CLI fixtures preserve v1 consumers and make unknown schema fail visible |
-| B-037 byte-stable event identity | writer-generated event ID + GC byte preservation | append→rotate→gzip→read fixture preserves ID; copy dedupes, real retry differs, legacy/duplicate ID downgrades coverage |
+| B-035 closed live+archive snapshot | versioned coverage ledger + side-channel spool + parent-opened fenced authority + GC-compatible reader | pre-caller handoff failure leaves a preallocated slot and prevents heartbeat renewal；opt-out has no authority/diagnostic，later enable starts partial；expiry/recovery、compaction、dual loss、GC races remain covered；`bash tests/bench_hook_latency.sh --runs=3 --confirmation-runs=3 --fail-on-regression` and `bash tests/test_hook_perf_contract.sh` enforce P95 without changing guard result/exit |
+| B-036 structured classification at creation | event schema v2 + Rust/shell/Python authorized-discard writers, `hook_checks_bash.rs`, and searched v1 consumers | typed boundaries plus exact `unclassified_event` mapping；remaining schema/hook/Rust CLI fixtures preserve v1 and make unknown schema fail visible |
+| B-037 byte-stable event identity | writer-generated event ID + GC byte preservation | append→rotate→gzip→read preserves ID; copy dedupes, retry differs, missing/conflicting ID maps to its exact closed reason |
 | B-038 headline publication gate | summary schema + all renderers | empty, partial and invalid evidence fixtures assert null/absent counts in internal/share/Markdown; complete nonempty evidence may contain true zero |
 | B-039 stable summary digest | canonical stable-content projection + fixed status precedence | permutations of the same simultaneous failure facts select the same highest-precedence reason/digest；generated/attempt/renderer metadata changes preserve digest；exact coverage/data/status reason/producer version/event/taxonomy/window changes differ |
 | B-040 orthogonal state dimensions | state schema + doctor/verify | exact 4 × 26 scheduler × artifact/data/retention table includes `invalid+null+not_initialized` and proves no dimension overwrites another；every omitted/extra/unknown combination fails visible |
@@ -704,8 +713,9 @@ bootstrap 边界，不属于 summary producer。
 - **Platform**：launchd/systemd 的时区、DST、missed-run 与权限语义不同。窗口由
   wrapper 显式计算，runtime 复核；未获批平台 fail visible。
 - **Performance**：周度扫描可能遇到大量 gzip archives。获批 H-004 必须固定
-  file/byte/time budgets；snapshot 打开 handle 后可释放 GC lock，但 generator 仍持有
-  lifecycle lock。任何超限只能 partial/failed，不能截断后声称 complete。
+  file/byte/time budgets；snapshot 打开 handle 后可释放 GC lock，但 generator 仍持有 lifecycle lock。
+  常驻 authority 的 durable reservation 还必须通过仓库既有 hook P95/contract gates；任何超限只能
+  partial/failed，不能截断证据或以异步未落盘 ack 声称 complete。
 - **Concurrency / data loss**：GC rotation、generator publish、coverage authority heartbeat 与
   disable/clean/upgrade 可能
   交错。source 使用既有 log lock，report lifecycle 使用单一 bounded lock，并用
@@ -721,7 +731,8 @@ bootstrap 边界，不属于 summary producer。
   window/category/dedupe/accounting/canonical encoding/stable digest/render tests；critical
   privacy/classification paths 100%。
 - [ ] Observe integration：Rust/shell/Python authorized-discard typed writer parity、all searched v1 consumer compatibility、
-  complete-empty continuous heartbeat、failed-handoff ingress fence、dual ledger/spool loss unresolved sequence、
+  complete-empty continuous heartbeat、parent-preallocated failed-handoff slot、disabled/unsupported no-authority、later-enable partial epoch、
+  dual ledger/spool loss unresolved sequence、closed host/classification/identity downgrade reasons、
   authority expiry/restart recovery gap、bounded checkpoint/compaction、hook-decision preservation、live+gzip archives、GC race、
   legacy identity、mixed categories、GH-706 protocol split、unknown host、no-data/
   partial、old/invalid taxonomy、cross-render parity 和 sentinel。
@@ -743,6 +754,9 @@ bootstrap 边界，不属于 summary producer。
   `bash tests/test_observe.sh`、
   `bash tests/test_health_report.sh`、
   `bash tests/test_health_report_scheduler.sh`、
+  `bash scripts/ci/validate-hook-perf.sh`、
+  `bash tests/test_hook_perf_contract.sh`、
+  `bash tests/bench_hook_latency.sh --runs=3 --confirmation-runs=3 --fail-on-regression`、
   `bash tests/test_payload.sh`、
   `bash tests/test_setup.sh`、
   `bash scripts/local-contract-check.sh --quick` 和 `git diff --check`。

@@ -135,11 +135,12 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     surface identity；启用默认 value scheduler 不等于默认分享或默认调度完整
     health report，禁用其中一个也不能伪造另一个的状态。
 24. B-024 历史摘要的保留期和上限必须固定且可见；ownership evidence 必须按 B-042
-    独立于当前 summary schema/version。retention 只删除 receipt 与当前打开对象的
+    独立于当前 summary schema/version。retention 只删除 receipt 与安全打开对象的
     non-reusable identity、digest 和 artifact identity 全部匹配且超期的历史 summary；
-    claim 与删除都必须由平台 primitive 对 expected identity 做 atomic conditional 操作；
-    平台无法提供时必须保留 candidate 并 fail visible。不删除 event logs、手工 export、
-    用户移动/改名/替换的文件。
+    Linux/macOS 必须使用 B-042 的 parent-handle、平台 no-replace rename、private quarantine
+    与 post-claim reverify 协议。平台/文件系统无法提供该协议时保留 candidate、fail visible，
+    并在硬上限前停止新增 history，不能以“不删除”为由让 owned history 无界增长。不删除
+    event logs、手工 export 或用户移动/改名/替换的文件。
 25. B-025 升级遇到 GH-556 已存在的 opt-in health scheduler 时，必须识别其
     surface、参数和 owner；不得静默把它替换成 value scheduler、创建重复 job，
     或把旧 opt-in 当成 H-001 的 consent evidence。
@@ -187,9 +188,13 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     必须形成明确 gap；authority heartbeat 过期、sequence 不连续或 authority 恢复为新 epoch 时，
     从最后可信 heartbeat 到 durable recovery checkpoint 的区间同样是 gap。只有 heartbeat 链完整
     覆盖整个 window、全部 attempt sequence 已闭合且 source snapshot 有效时，空 event set 才可成为
-    `no_data`；任一 gap 相交都必须为 `partial_coverage`。每个 canonical launcher 必须先通过独立
-    authority ingress fence 取得短租约和 durable acknowledgement；handoff 失败会留下未确认 fence，
-    阻止旧 epoch 续租，expiry/recovery 后只能产生 gap。authority journal 必须按最大 retention/catch-up
+    `no_data`；任一 gap 相交都必须为 `partial_coverage`。仅 active value authority 注册的 host parent
+    才能启动需要记录的 canonical caller：authority/parent 必须在 caller 启动前 durable 创建 invocation
+    slot 并取得短租约 acknowledgement，caller 不能负责创建首个可观察证据。pre-spawn handoff 失败
+    会消耗 parent launch lease、留下未确认 slot 并阻止旧 epoch 续租；caller 仍执行原 guard decision，
+    expiry/recovery 后只能产生 gap。opt-out/unsupported 不启动 authority、不创建 slot，也不产生逐事件
+    coverage failure；后续显式 enable 必须开启新 epoch，`enabled_at` 之前及首个完整覆盖 window 前均为
+    `partial_coverage`。authority journal 必须按最大 retention/catch-up
     horizon 做有界、可验证 checkpoint/compaction，不能丢失未闭合 sequence 或 gap 证明。
     coverage reservation/spool/authority 失败不得改变原 guard decision、blocking 语义或退出码，
     但必须产生 visible telemetry。
@@ -198,7 +203,9 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     classification contract version/digest；status 只证明 typed producer contract，不得提前
     声称当前 taxonomy 接受该 mapping。GH-703
     自己拥有这个最小 producer/schema 合同，不依赖 GH-704 获批或实现。缺失、未知、
-    不一致或由 free text 反推的 identity 不得进入 value headline，并使 coverage 可见降级。
+    不一致或由 free text 反推的 identity 不得进入 value headline，并以 tech 明确映射的
+    `unknown_host`、`incompatible_host`、`unclassified_event`、`event_identity_missing` 或
+    `event_identity_conflict` closed reason 使 coverage 可见降级。
     v2 protocol evidence 同样必须是 closed typed reason code；Rust、shell 与 Python
     `authorized-discard` canonical writers 必须使用各自真实的 closed classification source。
     GH-706 free-text classifier 只可读取 legacy rows，且任何 legacy row 都使 coverage 降级。
@@ -229,13 +236,13 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     复核 matching enabled generation。disable/clean 只有在阻止新 generation 且旧 generation
     已完成、取消并确认无后续 publish，或明确失败回滚后才能报告成功。
 42. B-042 retention ownership 必须由独立、版本化、durable 的 owned-artifact evidence
-    证明，而不能只靠 artifact 通过当前 schema 或历史路径 receipt。删除前必须用 no-follow
-    打开的 current file identity、artifact digest 与随机 artifact identity 重新匹配 receipt；
-    取得 lifecycle lock 后仍只能用绑定 expected non-reusable identity 的 atomic conditional
-    claim/unlink，普通 pathname rename/unlink 不构成授权。claim 后必须在 private quarantine
-    重开并再次匹配同一 identity；任一步竞态、不匹配或平台不支持 conditional primitive 均视为
-    用户替换/unknown，保留原路径与任何已 claim 对象，不删除并在独立 retention health 维度报错。
-    ledger 损坏时停止删除，不得猜测或删除 unknown 文件。
+    证明，而不能只靠 artifact 通过当前 schema 或历史路径 receipt。删除前必须在 locked、no-follow
+    parent handle 下打开 candidate，以 file identity、digest 与随机 artifact identity 重新匹配 receipt；
+    Linux 使用 `renameat2(RENAME_NOREPLACE)`，macOS 使用 `renameatx_np(RENAME_EXCL|RENAME_NOFOLLOW_ANY)`，把该 directory
+    entry claim 到 mode 0700 private quarantine 的不可预测空名称。claim 后必须重开并再次匹配同一
+    identity/content 才能 unlink；mismatch/race 不得删除，且只能 no-replace 安全恢复或保留 quarantine
+    evidence。缺 syscall/文件系统保证时不 auto-delete，达到 hard history cap 后拒绝新增 history 并
+    fail visible；不得改写用户 replacement。ledger 损坏时同样停止删除。
 
 ## 验收标准
 
@@ -252,10 +259,12 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 - [ ] live log 与跨月/当月 overflow archives 在同一 snapshot 中产生相同稳定 event set；
   durable coverage ledger 能发现 scan 前已丢失/过期的 archive；archive 缺失/损坏/竞态、
   带 event-time interval 的 writer gap、legacy identity 与 incomplete evidence 均不能发布数值 headline。
-  连续且未过期的 authority heartbeat + 空 attempt set 可证明 complete-empty；dual ledger/spool loss
-  留下未闭合 authority sequence，authority expiry/restart 留下有界 recovery gap，两者都只能 partial；
-  coverage side-channel/authority 失败不会改变原 guard decision/exit semantics。
+  连续且未过期的 authority heartbeat + 空 attempt set 可证明 complete-empty；pre-caller handoff 失败
+  留下 parent-preallocated slot，dual ledger/spool loss 留下未闭合 sequence，两者都只能 partial；
+  opt-out/unsupported 没有 authority 或逐事件 diagnostic，后续 enable 在首个完整 window 前保持 partial；
+  coverage failure 不改变原 guard decision/exit semantics，且 reservation 通过官方 hook P95 gates。
 - [ ] canonical writer 在 Rust、shell 与 Python authorized-discard 路径持久化 closed event/rule/reason identities；
+  unknown/incompatible host、unclassified v2、missing/conflicting event identity 各映射确定的 closed reason；
   free-text-only 行为降级可见，且不要求 GH-704 先批准或实现。
 - [ ] 同一 window 的重试在 GC/compaction、renderer 和生成时间变化后仍保持同一
   `summary_digest`；真实新 event 或 coverage/data/status-reason/producer-version 变化改变 digest。
@@ -267,8 +276,8 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
   ownership/retention health 的组合以及 stale/tampered evidence 给出确定性、可操作结果。
 - [ ] generation 与 disable/clean/upgrade 的 race 不产生 lifecycle 成功后的 late publish；
   clean 或 input-changing upgrade 前已启动但仍在等待 lock 的 generator 被旧 token 拒绝；
-  retention 遇到跨 schema receipt、损坏 ledger、缺少 identity-conditional primitive 或用户在
-  verify/claim/delete barrier 替换 path 时停止不安全删除并保持用户对象不变。
+  retention 的 Linux/macOS parent-fd/no-replace/quarantine 协议在 verify/claim/delete barrier 遇到
+  replacement 时不删除不匹配对象；缺 syscall/filesystem 保证时不 auto-delete，并在 hard cap 前停止新增 history。
 - [ ] checkout 与 GH-699 payload/package-manager entry 的真实 smoke 输出同一
   taxonomy/version/count/digest，并证明 payload 运行不依赖 repository checkout。
 
