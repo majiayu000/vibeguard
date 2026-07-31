@@ -392,21 +392,28 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     project identity 与 independently routable receipt route/body，并从 live registration 复制
     canonical event timestamp、retention bucket、query-scope digest，同时绑定实际 allocated global
     projection offset；这些字段进入 full reservation digest。full reservation 必须在 allocator
-    commit 同时原子预留 exact shared-outbox、success-history entitlements，后续 rebind/admission 不得借用；释放 reservation 前必须在
+    commit 同时原子预留 exact shared-outbox、success-history 与 per-source keyed-receipt-slot
+    entry/byte entitlements，后续 rebind/admission 不得借用；释放 reservation 前必须在
     同一 lease/metadata generation 把 applied marker + allocator tail 与 checksummed global
     receipt-outbox intent 原子提交并把 entitlement 转成 live intent；intent 必须闭合携带同一组
     canonical query fields，以及 `registration_id/state_root_id/route_identity_digest` exact recovery
     locator，reader 不得从 append position、wall clock 或 pathname 重建。只有 durable reservation
-    cancellation 才可释放未转换 entitlement。outbox worker 取得 matching source delivery lease 后只按 exact route +
+    cancellation 才可释放未转换 entitlement；abort 仅在 slot 不存在时原子释放 slot/admin reserve，
+    slot 已 durable 则必须走 retirement。outbox worker 取得 matching source delivery lease 后只按 exact route +
     content-addressed receipt key/digest 写独立 create-if-absent slot，不共享 project append offset；
     slot file fsync、atomic create 与 route-directory fsync 全部成功后才可 global
     `receipt_applied`/reclaim，并发布保留 reservation-backed quarantine token 的
     `receipt_delivered` lag ref；该 ref 从 intent 原样复制并 digest-bind canonical timestamp/bucket/global
     projection offset/query scope 与 `registration_id/state_root_id/route_identity_digest`，因此 outbox reclaim
     且 source dormant 后仍能由 runtime-owned directory 精确恢复 route，不需扫描 project/HOME/global log。
+    slot entitlement 从 file+directory fsync 起持续计 entry/bytes，直到 ack 或 terminal/admin handoff 已另存
+    完整 recovery proof 后，经过 global retirement-pending → exact slot unlink + directory fsync/retired proof →
+    global release 的三阶段 protocol；lost acknowledgement 只按 nonce/root receipt 幂等恢复，不得 age-delete或双释。
     source coordinator fsync `projection_done` 后返回 digest-bound ack，global root 才把 ref 原子转入独立
     global-entry/byte-bounded、per-source-quota success-history plane 的 `project_acknowledged`，保留全部
-    canonical query metadata并释放 live completed/unused token。retained success 不占 live completed
+    canonical query metadata并释放 live completed/unused token；normal ack 同一 CAS 还必须释放尚未消费的
+    allocator global-admin entitlement 并保存 release receipt，已转入 admin/quarantine stub 的 entitlement
+    则保持到该 stub 最终 retirement CAS。retained success 不占 live completed
     capacity且不能跨 source 耗尽 partition。ack 前 route 永久失效或 ref 到
     retention boundary 时，必须用 retained token 原子转入 per-source `quarantine_ack_pending` 后才可
     释放 completed capacity。若 closed capability proof 表明 route 已永久删除/替换，则同一 metadata
@@ -418,13 +425,16 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     新 route/epoch 只能 bounded rebind 后完成，不能影响其他 project 或伪称 completed；每个 token
     从 initial admission 起预留 fixed A/B replacement generations，replacement 先写 inactive generation
     再 CAS repoint stub，one-entry-full 时不申请第二 entry/token。retirement 必须按 global
-    `retirement_pending`、source `retired` proof、global delete/release 三阶段完成；任一 crash 向前恢复。
+    `retirement_pending`、source `retired` proof、global delete/release 三阶段完成；最终 CAS 必须同时释放
+    consumed global-admin entry/bytes并保存 lost-response 可恢复 receipt；任一 crash 向前恢复。
     未 ack recovery locator 必须 pin 或原子转入 lag index，retention GC 不得 age-delete；只有 matching
     rebind+ack retirement 或 terminal proof 才可删除并释放 token。仍存活 source 使用 source-lock terminal
-    discard proof；若 exact source root 已永久删除，initial registration 必须预留 runtime-owned deletion
-    anchor，approved maintenance 在 exclusive delivery lease 下从 retained trusted-parent capability 取得
-    stable exact-root deletion proof，写/fsync runtime tombstone，再由一个 global CAS 删除 ref/stub 并释放
-    matching admin/token entitlements，不得尝试取得已不存在的 project lock。replacement、permission/
+    discard proof；initial registration 必须预留 runtime-owned identity-bearing source-object handle/capability，
+    而非 path/digest anchor。旧 basename 的 ENOENT 只表示 route missing；若 handle identity 仍活着或 broker
+    收到 matching rename/move event，必须保持 ref/token 并以 exact new parent/name capability bounded rebind。
+    只有同一 filesystem object 经 closed platform attestation 明确 delete-complete、不可 reopen 且没有未消费
+    rename event，才可写/fsync runtime tombstone，再由一个 global CAS 删除 ref/stub 并释放 matching
+    admin/token/slot entitlements，不得尝试取得已不存在的 project lock。replacement、permission/
     transient error 或 mutation-generation drift 保持 visible lag，crash 只向前恢复且不得双重释放。worker 不得写 project journal。只有 source coordinator/approved maintenance
     route 按 shared delivery lease → project lock 持有至 fsync 才可写 `projection_done`。恢复只按 earliest reservation 或 receipt
     intent 的 exact key/offset/digest 判断，禁止扫描 project/HOME/global log、跳洞、丢 receipt
@@ -538,7 +548,7 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       prepare/queue/sequencer 不丢 payload、不重用 offset 且 serialized append 无洞；derived log 在 offset
       admission 前预留 bounded entry/byte/segment capacity，recovery proof pin 与双 watermark segment compaction
       覆盖 full/floor-minus-one/append crash/compaction crash且不会使 earliest reservation 因容量耗尽永久阻塞；normal reservation
-      在 allocator commit 原子预留 outbox + success-history entitlements，applied reservation 在释放前原子转入 exact-route keyed receipt
+      在 allocator commit 原子预留 outbox + success-history + keyed-slot entitlements，applied reservation 在释放前原子转入 exact-route keyed receipt
       outbox，同 project 多 intent 不共享 offset，dormant source project 也可无扫描补 receipt；永久
       删除/替换的 route 进入 per-source durable rebindable quarantine 并释放 shared outbox capacity，
       reservation-backed token 保留到 global ack，支持 ack 前故障/retention 原子转移、A/B replacement 与三阶段 retirement；
@@ -547,9 +557,11 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       约束的 query-scoped admin lag，且 shared unacknowledged completed capacity 为零，retained
       `project_acknowledged` history 已转入独立 bounded/per-source-quota success-history plane 而不占 live
       completed capacity；present config identity 或绑定 trusted parent capability、mutation fence、start/final/confirm ENOENT 的 stable absent-file identity 均可精确复核，TOCTOU/权限错误 fail visible，
-      admin ref 只有 rebind+ack、存活 source 的 source-bound terminal proof，或已删除 exact source root 的
-      runtime-owned deletion-proof tombstone 后才退休；删除路径不取不存在的 project lock，并由单一 global
-      CAS 释放 matching admin entitlement；frozen/quarantine stub 的 timestamp/bucket/global lag offset/query scope 可独立判定窗口；
+      keyed slot 按 bounded entry/byte token 从 durable delivery 保留到 ack/terminal proof，三阶段 unlink/fsync/
+      release 覆盖 abort与lost-ack；normal ack 原子释放 unused allocator admin entitlement，admin/quarantine
+      retirement 释放 consumed entitlement且不双计；admin ref 只有 rebind+ack、存活 source 的 source-bound
+      terminal proof，或 identity-bearing handle 证明 filesystem object 真正删除后的 runtime tombstone 才退休；
+      rename/move 只 rebind，不误判删除；frozen/quarantine stub 的 timestamp/bucket/global lag offset/query scope 可独立判定窗口；
       false-positive report/triage 只接受 finalized typed identity，observe v1/v2 兼容且 aggregate proof 从 success-history + live indexes + 全量 ordered barrier/lag refs + stable global root，以及显式包含 admin-index/success-history 的六个 subgenerations/watermark 构造，health/Codex-status/quality-grader/constraint-frequency 与 Rust enforcement-history readers 对 lag/unfinalized 统一 degraded/empty/零计数；free-text/global mirror 不再是权威路径。
 - [ ] trusted session 不能由 inherited env/payload 选择；session spoof/conflict/rotation 均在
       cache/provider/state 前失败或失效。实际 sidecar artifact identity 的任一字段变化同时

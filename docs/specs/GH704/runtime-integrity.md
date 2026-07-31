@@ -114,9 +114,11 @@ root 原子发布 registry subgeneration 中的 unique live slot + reserved
 `frozen_lag_token_id/exact_frozen_lag_identity/global_admin_entry_token_id/global_admin_reserved_bytes`，
 并 fsync inert `projection_prepared {source_route,queue_key,bounded_derived_body,barrier_digest,
 record_digest,eligibility_epoch,canonical_event_timestamp,retention_bucket,global_lag_offset,
-query_scope_digest,source_root_deletion_anchor_digest}`。runtime-owned directory 同时保留 closed
-`source_root_deletion_anchor {trusted_parent_capability,parent_identity,root_basename,
-source_root_identity,admission_mutation_generation}`；该 anchor 不依赖 source root 存活，并随
+query_scope_digest,source_root_deletion_anchor_digest}`。runtime-owned capability broker 同时保留 closed
+`source_root_deletion_anchor {object_capability_id,platform_namespace_id,volume_or_mount_id,
+object_file_id,object_generation,trusted_parent_capability,parent_identity,root_basename,
+admission_mutation_generation,rename_cursor}`；它是 broker-owned identity-bearing directory handle/
+object capability，不是 pathname 或 identity digest。该 anchor 不依赖 source root 路径存活，并随
 registration/receipt lag pin 到 ack 或 terminalization。`global_lag_offset` 由该 initial root transition 分配；全部 query-scope fields
 进入 registration/ref digest。任一 live、source 或 global admin entry/byte bound full 时零 durable
 write。project→registration 是唯一锁序，
@@ -252,7 +254,7 @@ append/fsync 与 durable applied/tail commit 完成**：
 
 1. 先从 allocator WAL oldest-first 恢复最早 committed reservation；存在未 applied reservation
    时不准分配或 append 更晚 offset；
-2. 先证明 bounded derived-record append log、live completed index、shared live outbox、per-source route-quarantine、global
+2. 先证明 bounded derived-record append log、per-source keyed receipt-slot ledger、live completed index、shared live outbox、per-source route-quarantine、global
    administrative index，以及 independently bounded、按 source quota 隔离的 success-history plane
    各有一条 closed-max entry + bytes 容量；每个
    quarantine token 还必须从初始 admission 起独占一个 closed-max inactive replacement generation
@@ -263,6 +265,7 @@ append/fsync 与 durable applied/tail commit 完成**：
    retention_bucket, query_scope_digest, barrier_digest, bounded_derived_body,
    record_digest, source_project_identity, receipt_route, registration_id, state_root_id,
    route_identity_digest, source_root_deletion_anchor_digest, bounded_receipt_body, new_tail,
+   receipt_slot_entitlement_id,receipt_slot_reserved_entries,receipt_slot_reserved_bytes,exact_receipt_key,
    derived_log_entitlement_id,derived_log_reserved_bytes,target_segment_id,
    reservation_seed_digest, reservation_digest, completed_index_token_id,
    exact_completed_ref_identity, outbox_entitlement_id, exact_outbox_identity,
@@ -279,15 +282,19 @@ append/fsync 与 durable applied/tail commit 完成**：
 4. `receipt_route` 必须是预先注册在 runtime-owned closed project-state directory 的 exact
    capability，绑定 state-root ID、directory/file identity 与 content-addressed `receipt_key =
    H(source project, event, barrier, global record digest)`；每个 key 是独立 create-if-absent slot，
-   不能使用共享 project-receipt append offset，也不能要求扫描 project/HOME；
+   不能使用共享 project-receipt append offset，也不能要求扫描 project/HOME。runtime-owned、按 source
+   隔离的 slot ledger 同时有 global/per-source entry+byte maxima；reservation 必须在 offset 前原子预留
+   exact one-entry + closed-max body bytes，full 时零 offset/reservation/write；
 5. 仍在同一 lease 下把 `projection_applied`、allocator committed tail 与 checksummed
    `receipt_prepared {route,bounded_receipt_body,source_barrier_digest,record_digest,registration_id,
    state_root_id,route_identity_digest,canonical_event_timestamp,retention_bucket,global_offset,
-   query_scope_digest}` outbox intent
+   query_scope_digest,receipt_slot_entitlement_id,exact_receipt_key}` outbox intent
    原子提交到同一 metadata generation，并把 reservation 的 exact `outbox_entitlement_id`
    原子转换为该 live intent；只有该 generation durable 后才释放 lease、回收 reservation body。
    conversion 前 entitlement 仍计 shared outbox capacity，rebind/admission 不得借用；crash recovery
-   只能完成 matching conversion，只有 reservation 被 durable cancellation/tombstone 时才原子释放，
+   只能完成 matching conversion，只有 reservation 被 durable cancellation/tombstone 时才原子释放；
+   cancellation/abort 在 slot 不存在时必须在同一 root transition 释放 unused slot 与 allocator
+   global-admin entitlements，slot 已 durable 时则先进入下述 retirement protocol，
    禁止留下 reservation 已占 offset 却没有可提交 outbox 的状态。reserved quarantine token 与
    success-history entitlement 独立保留 exact identity，跨 receipt-delivered、quarantine、admin 与 rebind
    states 原样携带，直到 `project_acknowledged` 分别释放/转换，或 source-bound terminal discard 在同一
@@ -354,17 +361,22 @@ append/fsync 与 durable applied/tail commit 完成**：
    向前恢复；任一 missing/mismatch/timeout 保持 visible admin lag，禁止 scan 或假 cleanup。每个 pass 只外层持 exclusive delivery；
    对 source root 本身已永久删除、因而不可能再取得该 root 的 project lock 的 exact 特例，approved
    maintenance 必须改走 runtime-owned deletion terminalization：在 exclusive delivery lease 下，使用
-   registration pin 的 `source_root_deletion_anchor` 取得 runtime-owned deletion-proof lease，从 retained
-   trusted parent capability 对 exact basename 做 bounded repeated no-follow absence lookup，并匹配 parent/
-   source-root identity、admission 与 current mutation generation；它不得打开已删除 root 或要求其 project
-   lock。只有 stable exact-root deletion（不是 replacement、permission error、transient inaccessible 或
-   identity mismatch）才可在 runtime vault 写/fsync `source_root_deleted_terminal_tombstone
-   {registration_id,state_root_id,route_identity_digest,source_root_identity,event,barrier,ref_digest,
+   registration pin 的 identity-bearing `source_root_deletion_anchor` 取得 broker deletion-proof lease。
+   old basename 的 repeated no-follow `ENOENT` 只表示 route missing，绝不是 deletion proof；broker 必须同时
+   查询 retained object handle/capability 与 platform rename/delete journal。若 object identity/generation 仍活着
+   或出现 matching rename/move event，必须提交 `source_root_relocated_pending {object_capability_id,
+   old_route_digest,rename_event_id,new_route_capability_digest}`，保留 ref/token 并只接受 exact new parent/name
+   capability 的 bounded rebind，不得扫描 filesystem 或 terminalize。只有 closed platform proof 明确表明
+   同一 filesystem object 已 unlink/delete-complete、object capability 不再可 reopen、且没有未消费 matching
+   rename event，才可在 runtime vault 写/fsync `source_root_deleted_terminal_tombstone
+   {registration_id,state_root_id,route_identity_digest,object_capability_id,platform_namespace_id,
+   volume_or_mount_id,object_file_id,object_generation,event,barrier,ref_digest,
    query_scope_digest,deletion_proof_digest,policy_digest}`。随后单一 global root CAS 必须同时验证 tombstone、
-   locator/ref/token digests，删除 matching admin ref/stub，并一次释放 frozen/global-admin/quarantine/
-   success-history entitlement 中该 ref 实际持有的集合；CAS 前 crash 保留 ref+tombstone 并只向前重试，
-   CAS 后 tombstone 才可 bounded GC，重复 recovery 不得二次释放。root 重建、replacement、ACL/lookup error
-   或 mutation generation 变化均保持 visible lag；普通仍存活 source 的 terminal discard 继续要求
+   locator/ref/token digests 与 broker deletion attestation，删除 matching admin ref/stub，并一次释放 frozen/global-admin/quarantine/
+   success-history/receipt-slot entitlement 中该 ref 实际持有的集合；object-deletion tombstone 同时是 exact
+   keyed slot 已随 root 消失的 retired proof；CAS 前 crash 保留 ref+tombstone 并只向前重试，
+   CAS 后 tombstone 才可 bounded GC，重复 recovery 不得二次释放。rename/move、root 仍可由 object handle
+   访问、root 重建、replacement、ACL/lookup error 或 mutation generation 变化均保持 visible lag；普通仍存活 source 的 terminal discard 继续要求
    exclusive delivery lease → project lock，禁止把 deletion proof 泛化成绕过 source ownership。
    project lock 在任一 global lease 前释放，registry 在 sequencer/receipt I/O 前释放，
    每次 durable handoff 后才取下一 lease，不同时持 project/registry/sequencer。re-enable 只能由 source coordinator bounded
@@ -373,7 +385,8 @@ append/fsync 与 durable applied/tail commit 完成**：
    atomic create-if-absent 写 keyed slot，再 fsync route directory。此后它只提交 global
    `receipt_applied`/reclaim，并在同一 root generation 将 completed-index token 转为
    `receipt_delivered {source,event,barrier,projection_receipt_digest,registration_id,state_root_id,
-   route_identity_digest,canonical_event_timestamp,retention_bucket,global_offset,query_scope_digest}` lag ref；
+   route_identity_digest,canonical_event_timestamp,retention_bucket,global_offset,query_scope_digest,
+   receipt_slot_entitlement_id,exact_receipt_key,global_admin_entitlement_id}` lag ref；
    locator 与 canonical query metadata 都必须从 exact `receipt_prepared` 原样复制并进入 delivered-ref
    digest；该 ref 必须继续绑定并计入预留的 quarantine token，直到
    `project_acknowledged` 或 atomic quarantine/admin handoff，并继续保留 A/B buffer；不得在 receipt
@@ -384,10 +397,13 @@ append/fsync 与 durable applied/tail commit 完成**：
    并持有两者直到 slot 验证与 `projection_done` fsync；随后返回 digest-bound marker acknowledgement，
    释放 project/delivery locks，再由 global root CAS 把 same entry 转为
    `project_acknowledged {source,event,barrier,projection_receipt_digest,canonical_event_timestamp,
-   retention_bucket,global_offset,query_scope_digest,marker_digest,ack_epoch}`，完整保留并 digest-bind
+   retention_bucket,global_offset,query_scope_digest,marker_digest,ack_epoch,
+   global_admin_release_receipt_id,receipt_slot_retirement_nonce}`，完整保留并 digest-bind
    receipt-delivered 的 canonical query metadata，并在同一 root generation 把 reservation-backed
    `success_history_entitlement_id` 转成 independently checksummed success-history ref、删除 live
-   completed entry/释放其 token，同时释放仍未消费的 quarantine token。只有 history plane 中该 state
+   completed entry/释放其 token，同时释放仍未消费的 quarantine token；若 allocator
+   `global_admin_entitlement_id` 仍为 reserved/unconsumed，同一 CAS 必须转为 `released_on_ack` 并保存
+   digest-bound release receipt，若已 `consumed_by_admin` 则保持到 matching stub retirement。只有 history plane 中该 state
    是 aggregate success；crash 在 marker/
    ack 间时 globally enumerable `receipt_delivered` 仍为 lag；即使 outbox 已 reclaim/source 未启动，
    dispatcher 仍用 ref 内的 `registration_id/state_root_id/route_identity_digest` 在 runtime-owned directory
@@ -397,8 +413,23 @@ append/fsync 与 durable applied/tail commit 完成**：
    registration missing/drift/inaccessible 若已满足 closed permanent proof，必须在同一 global root
    把 exact `receipt_delivered` ref 原子移入 retained token 的 `quarantine_ack_pending` entry/stub、
    释放 completed-index capacity并发布 lag stub，不依赖已回收 outbox；transient failure 保持 ref/token，
-   禁止猜 pathname。只有 global ack CAS 成功才释放未使用 token。off 同样按 exclusive lease →
+   禁止猜 pathname。ack request/response 丢失时 recovery 只读 root-selected ack/release receipt：matching
+   receipt 幂等返回 success，reserved 状态补同一 CAS，released/consumed identity mismatch 则
+   `needs_repair`，禁止重复 credit。只有 global ack CAS 成功才释放未使用 token。off 同样按 exclusive lease →
    project lock，因而会等待 worker 与 marker writer。多个 keys 可任意 delivery order，仍只有一个 group writer。
+
+keyed receipt slot 的 entitlement 在 slot file + route-directory fsync 后从 reserved 转为 live，并跨 outbox
+reclaim、`receipt_delivered`、off/admin/quarantine handoff 原样携带，不能在 delivery 时释放。只有 matching
+`project_acknowledged`，或已把完整 receipt body/digest + recovery locator durable 转移到 terminal/admin
+authority 后，global root 才可发布 `receipt_slot_retirement_pending {entitlement_id,registration_id,
+state_root_id,route_identity_digest,exact_receipt_key,slot_digest,final_state_digest,retirement_nonce}`。随后 dispatcher
+按 exact capability、shared delivery lease → project lock 做 no-follow identity/digest check，unlink exact slot、
+fsync route directory，并写/fsync `receipt_slot_retired {entitlement_id,exact_receipt_key,slot_digest,
+retirement_nonce,directory_generation}`；最终 global CAS 验证 proof 后删除 pending state并释放 one entry + exact
+bytes。verified source-object deletion tombstone 可作为 slot-gone proof；rename/move/inaccessible 不能，必须继续
+pin entitlement 并 bounded rebind。pending 前 crash 保留 live slot/token，pending→unlink crash 以 exact absent
+proof 补 retired，retired→final CAS crash 只重放同一 nonce，lost final acknowledgement 从 root receipt 恢复；
+任何 mismatch/permission/error 保持 visible per-source backpressure，禁止扫描、age-delete 或 double release。
 
 derived-record append log 是 allocator subgeneration 内的独立 capacity ledger + checksummed segmented
 store；closed configuration 同时限制 global live entries、live bytes、segment bytes/count 与单条最大
@@ -472,12 +503,15 @@ stub 后释放刚取得的 completed/outbox capacity；旧 generation 随后 bou
 root 也始终有 handoff 空间，禁止 stranded live slot或第二 token。
 project ack 成功后，global root 必须先把 stub CAS 为
 `retirement_pending {root_kind,root_id,old_entry_digest,retirement_nonce,final_ack_digest,
-expected_retired_generation,quarantine_token_id}`；随后才在
+expected_retired_generation,quarantine_token_id,global_admin_entitlement_id,
+expected_global_admin_release_receipt_id}`；随后才在
 stub 指定的 authoritative primary/alternate root 写/fsync
 `retired {old_entry_digest,retirement_nonce,final_ack_digest}` proof 并原子 reclaim entry/free-list capacity。
 retired proof 在最终 global CAS 前不可 GC；recovery 以 retirement-pending nonce/digest 接受 entry 已
 reclaim 的 matching retired root generation，而不把它误判为 corruption。最后 global root 验证 proof，
-删除 stub并释放 quarantine token；旧 entry 不可再枚举/replay。未经 rebind 不得伪称 completed。token 缺失/错配/corrupt
+删除 stub并在同一 CAS 释放 quarantine token + consumed allocator global-admin entry/bytes，提交 matching
+global-admin release receipt；若 final response 丢失，recovery 以 root receipt 幂等确认，禁止第二次 credit。
+旧 entry 不可再枚举/replay。未经 rebind 不得伪称 completed。token 缺失/错配/corrupt
 均 `needs_repair` 且只 backpressure 对应 source；测试覆盖 transient/permanent 分类、delete/replace、
 quarantine permission/delete/replace、primary-fsync→alternate-publication crash、nonchosen orphan cleanup、
 post-commit per-source corruption、cross-source isolation、completed+outbox atomic reacquire/floor-minus-one、
