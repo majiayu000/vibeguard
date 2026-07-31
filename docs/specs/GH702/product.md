@@ -232,7 +232,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     digest-valid 的 dependency-set generation，禁止 partial active。pointer 必须携带 monotonic
     installation generation；已 fsync 的 transaction journal 先记录目标 pointer/state，再推进
     独立 durable generation floor，最后执行上述 rename+双 fsync。policy/installation floor 与 trusted-time
-    high-water/epoch/sequence 都必须绑定 B-027 定义的独立 authenticated monotonic root；同一
+    high-water/epoch/sequence 都必须绑定 B-027 定义的同一 authenticated root 下各自独立单调的
+    leaf authority；同一
     user-state tree 内的 JSON 只可作 mirror，不能作为 anti-rollback authority。runtime 拒绝低于 floor 的旧 pointer replay；
     floor fsync 是 roll-forward-only prepared boundary：此前失败可 rollback；此后必须保留
     journal/generation/state 并重试或恢复 exact pointer switch，不能 rollback、降低 floor 或猜测

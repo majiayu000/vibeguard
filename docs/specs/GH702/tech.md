@@ -263,7 +263,8 @@ closed、Core-owned runtime-state entry，
 bounded runtime-state lock 取得两锁，在锁内读取并持续重验 policy pointer/floor、active pointer/
 state，直到 CAS 与 decision 执行完成。每个可信且不回退的 time observation 必须先原子推进
 high-water；expiry/identity drift 等 fallback 同时锁存 reason，只有新 management generation
-可清除。取锁前缓存的 authority/pointer/state 不得执行；任一锁/CAS 失败按 runtime-guard denial。
+可清除。取锁前缓存的 authority/pointer/state 不得执行；只有 block candidate 的锁/CAS 失败才按
+runtime-guard denial，committed warn/off/no-data 不进入该路径。
 新进程继承 durable high-water，不得以启动时间
 重置。同 epoch 的 audit 不得降低它；显式 trusted-clock reconciliation 必须验证 Core-approved
 time evidence，在 management locks 下重新 audit，递增 epoch，并将 evidence、新 generation
@@ -621,7 +622,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-012 online/offline failure semantics | Locator/cache/revocation policy | timeout/malformed/redirect/fresh-absence/expired-absence/cached-revoked/expired-known-revoke/identity-mismatch matrix asserts exact current/revoked/unknown status |
 | B-013 target compatibility | Capability/host resolver | unknown host, incompatible protocol, unsupported capability, missing Core and valid Claude/Codex fixtures produce distinct closed statuses and cannot be promoted by override |
 | B-014 runtime privacy/capability | Sealed capability registry + sandbox boundary | network/credential/path/log access sentinels and child-env capture prove undeclared access never runs or persists |
-| B-015 transaction state machine | Transaction + anchor supporting contract | immutable mirrors + intent-bound phase digest chain survive lost CAS response；exact target reconstructs equal phases and rolls forward，other root needs_repair |
+| B-015 transaction state machine | Transaction + anchor supporting contract | immutable mirrors + phase chain survive lost CAS response；exact target rolls forward；other same-leaf state needs_repair，sibling-root progress refreshes proof |
 | B-016 scoped rollback/repair | Transaction rollback/recovery | pre-floor restores before digests；post-floor every applied/host/config CAS match rolls forward；any drift preserves state/evidence and needs_repair |
 | B-017 interruption recovery | Transaction + anchor recovery | crash every local/external/barrier stage and mutate applied/host/config；exact target resumes, mismatch needs_repair, never false receipt or permanent proven-target unavailable |
 | B-018 complete committed receipt | Receipt schema/writer + source storage key | official receipt requires event digest；local requires not_applicable + absent event；all block receipts bind committed policy and finite decision/override horizons/fallback；local round-trip needs no publisher sentinel |
@@ -673,18 +674,18 @@ vibeguard add <locator>
        └─ rollback/recovery/needs_repair
 
 runtime hook
-  └─ authoritative active-policy generation/digest + anti-replay floor + committed generation
-       ├─ external authenticated root + generation-scoped runtime-state lock/CAS/high-water mirror
-       │    ├─ identity match + monotonic time + before applicable horizon → committed decision
-       │    ├─ policy drift/expiry/override expiry/rollback → fallback + audit_required
-       │    └─ state/floor/lock/CAS unavailable → conservative deny + nonzero
+  ├─ committed warn/off/no-data → keep decision; anchor unavailable never upgrades to denial
+  └─ committed official/local block basis → policy identity/floor + per-leaf authority/proof
+       ├─ identity match + monotonic time + before applicable horizon → committed block
+       ├─ policy drift/expiry/override expiry/rollback → persisted fallback + audit_required
+       ├─ block-candidate state/proof/lock/CAS unavailable → conservative deny + nonzero
        └─ no registry/network/telemetry access
 ```
 
 持久化面是 closed set：content-addressed verified store、index/registry-event caches、
 transaction journals/before snapshots、committed receipts/active identities、durable installation-generation
 floor mirrors、authoritative local evaluation-policy pointer/activation journal、evaluation-policy
-floor/time mirrors and external-root attestation receipts、local overrides
+floor/time mirrors and refreshable per-leaf proof receipts、local overrides
 和用户显式生成的 feedback export。临时下载与 staging 在 commit/rollback 后清理；
 `needs_repair` evidence 在成功 recovery 前保留。任何 temp 路径、raw response、credential、
 用户代码或 event payload 不进入 receipt/status。
