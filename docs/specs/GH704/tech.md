@@ -464,7 +464,7 @@ budget 数值。
 `.github/workflows/semantic-assets.yml` 生成并绑定 release 的外部 asset。这样
 `complete: true` 只表示该 reference path 的 repo source、schema、policy、asset build/
 install、doctor/status、canonical latency runner、tests 与 docs surface 无遗漏，不表示
-H-001–H-020 已批准。当前共 115 条唯一 repo paths：74 条 existing、41 条 planned。
+H-001–H-020 已批准。当前共 126 条唯一 repo paths：85 条 existing、41 条 planned。
 `semantic-sidecar/` 是新 product root，因此 `docs/directory-map.md` 必须同步登记。任一
 决定改变 provider、ecosystem、host、packaging、policy、status route 或 tests 时，
 必须先修订此 manifest；`tasks.md` 不得增加未列 surface。
@@ -500,6 +500,8 @@ H-001–H-020 已批准。当前共 115 条唯一 repo paths：74 条 existing�
     "vibeguard-runtime/src/hook_status.rs",
     "vibeguard-runtime/src/hook_status_render.rs",
     "vibeguard-runtime/src/hook_status_tests.rs",
+    "vibeguard-runtime/src/observe/aggregate.rs", "vibeguard-runtime/src/observe/mod.rs", "vibeguard-runtime/src/observe/model.rs", "vibeguard-runtime/src/observe/prometheus.rs",
+    "vibeguard-runtime/src/observe/read.rs", "vibeguard-runtime/src/observe/render.rs", "vibeguard-runtime/src/observe/stats_summary.rs", "vibeguard-runtime/tests/observe_cli.rs",
     "vibeguard-runtime/src/semantic_defense/mod.rs",
     "vibeguard-runtime/src/semantic_defense/config.rs",
     "vibeguard-runtime/src/semantic_defense/identity.rs",
@@ -535,6 +537,7 @@ H-001–H-020 已批准。当前共 115 条唯一 repo paths：74 条 existing�
     "guards/universal/check_test_weakening.sh",
     "scripts/precision-tracker.py",
     "scripts/gc/reflection_digest.py",
+    "scripts/stats.sh",
     "scripts/learn/analyze.py",
     "scripts/learn/adoption.py",
     "scripts/ci/self-application/check-u22-coverage.sh",
@@ -564,6 +567,7 @@ H-001–H-020 已批准。当前共 115 条唯一 repo paths：74 条 existing�
     "tests/test_runtime_config_schema.sh",
     "tests/test_gc_config.sh",
     "tests/test_gc_scheduled.sh",
+    "tests/test_observe.sh", "tests/test_stats.sh",
     "tests/test_u22_coverage.sh",
     "tests/test_precision_tracker.sh",
     "tests/test_learn_adoption.sh",
@@ -611,10 +615,10 @@ Complete-path cross-check：
 | Canonical project journal + bounded reconciliation | `vibeguard-runtime/src/event_schema.rs`; `vibeguard-runtime/src/hook_orchestrator.rs`; `vibeguard-runtime/src/hook_orchestrator_post_edit.rs`; planned **vibeguard-runtime/src/semantic_defense/runtime_signal.rs**; `schemas/event-log.schema.json`; planned **tests/hooks/test_runtime_rule_signals.sh**; `tests/test_observability_schemas.sh`; `docs/specs/GH704/runtime-integrity.md` | one durable group state machine；all readers join `all_activated` barrier；partial activation completes/rolls back；I/O cap admits one maximum atomic edge；global sequencer atomically transfers applied reservation to exact-route receipt outbox；off freezes backlog；pre-barrier failures render from bounded WAL/queue |
 | Install/config doctor | `setup.sh`; `scripts/setup/check.sh`; `scripts/setup/runtime_config_health.sh`; `scripts/lib/status_report.sh`; `tests/test_setup_check.sh`; `tests/test_setup.sh` | doctor/`--check` human/JSON/exit/no-data identity matrix and installed payload route |
 | Per-run status | `vibeguard-runtime/src/hook_status.rs`; `hook_status_render.rs`; `hook_status_tests.rs`; `schemas/hook-status.schema.json`; `tests/test_hook_status.sh` | human/JSON/schema carry exact semantic state and identities from one canonical event |
-| Observability schema migration | `schemas/event-log.schema.json`; `schemas/session-metrics.schema.json`; `docs/command-schemas.md`; `tests/test_observability_schemas.sh`; `tests/fixtures/observability-schemas/`; `scripts/gc/reflection_digest.py`; `tests/test_gc_scheduled.sh` | docs declare typed signal/receipt fields；legacy/current/error fixtures prove parsing；weekly reflection parses closed typed kinds/identity and cannot silently substring-drop counts |
+| Observability schema migration | schemas/docs/fixtures；`scripts/gc/reflection_digest.py`; `tests/test_gc_scheduled.sh`; `vibeguard-runtime/src/observe/{aggregate,mod,model,prometheus,read,render,stats_summary}.rs`; `vibeguard-runtime/tests/observe_cli.rs`; `scripts/stats.sh`; `tests/test_{observe,stats}.sh` | every shipped reader joins typed `all_activated` identity，lag is empty；summary/JSON/Prometheus/stats never derive semantic IDs from free text；weekly reflection parses typed kinds；legacy/error explicit |
 | Learn signal contract | `schemas/learn-signal.schema.json`; `tests/test_workflow_contracts.sh`; `tests/test_learn_adoption.sh` | new semantic-defense signal/typed source positives and invalid classification/action/path cases preserve the classification-bound action space before adoption |
 | Semantic release assets | `.github/workflows/release.yml`; `.github/workflows/semantic-assets.yml`; `tests/test_release_workflow.sh`; `tests/test_payload.sh`; `scripts/release/payload-manifest.txt` | release contract fixes same-tag checksums, attestations, dependency metadata, target matrix, explicit install provenance and revoke/rollback behavior for every semantic artifact |
-| U-22 measured coverage | planned **scripts/ci/self-application/u22-critical-files.json**; `scripts/ci/self-application/check-u22-coverage.sh`; `tests/test_u22_coverage.sh`; `tests/test_manifest_contract.sh`; `vibeguard-runtime/Cargo.toml`; planned **semantic-sidecar/Cargo.toml**; `.github/workflows/ci.yml` | pinned `cargo-llvm-cov` reports runtime/sidecar separately at ≥80% lines；closed inventory assigns 100% line+branch to `vibeguard-runtime/src/{git_root,project_config,codex_app_server_core,codex_app_server_file_changes,codex_app_server_hooks,codex_app_server_strategies,hook_orchestrator_context,hook_orchestrator,hook_orchestrator_post_edit,event_schema}.rs`、runtime `semantic_defense/{mod,config,identity,protocol,provider,inventory,inventory_adapters/mod,inventory_adapters/typescript_npm,test_weakening,runtime_signal,cache,metrics}.rs` and sidecar `{protocol,sandbox}.rs`；gate rejects missing totals、zero denominators、missed conditional/short-circuit arms、duplicate/unknown/missing paths、malformed reports、aggregate masking、normalization misses、unclassified modules or any file below either floor；independent mandatory-set/contract and B-001/B-003/B-009/B-011–B-015/B-017–B-020/B-022–B-028/B-037 matrices map every branch ID |
+| U-22 measured coverage | planned **scripts/ci/self-application/u22-critical-files.json**; `scripts/ci/self-application/check-u22-coverage.sh`; tests/manifests/Cargo/CI | runtime/sidecar each ≥80%；100% line+branch: runtime `{git_root,project_config,codex_app_server_core,codex_app_server_file_changes,codex_app_server_hooks,codex_app_server_strategies,hook_orchestrator_context,hook_orchestrator,hook_orchestrator_post_edit,event_schema}.rs`、`observe/{aggregate,prometheus,read,render,stats_summary}.rs`、`semantic_defense/{mod,config,identity,protocol,provider,inventory,inventory_adapters/mod,inventory_adapters/typescript_npm,test_weakening,runtime_signal,cache,metrics}.rs`、sidecar `{protocol,sandbox}.rs`；gate rejects missing/zero/malformed/unknown/duplicate/unclassified paths、condition arms、aggregate masking；independent B-001/B-003/B-009/B-011–B-015/B-017–B-020/B-022–B-028/B-035/B-037 matrices map every branch ID |
 
 ## Product-to-Test Mapping
 
@@ -654,14 +658,14 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 | B-025 corrupt history | history reader | `bash tests/hooks/test_runtime_rule_signals.sh corrupt_and_cross_scope_history` |
 | B-026 W state machine | runtime signal module | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::runtime_signal::tests::transition_replay_concurrency_matrix -- --exact` |
 | B-027 fail-visible group commit | project WAL/event writer + bounded reconciler | `bash tests/hooks/test_runtime_rule_signals.sh projection_write_failures_preserve_l1`、`bounded_reconciliation_backlog`、`atomic_recovery_io_floor` 与 `bounded_project_lock`；遍历每个 closed transition、consumer stage/activation、barrier append/marker、queue prepare/append/marker 的 before/after crash，负例断言 barrier 前 decision/aggregate/precision/Learn 全空；partial activation exact-digest 补齐或 durable abort+rollback；每个 edge 的 floor 累计其全部 mandatory read/write records，`floor-1` admission 拒绝，exact floor 完成最大 atomic edge，remaining budget 不足则零新 transition；pre-WAL error、lock/stale/corruption/kill-switch 保持 visible/bounded/L1 |
-| B-028 single authority + serialized derived projection | project journal + global sequencer/keyed receipt outbox | runtime projection tests；sequencer lease covers ordered append/applied and atomic source route/body outbox transfer；content-addressed create-if-absent receipt slots prevent same-project concurrent offset reuse；two intents before flush、out-of-order recovery、every crash/dormant project converge by exact route/key/digest without scan/duplicate/hole |
+| B-028 single authority + serialized derived projection | project journal + global sequencer/keyed receipt outbox | `bash tests/hooks/test_runtime_rule_signals.sh one_canonical_projection`、`derived_global_projection_recovery`、`cross_project_offset_reservation`、`keyed_receipt_slots`、`receipt_directory_fsync_recovery`；two same-project intents before flush、out-of-order/dormant recovery、file/create/directory-fsync crash converge by exact route/key/digest without scan/duplicate/hole |
 | B-029 candidate identity | Learn schema/analyzer | `bash tests/test_workflow_contracts.sh` 与 `bash tests/test_learn_adoption.sh semantic_candidate_identity`；semantic-defense signal/typed source 的 valid fixture 与 invalid classification/action/path 全部固定，multi-session replay 后 ID/count/window/privacy 精确相等 |
 | B-030 deterministic Learn core | Learn analyzer/model adapter | `bash tests/test_learn_adoption.sh semantic_candidate_without_model`；provider disabled/crash 时 identity/count/state 不变 |
 | B-031 human adoption gate | Learn adoption | `bash tests/test_learn_adoption.sh semantic_candidate_human_gate`；preview read-only，仅 explicit adopt/skip/snooze 变更 |
 | B-032 outcome verification | Learn outcome evaluator | `bash tests/test_learn_adoption.sh semantic_candidate_outcomes`；fresh/absent/regressed 与 raw-source export canary |
 | B-033 GH-700 boundary | production mapping contract | `python3 eval/test_semantic_eval.py gh700_core_mapping_boundary`；拒绝 headline/paired/aggregate precision 输入 |
 | B-034 GH-702 boundary | capability/policy contract | `bash tests/hooks/test_semantic_defense.sh gh702_sealed_core_boundary`；携带 executable/model/provider 或 unapproved policy 必须失败 |
-| B-035 truthful rendering | existing public doctor + hook-status routes | `bash tests/test_setup_check.sh`、`bash tests/test_hook_status.sh` 与 `bash tests/hooks/test_semantic_defense.sh status_rendering_and_redaction`；completed outcome 与所有 consumer/version 只 join exact `all_activated` barrier；barrier 前 WAL/queue failure 不显示 decision/precision/Learn，pre-record volatile failure 仅当次 typed `persistence_unavailable`，later status no-data + storage health；global lag 为空值 |
+| B-035 truthful rendering | doctor/hook-status/observe/stats | setup/status/semantic rendering tests plus `bash tests/test_observe.sh semantic_barrier_projection` 与 `bash tests/test_stats.sh semantic_barrier_projection`；all readers join exact `all_activated`；pre-barrier/lag is empty，volatile failure current-only，later no-data + health；typed IDs never free-text-derived，Prometheus/JSON/human agree |
 | B-036 cleanup/rollback | provider/cache/hook lifecycle | `bash tests/hooks/test_semantic_defense.sh cleanup_interrupt_and_l1_rollback`；success/error/timeout/SIGINT matrix |
 | B-037 completion-backed post-edit | app-server core/strategies/file-change in-process lifecycle | `bash tests/hooks/test_semantic_defense.sh codex_post_edit_requires_completion`；approval/decline/failed/in-progress child L1 leaves semantic canaries empty；owning-process exact completion runs once，duplicate idempotent，captured child value cannot replay，no callback unavailable |
 

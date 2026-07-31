@@ -156,10 +156,11 @@ append/fsync 与 durable applied/tail commit 完成**：
    `receipt_prepared {route, bounded_receipt_body, source barrier/record digest}` outbox intent
    原子提交到同一 metadata generation；只有该 generation durable 后才释放 lease、回收
    reservation body；
-6. receipt worker 从 outbox oldest-first 打开 exact registered route，以 no-follow temp + fsync +
-   atomic create-if-absent 写 keyed receipt slot；slot 已存在且 digest 相同则补
-   `receipt_applied`，同 key 不同 digest 才 `needs_repair`。随后才允许 `projection_done` 与回收
-   outbox item；同一 project 的多个未 flush intent 使用不同 keys，可任意 recovery order。
+6. receipt worker 从 outbox oldest-first 打开 exact registered route，以 no-follow temp file
+   write + file fsync + atomic create-if-absent 写 keyed receipt slot，再 fsync registered route
+   directory；只有 directory fsync 成功后才能提交 `receipt_applied`、`projection_done` 或回收
+   outbox。slot 已存在且 digest 相同也必须证明 directory durability 后才补 marker；同 key
+   不同 digest 才 `needs_repair`。同一 project 多个未 flush intent 使用不同 keys，可任意 recovery order。
 
 因此 reservation A 未 applied 时，reservation B 不能 append；不会出现 later offset 先落盘、
 earlier offset 留洞。crash recovery 只查 earliest reservation、exact key/offset/digest：缺 record
@@ -196,6 +197,6 @@ completion event 绑定已应用的 exact before/after identity 后在 owning pr
 - sidecar byte/version/target/protocol/manifest/attestation/revoke 的 eligibility + cache + evidence
   invalidation；
 - approval/decline/failed apply 零 semantic activity，以及 completion 后 exactly-once delivery；
-- every group edge、partial activation、barrier/queue/outbox crash；
+- every group edge、partial activation、barrier/queue/outbox/receipt create/directory-fsync crash；
 - every maximum record 的 recovery floor、dormant-project receipt recovery，以及 concurrent
   projects/shards 严格 offset append order。

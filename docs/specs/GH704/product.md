@@ -304,8 +304,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     project identity 与 independently routable receipt route/body。释放 reservation 前必须在
     同一 lease/metadata generation 把 applied marker + allocator tail 与 checksummed global
     receipt-outbox intent 原子提交；outbox worker 只按 exact registered project-state route +
-    content-addressed receipt key/digest 写独立 create-if-absent slot，不共享 project append offset。
-    恢复只按 earliest reservation 或 receipt
+    content-addressed receipt key/digest 写独立 create-if-absent slot，不共享 project append offset；
+    slot file fsync、atomic create 与 route-directory fsync 全部成功后才可 `receipt_applied`/
+    `projection_done`/reclaim。恢复只按 earliest reservation 或 receipt
     intent 的 exact key/offset/digest 判断，禁止扫描 project/HOME/global log、跳洞、丢 receipt
     或释放 reservation 后由 per-key writer 乱序 append。
     derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
