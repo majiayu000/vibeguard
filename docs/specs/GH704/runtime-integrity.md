@@ -129,7 +129,11 @@ off。释放 project lock 后仍持 delivery lease，再取 global registration 
 epoch 的 pre-barrier 或 barrier-ready-but-unclaimed registrations 以 digest/epoch/state CAS
 提交为 checksummed `off_frozen` administrative tombstone，并在同一 registry subgeneration/root
 把 admission 时预留的 per-source administrative token 转为 globally enumerable
-`frozen_lag_ref {source,event,barrier,claim_digest,old_epoch,request_digest}` 后回收 live slot。
+`frozen_lag_ref {source,event,barrier,claim_digest,old_epoch,request_digest,
+canonical_event_timestamp,retention_bucket,global_lag_offset,query_scope_digest}` 后回收 live slot。
+`global_lag_offset` 是 registry root 在 initial admission 原子分配的 monotonic query ordinal，
+不是 projection append `expected_offset`，不得预猜或 reserve-before-claim；其余 scope 字段来自
+canonical project event/barrier 并进入 ref digest，使 bounded reader 无需 source scan 即可判定窗口成员。
 该 bounded/retained plane 不计 live-work capacity，按 source quota 隔离且供 aggregate 枚举。它不写/
 删 source semantic journal；
 canonical `projection_prepared`/activation receipts 保持冻结，re-enable 只能 bounded rebind
@@ -156,7 +160,7 @@ canonical `projection_prepared`/barrier reference。matching reservation 必须�
 project-local canonical decision、project-local consumer/precision/Learn 与 per-run project status
 只在 `all_activated` barrier 后可见；它们不依赖 global mirror。允许读取 bounded project state 的
 enforcement/history reader 必须再 join matching durable `projection_done`；global status/aggregate/
-observe reader 不得扫描 project，只能 join completed index 的 `project_acknowledged`。缺各自第二层
+observe 与任何 global enforcement/history reader 不得扫描 project，只能 join completed index 的 `project_acknowledged`。缺各自第二层
 authority 统一为 `projection_lag` + empty/zero-use；marker 已 fsync 但 global ack 未 CAS 时 global
 reader 仍为 lag。project coordinator 最后在同一 lock 下消费 durable receipt slot 并提交
 `projection_done`。
@@ -243,28 +247,35 @@ append/fsync 与 durable applied/tail commit 完成**：
    oldest-first 多 pass：(a) freeze/reclaim pre-barrier/ready-unclaimed；(b) 对 claim-prepared
    执行 absent-reservation freeze 或 matching reservation recovery；(c) 将该 source 的每个 applied/
    receipt-outbox intent 在 exclusive lease 下写 exact keyed slot，完成 file fsync + atomic
-   create-if-absent + route-directory fsync，再提交 global `receipt_applied`/reclaim。该 drain
-   在 effective off 前完成，不写 project journal/`projection_done`；每次 keyed slot durable 后，
-   必须在同一 metadata generation 将 token 转为 `completed_projection_index {state=receipt_delivered,
-   source_project_digest,event_id,barrier_digest,projection_receipt_digest,global_offset,retention_bucket,
-   receipt_route_registration_id,state_root_id,route_identity_digest}` 并提交；三项 route identity 来自
-   runtime-owned closed project-state directory registration，进入 exact ref/root digest，不能只保留 pathname
-   `receipt_applied`/reclaim。只有 registry、reservation 与 live outbox 中该 source 均为零，
+   create-if-absent + route-directory fsync。该 drain 在 effective off 前完成，不写 project journal/
+   `projection_done`，也绝不能创建/保留 shared completed-index ref。每次 keyed slot durable 后，先以
+   reservation-backed quarantine token 在 independently checksummed per-source administrative/quarantine
+   root 写/fsync `off_receipt_lag_ref {source,event,barrier,projection_receipt_digest,canonical_event_timestamp,
+   retention_bucket,global_offset,query_scope_digest,registration_id,state_root_id,route_identity_digest,
+   old_epoch,request_digest}`；随后单一 global root CAS 同时发布 bounded lag stub、提交
+   `receipt_applied`、reclaim outbox并释放 completed-index token。admin root/stub 任一失败则保持 outbox
+   pending/error 且不得 effective off。只有 registry、reservation、live outbox 与 completed index 中该 source 均为零，
    才在仍持 exclusive delivery lease 时 no-follow 重开 config，复核 current file identity+digest
    与 saved request 完全相等，再取 project lock 提交 effective off epoch。若已变回 enabled，
-   原子转为 durable `enable_rebind {new_identity,digest,cursor}`，保留 keyed slots/completed refs 并
-   bounded rebind 全部 off-frozen canonical refs，完成前禁止新 L2；若是另一 off digest/identity，
+   原子转为 durable `enable_rebind {new_identity,digest,cursor}`，保留 keyed slots/admin refs 并
+   bounded rebind 全部 off-frozen/off-receipt canonical refs，完成前禁止新 L2；若是另一 off digest/identity，
    以新 epoch/request 从 cursor zero 重启 off-preparing；invalid/unreadable 则保持 pending/error。
    stale request 不得提交 effective off。任一 cap/deadline/route 失败保持 `opt_out_pending/error` + counts/
    oldest age，禁止新 L2 但不伪称 off，后续 bounded pass 续传；因而 effective off
-   永不占 shared live registry/outbox capacity。每个 pass 只外层持 exclusive delivery；
+   永不占 shared live registry/outbox/completed-index capacity。effective-off terminal cleanup 只按
+   admin root oldest-first cursor，在 approved retention watermark 已越过 ref query scope且 matching off
+   epoch/config 复核成功后，以 policy-bound batch/byte/time 原子 tombstone ref + delete stub + release token；
+   re-enable 则先以同样 bounds 重取 completed/outbox capacity再 rebind。crash 保留 matching ref/stub 并
+   向前恢复；任一 missing/mismatch/timeout 保持 visible admin lag，禁止 scan 或假 cleanup。每个 pass 只外层持 exclusive delivery；
    project lock 在任一 global lease 前释放，registry 在 sequencer/receipt I/O 前释放，
    每次 durable handoff 后才取下一 lease，不同时持 project/registry/sequencer。re-enable 只能由 source coordinator bounded
    rebind/consume durable slots，或由另行批准的 maintenance drain 处理；
 7. receipt worker 从 outbox oldest-first 打开 exact route，以 no-follow temp write + file fsync +
    atomic create-if-absent 写 keyed slot，再 fsync route directory。此后它只提交 global
    `receipt_applied`/reclaim，并在同一 root generation 将 completed-index token 转为上述
-   `receipt_delivered` lag ref、继续保留 matching quarantine token/A-B buffer；不得写 project journal/
+   `receipt_delivered` lag ref；该 ref 必须继续绑定并计入预留的 quarantine token，直到
+   `project_acknowledged` 或 atomic quarantine/admin handoff，并继续保留 A/B buffer；不得在 receipt
+   delivery 时释放。worker 不得写 project journal/
    `projection_done`。slot 已存在且 digest 相同
    也必须证明 directory durability；不同 digest 才 `needs_repair`。project coordinator/approved
    maintenance route 必须按 shared delivery lease → project lock 的固定顺序取得 matching epoch，
@@ -275,8 +286,9 @@ append/fsync 与 durable applied/tail commit 完成**：
    dispatcher 仍用 retained registration ID 在 runtime-owned directory 精确解析 matching state-root/
    route capability，再调用同一 coordinator 验证/补 marker后补 ack，无需扫描 project/HOME/global log。
    registration missing/drift/inaccessible 若已满足 closed permanent proof，必须在同一 global root
-   把 retained token 转为 `quarantine_ack_pending` stub/entry、释放 completed-index capacity；否则保持
-   `receipt_delivered` lag/repair，禁止猜 pathname。off 同样按 exclusive lease →
+   把 exact `receipt_delivered` ref 原子移入 retained token 的 `quarantine_ack_pending` entry/stub、
+   释放 completed-index capacity并发布 lag stub，不依赖已回收 outbox；transient failure 保持 ref/token，
+   禁止猜 pathname。只有 global ack CAS 成功才释放未使用 token。off 同样按 exclusive lease →
    project lock，因而会等待 worker 与 marker writer。多个 keys 可任意 delivery order，仍只有一个 group writer。
 
 allocator、outbox 与 completed index 各有独立 subgeneration，但所有跨 index transition 只由上述
@@ -323,7 +335,8 @@ live outbox/keyed-slot/receipt-delivered/project-ack transaction。若 new route
 stub 后释放刚取得的 completed/outbox capacity；旧 generation 随后 bounded tombstone，closed one-entry
 root 也始终有 handoff 空间，禁止 stranded live slot或第二 token。
 project ack 成功后，global root 必须先把 stub CAS 为
-`retirement_pending {entry_digest,retirement_nonce,final_ack_digest,expected_retired_generation}`；随后才在
+`retirement_pending {root_kind,root_id,old_entry_digest,retirement_nonce,final_ack_digest,
+expected_retired_generation,quarantine_token_id}`；随后才在
 stub 指定的 authoritative primary/alternate root 写/fsync
 `retired {old_entry_digest,retirement_nonce,final_ack_digest}` proof 并原子 reclaim entry/free-list capacity。
 retired proof 在最终 global CAS 前不可 GC；recovery 以 retirement-pending nonce/digest 接受 entry 已
@@ -332,8 +345,9 @@ reclaim 的 matching retired root generation，而不把它误判为 corruption�
 均 `needs_repair` 且只 backpressure 对应 source；测试覆盖 transient/permanent 分类、delete/replace、
 quarantine permission/delete/replace、primary-fsync→alternate-publication crash、nonchosen orphan cleanup、
 post-commit per-source corruption、cross-source isolation、completed+outbox atomic reacquire/floor-minus-one、
-rebound-route A/B replacement、retirement-pending 三阶段 crash、project-marker/global-ack crash（含 outbox
-reclaimed + dormant source + exact route resolution）、ack 前 permanent/retention quarantine transfer、normal reuse、
+rebound-route A/B replacement（含 one-entry-full/floor-minus-one）、retirement-pending 三阶段 crash、
+receipt-delivered-route-quarantine、source-off-completed-capacity-handoff、off-terminal-cleanup、
+project-marker/global-ack crash（含 outbox reclaimed + dormant source + exact route resolution）、normal reuse、
 full/mismatch 与 rebind。frozen ref bounded rebind 时同一 root 将 ref 还原为 reserved token + live
 registration；正常 claim 再释放，禁止泄漏或重复分配。
 
@@ -356,12 +370,14 @@ fixed entry/byte maximum 保留 H-014 批准的 query/retention window 内全部
 `project_acknowledged` 是 successful ref，`receipt_delivered` 必须进入 lag refs。GC 只能直接删除
 已越过 retained window/watermark 且全部为 `project_acknowledged` 的完整 bucket；未 ack ref 到期时
 必须先用 retained quarantine token 按上述原子 `quarantine_ack_pending` handoff 转移 exact route/
-registration identity，handoff 未 durable 则 pin 原 bucket/ref。过旧 query、retention gap、capacity/
+registration/state-root identity 与 query-scope metadata；handoff 未 durable 则 pin 原 bucket/ref/token
+并计 capacity/backpressure，绝不能 age-delete 唯一 recovery locator。过旧 query、retention gap、capacity/
 freshness overflow 必须 unavailable + empty，禁止回退扫描。reader 先读取 committed global
 metadata root generation + 其引用的四个 checksummed subgenerations +
 allocator tail/watermark，再按 query identity/window 有界枚举全部 in-scope state，生成稳定
-ordered `barrier_refs` 与 ordered `lag_refs`（包括 live/frozen registry、reservation、outbox 与
-route-quarantine lag），
+ordered `barrier_refs` 与 ordered `lag_refs`（包括 live/frozen registry、off-receipt admin、reservation、outbox 与
+route-quarantine lag）；每个 frozen/admin ref 的 timestamp/bucket/global lag 或 projection offset/query-scope
+metadata 必须 digest-bound 并用于 window inclusion，缺失或冲突即 proof unavailable，
 其中 successful refs 只来自 completed index 的 project-acknowledged state，最后重读 root + 四个 subgenerations/tail。前后任一变化必须在同一 deadline 内 bounded
 retry；重试仍 drift 则 `projection_lag/unavailable` + 空 semantic aggregate。
 
@@ -381,6 +397,14 @@ client thread ID/env 重现的 server-owned capability，并在 app-server Rust 
 semantic Core，覆盖 restart/rotation/spoof/captured-value replay；后者的
 payload→trusted session/root handoff、cache/provider ordering、error path 和 short-circuit
 condition 达到 100% line + branch/condition coverage。
+planned U-22 manifest 必须让每个 critical file 恰出现一次并携带非空 exact `owner_suites`；
+gate 双向核对 manifest ↔ Product-to-Test mapping/Cargo exact name 或 shell selector，missing/empty/
+unknown/duplicate、zero-match、rename drift 与未被 critical file 引用的 suite 均须 nonzero。
+
+production Learn owner `vibeguard-runtime/src/hook_orchestrator_learn.rs` 也必须进入 complete manifest、
+U-22 inventory 与 exact focused ownership。其 `recent_log_text`/`session_metrics::run_text` error 不得
+`unwrap_or_default` 成 no-data：必须输出 typed source/error identity 或 `projection_lag/unavailable`，
+保持 `finalized=false`、零 suggestion/candidate/provider write；只有真实空 history 才是 blank。
 
 Codex `applyPatchApproval` 是 pre-application approval event，不能触发 semantic post-edit。
 `codex_app_server_strategies.rs` 与 `codex_app_server_file_changes.rs` 必须把 legacy child-Bash L1
