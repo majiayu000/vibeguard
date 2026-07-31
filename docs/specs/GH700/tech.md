@@ -449,10 +449,9 @@ publication 使用 attempt-scoped draft 与一个统一 durable state machine：
    branch CAS 短暂取锁；禁止反向。等待 review 时释放 lease，active durable owner仍阻断新 candidate。
 2. phase A 重验 private draft/summary/policy与 exact reviewed README patches；任何可见动作前
    fenced-CAS append `publication_ownership_record(prepared)`，绑定 `repo_node_id`、candidate/run/attempt、draft/summary/policy/base/reviews/deadline。
-3. valid plan 为 `rollover_one` 或 `genesis_zero`：前者 CAS 证明一个 eligible current row并
-   merge reviewed de-current/记录 receipt；后者证明零 marker、无历史 eligible valid row/
-   active owner且 ledger 仅含 non-valid/no publication，记录 zero receipt、不建 no-op PR；
-   其它 zero-marker fail closed。
+3. valid plan 为 `rollover_one` 或 `genesis_zero`：前者证明单 current并 merge reviewed de-current；
+   后者证明零 marker/无历史 eligible valid row，除本 record exact `(repo_node_id,candidate,run,
+   attempt,fence)` 外无 active owner，且 ledger 仅含 non-valid/no publication；其它状态 fail closed。
 4. valid intent 绑定 receipt/pre-approved new-current patch；nonvalid intent 绑定 unmarked-row。
    commit 后 owner 从 `valid_zero_marker`/`intent_written` CAS 到 `release_committed_valid_marker_pending`
    或 `release_committed_nonvalid_row_pending`；crash 由 prepared owner/intent/sentinels补齐。
@@ -669,8 +668,8 @@ planned **tests/test_public_benchmark.sh** 的最终产物断言不能只看 exi
   report 的 retry 仍有不同 run/attempt-bound identity。最终 workflow 非零且
   Release/candidate-row sentinel 均不存在；
   publish_nonvalid fixture 则最终产生同版本 non-valid report/row。
-- valid fixture 分别覆盖 genesis zero receipt 与 rollover de-current receipt；公开前存在
-  prepared owner，commit/owner-update crash可恢复，公开后旧 row不再标 current。
+- valid fixture 覆盖 genesis self-owner admitted/other-owner rejected 与 rollover receipt；
+  公开前有 prepared owner，commit/owner-update crash可恢复，旧 row不再标 current。
 - rollback/new-current/nonvalid-row PR 的 reject/close/stall/crash 都产生 same-candidate
   reviewed replacement或 durable recovery-blocked；未 terminal 前下一 candidate 被拒。
 

@@ -248,8 +248,9 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     owner 仍阻断其它 candidate；恢复时按同一顺序重取 lease并提升 fence。
     valid plan 只能是：`rollover_one`（CAS 证明恰有一个 eligible current valid row，合并
     human-reviewed de-current PR并记录 merge SHA/前后 blob digest）或 `genesis_zero`
-    （CAS 证明零 marker、没有历史 eligible valid row、没有其它 active owner，且 ledger
-    证明此前只有 non-valid/no publication；直接记录 zero-marker receipt，不制造 no-op PR）。
+    （CAS 证明零 marker、没有历史 eligible valid row，且除本次 exact current prepared owner
+    `(repo_node_id, candidate, run_id, run_attempt, fence)` 外没有 active owner；ledger 证明此前
+    只有 non-valid/no publication，直接记录 zero-marker receipt，不制造 no-op PR）。
     其它 zero-marker 状态都 fail closed。不可逆 `publish_intent` 必须绑定对应 receipt及
     发布前已 human-approved 的 exact new-current patch/review/base digest；base/CAS 改变即
     重审。ownership 以 fenced CAS 推进 `valid_zero_marker → intent_written →
