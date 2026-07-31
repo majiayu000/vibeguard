@@ -19,8 +19,20 @@ closed planned **schemas/publication_authority_deployment.schema.json** 固定
 `{authority_id,backend,authority_identity_digest,policy_epoch,policy_bundle_digest,client_api,control_api,
 publication_store_path,publication_store_lock_path,volume_identity,kms_key_id,retention_policy_digest,
 trust_bundle_digest,blocked_attempt_ledger,trusted_time_service,bootstrap_governance,break_glass_governance,
-restore_anchor_service,restore_backup_service,anchor_signing_policy}`；
+restore_anchor_service,restore_backup_service,anchor_signing_policy,predicate_evaluator_roster}`；
 backend必须 exact 为 `publication_authority_sqlite_v1`。
+`predicate_evaluator_roster` exact 为 `{schema_version,signature_profile,entries}`，schema version exact
+`GH700:predicate-evaluator-roster:v1`；`signature_profile` exact 为
+`{algorithm:"ed25519",message_digest:"sha256_jcs_v1",signature_encoding:"base64url_nopad_v1",
+key_version_policy:"manifest_pinned_v1"}`。entries按 `(reason_code,predicate_id,issuer_key_id,issuer_key_version)`
+UTF-8 bytes升序、去重，每项 exact 为
+`{reason_code,predicate_id,predicate_definition_digest,evaluator_identity_digest,issuer_key_id,
+issuer_key_version,public_key_spki_der_b64url,public_key_spki_sha256}`；`issuer_key_version`是非零 unsigned
+64-bit integer；`public_key_spki_der_b64url`是 RFC 5280 Ed25519 SubjectPublicKeyInfo DER bytes的 RFC 4648
+URL-safe、无 padding canonical编码，decoded bytes的 SHA-256须 byte-equal `public_key_spki_sha256`。
+两个 digest与 SPKI hash编码 canonical lowercase `sha256:<64hex>`，禁止 ambient key lookup。reason/predicate closed membership只由
+[publication_ledger_contract.md](publication_ledger_contract.md)拥有；empty/duplicate/unknown entry或
+profile drift使 authority non-ready。
 `client_api` 与 `control_api` 是同一 authority 每次启动同时绑定的两个 required objects，不是 union、
 alias或 fallback。`client_api` exact 为 `{endpoint,transport,api_version,
 server_identity_bundle_digest,client_auth_policy_digest}`：endpoint是 manifest-pinned absolute HTTPS
@@ -31,7 +43,7 @@ Unix path，transport exact `unix_peercred_jcs_v1`，API version exact
 `GH700:publication-authority-control-api:v1`，只开放 bootstrap/migrate/recover/ready 方法且永不监听网络。
 两个 API 的每个 request/response/startup receipt都必须绑定相同 top-level `authority_id`、
 `authority_identity_digest`、strictly monotonic `policy_epoch` 与 `policy_bundle_digest`；该 bundle同时
-digest method partition、两端 auth policy及 server identities。client server bundle由 authority外的
+digest method partition、两端 auth policy、server identities及完整 `predicate_evaluator_roster`。client server bundle由 authority外的
 release-identity root锚定 exact service ID/issuer/SPKI；client auth policy闭合 repo/workflow/
 environment/ref/run/actor、cert issuer、role与允许 method；control peer policy闭合 executable digest、
 code-sign identity、uid/gid及允许 method。任一 API缺失、单边 rotation、四个 shared值不等、bundle
@@ -55,9 +67,10 @@ authority non-ready并 fail closed，不得返回成功 receipt。首次 databas
 commit后还须 fsync file及 parent directory；禁止 destructive migration、truncate或 silent rebuild。
 authority-owned durable persistence是 exact closed inventory：signed deployment manifest与 bootstrap/
 migration/governance receipts；SQLite database/WAL/checkpoint及 history/blocked-attempt/operation/rotation/
-slot/owner/fence unique indexes；完整 attempt manifest/record/binding/watermark、RFC3161 token proof capsules与
-time high water；capsule ciphertext metadata与 KMS retained-key/version/retention references；broker outbox、
-delivery/send-once audit与 completed receipts；external restore anchor/epoch/two frontiers、每个 encrypted
+slot/owner/fence/delivery/terminal-reconciliation unique indexes；完整 attempt manifest/record/binding/
+terminal-listing proof capsule+encrypted provider bytes/reconciliation/watermark、RFC3161 token proof capsules、
+trusted-time preparations与 time high water；capsule ciphertext metadata与 KMS retained-key/version/retention
+references；broker outbox、delivery/send-once audit与 completed receipts；external restore anchor/epoch/two frontiers、每个 encrypted
 snapshot/manifest/WAL immutable backup object/version/AEAD header/retained wrapped key、backup confirmation、
 online-quorum signature及 restore/recovery/break-glass receipts。其外 cache/temp/log不得参与恢复或授权，
 inventory内任一缺失/不一致均 blocked。
@@ -224,7 +237,9 @@ heartbeat only-if-alive 判定要求 `trusted_upper_bound < prior lease_expires_
 `trusted_lower_bound > lease_expires_at`，边界相等或 uncertainty跨 expiry均拒绝。lease expiry仍按获批 H-006
 由 `accepted_at`计算。proof unavailable、anchor CAS不确定、source/policy/threshold drift、high-water rollback/
 fork或 SQLite↔anchor mismatch使所有 time-dependent transition fail closed；绝不 clamp到 host time、猜 expiry或
-以 job absence接管。T3独占 `trusted_time.rs` client/proof/high-water persistence，T10只能提交 time-bound intent；
+以 job absence接管。T3独占 `trusted_time.rs` client/proof/high-water persistence及
+[client API contract](publication_ledger_contract.md)定义的 crash-safe preparation；T10只能提交 method-specific
+non-authoritative time-bound request；
 T12须用真实 RFC3161-compatible independent test signers覆盖 host forward/backward jump、replay、quorum split、
 accuracy overlap、restart/snapshot rollback、heartbeat-vs-takeover race与 anchor ack-loss。
 
@@ -252,8 +267,10 @@ self-signed/TOFU、重复 signer、阈值不足、core/signature/root/roster/epo
 `GH700:blocked-attempt-empty-root:v1` / `GH700:blocked-attempt-empty-prefix:v1` 加 `repo_node_id` 做 JCS SHA-256。
 
 history 与 blocked-attempt ledger 共享下列唯一 successor framing，其中
-`domain∈{history,blocked-attempt}`、`leaf_bytes=JCS(exact closed top-level record)`、`u64be` 是 unsigned
-64-bit big-endian，`digest_bytes` 只解码 canonical lowercase `sha256:<64hex>`：
+`domain∈{history,blocked-attempt}`；history 的 `leaf_bytes=JCS(exact closed history top-level record)`，
+blocked-attempt 的 `leaf_bytes=JCS(exact ledger_leaf envelope)`（envelope exact 结构见
+`publication_ledger_contract.md`）；`u64be` 是 unsigned 64-bit big-endian，`digest_bytes` 只解码
+canonical lowercase `sha256:<64hex>`：
 `leaf_hash=SHA256(UTF8("GH700:"+domain+"-leaf:v1")||0x00||u64be(len(leaf_bytes))||leaf_bytes)`；
 `next_length=prior_length+1`；
 `next_root=SHA256(UTF8("GH700:"+domain+"-root:v1")||0x00||digest_bytes(prior_root)||leaf_hash||u64be(next_length))`；
@@ -438,6 +455,16 @@ review_core_digest,trusted_app_identity_digest,trusted_installation_identity_dig
 等于该 digest，且 check App/installation/head SHA/ref均匹配。ref、commit trailer、check三者任一缺失或
 不一致均不能 bind/merge；每次 replacement必须新 slot、nonce、ref、review core、commit与 check identity。
 
+planned transition提交并得到 `planned_operation_id`后，authority exact 派生
+`generated_pr_delivery_id=SHA256(JCS({v:"GH700:generated-pr-delivery-id:v1",repo_node_id,
+planned_operation_id}))`，wire编码为 lowercase `sha256:<64hex>`；它不进入 planned payload或 operation-ID
+preimage，故无自引用。planned append同一事务创建永久 outbox mapping与
+`UNIQUE(repo_node_id,planned_operation_id)`、`UNIQUE(repo_node_id,generated_pr_delivery_id)`：same plan/same
+ID只返回原 state/audit，same plan/different ID或 same ID/different plan永久冲突。首次网络发送前须 durable
+CAS `send_started`并 FULL fsync；response loss、restart、takeover、restore都复用同一 ID且只走 recovery，
+不得第二次 send，terminal/migration不得删除或重写 mapping。PR/ref discovery、broker quiescence与
+send-once audit均按该 ID检索。
+
 `required_documentation_surfaces`是 protocol批准的稳定闭集；每项只绑定
 `surface_id`、canonical repo-relative path、locale/marker grammar、renderer logical ID/version/
 artifact digest与 output schema，不绑定 mutable default-ref/live blob OID。owner claim冻结的
@@ -602,6 +629,7 @@ frontier防 ABA。
 
 record schema是 versioned closed union。每条 history leaf exact top-level object为
 `{schema_version,record_kind,repo_node_id,transition_operation_id,predecessor_frontier,payload}`，无其它字段；
+`schema_version`必须 exact `GH700:publication-history-record:v1`。
 authorization fence/lease/actor只在 append envelope，committed receipt只在 envelope inventory，不得塞入
 immutable leaf。唯一 discriminator是 `record_kind`；`kind`/`type`/`record_type`/alias/unknown均拒绝。
 frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_digest}`，canonical digest使用
