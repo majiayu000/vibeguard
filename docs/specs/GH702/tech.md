@@ -145,6 +145,7 @@ production `vibeguard add|pack explain|pack audit|pack update|pack remove` 进�
 - `capability`：sealed Core capability IDs 与 host compatibility；
 - `precision`：纯 eligibility function；
 - `transaction`：lock/journal/stage/apply/audit/commit/rollback/recovery；
+- `runtime_guard`：active policy identity、durable trusted-time high-water 与 expiry ceiling；
 - `render`：human/JSON plan/status/error 同源。
 
 Python `scripts/lib/guard_packs.py` 退为 author/legacy adapter，并拆出 manifest/publish
@@ -222,6 +223,9 @@ Recommended H-004 layout（未批准）：
     staged/
   locks/ownership.lock
   locks/targets/<target>.lock
+  locks/runtime-state/<installation_scope_id>.lock
+  policy/active-evaluation.json          Core-owned authoritative local policy pointer
+  runtime-state/<installation_scope_id>.json  durable trusted-time high-water
   overrides/<source_storage_key>/<target>/<profile>.json
 ```
 
@@ -232,6 +236,16 @@ bundle、canonical locator、schema 与 publication policy identities；路径�
 locator，也不得使用缺省 publisher、空字符串或可能与 official namespace 碰撞的 sentinel。
 receipt/override schema 保存 source kind、canonical identity 与 storage key，读取时重算并
 拒绝 mismatch。
+
+上述 HOME layout 中的 `active-evaluation.json` policy entry 只保存已获批 evaluation policy
+的 digest、generation 与 validity evidence；pack、environment、CLI 和 publication artifact
+均不能改写它。对应 installation-scope runtime-state entry 是 closed、Core-owned state，绑定 active set
+generation digest、active evaluation policy digest、单调 sequence 与
+`last_trusted_runtime_time`。runtime 在专用 bounded lock 下 compare-and-swap：只有
+`runtime_time >= last_trusted_runtime_time`、generation/policy identity 仍匹配且 state 可
+原子推进时才可执行 block；否则先 fallback。新进程继承 durable high-water，不得以启动时间
+重置；fresh management audit 也不能静默降低它，可信时钟修复必须留下显式 reconciliation
+evidence。
 
 dependency resolver 对 official graph node 使用
 `(normalized_publisher, normalized_pack_name, exact_version)` 作为 immutability key，只有
@@ -291,6 +305,12 @@ staged state 或未提交 generation。pointer switch 后只允许 journal final
 rollback 失败保留 before/staged/journal 并返回 `needs_repair`，禁止删除诊断证据或继续装
 另一版本。
 
+commit 前还必须验证 Core-owned authoritative policy pointer 与 generation 的 committed
+evaluation policy digest 相同，并在同一 installation scope 初始化或 CAS 继承 runtime state：
+`last_trusted_runtime_time = max(existing_high_water, evaluation_time)`，绑定新 generation/
+policy digest 后 fsync。policy mismatch、high-water 无法读取/推进或 runtime-state commit 失败
+均在 active pointer switch 前 rollback；不得发布一个运行后必然因缺 state 而降级的 block。
+
 same-content retry 先取得新的 normalized evaluation time，重算 freshness、revocation 与
 eligibility identity，再比较 receipt/active/store/publication-policy/evaluation-policy/
 index-entry/provenance/compatibility/precision-evidence/source-applicable-revocation/
@@ -333,6 +353,8 @@ evaluation_policy_digest
 approved_evaluation_policy
 evaluation_time
 local_override | null
+# present promotion override additionally binds:
+# override_confirmation_digest, confirmed_at, confirmation_expires_at
 ```
 
 输出：
@@ -344,6 +366,8 @@ effective_local_decision = block | warn | off
 reason_codes[]
 eligibility_digest
 decision_valid_until
+block_basis = official_evidence | local_evidence_override | null
+override_valid_until | null
 expiry_fallback_decision = warn | off
 expiry_reason_codes[]
 override_status = applied | suspended | rejected | null
@@ -366,12 +390,18 @@ override_status = applied | suspended | rejected | null
    capability、missing Core 必须 suspend/reject 任何促进到 block 的 override，effective
    decision 按 approved evaluation policy 只能降为 warn/off；`unknown` revocation 按明确 offline
    policy 处理，不能被 override 伪装成 current。
-8. 对任何 block 计算 finite `decision_valid_until`：取 evaluation policy expiry、precision
-   evidence expiry/freshness、provenance/compatibility validity，以及 official
-   non-revocation `fresh_until` 等适用 horizon 的最早值；local 没有 event horizon，不得
-   synthetic 补齐。任一 required block horizon 缺失/invalid/unbounded 时只能 `warn_only`。
-   同时按 evaluation policy 固定 expiry fallback/reasons，并把 horizon/fallback 全部纳入
-   eligibility digest。
+8. 按 block basis 计算有限 horizon。`official_evidence` 的 `decision_valid_until` 取
+   evaluation policy expiry、precision evidence expiry/freshness、provenance/compatibility
+   validity 与 official non-revocation `fresh_until` 等适用 horizon 的最早值。
+   `local_evidence_override` 只允许 official、verified/current 且 evidence-only ineligibility；
+   它必须由 current policy 的 finite `max_override_ttl` 与独立 confirmation evidence 计算
+   `override_valid_until = min(confirmed_at + max_override_ttl,
+   confirmation_expires_at, evaluation policy expiry, provenance/compatibility validity,
+   official non-revocation fresh_until)`，再以该值作为 decision horizon。missing/expired
+   precision evidence 正是 override 的 ineligibility basis，不参与该 promotion horizon；
+   local/unofficial source、synthetic event/time 或 unbounded TTL 仍禁止 promotion。任一
+   basis-required horizon 缺失/invalid/unbounded 时只能 warn/off。同时把 block basis、
+   confirmation digest、两个 horizon 与 fallback/reasons 全部纳入 eligibility digest。
 
 不能从 pack average、GH-700 benchmark、aggregate CI precision 或 author 自报值填充
 per-rule evidence。现有 `precision-tracker.py` 可导出 curated candidate，但需经新 schema、
@@ -382,18 +412,26 @@ samples语义同时又用另一分母。
 status/audit 每条 rule 同时显示 requested、official eligibility/default、local effective、
 override status、precision value/null、counts、age、evaluation time、policy/issuer、
 provenance trust、revocation status、compatibility status、publication policy 与 current
-evaluation policy identities、`decision_valid_until`、expiry fallback/state 与
-`audit_required`。eligibility digest 必须覆盖上列每个 source-applicable binding
-digest；rule/evaluation-policy/evidence/provenance/official-registry-event/compatibility/
+evaluation policy identities、block basis、source-applicable `override_valid_until`、
+`decision_valid_until`、expiry fallback/state 与 `audit_required`。eligibility digest 必须覆盖
+上列每个 source-applicable binding digest；rule/evaluation-policy/evidence/provenance/
+official-registry-event/compatibility/
 normalized evaluation-time 变化产生新 digest 并触发 audit，即使 collapsed status 未变。
 这包括只跨越 freshness/expiry/revocation window、其他 bytes 均未变化的情况。
 active block 失去 eligibility 时按 H-008 action 事务降级，失败进入 `needs_repair`。
 
-runtime hot path 在每次 enforcement 用本地可信 clock 检查 committed
-`evaluation_time <= runtime_time < decision_valid_until`。到期、clock rollback/unknown 或
-horizon 缺失时，不执行 committed block，立即使用 committed warn/off fallback，并派生
-`expired_decision + audit_required` 状态；恢复 block 必须经过 fresh management audit。
-该 ceiling 只读 committed inputs、不联网，也不等待后台 scheduler 或用户先运行命令。
+runtime hot path 每次 enforcement 先读取 Core-owned authoritative active evaluation policy
+pointer；其 digest 与 committed generation 不同、缺失或 malformed 时，立即 fallback 并派生
+`policy_changed + audit_required`，不等待旧 horizon 到期。随后在 per-installation runtime-state
+lock 下验证 generation/policy identity，并检查
+`evaluation_time <= runtime_time < decision_valid_until` 及
+`runtime_time >= last_trusted_runtime_time`；即使 runtime time 仍在 validity interval 内，只要
+小于 durable high-water 就是 rollback。只有先原子 CAS 提升/保持 high-water 成功才执行
+committed block。到期、override 到期、clock rollback/unknown、state 缺失/损坏/identity
+mismatch、lock/CAS failure 或 horizon 缺失时，不执行 block，立即使用 committed warn/off
+fallback，并派生 closed reason + `audit_required`。恢复 official block 必须 fresh management
+audit；恢复 promotion block 还必须 fresh explicit confirmation。该 ceiling 只用本地 Core-owned
+state、不联网，也不等待后台 scheduler 或用户先运行命令。
 
 ### 8. Registry governance、publish 与 revocation
 
@@ -461,6 +499,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "vibeguard-runtime/src/guard_pack/capability.rs",
     "vibeguard-runtime/src/guard_pack/precision.rs",
     "vibeguard-runtime/src/guard_pack/transaction.rs",
+    "vibeguard-runtime/src/guard_pack/runtime_guard.rs",
     "vibeguard-runtime/src/guard_pack/render.rs",
     "schemas/guard-pack.schema.json",
     "schemas/guard-pack-index.schema.json",
@@ -471,6 +510,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "schemas/guard-pack-receipt.schema.json",
     "schemas/guard-pack-transaction.schema.json",
     "schemas/guard-pack-override.schema.json",
+    "schemas/guard-pack-runtime-state.schema.json",
     "schemas/guard-pack-feedback.schema.json",
     "packs/safe-bash/pack.yaml",
     "packs/safe-bash/README.md",
@@ -515,11 +555,11 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | Concern | Planned affected files | Focused proof |
 | --- | --- | --- |
 | Released CLI/client | `vibeguard-runtime/src/main.rs`, planned **vibeguard-runtime/src/guard_pack/** | `cargo test --manifest-path vibeguard-runtime/Cargo.toml guard_pack`；no-Python/no-checkout fixture |
-| Closed v2 contracts | existing `schemas/guard-pack.schema.json`, planned **schemas/guard-pack-{index,registry-event,capability,precision,policy,receipt,transaction,override,feedback}.schema.json** | schema positive/negative corpus in `bash tests/test_guard_pack_supply_chain.sh` |
+| Closed v2 contracts | existing `schemas/guard-pack.schema.json`, planned **schemas/guard-pack-{index,registry-event,capability,precision,policy,receipt,transaction,override,runtime-state,feedback}.schema.json** | schema positive/negative corpus in `bash tests/test_guard_pack_supply_chain.sh` |
 | Trust/safe archive | planned **guard_pack/locator.rs**, **archive.rs**, **trust.rs** | tamper/attestation/rollback/freeze/path/link/size/TOCTOU matrix |
 | Capability/host | planned **guard_pack/capability.rs**; consume approved GH-701 registry when available | Claude/Codex/unknown/incompatible/unsupported fixture matrix |
 | Transaction/receipt | planned **guard_pack/transaction.rs**, receipt/transaction schemas | crash-at-every-stage, concurrent lock, drift, rollback, recovery and canary tests |
-| Precision policy | planned **guard_pack/precision.rs**, precision/policy schemas, `scripts/precision-tracker.py` | exhaustive eligibility truth table + evidence binding/freshness/override negatives |
+| Precision/runtime policy | planned **guard_pack/precision.rs**, **runtime_guard**, precision/policy/override/runtime-state schemas, `scripts/precision-tracker.py` | exhaustive eligibility truth table + binding/freshness/override/policy-rotation/clock-rollback negatives |
 | Author publish | planned **scripts/lib/guard_pack_manifest.py**, **guard_pack_publish.py**, **scripts/ci/validate-guard-pack-publish.py** | two-build digest equality; half-publish/index-CAS/revoke/yank fixtures |
 | Legacy migration | `scripts/lib/guard_packs.py`, `scripts/lib/guard_pack_receipts.py`, `packs/safe-bash/` | existing 623-case shell surface remains green plus migration ownership sentinels |
 | Release distribution | `scripts/release/payload-manifest.txt`, `scripts/setup/guard-packs.sh`, `setup.sh`, `tests/test_payload.sh`, `tests/test_release_workflow.sh` | GH-699 actual no-clone launcher invokes Rust client; payload tamper fails closed |
@@ -546,7 +586,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-015 transaction state machine | Transaction journal + dependency-set generation | crash before/after the one installation-scope pointer switch proves every dependency receipt/active identity 同时可见，runtime拒绝 graph subset/orphan/uncommitted generation |
 | B-016 scoped rollback/repair | Transaction rollback | injected failure at every stage restores before digests; rollback failure retains evidence and reports needs_repair |
 | B-017 interruption recovery | Journal recovery + confirmation epochs | partial state fixture asserts ordered locks + recovery precede discovery/plan；confirmation timeout holds no lock；post-confirm generation/evidence/time drift forces re-plan/re-confirm |
-| B-018 complete committed receipt | Receipt schema/writer + source storage key | official receipt requires event digest；local requires not_applicable + absent event；all block receipts require finite horizon/fallback；local round-trip needs no publisher sentinel |
+| B-018 complete committed receipt | Receipt schema/writer + source storage key | official receipt requires event digest；local requires not_applicable + absent event；all block receipts bind committed policy and finite decision/override horizons/fallback；local round-trip needs no publisher sentinel |
 | B-019 ownership preservation | Planner + reservation + structured config adapters | update/remove succeeds only when current state matches receipt after digest；matching before but not after is drift；fresh conflict/cancel preserves canaries |
 | B-020 dependency graph | Dependency resolver + set generation | missing/cycle/range/undeclared recursion zero-apply；same publisher+pack+version/different digest conflicts，while same publisher+version/different pack names coexist；valid graph uses one pointer |
 | B-021 idempotent retry | Identity + receipt comparator | no-op compares source-applicable fields；local absent event is valid and synthetic event is rejected；same status with refreshed official evidence or a time boundary re-audits |
@@ -555,12 +595,12 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | Role-separated policy loader + eligibility digest | env/CLI/README/author/publication-policy threshold attempts do not change current evaluation；evaluation policy rotation changes digest and recomputes without artifact mutation |
-| B-028 insufficient evidence degrades | Eligibility + runtime expiry ceiling + renderer | missing/invalid/stale rows warn/off；advance clock past finite horizon without management command immediately disables committed block and reports audit_required |
+| B-027 policy-owned thresholds | Role-separated policy loader + authoritative active-policy pointer | env/CLI/README/author/publication-policy attempts cannot rotate policy；atomically rotate authoritative digest before old expiry，then next enforcement falls back on committed mismatch and requires audit |
+| B-028 insufficient evidence degrades | Eligibility + runtime expiry/high-water ceiling + renderer | missing/invalid/stale rows warn/off；advance past horizon or move clock backward within the interval/across restart；block falls back，high-water never decreases，audit_required appears；missing/corrupt/CAS-failed state fails closed |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
-| B-030 isolated local override | Override schema/applicator | demotion and evidence-only approved promotion work；missing confirmation/cross-user mutation/revoked/unknown host/incompatible protocol/unsupported capability/missing Core promotions are suspended/rejected |
+| B-030 isolated local override | Override schema/applicator | evidence-only promotion with missing/expired precision gets a policy-bounded confirmation horizon and works before it；missing/unbounded/expired confirmation, policy drift, cross-user mutation and terminal ceilings suspend/reject；expiry requires fresh confirmation |
 | B-031 same gate for core/community | Shared eligibility function | identical evidence inputs under curated/community publishers yield identical eligibility; badge/high severity cannot bypass |
-| B-032 evidence drift re-audit | Audit + eligibility identity + runtime expiry ceiling | mutate any applicable binding or advance runtime clock to exact horizon without add/update/audit；block degrades locally, audit_required appears, fresh audit is required to restore |
+| B-032 evidence drift re-audit | Audit + eligibility identity + runtime policy/high-water ceiling | mutate any binding, rotate authoritative policy before horizon, reach decision/override horizon, or roll clock backward below durable high-water without add/update/audit；block degrades locally and only fresh audit/required confirmation restores it |
 | B-033 opt-in private feedback | Export renderer/redactor | default install/runtime packet capture is empty; export field golden is redacted; cancel-before-send makes zero network calls |
 | B-034 immutable registry history | Index + registry-event validators | duplicate publisher+pack+version, entry overwrite/delete/reorder and transfer-without-event fixtures fail；valid yank/revoke changes only event evidence digest；historical receipt remains explainable |
 | B-035 yank/revoke actions | Registry event + audit transaction | yank/revoke action references exact signed event evidence digest；yank blocks new install；revoke degrades existing；write failure produces needs_repair |
@@ -569,8 +609,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-038 GH-701 interface boundary | Host adapter compatibility layer | merged-Draft-only fixture stays fixed Claude/Codex；only decisions + merged implementation + compatibility/native proof accepts registry IDs；reject second registry/early third-host active claim |
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds under the same publication policy match digest；evaluation-policy rotation does not rebuild；publish failures never create resolvable partial entry |
-| B-041 truthful list/status/audit | Shared status aggregate/renderers | golden output shows source-specific revocation fields, both policy identities, validity horizon/expiry/audit_required plus health fields and exit codes |
-| B-042 offline runtime stability | Committed eligibility + runtime expiry ceiling | block network；local stays not_applicable；official fresh absence stays current/known revoke stays revoked；advancing past horizon degrades block without network |
+| B-041 truthful list/status/audit | Shared status aggregate/renderers | golden output shows revocation, publication/committed/active policy identities, decision/override horizons, trusted-time high-water/clock state, fallback/audit_required and health exit codes |
+| B-042 offline runtime stability | Committed eligibility + local policy/high-water ceiling | block network；local stays not_applicable；official trust conclusions remain exact；policy mismatch, horizon expiry or rollback below persisted high-water degrades block without network |
 
 ## 数据流
 
@@ -595,14 +635,16 @@ vibeguard add <locator>
        └─ rollback/recovery/needs_repair
 
 runtime hook
-  └─ committed local capability + decision validity horizon
-       ├─ before horizon → committed effective decision
-       └─ expired/clock invalid → warn/off fallback + audit_required
-            └─ no registry/network/telemetry access
+  └─ authoritative active-policy digest + committed generation
+       ├─ runtime-state lock/CAS + durable trusted-time high-water
+       │    ├─ identity match + monotonic time + before applicable horizon → committed decision
+       │    └─ policy drift/expiry/override expiry/rollback/state failure → fallback + audit_required
+       └─ no registry/network/telemetry access
 ```
 
 持久化面是 closed set：content-addressed verified store、index/registry-event caches、
-transaction journals/before snapshots、committed receipts/active identities、local overrides
+transaction journals/before snapshots、committed receipts/active identities、authoritative local
+evaluation-policy pointer、durable trusted-time runtime state、local overrides
 和用户显式生成的 feedback export。临时下载与 staging 在 commit/rollback 后清理；
 `needs_repair` evidence 在成功 recovery 前保留。任何 temp 路径、raw response、credential、
 用户代码或 event payload 不进入 receipt/status。
@@ -652,13 +694,15 @@ confirmation 声明。runtime enforcement、list local state 和 remove 已安�
   - v1/v2/index/evidence/policy/receipt/transaction positive + negative corpus；
   - canonicalization、semver/range、dependency graph、archive path/limit；
   - provenance chain、policy gate、per-rule eligibility exhaustive truth table；
-  - transaction state transitions、receipt ownership、override/revocation。
+  - transaction state transitions、receipt ownership、override finite horizon/revocation、
+    active-policy identity、trusted-time high-water monotonic/CAS state。
 - [ ] Integration:
   - external repo author → reproducible build → local registry publish → fresh no-clone add；
   - tamper/rollback/freeze/yank/revoke/offline/unsafe archive；
   - failure/cancel/crash at every transaction stage + recovery；
   - parallel target lock、user/other-pack canaries、legacy safe-bash migration；
-  - runtime network/secret/path sentinels和 feedback redaction。
+  - runtime network/secret/path sentinels、policy rotation before expiry、clock rollback within the
+    validity interval/across restart/high-water corruption和 feedback redaction。
 - [ ] Release contract:
   - verified payload包含 client/schemas/policy；
   - GH-699 actual launcher discovery，不 hard-code spec path；

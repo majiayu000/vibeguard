@@ -220,7 +220,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     publication/evaluation policy digests、precision/provenance/compatibility evidence
     digests，以及 source-applicable revocation binding：official 必须有 registry-event
     evidence digest，local 必须为 `not_applicable` 且该字段 absent。receipt 还必须绑定
-    `decision_valid_until`、expiry fallback/reason、source storage key、target/profile/capabilities、所有
+    `decision_valid_until`、source-applicable `override_valid_until`、expiry fallback/reason、
+    committed evaluation policy identity、source storage key、target/profile/capabilities、所有
     owned files 和 config entries 的 before/after digests、transaction ID、audit evidence
     与 effective decisions。source storage key 必须是 closed discriminated union：
     official 使用 normalized publisher + pack；local 使用完整 canonical local identity 的
@@ -283,15 +284,22 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 27. B-027: precision floor、minimum samples、freshness、no-FP window 与 evidence issuer
     必须来自 current approved `evaluation_policy_digest`，而不是 pack author、环境变量、
     README、install command 或 artifact-embedded publication policy 临时覆盖。policy
-    更新必须在不改写 bundle/index identity 的前提下重算 eligibility；status 同时显示
-    publication policy 与 current evaluation policy identities。
+    更新必须在不改写 bundle/index identity 的前提下重算 eligibility；Core-owned
+    authoritative local evaluation-policy pointer 一旦切换，runtime 必须在下一次 enforcement
+    比较其 digest 与 committed generation，mismatch、pointer 缺失或 malformed 时立即使用
+    warn/off fallback 并标记 `audit_required`，不能等旧 `decision_valid_until` 到期。status
+    同时显示 publication、committed evaluation 与 authoritative active evaluation policy
+    identities。
 28. B-028: 某 rule 的 evidence 缺失、invalid、样本不足、过期或 precision 低于获批 floor
     时，其 official effective default 必须是 warn，绝不能 block；无数据必须显示空
     precision + closed reason，不能写 `0%` 或沿用旧证据。用户显式关闭属于 B-030 的
     local override，不能改写该 official default。任何 committed block 必须带 finite、
     本地可检查的 `decision_valid_until` 与预先计算的 warn/off expiry fallback；runtime
-    每次 enforcement 都检查该 horizon，到期、时钟回退或无法读取可信时间时立即忽略旧
-    block、使用 fallback 并显示 `audit_required`，不能等待用户手动运行管理命令。
+    每次 enforcement 都检查该 horizon，并通过 Core-owned、per-installation durable trusted
+    time high-water 检测回退：任意 `runtime_time < last_trusted_runtime_time`，即使仍位于
+    evaluation/expiry interval 内，也必须立即忽略旧 block、使用 fallback 并显示
+    `clock_rollback + audit_required`。high-water 缺失、损坏、身份不匹配或无法原子推进时同样
+    fail closed，不能等待用户手动运行管理命令，也不能因进程重启静默降低 high-water。
 29. B-029: evidence 达标只授予 `block_eligible`，不会自动 block。只有 manifest 明确请求
     block、capability/host 支持、trust verified 且所有 policy gates 同时满足时才可成为
     official default block；任一前提失败时重新降为 warn/off，并列出全部 reason。
@@ -303,8 +311,13 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     registry/precision evidence 或改变其他用户的 default。local promotion 只可针对
     evidence-only ineligibility，且 trust、revocation、compatibility 与 policy 均允许；
     `revocation_status = revoked`、unknown/incompatible host、unsupported capability 与
-    missing Core 都是不可提升的终态 ceiling。任何越过 ceiling 的既有 block override
-    必须 suspended/rejected，effective decision 只能按获批 policy 降为 warn/off。
+    missing Core 都是不可提升的终态 ceiling。evidence-only promotion 必须由 current
+    evaluation policy 给出有限 `max_override_ttl`，并绑定独立的 confirmation issued/expires
+    evidence；`override_valid_until` 取 confirmation expiry、policy expiry 及所有仍适用的
+    provenance/revocation/compatibility horizons 的最早值，不得要求缺失/过期 precision
+    evidence 提供未来 horizon，也不得用 synthetic/unbounded 值补齐。缺少任一 required
+    override horizon、到期或 policy identity drift 时必须 suspended/rejected，并降为
+    warn/off；恢复 block 需要新的显式确认和 fresh audit。
 31. B-031: core-curated packs 与 community packs 使用同一 per-rule precision eligibility
     计算和 no-data降级语义；curated badge、仓库内置或 high severity 都不能绕过 floor。
     两者的 publisher/trust来源可以不同，但差异必须由 H-003/H-008 policy 明示。
@@ -316,9 +329,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     identity/digest 并触发 re-audit；publication policy 与 immutable artifact identity
     保持不变，旧 evidence 不得绑定新 bytes，same-content retry 也不得跳过。若 active block
     不再 eligible，下一次 audit 必须 fail visible 并按获批 evaluation policy 降级，而不是
-    继续静默 block。即使没有 add/update/audit，runtime 到达 `decision_valid_until` 也必须
-    先施加本地 expiry ceiling 并标记 `audit_required`；只有 fresh management audit 才可
-    恢复 block。
+    继续静默 block。即使没有 add/update/audit，runtime 发现 authoritative local policy
+    digest mismatch、到达 `decision_valid_until`/`override_valid_until`，或发现 trusted-time
+    high-water rollback/drift，也必须先施加本地 fallback ceiling 并标记 `audit_required`；
+    只有 fresh management audit（promotion 另需 fresh explicit confirmation）才可恢复 block。
 33. B-033: 默认不得自动上传 event logs、源代码、用户路径、HOME、fixture payload、
     secrets 或 local triage。任何 feedback export 必须显式触发、先显示字段清单并脱敏，
     生成本地 artifact；发送/发布是另一个需确认动作，取消后零网络。
@@ -352,7 +366,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 41. B-041: `list`/`status`/`audit` 必须为每个 installed pack 展示 exact version/digest、
     trust、target、transaction/receipt health、revocation/cache age、每条 effective decision
     与 precision reason、`decision_valid_until`/expiry state/`audit_required`，以及
-    publication/current evaluation policy identities，并以
+    publication/committed/authoritative active evaluation policy identities、
+    source-applicable `override_valid_until`、trusted-time high-water/clock state，并以
     nonzero 区分 `{invalid, incompatible, revoked, needs_repair}`；
     空 pack 列表是成功且显示为空，不是错误或伪造内置 pack。
 42. B-042: registry/network 暂时不可用时，已安装、receipt-valid pack 的 runtime enforcement
@@ -363,9 +378,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     `current`，applicable revoke event 无论 cache age 都保持 `revoked` 并执行 ceiling；
     cache 缺失、malformed、identity mismatch 或 non-revocation proof 超过 window 时才是
     `unknown` 并按 policy 降级。runtime 不联网但必须检查 committed validity horizon：
-    horizon 到期即使用 warn/off fallback 并标记 `audit_required`。不能把 availability
-    failure 当成新的 current 证据，也不能把仍有效 cache 错报 unknown，或让已知 revoke
-    因过期恢复。
+    horizon 到期、authoritative policy digest mismatch 或 trusted-time high-water rollback
+    即使用 warn/off fallback 并标记 `audit_required`。不能把 availability failure 当成新的
+    current 证据，也不能把仍有效 cache 错报 unknown，或让已知 revoke 因过期恢复。
 
 ## 验收标准
 
