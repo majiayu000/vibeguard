@@ -282,8 +282,10 @@ lock-B → recover/revalidate base → build immutable plan+digests → unlock
        → bounded-deadline confirm
 lock-C → recover + CAS revalidate generation/ownership/evidence/evaluation/plan
        → reserve/snapshot-owned-state → apply → audit
-       → build+fsync dependency-set generation → one atomic set-pointer switch (= commit)
-                                                └ failure before switch → rollback
+       → build+fsync generation/journal → floor fsync (= roll-forward-only prepared)
+       → one atomic set-pointer switch (= commit)
+          ├─ failure before floor → rollback
+          └─ failure after floor → retain evidence + retry/recover switch; never rollback
 ```
 
 `recover-old` 必须在 discovery/plan 前完成：旧 journal 造成的 partial state 不得参与新
@@ -317,8 +319,9 @@ installation-generation floor，最后以一次 installation-scope atomic pointe
 必须先解析 set pointer，
 再验证 target/profile、commit marker 与 generation digest，绝不读取 orphan receipt、
 staged state 或未提交 generation。pointer switch 后只允许 journal finalization/临时清理，
-这些失败不撤销已提交语义，而由下次 recovery 幂等完成。floor 与 switch 间 crash 使旧
-pointer 低于 floor 并 fail closed；recovery 只按 journal 完成目标 switch，floor 永不降低。
+这些失败不撤销已提交语义，而由下次 recovery 幂等完成。floor fsync 是 roll-forward-only
+prepared boundary：之后旧 pointer 低于 floor 并 fail closed；必须保留 journal/generation/state
+并重试或恢复目标 switch，禁止 rollback 或降低 floor，长期失败进入 `needs_repair`。
 interrupt 后下次 mutation 必须先
 按 canonical order 取得 ownership/target locks 并 recover unfinished journal。rollback
 只依据 journal，不扫描 HOME；
@@ -332,9 +335,9 @@ policy pointer/floor 与 committed policy identity，再取得 installation runt
 fallback。runtime 同样只能在其锁内读取/revalidate current pointer，因此旧 generation runtime
 不可能在 snapshot 后再推进。初值继承同 epoch
 `max(existing_high_water, evaluation_time)`，单次 pointer replacement 同时选择新 generation/
-state；runtime 还验证 pointer installation generation 不低于独立 active floor。switch 前
-crash 由 journal/floor fail-closed recovery，switch 后两者同时可见。policy/floor mismatch 或 state
-初始化失败均在 switch 前 rollback，不得预先改绑旧 state。
+state；runtime 还验证 pointer installation generation 不低于独立 active floor。floor 前的
+policy/state 初始化失败 rollback；floor 后任何失败只能 fail-closed roll forward，switch 后
+generation/state 同时可见。
 
 same-content retry 先取得新的 normalized evaluation time，重算 freshness、revocation 与
 eligibility identity，再比较 receipt/active/store/publication-policy/evaluation-policy/
@@ -438,10 +441,12 @@ reviewer/fixture ledger 和 issuer签名后才成为 official evidence。`accept
 samples语义同时又用另一分母。
 
 status/audit 每条 rule 同时显示 requested、official eligibility/default、local effective、
-override status、precision value/null、counts、age、evaluation time、policy/issuer、
-provenance trust、revocation status、compatibility status、publication policy 与 current
-evaluation policy identities、block basis、source-applicable `override_valid_until`、
-`decision_valid_until`、expiry fallback/state 与 `audit_required`。eligibility digest 必须覆盖
+override status、precision value/null、counts、age、evaluation time、policy/issuer、provenance
+trust、revocation/compatibility status、publication identity、committed/authoritative evaluation
+policy 的 exact digest/generation/validity identities、policy floor、active installation
+generation/floor、runtime sequence/latch、trusted-time high-water/`clock_epoch`、block basis、
+`decision_valid_until`/source-applicable `override_valid_until`、expiry fallback/state 与
+`audit_required`。eligibility digest 必须覆盖
 上列每个 source-applicable binding digest；rule/evaluation-policy/evidence/provenance/
 official-registry-event/compatibility/
 normalized evaluation-time 变化产生新 digest 并触发 audit，即使 collapsed status 未变。
@@ -612,8 +617,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-012 online/offline failure semantics | Locator/cache/revocation policy | timeout/malformed/redirect/fresh-absence/expired-absence/cached-revoked/expired-known-revoke/identity-mismatch matrix asserts exact current/revoked/unknown status |
 | B-013 target compatibility | Capability/host resolver | unknown host, incompatible protocol, unsupported capability, missing Core and valid Claude/Codex fixtures produce distinct closed statuses and cannot be promoted by override |
 | B-014 runtime privacy/capability | Sealed capability registry + sandbox boundary | network/credential/path/log access sentinels and child-env capture prove undeclared access never runs or persists |
-| B-015 transaction state machine | Transaction journal + dependency-set generation/floor | crash before/after floor and pointer switch recovers exact intent；old pointer replay cannot restore a superseded generation |
-| B-016 scoped rollback/repair | Transaction rollback | injected failure at every stage restores before digests; rollback failure retains evidence and reports needs_repair |
+| B-015 transaction state machine | Transaction journal + dependency-set generation/floor | pre-floor failures rollback；post-floor failures preserve evidence and roll forward exact switch；old pointer replay cannot restore superseded generation |
+| B-016 scoped rollback/repair | Transaction rollback/recovery | pre-floor injections restore before digests；post-floor switch failures retain evidence and roll forward；recovery failure reports needs_repair |
 | B-017 interruption recovery | Journal recovery + confirmation epochs | partial state fixture asserts ordered locks + recovery precede discovery/plan；confirmation timeout holds no lock；post-confirm generation/evidence/time drift forces re-plan/re-confirm |
 | B-018 complete committed receipt | Receipt schema/writer + source storage key | official receipt requires event digest；local requires not_applicable + absent event；all block receipts bind committed policy and finite decision/override horizons/fallback；local round-trip needs no publisher sentinel |
 | B-019 ownership preservation | Planner + reservation + structured config adapters | update/remove succeeds only when current state matches receipt after digest；matching before but not after is drift；fresh conflict/cancel preserves canaries |
@@ -638,7 +643,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-038 GH-701 interface boundary | Host adapter compatibility layer | merged-Draft-only fixture stays fixed Claude/Codex；only decisions + merged implementation + compatibility/native proof accepts registry IDs；reject second registry/early third-host active claim |
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds under the same publication policy match digest；evaluation-policy rotation does not rebuild；publish failures never create resolvable partial entry |
-| B-041 truthful list/status/audit | Shared status aggregate/renderers | golden output shows policy identities/floor, horizons, high-water/epoch, fallback/audit_required；protection_suspended or runtime_guard_unavailable exits nonzero |
+| B-041 truthful list/status/audit | Shared status aggregate/renderers | golden output enumerates committed/authoritative policy identities, policy/installation floors, sequence/latch, horizons and high-water/epoch；degradation exits nonzero |
 | B-042 offline runtime stability | Committed eligibility + local policy/high-water ceiling | block network；local stays not_applicable；official trust conclusions remain exact；policy mismatch, horizon expiry or rollback below persisted high-water degrades block without network |
 
 ## 数据流

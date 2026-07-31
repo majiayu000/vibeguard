@@ -206,10 +206,13 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     digest-valid 的 dependency-set generation，禁止 partial active。pointer 必须携带 monotonic
     installation generation；已 fsync 的 transaction journal 先记录目标 pointer/state，再推进
     独立 durable generation floor，最后 switch。runtime 拒绝低于 floor 的旧 pointer replay；
-    floor 与 switch 间崩溃按 journal 幂等完成，不能降低 floor 或猜测目标 generation。
-16. B-016: stage、verify、host apply、audit 或 receipt commit 任一步失败时，系统必须只
-    回滚本 transaction 已记录的 owned changes并恢复精确 before state；rollback 自身失败
-    必须 nonzero、保留 recovery evidence 并进入 `needs_repair`，不得声称 installed。
+    floor fsync 是 roll-forward-only prepared boundary：此前失败可 rollback；此后必须保留
+    journal/generation/state 并重试或恢复 exact pointer switch，不能 rollback、降低 floor 或猜测
+    目标 generation；switch 前不得声称 installed，长期失败进入 `needs_repair`。
+16. B-016: stage、verify、host apply、audit 或 floor fsync 前的 receipt preparation 失败时，
+    系统必须只回滚本 transaction 已记录的 owned changes并恢复精确 before state；floor fsync
+    后则禁止 rollback，只能按 B-015 roll forward。rollback/recovery 失败都必须 nonzero、保留
+    evidence 并进入 `needs_repair`，不得声称 installed。
 17. B-017: 取消、中断、超时或进程崩溃后不得留下未提交的新 active pointer。下一次任何
     mutation 必须先按 canonical order 取得 HOME-wide ownership lock 与对应 target locks，
     识别 unfinished transaction，并按 immutable
@@ -402,8 +405,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 41. B-041: `list`/`status`/`audit` 必须为每个 installed pack 展示 exact version/digest、
     trust、target、transaction/receipt health、revocation/cache age、每条 effective decision
     与 precision reason、`decision_valid_until`/expiry state/`audit_required`，以及
-    publication/committed/authoritative active evaluation policy identities、
-    source-applicable `override_valid_until`、trusted-time high-water/clock state，并以
+    publication policy identity、committed 与 authoritative evaluation policy 各自的 exact
+    digest/generation/validity-evidence identity、policy generation floor、active installation
+    generation/floor、runtime-state sequence/latch、source-applicable `override_valid_until`、
+    trusted-time high-water 与 `clock_epoch`，并以
     nonzero 区分 `{invalid, incompatible, revoked, needs_repair, protection_suspended,
     runtime_guard_unavailable}`；任何 `audit_required` 或 active protection 降级/暂停也必须
     nonzero，不能让 automation 把失去保护误判为 healthy；
