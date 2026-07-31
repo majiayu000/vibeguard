@@ -448,16 +448,20 @@ typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏�
    de-current 则 exact rollback merge 后才删 draft。各路径均禁止 publish。
    post-intent：matching public Release→verify+README；否则 matching intent-bound draft→
    publish+README；否则 `release_recovery_blocked` 并保留 owner。
-publication 使用 attempt-scoped draft 与一个统一 durable state machine；唯一 `publication_authority_sqlite_v1` backend、deployment/bootstrap、lock/fsync/recovery及 canonical secret/history contract只引用 [publication_history_contract.md](publication_history_contract.md)：
-1. actors 只按 source/candidate→ledger lease→publication lease→branch CAS；等待 review用 H-006 heartbeat续活。H-006 唯一批准者为 repo release/security maintainer；未批准 publication unavailable。sequence 1的 `previous_accepted_at=claim_accepted_at`，之后取前一 heartbeat accepted-at；store仅在 prior expiry前、间隔≥300s续租，`expiry=min(accepted_at+3600,claim_accepted_at+604800)`且须严格延长；scheduler 900s，7日 cap后只可 expiry+takeover。
-2. frontier唯一为 `(repo_node_id,history_length,history_root,full_prefix_digest)`；只信 independently anchored digest-pinned trust bundle。append authorization是 closed union：publication records用 owner/publication fence；trust leaf/root rotation/revocation用独立 governance actor/threshold/lease/fence且不含 owner。stable rotation ID绑定 repo/purpose/epochs/kind/payload/approval但不含 predecessor/fence；rotation index先幂等，同 approval遇 publication suffix可换 predecessor/op重规划。pre-state trust验证 rotation、successor起 new trust；governance fold不改 owner/phase/liveness，两域 fence禁互换。
-   **schemas/publication_history.schema.json** 的唯一 top-level discriminator为 `record_kind`，拒绝 `kind`/`type`/`record_type`及 alias；publication immutable op绑定 repo/generation/run/slot/predecessor/`record_kind`/payload。八个 blocked variants exact 为 `{release_mutation_recovery_blocked,draft_recovery_blocked,decurrent_pr_recovery_blocked,rollback_recovery_blocked,marker_recovery_blocked,nonvalid_row_recovery_blocked,invalidation_recovery_blocked,release_recovery_blocked}`；union另覆盖 governance rotation、release-mutation plan/bind/recovery/compensation、tag guard、`owner_claimed`/`owner_heartbeat`/`draft_bound`/`prepared`、generated-PR/intent/commit/takeover/`recovered_publication`/terminal。unique indexes、exact predecessor与 actual authorization fence事务验证；ack-loss返原 receipt，fork/ABA拒绝。
-3. 首次 Release API/PR mutation前原子 claim；六种 `mutation_kind` exact 为 `{draft_create,draft_update,draft_delete,asset_upload,asset_delete,publish}`。call前 append planned slot，绑定 repo/tag/owner/kind/slot/predecessor/App、exact pre-state/public non-secret request template/expected-post、kind tuple、plan-core/stable slot ID、唯一 `mutation_nonce_digest`与 opaque `mutation_nonce_capsule_id`/`broker_delivery_id`；`draft_create`另绑定 claim digest/capsule。构造先冻结 operation-independent core/slot ID，再算 nonce digest/request commitment，以 slot ID作 capsule AAD，纳入 ciphertext后最后算 payload/op ID，capsule与 plan事务同提交。六种 kind的 raw/reversible mutation nonce及 secret-bearing request/history bytes均 schema-invalid，raw只经 authenticated secret channel；broker重算 derivation、只替换每个 declared secret的唯一 placeholder，回签 `effective_request_digest`/send-once audit并拒绝 same slot/delivery二发；fence/lease仅在 envelope。
-   response+postcheck后才 bind completed receipt。任一 uncertainty禁重发，完整发现 Release/assets+broker audit：唯一 post-state→recovered bind；exact pre-state+exhaustive negative+quiescence receipt→not-applied后新 slot；partial/conflict→planned guarded compensation；不可逆/不可证明→blocked。phase gate要求每 slot∈`{bound,not_applied,compensated}`、intended effect有唯一 bound或已恢复且无 pending/blocked/in-flight/extra；finalization fresh，takeover引用旧 plan fresh authorize。
-4. 五种 generated PR在首次 mutation前 planned/bound；response loss全分页查 PR/ref，唯一 active/merged/closed分别 bind/recover/revoke。invalidation plan只含 base/head/reviewed commit/expected tree/blobs/patch/method/ruleset，拒绝 future merge fields；post-merge receipt才绑定 actual merge OID/PR/method/default refs/tree/blobs/owner/fence/frontier/evidence。`post_invalidation_zero` suffix exact closed union另接受以 `publication_terminal_no_publication` 结束的 authenticated same-candidate owner successor chain（takeover=`publication_owner_taken_over`）及三种验签 phase-neutral trust governance records，不接受 nonterminal/forged chain、current restoration/其它 owner。
-5. protocol surface只绑定 stable `{id,path,grammar,renderer,output schema}`；claim/attempt plan绑定 mutable default ref与逐 surface base/hash/marker/expected/patch，drift须新 slot/nonce/head/render/review。
-   valid plan为 rollover、true genesis或 post-invalidation（suffix exact closed union为 terminal nonvalid+exact prepared owner+authenticated terminal no-publication chain+验签的 phase-neutral trust governance records）；fresh receipt绑定 current frontier、terminal merged-invalidation digest、owner/all current blobs。缺 exhaustive terminal proof、current restoration/其它 owner/mixed/drift或缺 exact receipts blocked。
-6. valid receipt/nonvalid prepared先 CAS `intent_written`。pending decurrent须 revoke，merged则 rollback；failed generated/mutation slots用 exact reviewed replacement/compensation或对应 blocked。只有 claim/draft cleanup、revocation、rollback/invalidation或 complete Release+README slot chain可 terminal。
+publication 使用 attempt-scoped draft 与统一 durable state machine；唯一 backend、deployment/bootstrap、
+lock/fsync/recovery、canonical schema、secret boundary、closed unions与 conformance vectors均由
+[publication_history_contract.md](publication_history_contract.md) 定义，本文不复制 machine-facing identifiers：
+1. actors 只按 source/candidate→ledger lease→publication lease→branch CAS；等待 review只消费 contract的
+   owner-liveness protocol。H-006 未获 repo release/security maintainer批准时 publication unavailable。
+2. client只调用 contract指定的 durable authority API，并按其 trust/fold、owner-free governance、
+   idempotency、takeover、mutation/broker send-once、recovery与 terminal规则 fail closed；不得直接开 store、
+   建立别名或本地重定义 schema。
+3. generated PR须先 planned/bound；response loss完整分页发现 PR/ref后按 authority推进。invalidation plan只绑定
+   pre-merge事实，post-merge receipt才绑定 server返回事实；suffix只消费 contract的 closed union与 tagged cleanup evidence。
+4. protocol surface只绑定 stable identity；attempt plan绑定 mutable base与逐 surface proof，drift须重规划。
+   valid plan只可为 rollover、true genesis或 contract-proven post-invalidation；restoration/其它 owner/mixed/drift/缺 receipt均 blocked。
+5. valid receipt/nonvalid prepared后才写 intent；de-current须 revoke或 rollback，failed slot须 reviewed
+   replacement/compensation或 blocked；仅完整 cleanup/rollback/invalidation或 Release+README effect closure可 terminal。
 required target 不能原生执行时显式 `unavailable` 并使 summary non-valid；非 required
 target unavailable 只展示、不阻断。不得用 host/cross binary 贴 native 目标标签；若
 approved set 含四 target 就必须配置四个 native runners。required platforms 的
@@ -667,12 +671,9 @@ planned **tests/test_public_benchmark.sh** 的最终产物断言不能只看 exi
   report 的 retry 仍有不同 run/attempt-bound identity。最终 workflow 非零且
   Release/candidate-row sentinel 均不存在；
   publish_nonvalid fixture 则最终产生同版本 non-valid report/row。
-- publication-history goldens必须由 Rust/Python/shell共用：`frontier_valid_v1` 的 exact JCS bytes为
-  `{"full_prefix_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","history_length":7,"history_root":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","repo_node_id":"R_kgDOGH700"}`，SHA-256为 `e52c3472ae93b565704e4f26a97f02260e7c9d2c724b8add3350a7f7317edf73`；`length`/`root` alias、`kind`/`type`/`record_type` discriminator及 `update`/`delete` mutation aliases均 schema-invalid。
-- `blocked_record_kinds_valid_v1` 为八个 exact variants各含一条 schema-complete record；unknown/alias逐条 reject。六个 exact `mutation_secret_boundary_{draft_create,draft_update,draft_delete,asset_upload,asset_delete,publish}_v1`
-  goldens只接受 `mutation_nonce_digest`+opaque capsule/delivery+template/effective digests，并逐 kind拒绝 raw/reversible nonce及 secret-bearing request/history bytes；positive vectors固定 exact JCS bytes/SHA-256。
-- valid fixture另覆盖 pre-draft claim/binding、genesis、rollover、pending de-current cancel，以及 draft/五种
-  generated PR 的 response-loss/歧义/reject/crash恢复；`post_invalidation_suffix_v1` 接受三种验签 phase-neutral record及 exact terminal no-publication/takeover chain，并逐一拒绝 missing/forged/nonterminal/cross-candidate takeover、incomplete negative discovery、wrong governance evidence、phase/liveness/owner mutation、current restoration与 unknown record。
+- publication-history goldens须由 Rust/Python/shell共同消费 [publication history contract](publication_history_contract.md)
+  拥有的 exact vectors，不得复制 enum/字段/canonical bytes；覆盖 no-draft、deleted-draft正例及全部反例。
+- integration fixture另覆盖 claim/binding、genesis、rollover、pending de-current cancel及 draft/generated PR恢复。
 
 ## 数据流
 
@@ -788,9 +789,9 @@ temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期
 
 - 在 GH-699 actual launcher/receipt 尚未合并或尚无 valid report 时，不把 runtime
   开发入口标 official；它保持 `unofficial`/`unavailable`。
-- 若 current release 的 runner/corpus/report 有缺陷，只能用 reviewed `invalidate_current` PR
-  原子更新全部 required surfaces、移除 marker并将 exact row标 invalid，receipt绑定原因、
-  evidence、frontier、server-observed post-merge SHA与 before/after blobs；旧 evidence 不删除/改写。
+- 若 current release 的 runner/corpus/report 有缺陷，只能按
+  [publication history contract](publication_history_contract.md) 的 invalidation machine执行
+  reviewed all-surface PR与 post-merge receipt；旧 evidence 不删除/改写。
 - README 生成区可通过回滚生成 PR 恢复到最后一份**明确标注版本**的报告，但不得把该旧值
   标为当前 release。
 - runner 回滚不修改现有 hooks/guards policy；GH-686、behavior eval、

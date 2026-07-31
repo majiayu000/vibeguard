@@ -2,8 +2,9 @@
 
 本文件是 `product.md` B-017/B-018 与 `tech.md` publication machine 的规范性组成部分，
 隔离完整 publication ownership、mutation-secret、append-only history、trust/fold 与
-owner-liveness 概念边界。引用方不得复制、改名或局部覆盖这里的字段、枚举、secret boundary
-或 fail-closed 语义；冲突时本文件的 exact machine-facing identifiers为唯一真源。
+owner-liveness 概念边界。引用方可以通过链接或行为场景引用这里已经定义的 identifier，
+但不得复制字段集合、枚举、canonical bytes、secret boundary或局部重定义 fail-closed 语义；
+冲突时本文件的 exact machine-facing identifiers为唯一真源。
 
 ## Concrete durable authority
 
@@ -134,6 +135,96 @@ credential，不能授权读取/解封。解封后重验 digest；restart发生�
 claim commit后、draft create前时必须复用该 nonce；capsule缺失、越权、密文/key-version/
 digest不符或 KMS不可用均进入 `draft_recovery_blocked`，不得生成新 nonce、重写 claim或创建
 第二个 draft。
+
+## Generated PR、documentation 与 publication states
+
+所有 generated PR及 replacement统一使用
+`generated_pr_planned(kind) → generated_pr_bound(kind)`，其中 `kind ∈
+{decurrent,rollback,new_current,nonvalid_row,invalidate_current}`。planned必须早于首次
+head-ref/commit/PR mutation，绑定 repo/owner generation/kind/candidate、base ref/OID、head
+repo/ref、expected tree/OID、patch/nonce/ruleset digest、trusted App/installation identity及
+replacement chain；nonce必须进入受保护 deterministic ref/commit/check identity，不能只放可编辑
+PR metadata。create/bind response loss须完整分页枚举 draft/open/closed/merged/queued PR与 head
+ref并核对完整 tuple：唯一 active match在重读 latest signed frontier/fence/ruleset后 CAS bound；
+唯一 merged match按 kind进入 receipt/rollback/marker/row恢复；closed match先 revoke再
+replacement。ordinary/stale zero保留 owner且不得重发 non-idempotent create；仅同一线性化快照
+覆盖 PR+ref的 authenticated exhaustive negative receipt可证明不存在。多匹配、tuple/creator
+不符、分页/权限不全、rate-limit/5xx/timeout或无强一致 absence API，按 kind进入对应 recovery
+blocked variant。旧 fence late bind、reopen/ref ABA、stale check/review与 ruleset bypass均由
+latest-frontier merge gate拒绝。
+
+`required_documentation_surfaces`是 protocol批准的稳定闭集；每项只绑定
+`surface_id`、canonical repo-relative path、locale/marker grammar、renderer logical ID/version/
+artifact digest与 output schema，不绑定 mutable default-ref/live blob OID。owner claim冻结的
+`documentation_surface_plan_digest`绑定 protocol digest、observed default ref OID及每个 surface
+的 `{surface_id,path,base_blob_oid,base_blob_sha256,marker_before_identity,
+marker_before_cardinality,renderer_digest,expected_after_blob_digest,
+expected_after_tree_digest,patch_digest}`。每个 generated plan/replacement再绑定 exact current
+base ref/OID与完整 tuple；gate紧邻 mutation重取 default ref/all blobs，任一 drift撤销旧 gate并用
+新 slot/nonce/head、fresh render/review重规划。stable path/renderer改变才要求 protocol bump；
+receipt绑定 per-attempt plan/base blobs。
+
+valid documentation plan是 exact closed union：
+
+- `rollover_one`：CAS证明每个 required surface恰有一个 eligible current valid row/marker，所有
+  surface绑定同一 current release/version/summary identity且无 missing/duplicate/extra marker/
+  locale drift；以 `generated_pr_planned(decurrent)` 创建并 bind一次原子更新全部 surfaces的
+  PR identity。merge gate按 latest signed frontier验证 owner generation、committed envelope
+  actual fence及 PR/head/base；合并后、publication intent前持久化 merge SHA与 before/after blob
+  digest receipt。
+- `genesis_zero`：CAS证明全部 required surfaces为零 marker、history没有 eligible valid publication，
+  且除本次 exact current prepared owner tuple外无 active owner；authorization fence只取 committed
+  store envelope。intent前持久化绑定 history frontier、surface set与 base blobs的 zero-marker
+  receipt，不制造 no-op PR。
+- `post_invalidation_zero`：全部 surfaces为零 marker，最后一次 current-valid publication已有
+  terminal invalidation receipt，之后 suffix满足本 contract的 exact closed union。intent前 append
+  `post_invalidation_zero_receipt`，绑定 current frontier、invalidation-receipt digest、exact owner
+  与全部 current surface blobs，不制造 no-op de-current PR。
+
+mixed zero/one、跨 surface version/summary不一致、缺 surface、闭集外 current marker、历史 valid却
+缺 exact terminal invalidation/fresh zero receipt及其它 zero-marker state均 fail closed。
+`publish_intent`须绑定对应 plan receipt与已 human-approved的 exact new-current patch/review/base
+digest；base/CAS变化即重审。valid ownership以 fenced CAS推进
+`valid_zero_marker → intent_written → release_committed_valid_marker_pending`。Release commit后
+worker消失时，reconciler只从 existing prepared owner+intent+public sentinel幂等补齐。
+
+de-current PR未 merge时取消须先以 higher-fence CAS进入
+`valid_decurrent_pr_cancel_pending`，撤销 merge authorization、disable auto-merge/dequeue、关闭
+exact PR、compare-delete head ref并取得 server-authenticated revocation receipt，证明 PR closed/
+unmerged、queue/head absent、default branch/marker unchanged且无 ruleset bypass，之后才可清理 draft
+并 terminal；竞争中已 merge转 `valid_rollback_pending`。candidate继续时，rejected/closed/stalled/
+drift plan须先 revoke旧 gate/queue/PR/head并取得 receipt，再以新 fence/head/PR/nonce重新
+planned/bound与 review；original/replacement不能同时获 merge authorization。任一证明失败进入
+`decurrent_pr_recovery_blocked`。已 merge且 intent前取消只允许恢复 receipt绑定旧 marker的
+reviewed rollback PR；rollback/new-current PR失败或 response loss时，current generation可在重取
+lease/fence后恢复 same-candidate/exact-patch human-reviewed replacement。新 generation takeover
+只能在 store-auth expiry后 higher-fence exact-frontier CAS；无获批 replacement时进入相应
+recovery-blocked record并保留 owner。只有 rollback+draft cleanup或 new-current merge完成才 terminal。
+
+`publish_nonvalid`也必须从 prepared owner先 CAS至 `intent_written`，且只有该状态可推进
+`release_committed_nonvalid_row_pending`；它不改 current marker，只能合并同 summary的
+human-reviewed unmarked row。其 PR recovery使用同一 higher-fence replacement/review machine；
+无获批 replacement为 `nonvalid_row_recovery_blocked`。exact unmarked row merge后才 terminal。
+
+已公开 current valid的 invalidation只能由 `invalidate_current` PR原子更新全部 required surfaces：
+移除 exact current marker、将 exact row标为 invalid并绑定 approved reason/evidence。planned/bound
+envelope绑定 latest frontier、base/head ref+OID、reviewed commit、expected head/default tree、
+patch、merge method/ruleset与逐 surface expected-after blobs；schema禁止 future merge commit
+OID/timestamp/server output。server确认 merge后才 append terminal
+`invalidate_current_merged_receipt`，绑定 actual merge commit OID/PR node/method、default-ref
+before/after OIDs、actual tree、逐 surface before/after blobs、owner/fence/frontier与 evidence。
+merge response loss须发现 exact merged PR/default ref并核对 actual tuple；receipt缺失/不匹配、
+stale frontier、partial surface update、新 current或 concurrent CAS failure进入
+`invalidation_recovery_blocked`并保留 owner。
+
+intent后 exact draft缺失/不匹配且没有 matching public Release只能进入
+`release_recovery_blocked`并保留 active owner。claim后 draft-create response丢失只可按 claim
+nonce+exact repo/tag/source发现：唯一匹配先 higher-fence bind后 cleanup；普通 zero保持 owner并
+恢复，只有 authenticated exhaustive/complete-page consistent negative receipt可 terminal。API无法
+提供此证明、stale zero、分页/权限裁剪、multiple/mismatch、rate-limit/5xx均进入
+`draft_recovery_blocked`；deadline/heartbeat不得推断从未创建。无 durable claim的
+pre-attestation interruption必须证明零 Release mutation。
+
 ## Frontier、trust 与 deterministic fold
 
 canonical frontier 是 `(repo_node_id, history_length, history_root,
@@ -207,11 +298,45 @@ phase-neutral `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}`。no-p
 candidate的 `owner_claimed` 开始，可含 exact-predecessor `publication_owner_taken_over` successor、
 heartbeat、private-draft/asset cleanup及其 closed mutation slots，且必须以 store-signed
 `publication_terminal_no_publication` 结束；terminal receipt须绑定整条 generation/slot chain、
-exhaustive Release/draft/PR/current-marker negative discovery、exact draft deletion及无 pending/blocked/
-in-flight mutation。缺 terminal/negative receipt、wrong candidate/predecessor/fence、forged takeover、
-`publish_intent`、public Release、current restoration或其它 owner均拒绝。governance record必须经独立
+exhaustive Release/draft/PR/current-marker negative discovery、无 pending/blocked/in-flight mutation，
+并携带下列 exact tagged closed union中的恰一 `draft_cleanup_evidence`：
+
+- `draft_never_existed`：整个 owner/takeover chain均无 bound或 recovered draft；认证发现须穷尽
+  Release all states、draft与 assets，证明 broker outbox/delivery quiescent/no-effect，并证明所有
+  draft-create slot不存在或已 closed not-applied。该分支不得伪造 delete/compensation receipt。
+- `draft_deleted`：绑定 exact bound/recovered draft identity与 preimage；携带已 closed 的 guarded
+  delete或 compensation receipt，并以 post-delete exhaustive discovery证明该 draft/assets不存在且
+  broker quiescent。
+
+缺 terminal/negative receipt、缺失/unknown/wrong cleanup branch、无 draft却声称 deleted、已有 bound/
+recovered draft却声称 never-existed、伪造/未闭合 deletion evidence、wrong candidate/predecessor/fence、
+forged takeover、`publish_intent`、public Release、current restoration或其它 owner均拒绝。governance record必须经独立
 governance domain/fence/threshold及上述 trust cutover验证，且 fold后 publication owner/phase/
 liveness不变；closed union外 record均拒绝。
+
+## Conformance vectors
+
+本 contract拥有 Rust/Python/shell共用的 machine-facing vectors；调用方只引用这些 fixture，
+不得各自复制 enum、字段集合或 canonical bytes：
+
+- `frontier_valid_v1` 的 exact JCS bytes为
+  `{"full_prefix_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","history_length":7,"history_root":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","repo_node_id":"R_kgDOGH700"}`，
+  SHA-256为 `e52c3472ae93b565704e4f26a97f02260e7c9d2c724b8add3350a7f7317edf73`；
+  frontier/discriminator/mutation aliases均为 negative vectors。
+- `blocked_record_kinds_valid_v1`逐一覆盖 closed blocked union；unknown/alias逐条 reject。
+  mutation secret-boundary vectors逐 kind验证唯一 digest、opaque capsule/delivery、template/effective
+  digests，并拒绝 raw/reversible nonce、secret-bearing request/history bytes、错误 placeholder 数量、
+  capsule/slot/operation替换及二次 send。
+- `post_invalidation_suffix_no_draft_v1`是 terminal no-publication positive vector，使用
+  `draft_never_existed`及完整 negative/quiescence/not-applied evidence；同一场景改为缺失、unknown、
+  wrong tag、带 bound/recovered draft、带 publish intent/public Release或任一 pending/blocked/in-flight
+  slot时逐项 reject。
+- `post_invalidation_suffix_draft_deleted_v1`是另一个 positive vector，使用 `draft_deleted`及 exact
+  bound/recovered draft、closed delete/compensation receipt、post-delete absence/quiescence evidence；
+  缺失、伪造、未闭合、wrong-draft deletion evidence或实际无 draft时逐项 reject。
+- 其余 suffix vectors逐一覆盖获验签的 phase-neutral governance record与 same-candidate takeover，
+  并拒绝 forged/nonterminal/cross-candidate takeover、wrong governance evidence、owner/phase/liveness
+  mutation、current restoration、其它 owner与 unknown record。
 
 ## Owner liveness
 

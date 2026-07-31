@@ -16,7 +16,7 @@ GH-700
 
 - [ ] `SP700-T2` 扩展 offline-verifiable release identity、trusted-launcher handle chain及 production guard install identity：manifest绑定 runtime、protocol/registry及 target guard component/loader/service/policy/issuer closure；installer安装/激活普通 hook guard并持久化 target/identities/protection-state receipt，preflight验签并 challenge live OS state。Covers: B-002, B-013, B-016, B-021, B-024, B-028, B-030. Owner: identity + launcher/installer owner. Depends on: T1；GH-699 payload。Done when:除 launcher/assets篡改外，wrong-target/policy/loader/service/root/install receipt、inactive/replaced/downgraded guard、self-signed live receipt与 preflight→sample deactivation均零 sample unavailable。Verify: `cargo test --manifest-path vibeguard-runtime/Cargo.toml bench::identity`; `bash tests/test_setup.sh`; `bash tests/test_public_benchmark.sh`.
 
-- [ ] `SP700-T3` 作为唯一 publication-authority store/deployment single writer，建立 [publication_history_contract.md](publication_history_contract.md) 指定的 `publication_authority_sqlite_v1` backend、schema/fold、deploy/bootstrap/recover。实现路径固定为 `vibeguard-runtime/src/publication_authority/{mod.rs,store.rs,broker.rs,recovery.rs}`+main CLI，部署/初始化路径固定为 planned **schemas/publication_authority_deployment.schema.json**+**.github/workflows/publication-authority-deploy.yml**+**scripts/ci/bootstrap_publication_authority.py**；manifest-pinned durable volume/DB/process-lock、SQLite WAL/FULL fsync/transactional indexes+outbox+capsules与 signed restore authority均由 T3 拥有，T10只可调 API。`publication_history` frontier唯一为 `(repo_node_id,history_length,history_root,full_prefix_digest)`，top-level discriminator唯一为 `record_kind`；八个 blocked variants exact 为 `{release_mutation_recovery_blocked,draft_recovery_blocked,decurrent_pr_recovery_blocked,rollback_recovery_blocked,marker_recovery_blocked,nonvalid_row_recovery_blocked,invalidation_recovery_blocked,release_recovery_blocked}`。history authorization分 publication owner domain与 owner-free governance domain；leaf/root rotation/revocation使用 stable rotation ID、独立 governance lease/fence/threshold approval，phase-neutral且两域 fence隔离；`post_invalidation_zero` suffix closed union接受 terminal non-valid/current prepared owner、以 `publication_terminal_no_publication` 结束的 authenticated same-candidate chain（takeover=`publication_owner_taken_over`）及验签的三种 phase-neutral governance records。六种 Release `mutation_kind={draft_create,draft_update,draft_delete,asset_upload,asset_delete,publish}` 定义 planned/bound/recovery/not-applied/compensation records、slot unique index、operation-independent plan core/stable slot ID、secret-free request commitment、typed per-slot nonce capsule/AAD、完整 kind tuple/discovery receipts；每种只持久化唯一 `mutation_nonce_digest`、opaque `mutation_nonce_capsule_id`/`broker_delivery_id`与 template/effective digests，raw mutation nonce只走 authenticated secret channel；invalidation planned禁 future merge fields并有独立 post-merge receipt。Covers: B-004, B-016, B-019, B-022, B-025–B-027, B-029, B-031. Owner: schema/integrity + publication-authority store/deployment owner. Depends on: T1。Done when:共用 schema/goldens覆盖 exact frontier/blocked/mutation folds、terminal no-publication/takeover chain、governance suffix与 aliases/secrets/capsules；伪造/跨 candidate/非终态/negative discovery不完整 chain拒绝；真实 durable-volume fixture对 transaction-boundary kill/power-loss、并发 writer/send、WAL/fsync/disk/KMS failure、runner/checkout删除及 signed snapshot+WAL restore证明无丢失/重复/unsigned frontier。Verify: `python3 scripts/ci/validate_public_benchmark.py`; `cargo test --manifest-path vibeguard-runtime/Cargo.toml publication_authority`; `bash tests/test_public_benchmark.sh`.
+- [ ] `SP700-T3` 作为唯一 publication-authority store/deployment single writer，原样实现 [publication_history_contract.md](publication_history_contract.md) 指定的 production backend、schema/fold、deploy/bootstrap/recover、trust/governance、mutation/broker/recovery与 conformance vectors；不得在 task或调用方建立字段/枚举别名、复制 closed union或提供 local/mock fallback。实现路径固定为 `vibeguard-runtime/src/publication_authority/{mod.rs,store.rs,broker.rs,recovery.rs}`+main CLI，部署/初始化路径固定为 planned **schemas/publication_authority_deployment.schema.json**+**.github/workflows/publication-authority-deploy.yml**+**scripts/ci/bootstrap_publication_authority.py**；manifest-pinned durable volume/DB/process-lock、SQLite WAL/FULL fsync/transactional indexes+outbox+capsules与 signed restore authority均由 T3 拥有，T10只可调 API。invalidation plan与 post-merge receipt也须遵循该 contract。Covers: B-004, B-016, B-019, B-022, B-025–B-027, B-029, B-031. Owner: schema/integrity + publication-authority store/deployment owner. Depends on: T1。Done when:三种 consumer共用 contract-owned vectors并覆盖 no-draft/deleted-draft terminal proof、takeover/governance suffix及 aliases/secrets/capsules反例；真实 durable-volume fixture对 transaction-boundary kill/power-loss、并发 writer/send、WAL/fsync/disk/KMS failure、runner/checkout删除及 signed snapshot+WAL restore证明无丢失/重复/unsigned frontier。Verify: `python3 scripts/ci/validate_public_benchmark.py`; `cargo test --manifest-path vibeguard-runtime/Cargo.toml publication_authority`; `bash tests/test_public_benchmark.sh`.
 
 - [ ] `SP700-T4` 在 SP700-T3 schema/roster validator 冻结后补齐五类 production surfaces并 populate corpus/truth/mapping/ledger：mapping 只引用 registry logical IDs；每条 ground-truth/mapping/security review record 必须由 roster identity 签名并绑定 artifact digest/role/decision/source commit；不得用多个自报 ID 伪造独立性。Covers: B-003, B-004, B-005, B-006, B-025, B-026, B-027. Owner: detector owners + corpus/mapping single writer + authenticated independent reviewers. Depends on: SP700-T1, SP700-T3与各 detector security gate。Done when:五类 matched pairs、signed review records与released mappings齐全；mapping digest/path injection、roster/record/overlap mutation fail；未落地类别 official unavailable。Verify: `python3 scripts/ci/validate_public_benchmark.py`; `cargo test --manifest-path vibeguard-runtime/Cargo.toml bench::mapping`; `bash tests/test_public_benchmark.sh`.
 
@@ -30,11 +30,11 @@ GH-700
 
 - [ ] `SP700-T9` 建立唯一 BenchReport、closed raw evidence 与 3×3×terminal outcome contract：先算 axis candidate；`interrupted`（即使两轴已valid且cleanup成功）和 process-tree/report/schema/cleanup failures 都 override 为 inconclusive/nonzero/blank headline；cleanup 完成并把最终 closed result 纳入 terminal record 后才 exclusive-create 封口 report。Covers: B-006, B-008, B-014, B-015, B-019, B-020, B-022, B-023, B-025. Owner: report/renderer owner. Depends on: SP700-T7, SP700-T8。Done when: completed-axes-then-clean-cancel、cleanup-fails-before-seal golden 与所有 failure matrix不可能 exit0；immutable report 包含最终 cleanup error；privacy只剔除free text/payload/stderr而保留closed raw fields。Verify: `cargo test --manifest-path vibeguard-runtime/Cargo.toml bench::render`; `bash tests/test_public_benchmark.sh`.
 
-- [ ] `SP700-T10` 接入 strict summary与统一 publication client/machine，只消费 T3 production authority API，不得拥有/替换 backend、直接开 DB或降级 local store。每个 Release write在 call前持久化 planned slot+guard；uncertain禁止重发，按 exact discovery recover-bind/not-applied/compensate/block。phase gate只接受 `{bound,not_applied,compensated}`，not-applied含 pre-state+negative+quiescence，intended effect须唯一 later bound或已 compensated，且无 pending/blocked/in-flight/extras；takeover引用旧 plan fresh authorize。publication actor遇 governance suffix保留 phase并重规划；post-invalidation fold接受验签的 phase-neutral governance suffix与 authenticated `publication_owner_taken_over`→`publication_terminal_no_publication` chain，但仍拒绝伪造/跨 candidate/非终态 chain、current restoration/其它 owner。Covers: B-016–B-018, B-021, B-022, B-027, B-029, B-031. Owner: publication client owner. Depends on: T2/T3/T5/T7–T9。Done when:六 kind全部 crash/discovery/partial/compensation/takeover不重复副作用且 authority unavailable时零 remote mutation。Verify: `bash tests/test_public_benchmark.sh`; `bash tests/test_release_workflow.sh`.
+- [ ] `SP700-T10` 接入 strict summary与统一 publication client/machine，只消费 T3 production authority API，不得拥有/替换 backend、直接开 DB、降级 local store或重定义 contract identifiers。每个 Release write、uncertain recovery、effect closure、takeover、governance suffix与 post-invalidation fold均原样消费 [publication history contract](publication_history_contract.md) 的 machine；authority unavailable或 proof不完整时零 remote mutation。Covers: B-016–B-018, B-021, B-022, B-027, B-029, B-031. Owner: publication client owner. Depends on: T2/T3/T5/T7–T9。Done when:所有 contract mutation kinds的 crash/discovery/partial/compensation/takeover不重复副作用，no-draft与deleted-draft terminal分支均可验证且反例 fail closed。Verify: `bash tests/test_public_benchmark.sh`; `bash tests/test_release_workflow.sh`.
 
-- [ ] `SP700-T11` 生成 exact all-surface patches并实现五 PR kind。invalidation planned/bound只绑定 base/head/reviewed commit/expected tree/blob/patch/method/ruleset，schema拒绝 future merge SHA/timestamp；server merge后 receipt才绑定 actual merge OID/PR/method/default refs/tree/blobs/owner/fence/frontier/evidence。Covers: B-008, B-015–B-018, B-020, B-023, B-031. Owner: docs generator owner. Depends on: T9/T10；human review gate。Done when:server生成非本地预测 SHA仍按 exact tree成功；precomputed/forged SHA、wrong tree/blob、merge response loss、duplicate receipt、base drift均 fail closed/recover。Verify: `python3 scripts/ci/render_public_benchmark.py --check`; `bash scripts/ci/validate-doc-paths.sh`; `bash scripts/ci/validate-doc-command-paths.sh`.
+- [ ] `SP700-T11` 生成 exact all-surface patches并实现 contract定义的 generated-PR kinds；invalidation plan、post-merge receipt及 response-loss recovery原样消费 [publication history contract](publication_history_contract.md)，不在任务层复制字段集。Covers: B-008, B-015–B-018, B-020, B-023, B-031. Owner: docs generator owner. Depends on: T9/T10；human review gate。Done when:server生成非本地预测 SHA仍按 contract成功；precomputed/forged state、wrong tree/blob、merge response loss、duplicate receipt、base drift均 fail closed/recover。Verify: `python3 scripts/ci/render_public_benchmark.py --check`; `bash scripts/ci/validate-doc-paths.sh`; `bash scripts/ci/validate-doc-command-paths.sh`.
 
-- [ ] `SP700-T12` 建立完整 adversarial harness：governance rotation覆盖 no/active owner、suffix重规划、stable ID/domain fence/cutover；post-invalidation suffix逐一接受三种验签 phase-neutral governance record及 same-candidate terminal no-publication/takeover chain，并拒绝 missing/forged/nonterminal/cross-candidate terminal/takeover、incomplete negative discovery、wrong domain/fence/threshold、owner/phase/liveness mutation、current restoration/其它 owner/unknown record；六 Release kind覆盖每个 crash、0/1/N/in-flight zero/late response、partial/duplicate/delete/publish、compensation/takeover，并有 original not-applied→replacement bound→phase completion与 compensation not-applied→replacement compensation bound→original compensated正例；mutation capsule覆盖 construction-order/no-cycle、missing/swapped/cross-slot/cross-operation/digest mismatch、0/2 placeholder、raw-secret leak、ack-loss restart/takeover复用及 same slot/delivery拒绝二发；authority覆盖每 transaction-boundary kill/power-loss、WAL/fsync/disk/KMS/restore；invalidation覆盖 future SHA拒绝/post-merge tuple；guard覆盖 install/live/bench-only activation。Covers: B-001–B-031. Owner: integration-test owner. Depends on: T2–T11。Done when:所有 slot处于 closed terminal set且 effect closure成立，最多一 draft/public Release/exact assets。Verify: `bash tests/test_public_benchmark.sh`; `bash tests/test_behavior_eval.sh`; `bash tests/test_hook_perf_contract.sh`; `bash tests/test_release_workflow.sh`.
+- [ ] `SP700-T12` 建立完整 adversarial harness：所有 publication cases直接参数化 contract-owned conformance vectors。post-invalidation正例必须分别覆盖 no-draft evidence与 deleted-draft evidence，并逐一拒绝 missing/unknown/wrong cleanup tag、missing/wrong draft-deletion evidence、publish intent、public Release及任一 pending/blocked/in-flight mutation slot；另覆盖 phase-neutral governance、same-candidate takeover、伪造/非终态/跨 candidate chain、incomplete discovery、wrong domain/fence/threshold、owner/phase/liveness mutation、current restoration/其它 owner/unknown record。所有 contract mutation kinds覆盖每个 crash、0/1/N/in-flight zero/late response、partial/duplicate/delete/publish、compensation/takeover及 effect-closure正例；capsule覆盖 construction order、替换/泄漏/placeholder/send-once；authority覆盖每 transaction-boundary kill/power-loss、WAL/fsync/disk/KMS/restore；invalidation覆盖 future SHA拒绝/post-merge tuple；guard覆盖 install/live/bench-only activation。Covers: B-001–B-031. Owner: integration-test owner. Depends on: T2–T11。Done when:所有 slot处于 closed terminal set且 effect closure成立，最多一 draft/public Release/exact assets。Verify: `bash tests/test_public_benchmark.sh`; `bash tests/test_behavior_eval.sh`; `bash tests/test_hook_perf_contract.sh`; `bash tests/test_release_workflow.sh`.
 
 - [ ] `SP700-T13` 在同一 immutable head完成回归/evidence；independent reviewer核对 owner-free governance authorization/idempotent cutover/domain-fence隔离、六 mutation slot recovery、phase-specific invalidation merge receipt、production guard install/ordinary use；SEC-11审 broker/outbox/compensation、trusted App/nonce/KMS/OS issuer与 command execution。Covers: B-001–B-031. Owner: verification owner + independent reviewer + human security reviewer. Depends on: T12；GH-699 T3–T6；current-head gates。Done when:fresh checks、CI、0 threads/reviews/merge state一致；merge/release仍按授权。Verify: current-head证据。
 
@@ -81,39 +81,44 @@ python3 checks/check_workflow.py --repo . --spec-dir=docs/specs/GH700
 
 ```yaml
 routing_decision:
-  work_surface: code_execution
-  readiness: plan_first
-  reason: runtime, installer identity, distribution launcher, release workflow, schema, and policy changes
-mode: plan_first
-artifacts:
-  product_spec: docs/specs/GH700/product.md
-  tech_spec: docs/specs/GH700/tech.md
-  task_plan: docs/specs/GH700/tasks.md
-  publication_history_contract: docs/specs/GH700/publication_history_contract.md
-runtime_pinning_snapshot:
-  accepted_baseline: 05ca05e0030897ea8e8585c0eacb62c7d12185d9
-  gh699_merged_contract: SP699-T1/T2
-  gh699_unaccepted_head: 6c5e1361993ca589cc20736ca3245d887dacfd75
-  refresh_required_before_implementation: true
-verification_owner:
-  deterministic_gates: SP700-T13 verification owner
-  independent_review: read-only reviewer on exact head
-  security_review: human SEC-11 reviewer
-stop_conditions:
-  - any H-001–H-006 product choice is unapproved
-  - GH699 actual launchers or no-clone forwarding evidence is absent
-  - benchmark-only detector, mock, checkout, or PATH fallback appears
-  - identity, roster, ledger, summary, reconciliation, or publication gate fails
-  - focused/broad tests, exact-head required CI, independent review, review threads, or merge state fail
-lane_map:
-  SP700-T1: maintainer decision and protocol single writer
-  SP700-T2: release identity and mapped-image launcher owner
-  SP700-T3: schemas, canonicalization, roster, ledger, and publication-authority store/deployment single writer
-  SP700-T4: detector lanes plus one corpus/mapping writer and authenticated reviewers
-  SP700-T5_to_T9: one serial Rust/launcher/report owner for shared files
-  SP700-T10: release summary, reconciler, and publication client owner
-  SP700-T11: documentation generator owner
-  SP700-T12_to_T13: integration verification followed by read-only reviews
+  precedence:
+    - user_override
+    - work_surface_classifier
+    - risk_destructive_gate
+    - ambiguity_gate
+    - readiness_classifier
+    - execution_or_delegation_lane
+  work_surface:
+    decision: code_execution
+    reason: implementation changes runtime, installer identity, launchers, release workflow, schemas, and policy
+  readiness:
+    decision: plan_first
+    reason: product decisions, GH699 runtime evidence, and a current runtime snapshot remain required
+handoff:
+  mode: plan_first
+  artifacts:
+    - docs/specs/GH700/product.md
+    - docs/specs/GH700/tech.md
+    - docs/specs/GH700/tasks.md
+    - docs/specs/GH700/publication_history_contract.md
+  runtime_pinning_snapshot: null
+  verification_owner: SP700-T13 verification owner with independent exact-head and human SEC-11 review
+  stop_conditions:
+    - any H-001–H-006 product choice is unapproved
+    - required W-20 current runtime pinning snapshot has not been captured and validated
+    - GH699 actual launchers or no-clone forwarding evidence is absent
+    - benchmark-only detector, mock, checkout, or PATH fallback appears
+    - identity, roster, ledger, summary, reconciliation, or publication gate fails
+    - focused or broad tests, exact-head required CI, independent review, review threads, or merge state fail
+  lane_map:
+    sp700_t1: maintainer decision and protocol single writer
+    sp700_t2: release identity and mapped-image launcher owner
+    sp700_t3: schemas, canonicalization, roster, ledger, and publication-authority store/deployment single writer
+    sp700_t4: detector lanes plus one corpus/mapping writer and authenticated reviewers
+    sp700_t5_to_t9: one serial Rust/launcher/report owner for shared files
+    sp700_t10: release summary, reconciler, and publication client owner
+    sp700_t11: documentation generator owner
+    sp700_t12_to_t13: integration verification followed by read-only reviews
 ```
 
 - Product invariant set 与 task `Covers:` union 均为 `B-001`–`B-031`，无 orphan invariant

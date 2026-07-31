@@ -269,108 +269,15 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     顺序来自 protocol schedule。数字不得手工编辑；表格必须明确它代表哪个 release。
     publication ownership、mutation-secret、append-only history、trust/fold 与 owner-liveness
     的完整规范性 contract 位于 [publication_history_contract.md](publication_history_contract.md)；
-    该文档全部属于 B-017/B-018 acceptance surface。六种 Release mutation都只持久化唯一
-    `mutation_nonce_digest`与 opaque `mutation_nonce_capsule_id`/`broker_delivery_id`；raw
-    mutation nonce只走 authenticated secret channel，schema/goldens逐 kind拒绝 raw、可逆编码及
-    secret-bearing request/history bytes。product/tech/tasks不得复制 alias或弱化该 contract。
-    所有 generated PR及 replacement 统一使用
-    `generated_pr_planned(kind) → generated_pr_bound(kind)`，其中 `kind ∈
-    {decurrent, rollback, new_current, nonvalid_row, invalidate_current}`。planned 必须早于首次 head-ref/commit/PR
-    mutation，绑定 repo/owner_generation/kind/candidate、base ref/OID、head repo/ref、expected
-    tree/OID、patch/nonce/ruleset digest、受信 App/installation identity及 replacement chain；
-    nonce 必须进入受保护 deterministic ref/commit/check identity，不能只放可编辑 PR metadata。
-    create/bind response loss须完整分页枚举 draft/open/closed/merged/queued PR与 head ref并核对完整
-    tuple：唯一 active match在重读 latest signed frontier/fence/ruleset后 CAS bound；唯一 merged
-    match按 kind进入 receipt/rollback/marker/row恢复；closed match先 revoke再 replacement。
-    ordinary/stale zero保留 owner且不得重发 non-idempotent create；仅同一线性化快照覆盖 PR+ref
-    的 authenticated exhaustive negative receipt可证明不存在。多匹配、tuple/creator不符、
-    分页/权限不全、rate-limit/5xx/timeout或无强一致 absence API，按 kind进入
-    decurrent/rollback/marker/nonvalid-row/invalidation recovery-blocked。旧 fence late bind、reopen/ref ABA、
-    stale check/review与 ruleset bypass均由 latest-frontier merge gate拒绝。
-    `required_documentation_surfaces` 是 protocol批准的稳定闭集（至少 canonical README 与
-    配置的 locale document）；每项只绑定 `surface_id`、canonical repo-relative path、locale/
-    marker grammar、renderer logical ID/version/artifact digest 与 output schema，不绑定 mutable
-    default-ref/live blob OID。owner claim冻结的 `documentation_surface_plan_digest` 绑定
-    protocol digest、observed default ref OID，以及每个 surface 的
-    `{surface_id,path,base_blob_oid,base_blob_sha256,marker-before identity/cardinality,renderer
-    digest,expected-after blob/tree digest,patch digest}`。每个 generated plan/replacement 再绑定
-    exact current base ref/OID 与完整 tuple；gate 紧邻 mutation 重取 default ref/all blobs，任一
-    drift 撤销旧 gate并用新 slot/nonce/head、fresh render/review重规划，而不提升 protocol。
-    stable path/renderer改变才要求 protocol bump；receipt绑定 per-attempt plan/base blobs。
-    valid plan只能是：
-    `rollover_one`（CAS 证明每个 required surface恰有一个 eligible current valid row/marker，
-    且所有 surface绑定同一 current release/version/summary identity，无缺失、重复、额外 marker
-    或 locale drift；以 `generated_pr_planned(decurrent)` 创建并 bind 一次原子更新全部
-    required surfaces 的 PR node/head/base/review/queue identity。
-    required merge gate 每次按最新 signed history frontier 验证 intent 的 owner_generation、
-    committed store envelope 的 actual fence及 PR/head/base，
-    合并后在 intent 前持久化 merge SHA/前后 blob digest receipt）或
-    `genesis_zero`（CAS 证明每个 required surface均为零 marker、`publication_history` 没有历史 eligible valid
-    publication，且除本次 exact current prepared owner
-    `(repo_node_id, candidate, run_id, run_attempt, owner_generation)` 外没有 active owner；
-    current authorization fence只取 committed store envelope；history 证明
-    此前只有 non-valid/no publication；在 intent 前持久化绑定 history frontier 的
-    zero-marker receipt，绑定 surface set及各 base blob，不制造 no-op PR）或
-    `post_invalidation_zero`（每个 surface均零 marker，history证明最后一次 current-valid
-    publication 已由 terminal `invalidate_current` receipt失效；其后 suffix closed union只允许 terminal
-    non-valid publications、本次 exact current prepared owner、同 candidate且以 store-signed
-    `publication_terminal_no_publication`+exhaustive negative discovery结束的 authenticated
-    no-publication owner successor chain（takeover exact 为 `publication_owner_taken_over`），以及经独立
-    governance domain/fence/threshold验证且不改变 publication owner/phase/liveness 的 phase-neutral
-    `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}`，不得有 current restoration或其它 owner。
-    在 intent 前 append fresh `post_invalidation_zero_receipt`，绑定 current frontier、
-    invalidation-receipt digest、exact owner与所有 current surface blobs，且不制造 no-op
-    de-current PR）。仅有历史 valid而无 exact terminal invalidation及 fresh zero receipt仍 blocked。
-    任一 mixed
-    zero/one、跨 surface version/summary不一致、缺 surface或闭集外 current marker均 fail closed。
-    corpus ledger 只证明 artifact identities，
-    不参与 publication 判定。
-    其它 zero-marker 状态都 fail closed。不可逆 `publish_intent` 必须绑定对应 receipt及
-    发布前已 human-approved 的 exact new-current patch/review/base digest；base/CAS 改变即
-    重审。ownership 以 fenced CAS 推进 `valid_zero_marker → intent_written →
-    release_committed_valid_marker_pending`；即使 worker 在 Release commit 后、状态推进前
-    消失，reconciler 也必须从既有 prepared owner + intent + public sentinel 幂等补齐状态。
-    de-current PR 未 merge 时取消先以 higher-fence CAS 进入 `valid_decurrent_pr_cancel_pending`，
-    撤销旧 fence 的 merge authorization、disable auto-merge/dequeue、关闭 exact PR、
-    compare-delete head ref并取得 server-authenticated revocation receipt，证明 PR closed/
-    unmerged、queue absent、head absent、default branch/marker 未变、ruleset 无 bypass，才可删
-    draft并 terminal；竞争中已 merge则转 `valid_rollback_pending`。pending PR rejected/closed/
-    stalled/branch-drift 但 candidate 继续时，必须先 higher-fence revoke旧 gate/queue/PR/head并
-    取得 receipt，再以新 fence/head/PR/nonce回到 planned/bound并 fresh review；original/replacement
-    不能同时获 merge authorization。任一证明失败进入 `decurrent_pr_recovery_blocked`。
-    de-current 已 merge且 intent 前取消只允许恢复 receipt 绑定旧
-    marker 的 reviewed PR。rollback/new-current PR closed、rejected、超时或 response loss时，
-    当前 generation可在重取 lease/current fence后恢复同 candidate、同 exact patch 的
-    human-reviewed replacement；worker/owner消失本身不授权 supersede。任何 new-generation
-    reconciler/scheduled-audit takeover都必须等 latest claim/heartbeat committed-envelope 的
-    store-auth `lease_expires_at`，再以 higher-fence exact-frontier CAS接管；无获批 replacement 则 attest 对应
-    `rollback_recovery_blocked`/`marker_recovery_blocked`，active owner 继续阻断后续
-    publication。只有 exact rollback 完成并删除 draft，或 exact new-current merge 后，
-    ownership 才 terminal；所有 receipt、fenced transition 与 terminal record 均保留在
-    `publication_history`，不能因 owner terminal 而删除。
-    `publish_nonvalid` 也必须从 prepared owner 先 CAS 至 `intent_written`，且只有该状态可
-    推进 `release_committed_nonvalid_row_pending`；它不改 current marker，只能合并同 summary 的
-    human-reviewed unmarked row。其 PR 的 reject/close/timeout/response-loss/crash 使用同一 higher-fence
-    replacement/review 机制；无获批 replacement 为 `nonvalid_row_recovery_blocked`，不能
-    留下无 row 的 public Release 后放行下一 candidate。exact unmarked row merge 后才 terminal。
-    已公开 current valid 被证实有缺陷时只能由 `invalidate_current` PR 原子更新全部 required
-    surfaces：移除 exact current marker、将 exact row标为 invalid并绑定获批 reason/evidence；
-    planned/bound envelope绑定 latest frontier、base/head ref+OID、reviewed commit、expected
-    head/default tree、patch、merge method/ruleset与逐 surface expected-after blobs，schema禁止
-    future merge commit OID/timestamp/server output。server确认 merge后才 append terminal
-    `invalidate_current_merged_receipt`，绑定 actual merge commit OID/PR node/method、default-ref
-    before/after OIDs、actual tree、逐 surface before/after blobs、owner/fence/frontier与 evidence。
-    merge response-loss须发现 exact merged PR/default ref并核对 actual tuple。response-loss/replacement/ABA沿用统一 generated
-    PR协议；receipt缺失/不匹配、stale frontier、单一 locale更新、出现新 current或并发 CAS失败
-    进入 `invalidation_recovery_blocked` 并保留 owner，不能以手工删 marker解锁后续 publication。
-    intent 后 exact draft 缺失/不匹配且没有 matching public Release 时只能 attest
-    `release_recovery_blocked`，active owner 保持，不得改发 block record 或放行其它 candidate。
-    `owner_claimed` 后 draft create response 丢失时仅可按 claim nonce+exact repo/tag/source 查询：
-    唯一匹配先 higher-fence bind后清理；普通零结果保持 owner并重试，只有服务端认证的全量/
-    完整分页且满足一致性边界的 negative receipt才可 terminal；若 API 不提供此证明，或遇到
-    stale zero、分页/权限裁剪、多个、不匹配、rate-limit/5xx，则进入
-    `draft_recovery_blocked`。deadline/heartbeat 不得推断“从未创建”。无 durable claim 的
-    pre-attestation interruption 必须证明零 Release mutation。
+    该文档全部属于 B-017/B-018 acceptance surface；product/tech/tasks只引用其 machine-facing
+    identifiers、secret boundary与 conformance vectors，不在调用方复制字段集合、枚举、canonical
+    bytes、alias规则或局部覆盖 fail-closed 语义。
+    generated PR、documentation surface plan、zero-marker plan、publication phase、invalidation
+    receipt与 response-loss/takeover/recovery的 exact machine由同一 contract定义。产品层只要求：
+    所有公开变更来自 exact human-reviewed plan；mutable base或 remote state变化时重新规划/复核；
+    zero-marker必须有完整可验证历史；Release与全部 required documentation surfaces最终一致；
+    proof不完整、结果歧义或不可逆状态不明时保留 owner并阻断下一 candidate，不以重发、手工改
+    marker或本地 fallback恢复。corpus ledger只证明 artifact identities，不参与 publication判定。
 18. B-018: release 报告无效、缺平台或 pipeline 中断时必须按获批的闭集
     `release_policy` 唯一分支，且不得保留前一 release 数字但换成新版本标签：
     - `block_release`：按 B-029 保存永久失败证据后阻断；不创建 GitHub Release、
