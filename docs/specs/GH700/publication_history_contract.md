@@ -201,9 +201,14 @@ staged_provenance_digest_or_null,evidence_identities_or_null,failure_manifest_jc
 `{candidate_identity,publication_history_operation_id,publication_history_frontier,recovered_outcome_digest,
 bound_attempt_record_digests}`。unknown kind/field、missing/extra/null-not-declared或 alias拒绝。
 
-append 在同一 `BEGIN IMMEDIATE` transaction验证 expected frontier、ledger lease/fence，并以永久 unique
-index `(repo_node_id,source_identity_key,run_id,run_attempt,attempt_record_kind)` 做 same-bytes幂等、different-
-bytes冲突；写入完整 canonical manifest bytes、record、binding/frontier/watermark后 FULL fsync，并以同一
+append 先从 closed payload 派生
+`attempt_subject_key=SHA256(JCS({v:"GH700:attempt-subject:v1",attempt_record_kind,candidate_identity_or_null,
+failure_scope_or_null,target_or_null,early_attempt_key_or_null}))`：`candidate_failure` 必须写 candidate+scope
+且 target branch 写 exact target，release branch 写 target null；`pipeline_interrupted` 与
+`publication_recovery_binding` 写 candidate 且其余 null；pre-attestation kind 只写 early-attempt key。append 在同一
+`BEGIN IMMEDIATE` transaction验证 expected frontier、ledger lease/fence，并以永久 unique index
+`(repo_node_id,source_identity_key,run_id,run_attempt,attempt_record_kind,attempt_subject_key)` 做 same-bytes幂等、
+different-bytes冲突；写入完整 canonical manifest bytes、record、binding/frontier/watermark后 FULL fsync，并以同一
 frontier CAS external anchor成功或 read-confirm exact ack后才返回 signed receipt。records/manifest
 bytes/frontiers/bindings/watermarks无 TTL、无 delete/truncate/overwrite；artifact
 retention、owner terminal、candidate publish或 schema migration均不缩短 retention。snapshot/WAL restore必须
