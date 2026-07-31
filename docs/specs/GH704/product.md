@@ -142,11 +142,16 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    canonical cwd，字段优先级闭集固定为 `cwd > params.cwd > workspace.cwd >
    workspace.current_dir`；ambient process cwd、env cwd、相邻 project 或外部 config
    都不能启用。被选字段必须是非空 absolute directory；relative（包括 `.`/`..`）、
-   payload cwd 缺失、非目录、无法 canonicalize/求 git root 时必须在首个 provider/
-   cache/metrics 动作前返回可见 `unavailable/error`，不得相对 ambient cwd 解析。
+   非目录、无法 canonicalize/求 git root 时必须在首个 provider/cache/metrics 动作前
+   返回可见 `unavailable/error`，不得相对 ambient cwd 解析。求 git root 必须清除所有
+   inherited `GIT_*` repository/config-selection variables，不能被 `GIT_DIR`/
+   `GIT_WORK_TREE` 等重定向。四个 payload cwd 字段全部缺失表示不存在合法 enable source，
+   必须直接保持 off 和 L1 输出 parity，不能读取 ambient project 或生成 L2 error。
 2. B-002: flag 为 off 时不得加载模型、启动 sidecar/service、建立网络、读取超出 L1
    所需的 source/dependency 数据或写 L2 cache/metrics；现有 L1 decision、输出和
-   latency gate 仍按原合同运行。
+   latency gate 仍按原合同运行。off/kill switch 生效时不得打开或重放既有 L2 WAL/
+   journal；pending backlog 原样冻结，只能由单独批准的 maintenance drain 处理。重新
+   enable 后先 bounded reconciliation，排空前不得启动新 L2。
 3. B-003: L1 与 L2 必须保留独立的 decision、reason、latency、error 与 evidence identity；
    最终组合 decision 只能来自获批的闭集 precedence table。L2 缺失、错误或超时不得
    被记录成 L2 pass，也不得覆盖 L1 block。
@@ -238,7 +243,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     双重 escalation 或跨 agent 污染。
 27. B-027: runtime event append、precision projection 或 audit write 失败及其间任一
     process crash 必须 fail visible；canonical event 必须先以 durable `pending`
-    状态落盘。project lock 下的 write-ahead recovery intent 必须先完整记录 bounded
+    状态落盘。project lock acquisition 本身必须纳入同一 positive deadline，使用
+    nonblocking/try-lock、bounded backoff 与可验证 owner nonce/liveness；contended、
+    abandoned、malformed lock 都不能无限等待或盲删。project lock 下的 write-ahead
+    recovery intent 必须先完整记录 bounded
     pending body/digest 与 expected journal offset 并 fsync/commit，之后才允许 append +
     fsync project journal，再以 durable `journaled` transition 完成；每个边界 crash 后
     都必须通过 expected offset + digest 在有界 I/O 内判断“补 append”或“只补 marker”，
@@ -253,8 +261,11 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     新的 GH-704 L2 pending event，直到后续 bounded pass 排空或 H-016 批准的显式人工
     repair 完成；禁止自动删除、猜测或无界 rebuild。
     L1 仍运行且既有 L1 block 保留。各 consumer 按 event/signal ID 幂等，全部成功并
-    持久化 receipt 后才可声称 GH-704 L2/新增 W-rule 的 tracked precision、Learn
-    candidate 或 block eligibility；日志失败不得删除用户数据或无界扫描恢复。
+    持久化 receipt 后，必须先写入并提交包含 finalized body/digest + expected offset 的
+    `finalize_prepared` WAL record，才可 append/fsync finalized receipt，再写 durable
+    `finalized`/`done` transitions；恢复只读该 expected offset 判定补 append 或补 marker。
+    完成前不得声称 GH-704 L2/新增 W-rule 的 tracked precision、Learn candidate 或 block
+    eligibility；日志失败不得删除用户数据或无界扫描恢复。
 28. B-028: runtime、precision tracker、session metrics 与 Learn 必须消费同一 canonical
     **project-scoped typed journal**；它是 GH-704 semantic pending/applied/finalized
     record 的唯一权威事实源。pending event、consumer receipt 与 finalized receipt 都
@@ -262,6 +273,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     或 shell free-text projection 作为第二权威源。既有 L1 dual logging 行为不变；
     GH-704 global event/status 只允许从已 finalized project record 做 idempotent derived
     projection，绑定 source event ID/finalized digest 与 durable projection receipt。
+    global projector 必须先在 bounded keyed identity index 写入含 expected global offset/
+    digest 的 durable prepared state，append/fsync 后再提交 applied state 与 project
+    projection receipt；恢复只按 exact key/offset/digest 判断，禁止扫描 global log。
     derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
     反向推断 eligibility、重写 project journal 或伪称 global view 已同步。
 29. B-029: cross-session learning 只能把合格 correction 聚合成 project-scoped、
@@ -298,10 +312,12 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 - [ ] H-001–H-020 逐项由维护者批准或改写，并以可审计 digest 进入最终 spec；没有批准
       时不创建 implementation tasks。
 - [ ] feature flag off 的 fresh fixture 证明零模型/sidecar/network/L2 state，且现有
-      L1 behavior 与 latency gates 不回归。
+      L1 behavior 与 latency gates 不回归；kill switch + pending backlog 冻结且零
+      consumer/metrics/precision/Learn write，只有显式 maintenance route 可 drain。
 - [ ] process cwd 与 absolute hook payload cwd 指向不同 project、process cwd + payload `.`
-      以及 payload cwd 缺失/relative/非法的 fixtures 证明只有 absolute payload-precedence
-      project 可以请求 opt-in，错误路径零 provider/cache/metrics。
+      以及 payload cwd 缺失/relative/非法、`GIT_DIR` + `GIT_WORK_TREE` 指向另一 opted-in
+      project 的 fixtures，证明只有 sanitized absolute payload-precedence project 可以请求
+      opt-in；cwd 全缺失保持 off/L1 parity，其它错误路径零 provider/cache/metrics。
 - [ ] invented API 与 semantic test weakening 均通过真实 Core production path 的
       positive、matched negative、unknown、malformed 和 failure fixtures；没有
       benchmark-only detector。
@@ -321,9 +337,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       reducer/orchestration、inventory 及 adapter verdict、semantic test-weakening verdict、
       runtime W-rule state machine、metrics eligibility、project config/context/event identity、
       project cache/journal recovery，以及 protocol/provider/sandbox 的所有 decision、
-      isolation、durability 分支达到 100%。独立 closed critical-file inventory 与合同测试
-      必须拒绝遗漏、未知或新增但未分类的关键模块；聚合覆盖率不能掩盖任何关键文件或
-      故障路径。
+      isolation、durability 分支达到 100% line 与 branch/condition coverage。独立 closed
+      critical-file inventory 与合同测试必须拒绝遗漏、未知或新增但未分类的关键模块；
+      聚合 line coverage 不能掩盖未执行的 conditional arm、short-circuit operand、关键
+      文件或故障路径。
 - [ ] Rust runtime、hook/manifest/workflow、eval/precision、Learn 和 latency 的 focused
       tests 及对应 broad gates fresh green。
 
