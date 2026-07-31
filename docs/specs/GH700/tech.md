@@ -455,7 +455,7 @@ lock/fsync/recovery、canonical schema、secret boundary、closed unions与 conf
    owner-liveness protocol。H-006 未获 repo release/security maintainer批准时 publication unavailable。
 2. client只调用 contract指定的 durable authority API，并按其 trust/fold、owner-free governance、
    idempotency、takeover、mutation/broker send-once、recovery与 terminal规则 fail closed；不得直接开 store、
-   建立别名或本地重定义 schema；API trust、broker credential、durable inventory、restore anchor、rotation cutover与 blocked precedence也只消费该 contract。
+   建立别名或本地重定义 schema；双 API trust、broker credential、durable inventory、DynamoDB anchor、rotation cutover与 blocked precedence也只消费该 contract。
 3. generated PR须先 planned/bound；response loss完整分页发现 PR/ref后按 authority推进。invalidation plan只绑定
    pre-merge事实，post-merge receipt才绑定 server返回事实；suffix只消费 contract的 closed union与 tagged cleanup evidence。
 4. protocol surface只绑定 stable identity；attempt plan绑定 mutable base与逐 surface proof，drift须重规划。
@@ -628,7 +628,7 @@ branch 跳过这两个 marker 动作，只添加无 marker row并保留 latest-v
 | --- | --- | --- |
 | CLI + module split | `vibeguard-runtime/src/main.rs`, planned **vibeguard-runtime/src/bench/mod.rs**, **model.rs**, **corpus.rs**, **identity.rs**, **mapping.rs**, **runner.rs**, **metrics.rs**, **latency.rs**, **render.rs**, **sandbox.rs** | `cargo test --manifest-path vibeguard-runtime/Cargo.toml bench` |
 | Handle-backed SHA-256 | `vibeguard-runtime/src/setup_support.rs`, planned **vibeguard-runtime/src/bench/identity.rs** | known binary digest + replace-during-read test; no OS shell hash command |
-| Protocol/corpus truth/mapping/ledger/reviews + publication authority | planned **data/public_benchmark/**, the eight **schemas/public_benchmark_*.schema.json** files including **schemas/public_benchmark_protocol.schema.json**, **schemas/publication_history.schema.json**, **schemas/publication_authority_deployment.schema.json**, **vibeguard-runtime/src/publication_authority/{mod.rs,store.rs,broker.rs,recovery.rs}**, `vibeguard-runtime/src/main.rs`, planned **.github/workflows/publication-authority-deploy.yml**, **scripts/ci/bootstrap_publication_authority.py**, **scripts/ci/validate_public_benchmark.py** | T3 owns SQLite/WAL backend, API trust/deploy/bootstrap/recover, no-cycle rotation, external anchor and closed state inventory; power-loss/rollback/credential/precedence goldens |
+| Protocol/corpus truth/mapping/ledger/reviews + publication authority | planned **data/public_benchmark/**, the eight **schemas/public_benchmark_*.schema.json** files including **schemas/public_benchmark_protocol.schema.json**, **schemas/publication_history.schema.json**, **schemas/publication_authority_deployment.schema.json**, **vibeguard-runtime/src/publication_authority/{mod.rs,store.rs,broker.rs,recovery.rs,restore_anchor.rs}**, `vibeguard-runtime/src/main.rs`, planned **.github/workflows/publication-authority-deploy.yml**, **.github/workflows/publication-restore-anchor-deploy.yml**, **scripts/ci/bootstrap_publication_authority.py**, **scripts/ci/bootstrap_publication_restore_anchor.py**, **scripts/ci/validate_public_benchmark.py** | T3 owns SQLite/WAL authority + DynamoDB anchor implementation/deploy/bootstrap/migrate/restore, simultaneous shared-identity client/control APIs, no-cycle rotation and closed state inventory; power-loss/CAS/rollback/credential/precedence goldens |
 | Installed release identity | planned **schemas/release_identity.schema.json**, persisted attestation bundle + signed manifest, `scripts/setup/runtime-install.sh`, `scripts/setup/install.sh`, `scripts/ci/generate_runtime_release_manifest.py` | offline trust-root/issuer/workflow/subject verification plus recomputed binary/payload/wrapper/canonical-config/baseline/all-executable digests rejects tampered receipt/assets |
 | Actual launcher | GH-699 merge 后探测真实 manifest-declared paths；GH-700 owns Homebrew/npm `bench` dispatch changes at those anchors | fresh HOME per-launcher smoke proves argv/stdin/stdout/stderr/exit forwarding to same current-exe and proves bootstrap/setup/init sentinels absent |
 | Production timed exec guard | planned **vibeguard-runtime/src/exec_guard.rs**（非 `bench/`）、`vibeguard-runtime/src/hook_orchestrator.rs`、`hooks/run-hook.sh`、`hooks/run-hook-codex.sh`、`scripts/setup/runtime-install.sh`、`scripts/setup/install.sh`、`scripts/ci/generate_runtime_release_manifest.py`、`.github/workflows/release.yml`、**schemas/release_identity.schema.json** | fresh install + ordinary non-`bench` wrapper proves same registry/policy/live guard; bench cannot activate/reconfigure; per-invocation delay remains in E2E |
@@ -673,7 +673,7 @@ planned **tests/test_public_benchmark.sh** 的最终产物断言不能只看 exi
   publish_nonvalid fixture 则最终产生同版本 non-valid report/row。
 - publication-history goldens须由 Rust/Python/shell共同消费 [publication history contract](publication_history_contract.md)
   拥有的 exact vectors，不得复制 enum/字段/canonical bytes；覆盖 no-draft、deleted-draft、rotation、
-  API trust、external-anchor rollback、blocked precedence、credential boundary正例及全部反例。
+  双 API identity/policy、DynamoDB table/SigV4/CAS/restore、blocked precedence与 credential boundary反例。
 - integration fixture另覆盖 claim/binding、genesis、rollover、pending de-current cancel及 draft/generated PR恢复。
 
 ## 数据流
@@ -715,7 +715,7 @@ benchmark execution不接收用户数据；publication网络调用只允许 mani
    content-addressed failure bundle；
 3. `block_release` 的 retention-independent predicate/ledger，内嵌完整 per-attempt
    manifest，以 `(run_id, run_attempt, failure_manifest_digest)` 检索；
-4. authority exact closed durable inventory：signed deployment/bootstrap/migration state、SQLite DB/WAL/checkpoint与全部 history/operation/rotation/slot/owner/fence indexes、append-only `publication_history`、capsule ciphertext metadata+KMS retained-key/version refs、broker outbox/delivery/send-once/completed receipts、external restore anchor/epoch+snapshot/WAL digests及 restore/recovery receipts；保存 owner/fenced transition/`recovered_publication`/terminal，缺任一项即 blocked。
+4. authority exact closed durable inventory：signed deployment/bootstrap/migration state、SQLite DB/WAL/checkpoint与全部 history/operation/rotation/slot/owner/fence indexes、append-only `publication_history`、capsule ciphertext metadata+KMS retained-key/version refs、broker outbox/delivery/send-once/completed receipts、DynamoDB external anchor immutable epochs/HEAD CAS proof+snapshot/WAL digests及 restore/recovery receipts；保存 owner/fenced transition/`recovered_publication`/terminal，缺任一项即 blocked。
 temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期 bundle 不得删除第三、
 四项，
 验证者仍能从 permanent predicate/ledger 恢复完整 manifest、通过 schema、复算 digest
