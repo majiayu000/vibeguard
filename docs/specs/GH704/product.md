@@ -138,7 +138,11 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 
 1. B-001: GH-704 在 H-001–H-020 对应决定未批准、批准证据缺失或批准 digest 与运行时
    policy 不一致时必须保持 disabled；不得由实现、环境变量、README、pack 或 provider
-   自行补默认值。
+   自行补默认值。project opt-in 的 project identity 必须只来自当前 hook payload 的
+   canonical cwd，字段优先级闭集固定为 `cwd > params.cwd > workspace.cwd >
+   workspace.current_dir`；ambient process cwd、env cwd、相邻 project 或外部 config
+   都不能启用。payload cwd 缺失、非目录、无法 canonicalize/求 git root 时必须在首个
+   provider/cache/metrics 动作前返回可见 `unavailable/error`。
 2. B-002: flag 为 off 时不得加载模型、启动 sidecar/service、建立网络、读取超出 L1
    所需的 source/dependency 数据或写 L2 cache/metrics；现有 L1 decision、输出和
    latency gate 仍按原合同运行。
@@ -170,7 +174,11 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     max、样本数、platform、model identity 与 cache state。core fixture 固定为
     `semantic-defense-core-cold-cache` / `semantic-defense-core-warm-cache`，installed
     fixture 固定为 direct/wrapper × cold/warm；core 与 installed path 不得合并计时、
-    共用结果或互相替代。未达到 H-006 或现有 hook SLA 时相关 rollout 状态不得提升。
+    共用结果或互相替代。initial 与 confirmation 两个 batch 中，**每一个** cold sample
+    都必须在计时边界外清空 exact project/session cache、重置 provider-start state 并证明
+    state 为空；每一个 warm sample 都必须在计时边界外预热 exact identity cache 并证明
+    命中前提。任一 reset/prewarm/assertion 失败必须使 runner nonzero，不能把后续样本
+    伪报为 cold/warm。未达到 H-006 或现有 hook SLA 时相关 rollout 状态不得提升。
 11. B-011: cache key 必须绑定 exact input digest、dependency inventory digest、
     detector/model/protocol/policy identity、项目 scope 与 `session_id`；source/dependency/
     model/policy/project/session 改变必须失效。仅同一 project + session 内的并发相同请求
@@ -229,15 +237,24 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     双重 escalation 或跨 agent 污染。
 27. B-027: runtime event append、precision projection 或 audit write 失败及其间任一
     process crash 必须 fail visible；canonical event 必须先以 durable `pending`
-    状态落盘，startup/next-run reconciliation 重放所有没有 finalized receipt 的 event，
-    各 consumer 按 event/signal ID 幂等，全部成功并持久化 receipt 后才可声称 GH-704
-    L2/新增 W-rule 的 tracked precision、Learn candidate 或 block eligibility。既有
-    L1 block 必须按 B-003 保留，不能因 L2 audit 失败而被撤销；日志失败也不得删除用户
-    数据或扫描 HOME 恢复。
+    状态落盘。reconciliation 只能通过 project-scoped durable pending index，按 oldest
+    first 在 H-006/H-007 批准且 policy-bound 的正整数 `reconcile_batch_max` 与
+    `reconcile_deadline_ms` 双重上限内重放；禁止在同步 hook 前扫描完整 journal、其它
+    project 或 HOME。缺少合法上限、index 损坏、consumer 不可用或 batch 后仍有 backlog
+    时必须显示 `reconciliation_backlog/unavailable`、pending count 与 oldest age，停止
+    provider 并停止追加新的 GH-704 L2 pending event，直到后续 bounded pass 排空；
+    L1 仍运行且既有 L1 block 保留。各 consumer 按 event/signal ID 幂等，全部成功并
+    持久化 receipt 后才可声称 GH-704 L2/新增 W-rule 的 tracked precision、Learn
+    candidate 或 block eligibility；日志失败不得删除用户数据或无界扫描恢复。
 28. B-028: runtime、precision tracker、session metrics 与 Learn 必须消费同一 canonical
-    structured rule/signal event stream；pending event、consumer receipt 与 finalized
-    receipt 都绑定同一 event/signal identity，不得同时保留 Rust structured path 与
-    shell free-text projection 两个权威事实源。
+    **project-scoped typed journal**；它是 GH-704 semantic pending/applied/finalized
+    record 的唯一权威事实源。pending event、consumer receipt 与 finalized receipt 都
+    绑定同一 event/signal identity，不得同时保留 Rust structured path、global mirror
+    或 shell free-text projection 作为第二权威源。既有 L1 dual logging 行为不变；
+    GH-704 global event/status 只允许从已 finalized project record 做 idempotent derived
+    projection，绑定 source event ID/finalized digest 与 durable projection receipt。
+    derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
+    反向推断 eligibility、重写 project journal 或伪称 global view 已同步。
 29. B-029: cross-session learning 只能把合格 correction 聚合成 project-scoped、
     stable、deduplicated `defense_gap` candidate，并携带原始 evidence digest、recurrence
     counts、time window、privacy class 与建议 action；显示 candidate 本身只读。
@@ -260,7 +277,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 35. B-035: human、JSON、status/doctor、event log、precision 与 Learn 输出必须对同一
     run 使用同一状态和 identities，并区分 `off/unavailable/error/unknown/advisory/
     block/pass`。无数据为空值；不得隐藏 L2 error、raw source、secret、完整 HOME path
-    或未脱敏 model output。
+    或未脱敏 model output。per-run 输出必须从 canonical project finalized record
+    渲染；global/aggregate view 若尚未投影同一 finalized digest，必须显示
+    `projection_lag` 和空数据，不能沿用旧 mirror 结果。
 36. B-036: 正常、失败、timeout 与 interruption 都必须清理 GH-704 自建的 bounded
     temporary state；取消后停止新 inference，保留最小 structured audit，返回与 H-007
     一致的非伪造状态。rollback/kill switch 后纯 L1 路径与其原有验证必须恢复。
@@ -271,6 +290,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       时不创建 implementation tasks。
 - [ ] feature flag off 的 fresh fixture 证明零模型/sidecar/network/L2 state，且现有
       L1 behavior 与 latency gates 不回归。
+- [ ] process cwd 与 hook payload cwd 指向不同 project、payload cwd 缺失/非法的 fixtures
+      证明只有 payload canonical project 可以请求 opt-in，错误路径零 provider/cache/metrics。
 - [ ] invented API 与 semantic test weakening 均通过真实 Core production path 的
       positive、matched negative、unknown、malformed 和 failure fixtures；没有
       benchmark-only detector。
@@ -279,7 +300,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 - [ ] 每个获批 detector/model/policy identity 提供独立、fresh latency 与 precision/
       recall 证据；任何 block rollout 通过 B-019 的全部 gate。
 - [ ] canonical structured `rule_id/signal_id/evidence_digest` 从 runtime 唯一投影到
-      precision、metrics 和 Learn，free-text 解析不再是权威路径。
+      precision、metrics 和 Learn；project journal 是唯一权威，bounded reconciliation
+      对超大/失败 backlog 停止新 L2 增长，global projection failure 可见且重放收敛，
+      free-text/global mirror 不再是权威路径。
 - [ ] cross-session correction 只产生 read-only `defense_gap` candidate；adopt/verify/
       regressed 仍需现有 Learn 人工门。
 - [ ] GH-700/GH-702 contract tests 证明只消费已合并 Core capability/mapping，未批准的
