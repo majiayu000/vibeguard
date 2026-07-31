@@ -164,11 +164,13 @@ role 与 overlap；不同自报 ID 但同一 key/subject 仍视为同一人，di
 production mapping、protocol 的 SHA-256。`corpus_ledger.json` append-only 记录它们的
 version→digest tuple。release validator 从上一已发布 benchmark release 的
 verified-provenance attestation 获取 `(ledger_length, ledger_root, full_prefix_digest)`，
-再按 permanent store 顺序消费其后同 repo/source-lineage 的 blocked-attempt predicates
-携带的 ledger identities；每项必须以当前 trusted frontier 为 prefix，最长已验证 frontier
-才是本次比较 anchor。验证 repo、issuer/workflow、tag/source lineage 与 attestation
-subject 后逐条比较受信 prefix：已有 version 的 digest 变化、历史项删除/重排、旧 version
-复用或 ledger 未覆盖 embedded inputs 都失败。trust anchor 不得来自当前 checkout；
+再按 repository-global monotonic sequence 消费该 repo 其后全部 blocked-attempt
+predicates 携带的 ledger identities；source/candidate 只作 provenance，不能过滤 frontier。
+每次 blocked append 与 publish validation 都在同一 `repository_ledger_lease` 内分配/核对
+无间隙 sequence；每项必须以当前 frontier 为 prefix，最长已验证 frontier 才是 anchor。
+验证 repo、issuer/workflow 与 attestation subject 后逐条比较：已有 version digest 变化、
+历史项删除/重排、旧 version 复用、fork/gap 或 ledger 未覆盖 embedded inputs 都失败。
+trust anchor 不得来自当前 checkout；
 published/blocked anchor 找不到、永久 store 取不到、顺序冲突或验不过时 official build
 fail closed。首个 official release 必须消费维护者明确批准并 attest 的 genesis root。新
 release 复用完全相同 tuple 合法；任何内容变化都必须 append 新 version tuple，并把新
@@ -204,10 +206,13 @@ mapping 不复制 identity。需要 Bash/Python 或 `git` 等其它 external
 executable 的 executor，只能从 readonly snapshot 中启动 preflight 已验证的精确
 path/handle；脚本需要 PATH 解析时只提供由这些已验证 assets 构成的 minimal PATH。禁止
 `Command::new("bash")`、`Command::new("python")`、`Command::new("git")`、`/usr/bin/env`
-或 ambient PATH lookup。实现可以把 subprocess 改为进程内 library，但 static inventory +
-受控 child-exec audit 必须证明实际执行闭集与 mapping 相等。所有实际 executable
-size/SHA-256/version identities 与四个 limits 进入 report provenance；缺失、不匹配或
-出现 undeclared child exec 时不得启动 case。
+或 ambient PATH lookup。实现可以把 subprocess 改为进程内 library；static inventory 与
+child-exec audit 仅作预检，不能证明分支后续不会 exec。每个 case/sample 的完整 descendant
+tree 必须由 manifest/protocol 钉住的 OS-authoritative deny-by-default exec broker 监管：
+每次 image 启动前以 resolved handle/digest 匹配 registry logical ID，闭包外 identity 在
+执行前拒绝。所有 broker decisions、实际 executable identities 与四个 limits 进入 report
+provenance；backend 无 pre-exec deny、失联/race 或 undeclared exec 均 fail closed，无合规
+backend 的 target 在零 case/sample 前 `unavailable`。
 
 `dangerous_shell_or_git` fixture 只作为 hook stdin 分类，绝不执行 payload 中的 command。
 file/project fixtures 先在专用 temp root materialize 合成文件，再通过 installed
@@ -348,8 +353,11 @@ dispatcher。对每个 production surface：
   引用 `production_asset_registry` 中 no-op workload logical ID；executable identity 与
   exec/argv contract 只来自该 registry entry，protocol 另行绑定 stdin/env、
   warmup/measurement counts、完整 interleaving、spawn-to-complete 单调时钟边界、
-  integer-ns raw samples、estimator ID、`threshold_ns` 与 inclusive comparison
-  `baseline_stat_ns <= threshold_ns`；runner 默认 workload/host PATH 不得参与；
+  integer-ns raw samples、闭集 estimator `{id: nearest_rank_p95_v1, percentile: 95}`、
+  `threshold_ns` 与 inclusive comparison。去除 warmup 后将 n 个 measurement samples
+  升序排列，唯一计算 zero-based
+  `baseline_stat_ns = samples[ceil(95*n/100)-1]`（无插值），再判断
+  `baseline_stat_ns <= threshold_ns`；runner 默认 estimator/workload/host PATH 不得参与；
 - ordered case IDs、每个 ID 的 warmup/measurement repetition 与完整 interleaving 顺序从
   已审核、embedded protocol 读取；每个 ID 存在且 counts 均须正整数，runner 不得采样、
   重排或选择最快 fixture；
@@ -363,7 +371,7 @@ dispatcher。对每个 production surface：
   materialization/report render；
 - 输出 schedule/state/estimator identity、P50/P95/P99/max、runs、platform、
   runtime/payload identity 和 baseline；
-- environment baseline workload/schedule/estimator/threshold、executor timeout/
+- environment baseline workload/schedule/`nearest_rank_p95_v1`/threshold、executor timeout/
   termination grace/stdout cap/stderr cap 与全部 external executable identity 沿用已发布
   protocol 字段，不从用户环境、PATH 或 README 读取。goldens 至少覆盖 threshold-1、
   threshold、threshold+1，证明阈值本身通过、上界 +1 失败，并覆盖 baseline sample/count/
@@ -440,17 +448,17 @@ publication 使用 attempt-scoped two-phase draft：
 
 1. phase A 创建 run/attempt-bound **private draft Release**，上传全部 assets/checksums/
    reports/summary，逐项下载重验并证明无缺失/额外 asset；README current row 尚不创建；
-2. 在 candidate lease 内重验 reconciliation watermark 与 draft inventory，写不可覆盖
-   `publish_intent` attestation，绑定 draft ID、tag/source、完整 asset digests、
-   `summary_digest`、selected policy 与 desired final state；
-3. 唯一 commit point 是把该已准备 draft 切换为 published。commit 前 cancellation 由
-   reconciler 删除 draft并写 interruption record；intent 后但 commit 前 cancellation 由
-   reconciler 按 intent 幂等完成同一 draft；commit 后只验证 public Release 与 intent
-   byte-for-byte 对齐。因为所有 assets 在 intent 前已封闭，公开 partial-assets 状态不合法；
-4. desired final state 为 `valid` 时，commit 前先合并只移除旧 current 标识的
-   human-reviewed PR，并重验 default-branch blob digest/current-marker count 为零；commit
-   后再由独立 PR 添加新 row/current marker，停滞时保持 zero-marker gap；
-5. desired final state 为 `publish_nonvalid` 时不运行步骤 4 的 marker mutation；commit 后
+2. desired final state 为 `valid` 时，在任何 `publish_intent` 前先合并只移除旧 current
+   标识的 human-reviewed PR，重验 default-branch blob digest/current-marker count 为零，
+   并永久 append 绑定 PR merge SHA、前后 blob digest 的 `marker_transition_receipt`；
+   `publish_nonvalid` 跳过 marker transition，receipt 显式 null；
+3. 在 candidate lease 内重验 watermark、draft inventory 与 receipt，才写不可覆盖
+   `publish_intent`，绑定 draft/tag/source/assets/summary/policy/final state/receipt；
+4. 唯一 commit point 是把 draft 切为 published。transition 前取消删除 draft；valid
+   transition 后、intent 前取消必须按 receipt 创建精确恢复旧 marker 的 PR，待 human
+   review/merge 与 freshness 验证后才删 draft；intent 后取消则按 intent 幂等完成同一
+   draft。commit 后只验证 public Release 与 intent byte-for-byte 对齐；
+5. valid commit 后由独立 PR 添加新 row/current marker；`publish_nonvalid` commit 后
    PR 只添加永不带 current 的 non-valid row，既有 latest-valid current marker保持不变。
    两个分支的重试都只复用同一 intent/draft identity，不创建第二个 release。
 
@@ -505,15 +513,18 @@ candidate 不创建 GitHub Release、release page/assets 或 README candidate cu
 hard-cancel、runner loss、job/workflow timeout 不能依赖上述 wrapper 继续运行。另设
 completion reconciler，由 release workflow 的终态事件触发。其 source 只读、attestation
 store 可追加，并通过 protected environment 取得 narrowly scoped `contents: write`；
-该权限只允许对 staged identity 精确绑定的 private draft 执行删除，或在已验签
-`publish_intent` 后完成/验证同一 draft，不得创建或改写其他 tag/release。reconciler 优先用
+该权限只允许删除尚无 marker transition 的精确 private draft、在已验签
+`publish_intent` 后完成/验证同一 draft，或按 `marker_transition_receipt` 创建精确恢复旧
+marker 的 PR 并等待 human review/merge；不得直接写 default branch或改写其它 release。
+reconciler 优先用
 `(repo, workflow_id, candidate tag/source commit, run_id, run_attempt)` 查询预发布阶段已
 attested 的 staged identity。若结论为 cancelled/timed_out/failure 且
 normal-path attempt record 不存在，reconciler 生成 failure-manifest schema 的
 `pipeline_interrupted` 分支：report/evidence/checksum identity 为显式 null，
 `missing_evidence` 为闭集，保留 staged provenance、selected/effective policy、
-interruption conclusion/stage 与 publication phase。phase A 无 intent 时必须删除 private
-draft并证明 public Release/page/assets/README row 均未发生；已有 publish_intent 时转为
+interruption conclusion/stage 与 publication phase。phase A 无 intent/receipt 时删除
+private draft；有 receipt 无 intent 时先恢复并 freshness 验证旧 marker，再删 draft；
+已有 publish_intent 时转为
 恢复路径，完成或验证唯一 committed Release，而不是伪报 sentinels absent。它按
 `jcs-rfc8785-v1` 计算 attempt-bound digest并把完整 manifest
 attest/append 到相同永久 store。重复终态 delivery 对相同 bytes 幂等；相同 identity
@@ -524,27 +535,29 @@ reconciler 自身失败必须由 scheduled audit 重试并保持 candidate 未�
 若 staged identity 尚未 attested，reconciler 进入独立闭集
 `pipeline_interrupted_pre_attestation` 分支。它只消费受信的 `workflow_run` 终态事件并
 使用 Actions API 按 server-side run ID 复验
-`(repo_node_id, workflow_id, run_id, run_attempt, head_sha, event, conclusion)`；candidate
-tag、policy、staged provenance 与 evidence identities 全部显式 null。canonical JCS
-分别派生 `source_lineage_key = sha256(repo_node_id, workflow_id, head_sha)` 与无碰撞
-`early_attempt_key = sha256(source_lineage_key, run_id, run_attempt, event)`；tuple 不同却
-digest 相同一律冲突报警。终态事件先路由并持有 source-lineage lease，再永久 append
-early record；不得信任 workflow input/artifact/free text。event/API 不可验证时 audit
-fail closed 重试，不能从 watermark 删除该 run。
+`(repo_node_id, workflow_id, run_id, run_attempt, head_sha, server_ref_type,
+server_ref_name, event, conclusion)`；server ref 还须与对应 branch/tag ref API 对齐，不能
+从 workflow input 猜。candidate tag、policy、staged provenance 与 evidence identities
+全部显式 null。canonical JCS 派生
+`source_identity_key = sha256(repo_node_id, workflow_id, head_sha, server_ref_type,
+server_ref_name)` 与
+`early_attempt_key = sha256(source_identity_key, run_id, run_attempt, event)`；tuple 不同却
+digest 相同即冲突。终态事件持 source-identity lease 后 append；API/ref 不可验证则永久
+unbound 并 fail closed，不能从 watermark 删除或信任 workflow artifact/free text。
 
 release attempt、completion reconciler、scheduled audit 与 publish gate 共享
 serialized lease，`cancel-in-progress: false`：staged identity 存在时用 candidate key，
-否则用上述 source-lineage key。identity 后续出现时按 key digest canonical 顺序同时取得
-两把 lease，append attested early→candidate binding，并把 early record digest union 进
-candidate watermark；若原 run 永无 staged identity，后续同 authenticated source lineage
-candidate 也必须以同样步骤接管全部 unbound early records，歧义/冲突即阻断。每个新 attempt
-启动前及 publish 前在持锁状态枚举同 candidate/source lineage 的 terminal attempts，
+否则用上述 source-identity key。identity 后续出现时只在 staged candidate 的 tag/source
+与 server ref 精确匹配后，按 key digest canonical 顺序同时取得两把 lease，append
+early→candidate binding，并把 digest union 进 candidate watermark；无法证明匹配的 record
+永久 unbound，不得由同 commit 的下一个 candidate 接管。每个新 attempt 启动前及 publish
+前在持锁状态枚举同 candidate/source identity 的 terminal attempts，
 要求每个先前 failed/cancelled/timed_out attempt（含 pre-attestation interruption）都有
 唯一、内容一致的永久 record，并生成
 attested reconciliation watermark（覆盖最大 terminal run/attempt 与 record digest set）。
 存在 unreconciled attempt、run listing/permanent store 不可用、不同内容冲突或 watermark
-落后时 fail closed；reconciler 也在同一 lease 下 append 后推进 watermark，因此不可能先
-publish 再补 prior-attempt evidence。
+落后时 fail closed；reconciler 也按 canonical lock order 持 source/candidate 与
+`repository_ledger_lease`，append 后才推进 watermark，因此不能先 publish 再补 evidence。
 
 `publish_nonvalid` 则必须先发布该 candidate 的 schema-valid non-valid report/evidence，
 再创建同版本 README row：每个 non-valid axis cell 为空并显示 status、closed reason code
@@ -756,8 +769,8 @@ temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期
       history-sensitive per-case isolation、all-launcher forwarding、detector error、timeout、
       environment distortion、parallel runs、interruption、legacy schema 和 sentinels；
       E2E sample 必须按 fixed schedule 由 readonly snapshot wrapper spy 观察到。
-- [ ] Release contract: native reports/strict summary；candidate/source-lineage leases 与
-      early→candidate watermark binding 阻止 unreconciled cancellation；failure manifest
+- [ ] Release contract: native reports/strict summary；candidate/source-identity 与
+      repository-ledger leases、exact-ref early binding 阻止 unreconciled cancellation；failure manifest
       retention、required/display-only mutation、valid de-current/zero-gap/new-current 与
       publish_nonvalid preserve-current/unmarked-row 均受测试。
 - [ ] Documentation: 3×3×terminal、per-surface latency、双 locale 与 branch-aware marker

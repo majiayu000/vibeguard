@@ -176,15 +176,18 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     protocol 中按 target 引用 `production_asset_registry` 的 no-op workload logical ID；
     executable identity 与 exec/argv contract 只来自该 registry entry，protocol 另行固定
     stdin/env、warmup/measurement counts、完整 interleaving、spawn-to-complete 单调时钟边界、
-    estimator 与 inclusive threshold comparison；不能采用 runner 内建或 host PATH
-    workload。每个 warmup/measurement sample 都从
+    闭集 estimator `nearest_rank_p95_v1` 与 inclusive threshold comparison；去除 warmup 后
+    将 measurement integer-ns 升序排序，并唯一计算
+    `baseline_stat_ns = samples[ceil(95*n/100)-1]`（zero-based、无插值）；不能采用 runner
+    内建 estimator/workload 或 host PATH workload。每个 warmup/measurement sample 都从
     canonical initial state 创建新 HOME/log/history/session，warmup 不把 state 带入
     measurement。raw duration 使用整数纳秒排序，Pq 固定取
     `ceil(q*n/100)-1` 的 zero-based sample（q=50/95/99，无插值），display ms 仅由该整数
     确定性格式化。每个 surface 必须独立公开 schedule/state/estimator identity、正整数
     warmup、runs、P50/P95/P99/max、样本数和 OS/arch。
-12. B-012: latency 运行必须先测量并公开环境基线。baseline 的 raw integer-ns samples、
-    schedule/estimator/workload identities 与比较结果必须进入 report provenance；
+12. B-012: latency 运行必须先测量并公开环境基线。baseline 的 raw integer-ns measurement
+    samples、`nearest_rank_p95_v1` identity、schedule/workload identities、
+    `baseline_stat_ns` 与比较结果必须进入 report provenance；
     `baseline_stat_ns <= threshold_ns` 才通过，阈值本身通过。时钟不可用、样本执行错误、
     run 数非正、环境基线超过已发布协议阈值，或分位数/样本数不自洽时，latency 轴为
     `inconclusive` 且 headline latency 留空；效果轴只有在其自身满足 B-008/B-009 时才可
@@ -233,9 +236,11 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     interception 口径与 rate、false-positive rate、状态及报告链接；latency 不允许静默
     reduction，每个 production surface 必须有独立 P95/status 列（或独立子行），列集合与
     顺序来自 protocol schedule。数字不得手工编辑；表格必须明确它代表哪个 release。
-    只有 top-level `valid` publication 才在 commit 前合并一个仅移除旧 row
+    只有 top-level `valid` publication 才在不可逆 `publish_intent` 前合并一个仅移除旧 row
     `current valid benchmark` 标识的 human-reviewed marker PR，并由 publish gate 对
-    default-branch blob digest 与“没有 current marker”做 freshness 重验；commit 后再以
+    default-branch blob digest 与“没有 current marker”做 freshness 重验，永久记录绑定
+    PR merge SHA、前后 blob digest 的 `marker_transition_receipt`，然后才允许 intent 绑定
+    该 receipt；commit 后再以
     独立 human-reviewed PR 添加新 row/current marker。该 PR 停滞或拒绝期间允许没有 current
     marker，但绝不允许旧版本继续显示为 current。`publish_nonvalid` 不进入去旧/current
     创建状态机：其新 row 永不带 current marker，已有 latest-valid row 可继续标
@@ -257,13 +262,18 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     hard-cancel、runner loss 或 timeout 由独立 completion reconciler 在 workflow 终态后
     按同一 candidate/run/attempt 身份补写 interruption record。它除只读 source 与
     attestation 写权限外，只能取得 environment-protected、attempt-bound 的 Release
-    mutation 权限：仅可删除无 intent 的对应 private draft，或按已验签
-    `publish_intent` 完成/验证同一 draft；不得创建或改写其他 tag/release。两条路径都必须
+    mutation 权限：仅可删除未进入 marker transition 的无 intent draft、按已验签
+    `publish_intent` 完成/验证同一 draft，或在“marker 已去除但 intent 未写”时按
+    `marker_transition_receipt` 创建精确恢复旧 marker 的 PR 并等待 human review/merge；
+    不得直接写 default branch，也不得创建或改写其他 tag/release。各路径都必须
     先证明 publish sentinels 未发生，且不能依赖已终止 job 继续执行。
     发布路径必须使用 attempt-scoped draft two-phase commit：所有 assets/checksums/summary
-    先上传到非公开 draft 并完整重验；持 candidate lease、watermark current 后写不可变
-    `publish_intent` attestation，最后以唯一 draft→published 状态切换作为 commit point。
-    commit 前取消由 reconciler 删除 draft并记录 interruption；intent 后取消由 reconciler
+    先上传到非公开 draft 并完整重验；valid 分支持 candidate lease、watermark current 时
+    先完成并重验上述 marker transition/receipt，再写不可变 `publish_intent` attestation；
+    最后以唯一 draft→published 状态切换作为 commit point。marker transition 前取消由
+    reconciler 删除 draft并记录 interruption；marker transition 后、intent 前取消必须先
+    通过 human-reviewed rollback PR 恢复 receipt 绑定的旧 marker，恢复后才删除 draft；
+    intent 后取消由 reconciler
     幂等完成/验证同一已准备 draft；commit 后只允许验证该 intent 绑定的完整 public release，
     不存在公开 partial-assets 合法状态。
 19. B-019: 官方 report schema 与 corpus schema 的不兼容变更必须提升各自 schema
@@ -377,9 +387,11 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     mapping_version/digest, protocol_version/digest)`。同一个已记录或已发布的
     corpus version 对应不同任一 digest 时，build/release 都必须失败；删除、重排历史
     identity 或复用旧 version 同样失败。validator 的 trusted frontier 必须从“上一已发布
-    benchmark release”的 attested ledger root/length/full-prefix identity 开始，再按顺序
-    消费其后所有同 repo/source-lineage、permanent blocked-attempt records 中 attested 的
-    ledger root/length/full-prefix identity；每个新 identity 必须以前一个 frontier 为
+    benchmark release”的 attested ledger root/length/full-prefix identity 开始，再按
+    repository-global monotonic sequence 消费该 repo 其后所有 permanent blocked-attempt
+    records 中 attested 的 ledger root/length/full-prefix identity；source/candidate 只作
+    provenance，绝不得过滤 frontier。每次 blocked append 与 publish validation 必须持同一
+    repository ledger lease；每个新 identity 必须以前一个 frontier 为
     prefix，最终以最长已验证 frontier 约束当前 checkout。blocked candidate 已记录的 suffix
     因而不可在 retry 中重写；相同 tuple 可复用，内容变化必须 append 新 version。所有 trust
     anchors 必须经 verified-provenance 验证，不能来自当前 checkout。首个 official
@@ -432,18 +444,19 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     已有不同内容必须冲突失败。若 normal path record 已存在则只验证不覆盖。若终止发生在
     staged identity 首次 attestation 之前，reconciler 必须改用闭集
     `pipeline_interrupted_pre_attestation` 分支：只从受信的 `workflow_run` 终态事件与
-    Actions API 复验得到 `(repo, workflow_id, run_id, run_attempt, head_sha, event,
-    conclusion)`，把 candidate tag、policy、staged provenance 和 evidence identities
-    显式置 null，并列出 closed missing fields/stage。canonical JCS tuple 必须派生
-    source-lineage key 与包含 run/attempt 的无碰撞 early-attempt key；终态事件在
-    source-lineage lease 下路由/永久记录。后续 staged candidate 出现时必须按 canonical
-    key 顺序同时持有 early/candidate leases，append attested binding 并把 early digest
-    union 进 candidate watermark；原 run 永无 staged identity 时，同 authenticated source
-    lineage 的后续 candidate 也必须接管全部 unbound early records。tuple/digest 冲突或
-    归属歧义均 fail closed；不得读取 workflow 自由文本或跳过该 attempt。
-    所有 release attempts、reconciler 与 publish gate 必须共享 candidate/source-lineage
-    路由的 serialized lease（禁止 cancel-in-progress）和合并后的 attested reconciliation
-    watermark；新 attempt 与 publish 在持锁状态下必须枚举同 candidate/source lineage 的
+    Actions API 复验得到 `(repo, workflow_id, run_id, run_attempt, head_sha,
+    server_ref_type, server_ref_name, event, conclusion)`；ref 必须再与对应 branch/tag ref
+    API 对齐，不能从 workflow input 猜。candidate tag、policy、staged provenance 和
+    evidence identities 显式置 null，并列出 closed missing fields/stage。canonical JCS
+    tuple 派生含 server ref 的 source-identity key 与包含 run/attempt 的无碰撞
+    early-attempt key；终态事件在该 source lease 下路由/永久记录。后续只可绑定给
+    tag/source 与 server ref 精确匹配的 staged candidate，并按 canonical key 顺序同时
+    持有 early/candidate leases 后 union 进 watermark；无法证明精确匹配的 record 永久
+    保持 unbound，不得由“同 commit 的下一个 candidate”接管。tuple/digest 冲突或归属歧义
+    均 fail closed；不得读取 workflow 自由文本或跳过该 attempt。
+    所有 release attempts、reconciler 与 publish gate 必须共享 candidate/source-identity
+    路由的 serialized lease（禁止 cancel-in-progress）、repository ledger lease和合并后的 attested reconciliation
+    watermark；新 attempt 与 publish 在持锁状态下必须枚举同 candidate/source identity 的
     全部既有 terminal attempts，并证明每个
     failed/cancelled/timed_out attempt（包括 pre-attestation interruption）都已有唯一永久
     record。存在未 reconciled attempt、
@@ -459,9 +472,13 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     计时区间必须从该 snapshot 启动真实 wrapper 子进程。缺文件、布局差异、可写状态或
     digest drift 使对应 axis 在零 timed sample 时 `unavailable`；身份通道关闭后
     case/warmup/measurement 不得再读真实 HOME，任何阶段都不得写真实 HOME 或使用
-    checkout/mock/ambient-PATH fallback。preflight 必须用 static inventory 加受控
-    child-exec audit 证明没有 undeclared executable；发现未声明 exec 时在零 case/timed
-    sample 前 `unavailable`。
+    checkout/mock/ambient-PATH fallback。preflight static inventory 与 child-exec audit
+    只能发现明显漂移，不能充当运行时证明。每个 case/sample 的完整 process tree 必须置于
+    protocol/manifest 绑定的、OS-authoritative deny-by-default exec broker 下；broker 在
+    每次 descendant image 启动前把 resolved handle/digest 映射到 registry logical ID，
+    只有闭包内 identity 才放行。任何 backend 不支持 pre-exec deny、broker 失联、分支
+    延迟触发 undeclared executable 或 identity race 均在 image 执行前拒绝并使 official
+    axis fail closed；无合规 backend 的 target 在零 case/timed sample 前 `unavailable`。
 31. B-031: approved、versioned/digested protocol 必须携带非空、去重、canonical 排序的
     `required_platforms`，且每项属于 release target 闭集。release summary 只聚合该 set：
     每个 required target 都必须由对应 native runner 产生 schema/provenance-valid report，
@@ -505,9 +522,10 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
 - [ ] release CI 用准确 staged artifacts 重新生成不可变报告；可恢复阻断在退出前、hard
       cancel/runner loss 由 environment-protected completion reconciler，把 target 或
       release-scoped attempt manifest 永久内嵌到不可覆盖 attestation/ledger；它的
-      Release 写权限仅能删除无 intent 的对应 private draft，或按验签 intent 完成同一
-      draft，不能改写其他 release/current row；candidate/source-lineage 双路由 lease +
-      merged reconciliation watermark 阻止任何 unreconciled prior attempt 后的
+      Release 写权限仅能删除 transition 前的 private draft、按验签 intent 完成同一 draft，
+      或按 receipt 创建 human-reviewed marker rollback PR；不能直接写 default branch或改写
+      其他 release；candidate/source-identity 双路由 lease +
+      repository-global ledger lease + merged reconciliation watermark 阻止任何 prior attempt 后的
       rerun/publish；publish_nonvalid 只发布无 current 的同版本 row并保留 latest-valid marker。
 - [ ] unavailable/inconclusive/interrupted/legacy-schema 及 process-tree/report/schema/
       cleanup terminal errors 均非零退出、blank headline，且不会把历史数字冒充当前 release。
