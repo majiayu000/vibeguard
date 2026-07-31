@@ -470,6 +470,19 @@ child=$!
 printf '%s %s\\n' "$$" "${child}" > "${ready}"
 wait "${child}"
 """
+elif kind == "ignore-signal":
+    setup = b"""#!/usr/bin/env bash
+set -euo pipefail
+ready="${VIBEGUARD_TEST_SETUP_READY:?}"
+trap '' INT TERM HUP
+(
+  trap '' INT TERM HUP
+  while :; do sleep 1; done
+) &
+child=$!
+printf '%s %s\\n' "$$" "${child}" > "${ready}"
+wait "${child}"
+"""
 elif kind == "foreign-owner":
     setup = b"""#!/usr/bin/env bash
 set -euo pipefail

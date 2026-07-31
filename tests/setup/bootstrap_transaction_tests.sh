@@ -171,6 +171,65 @@ os.execvpe("bash", ["bash", *sys.argv[1:]], os.environ)' \
     "${signal_home}/.vibeguard/dist"
 done
 
+ignore_signal_release="${TMP_HOME}/bootstrap-release-ignore-signal"
+ignore_signal_home="${TMP_HOME}/bootstrap-ignore-signal-home"
+ignore_signal_ready="${TMP_HOME}/bootstrap-ignore-signal.ready"
+ignore_signal_out="${TMP_HOME}/bootstrap-ignore-signal.out"
+make_hostile_bootstrap_release "${ignore_signal_release}" ignore-signal
+mkdir -p "${ignore_signal_home}"
+ignore_signal_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${ignore_signal_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${ignore_signal_release}" \
+  VIBEGUARD_TEST_SETUP_READY="${ignore_signal_ready}" \
+  python3 - "${BOOTSTRAP}" "${BOOTSTRAP_VERSION}" "${ignore_signal_out}" <<'PY' \
+  || ignore_signal_rc=$?
+import os
+import signal
+import sys
+import time
+
+bootstrap, version, output_path = sys.argv[1:]
+pid = os.fork()
+if pid == 0:
+    os.execvpe("bash", ["bash", bootstrap, "--version", version, "--", "--yes"], os.environ)
+deadline = time.monotonic() + 5
+while time.monotonic() < deadline:
+    if os.path.exists(os.environ["VIBEGUARD_TEST_SETUP_READY"]):
+        break
+    time.sleep(0.02)
+if not os.path.exists(os.environ["VIBEGUARD_TEST_SETUP_READY"]):
+    os.kill(pid, signal.SIGKILL)
+    os.waitpid(pid, 0)
+    raise SystemExit(1)
+with open(os.environ["VIBEGUARD_TEST_SETUP_READY"], encoding="utf-8") as ready_file:
+    setup_leader_pid = int(ready_file.read().split()[0])
+os.kill(pid, signal.SIGTERM)
+deadline = time.monotonic() + 5
+status = None
+while time.monotonic() < deadline:
+    waited, candidate = os.waitpid(pid, os.WNOHANG)
+    if waited == pid:
+        status = candidate
+        break
+    time.sleep(0.02)
+if status is None:
+    os.killpg(os.getpgid(setup_leader_pid), signal.SIGKILL)
+    os.kill(pid, signal.SIGKILL)
+    os.waitpid(pid, 0)
+    raise SystemExit(1)
+with open(output_path, "wb") as output:
+    output.write(b"")
+if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 143:
+    raise SystemExit(1)
+PY
+assert_cmd "TERM cancellation escalates when setup ignores signals" \
+  test "${ignore_signal_rc}" -eq 0
+assert_cmd "escalated cancellation releases the setup lease" bash -c \
+  'test ! -e "$1" && test -z "$(find "$2" -maxdepth 1 -name ".bootstrap.lock.lease.*" -print -quit)"' _ \
+  "${ignore_signal_home}/.vibeguard/dist/.bootstrap.lock" \
+  "${ignore_signal_home}/.vibeguard/dist"
+
 orphan_setup_home="${TMP_HOME}/bootstrap-orphan-setup-home"
 orphan_setup_ready="${TMP_HOME}/bootstrap-orphan-setup.ready"
 orphan_setup_fifo="${TMP_HOME}/bootstrap-orphan-setup.fifo"

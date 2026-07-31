@@ -220,11 +220,47 @@ bootstrap_setup_tty_is_foreground() {
        END { exit !(!bad && ok) }' <<< "${terminal_state}"
 }
 
+bootstrap_setup_group_signal() {
+  local signal="$1" leader_pid="$2" pgid="${3:-}"
+  if [[ -n "${pgid}" ]]; then
+    kill -s "${signal}" -- "-${pgid}" 2>/dev/null \
+      || kill -s "${signal}" "${leader_pid}" 2>/dev/null || true
+    kill -s CONT -- "-${pgid}" 2>/dev/null || true
+  else
+    kill -s "${signal}" "${leader_pid}" 2>/dev/null || true
+  fi
+}
+
+bootstrap_wait_for_setup_group() {
+  local leader_pid="$1" pgid="${2:-}" attempts="${3:-50}" attempt
+  for ((attempt = 0; attempt < attempts; attempt += 1)); do
+    if [[ -n "${pgid}" ]]; then
+      bootstrap_process_group_liveness "${pgid}"
+      if [[ "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" == "dead" ]]; then
+        wait "${leader_pid}" 2>/dev/null || true
+        return 0
+      fi
+    elif ! kill -0 "${leader_pid}" 2>/dev/null; then
+      wait "${leader_pid}" 2>/dev/null || true
+      return 0
+    fi
+    sleep 0.02
+  done
+  return 1
+}
+
 bootstrap_setup_group_terminate() {
   local leader_pid="$1" pgid="$2"
-  kill -s TERM -- "-${pgid}" 2>/dev/null || kill -s TERM "${leader_pid}" 2>/dev/null || true
-  kill -s CONT -- "-${pgid}" 2>/dev/null || true
-  wait "${leader_pid}" 2>/dev/null || true
+  bootstrap_setup_group_signal TERM "${leader_pid}" "${pgid}"
+  if bootstrap_wait_for_setup_group "${leader_pid}" "${pgid}"; then
+    return 0
+  fi
+  bootstrap_error "setup process group did not exit after TERM; escalating to KILL."
+  bootstrap_setup_group_signal KILL "${leader_pid}" "${pgid}"
+  if ! bootstrap_wait_for_setup_group "${leader_pid}" "${pgid}"; then
+    bootstrap_error "setup process group remains after KILL; preserving setup lease."
+    return 1
+  fi
 }
 
 bootstrap_cancel_setup() {
@@ -237,10 +273,21 @@ bootstrap_cancel_setup() {
   fi
   trap - INT TERM HUP
   if [[ -n "${BOOTSTRAP_SETUP_LEADER_PID:-}" && -n "${BOOTSTRAP_SETUP_PGID:-}" ]]; then
-    kill -s "${signal}" -- "-${BOOTSTRAP_SETUP_PGID}" 2>/dev/null \
-      || kill -s "${signal}" "${BOOTSTRAP_SETUP_LEADER_PID}" 2>/dev/null || true
-    kill -s CONT -- "-${BOOTSTRAP_SETUP_PGID}" 2>/dev/null || true
-    wait "${BOOTSTRAP_SETUP_LEADER_PID}" 2>/dev/null || true
+    bootstrap_setup_group_signal "${signal}" \
+      "${BOOTSTRAP_SETUP_LEADER_PID}" "${BOOTSTRAP_SETUP_PGID}"
+    if ! bootstrap_wait_for_setup_group \
+      "${BOOTSTRAP_SETUP_LEADER_PID}" "${BOOTSTRAP_SETUP_PGID}"; then
+      bootstrap_error \
+        "setup process group did not exit after ${signal}; escalating to KILL."
+      bootstrap_setup_group_signal KILL \
+        "${BOOTSTRAP_SETUP_LEADER_PID}" "${BOOTSTRAP_SETUP_PGID}"
+      if ! bootstrap_wait_for_setup_group \
+        "${BOOTSTRAP_SETUP_LEADER_PID}" "${BOOTSTRAP_SETUP_PGID}"; then
+        bootstrap_error \
+          "setup process group remains after KILL; preserving setup lease."
+        exit 73
+      fi
+    fi
   fi
   exit "${status}"
 }
@@ -281,7 +328,11 @@ bootstrap_run_setup_with_lease() {
   if ! bootstrap_process_snapshot "${leader_pid}" \
     || [[ "${BOOTSTRAP_PROCESS_PGID}" != "${leader_pid}" ]] \
     || [[ "${BOOTSTRAP_PROCESS_STATE}" == Z* ]]; then
-    bootstrap_setup_group_terminate "${leader_pid}" "${leader_pid}"
+    if ! bootstrap_setup_group_terminate "${leader_pid}" "${leader_pid}"; then
+      [[ "${monitor_enabled}" == "1" ]] || set +m
+      bootstrap_error "could not terminate the unverified setup process group."
+      return 73
+    fi
     [[ "${monitor_enabled}" == "1" ]] || set +m
     bootstrap_error "could not establish an isolated setup process group."
     return 1
@@ -305,7 +356,10 @@ bootstrap_run_setup_with_lease() {
       "${BOOTSTRAP_PROCESS_IDENTITY}" \
     || ! : > "${gate_file}"; then
     bootstrap_error "could not publish the setup process-group gate."
-    bootstrap_setup_group_terminate "${leader_pid}" "${BOOTSTRAP_SETUP_PGID}"
+    if ! bootstrap_setup_group_terminate "${leader_pid}" "${BOOTSTRAP_SETUP_PGID}"; then
+      [[ "${monitor_enabled}" == "1" ]] || set +m
+      return 73
+    fi
     [[ "${monitor_enabled}" == "1" ]] || set +m
     if bootstrap_setup_lease_clear_inactive "${lease_file}" "${owner_pid}" "${nonce}"; then
       BOOTSTRAP_SETUP_LEASE_HELD=0 BOOTSTRAP_SETUP_LEASE_FILE=""
