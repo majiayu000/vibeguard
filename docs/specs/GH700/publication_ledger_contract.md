@@ -29,21 +29,28 @@ operation_request_digest,body}`；`operation_request_digest` 是删除自身后�
 | `recover_release_mutation` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipt}` |
 | `plan_generated_pr` | `{intent,append_authorization}` | `{planned_transition_receipt,generated_pr_delivery_id}` |
 | `deliver_generated_pr` | `{planned_operation_id,generated_pr_delivery_id,delivery_authorization}` | `{delivery_state,transition_receipt_or_null,send_once_audit_digest}` |
-| `recover_generated_pr` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipt}` |
+| `recover_generated_pr` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipts}` |
 | `append_blocked_attempt` | `{attempt_record,expected_attempt_subject_key,ledger_append_authorization}` | `{attempt_record_receipt,blocked_attempt_frontier_receipt}` |
 | `bind_blocked_attempt` | `{binding_intent,ledger_append_authorization}` | `{binding_record_receipt,blocked_attempt_frontier_receipt}` |
 | `list_blocked_attempts` | `{source_identity_key,candidate_identity_or_null,run_id_or_null,run_attempt_or_null,attempt_record_kind_or_null,attempt_subject_key_or_null,page_cursor_or_null,page_size}` | `{attempt_records,next_page_cursor_or_null,enumeration_snapshot_receipt}` |
 | `commit_reconciliation_watermark` | `{reconciliation_watermark,terminal_listing_proof,ledger_append_authorization}` | `{watermark_receipt,blocked_attempt_frontier_receipt}` |
 | `get_blocked_attempt_frontier` | `{}` | `{blocked_attempt_frontier_receipt}` |
 
-`time_bound_intent` exact 为 `{record_kind,publication_payload_core,predecessor_frontier}`；method与
+`time_bound_intent` exact 为 `{record_kind,client_payload_core,predecessor_frontier}`；method与
 `record_kind`只允许 `{claim_publication_owner:owner_claimed,renew_publication_owner:owner_heartbeat,
 takeover_publication_owner:publication_owner_taken_over}`。client计算
 `time_bound_request_id=SHA256(JCS({v:"GH700:time-bound-request:v1",repo_node_id,method,
-time_bound_intent}))`，authority须重算。client不得提交 nonce、`nonce_digest`、TSA request/token、trusted interval、
-accepted time、expiry或 high-water result；T3 authority从 proof-free core构造这些值及
-`trusted_time_proof_request_id`，验证 quorum并提交 high water后才返回 transition receipt。三种 method除
-claim独有的 `secret_channel_binding`外使用同一 proof-ownership boundary；extra proof field一律拒绝。
+time_bound_intent}))`，authority须在任何 nonce issuance前从 wire bytes重算。
+
+`client_payload_core`是 method-tagged closed union。claim branch即 `claim_pre_nonce_core`，exact 为
+`{owner_generation,run_id,run_attempt,candidate_tag_identity_digest,frozen_plan_digest,liveness_policy_digest,
+prior_time_high_water}`；它等于 final `owner_claimed` payload删除 authority-only `{draft_claim_nonce_digest,
+nonce_capsule_id,capsule_ciphertext_digest,kms_key_version}`及 trusted-time-produced fields。heartbeat/takeover branch
+则是 final payload只删除 trusted-time-produced fields后的 proof-free object。client不得提交上述 claim authority
+fields、trusted-time nonce/`nonce_digest`、TSA request/token、proof/interval、accepted time、expiry或 high-water
+result。T3先以 client-known core保留 special claim operation identity，再签发 draft nonce/capsule并构造
+`publication_payload_core`；之后才构造 trusted-time request/proof及 final payload。三种 method除 claim独有的
+`secret_channel_binding`外使用同一 proof-ownership boundary；unknown/extra/cross-branch field一律拒绝。
 
 success response exact 为
 `{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,
@@ -65,6 +72,15 @@ generated_pr_delivery_state}`；same ID/same plan只返原 receipt，same ID/dif
 ID作唯一 key；首次 authenticated send后任何重放只可 read-confirm，不得以新 ID再次 create。missing index、
 caller-chosen ID、plan mismatch、第二次 send或 index/outbox/audit不一致均 `operation_conflict`并保留 owner；
 `recover_generated_pr`必须从 `planned_operation_id`反查同一 index/ID，不能建立 replacement delivery identity。
+
+`recover_generated_pr.recovery_state` exact closed union为 `{bound_existing,merged_existing,not_applied,blocked}`；
+`transition_receipts`按 committed successor顺序排列且不得为空。`bound_existing`、`not_applied`、`blocked`分别要求
+exact一张 `{generated_pr_bound}`、`{generated_pr_not_applied}`、`{corresponding_pr_recovery_blocked}` receipt。
+`merged_existing`要求 exact两张 `[generated_pr_bound,generated_pr_merged]` receipts：authority在一个
+`BEGIN IMMEDIATE`/anchor unit中先从同一 authenticated merged discovery构造并持久化 bound operation，再构造
+以该 operation ID为 `bound_operation_id`的 merged operation；两个 operation/index/envelope/receipt均须永久保存。
+response loss按 `planned_operation_id`返回原 ordered receipts；single merged receipt、跳过 bound、顺序/PR identity
+不一致或只持久化其中一条均 `internal_durability_failure`且不释放 owner。
 
 ## Ledger authorization and receipts
 
@@ -202,13 +218,17 @@ bytewise排序。任一页缺失、重复、cursor/query/frontier drift或无法
 ## Terminal listing proof and reconciliation watermark
 
 `terminal_attempt_key` exact 为
-`{workflow_id,run_id,run_attempt,event,conclusion,source_identity_key,candidate_identity_or_null}`；列表按
+`{workflow_id,run_id,run_attempt,event,conclusion,source_identity_key,candidate_identity_or_null}`，其中
+`conclusion={failure,cancelled,timed_out}`；列表按
 `(workflow_id,run_id,run_attempt,event)`升序且无重复。`terminal_listing_proof` exact 为
 `{schema_version,provider,repo_node_id,source_identity_key,candidate_identity_or_null,server_query_digest,
 page_receipt_digests,terminal_attempt_keys,terminal_attempt_keys_digest}`，其中 provider exact 为
 `github_actions_server_terminal_runs_v1`；page receipt按 server page顺序保留，且
 `terminal_attempt_keys_digest=SHA256(JCS(terminal_attempt_keys))`。proof capsule必须保存全部 authenticated
-server response bytes/digests、pagination completion、permissions与 ref alignment；workflow input/artifact/free text无效。
+server response bytes/digests、pagination completion、permissions与 ref alignment。`server_query_digest`必须绑定
+server-side exact conclusion filter `{failure,cancelled,timed_out}`及完整 pagination；ordinary `success`、`skipped`、
+`neutral`或 unknown conclusion不得进入 proof/count/max/set，也不要求 failure/binding record且不阻塞后续 attempt。
+workflow input/artifact/free text或 client-side过滤均无效。
 
 `reconciliation_watermark` exact 为
 `{schema_version,repo_node_id,source_identity_key,candidate_identity_or_null,terminal_listing_proof_digest,
@@ -219,7 +239,7 @@ covered_record_set_digest,prior_watermark_digest_or_null}`。`covered_record_dig
 
 authority提交 watermark前必须：
 
-1. 验证 terminal listing proof 全分页、server-authenticated、candidate/source exact且 digest匹配；
+1. 验证 terminal listing proof 是上述三种 conclusion的全分页 server-authenticated exact集合、candidate/source exact且 digest匹配；
 2. 对每个 terminal attempt key找到恰一 permanent failure record或 exact `publication_recovery_binding`，
    record的 run tuple/terminal outcome必须一致；
 3. 证明 `covered_record_digests`与上述一一映射的完整 record set相等，而非 subset/superset；

@@ -200,11 +200,12 @@ client_auth_policy_digest}`，endpoint为无 redirect/query/fragment的 manifest
 exact `tls13_mtls_rfc3161_sha256_v1`，threshold至少二且不超过 source数。source须独立 administration/
 signing root；ambient DNS/proxy/CA、TOFU、同 root重复 signer、unknown policy/algorithm均拒绝。
 
-T10 wire client只提交 ledger contract定义的 proof-free `time_bound_intent`与可重算
-`time_bound_request_id`；T3 authority验证 method/kind/predecessor后，才为每个 time-dependent transition冻结
-`publication_payload_core`：它是该 kind 的 final payload 去掉所有
-proof-produced fields（`trusted_time_proof_digest`、trusted interval/new high water、accepted-at/expiry）后的 closed object，
-并保留 known prior high water。然后生成 fresh 256-bit nonce，`nonce_b64u` 是其32 bytes的 canonical
+T10 wire client只提交 ledger contract定义的 proof-free `time_bound_intent`（含 client-known
+`client_payload_core`）与可重算 `time_bound_request_id`。T3验证 method/kind/predecessor；对 `owner_claimed`先以
+`claim_pre_nonce_core_digest`保留 special `transition_operation_id`，再签发 draft claim nonce/capsule；对三种
+time-dependent transition均由 authority构造 `publication_payload_core`，即 final payload删除所有
+trusted-time-produced fields、保留 known prior high water，claim core另包含刚生成的四个 nonce/capsule字段。
+任何 client hash/preimage均不含 authority生成字段。然后生成 fresh 256-bit trusted-time nonce，`nonce_b64u` 是其32 bytes的 canonical
 unpadded base64url encoding，并计算
 `nonce_digest=SHA256(JCS({v:"GH700:trusted-time-nonce:v1",authority_id,repo_node_id,
 owner_generation,run_id,run_attempt,transition_slot,record_kind,nonce_b64u}))`，再计算
@@ -572,11 +573,15 @@ owner重放 suffix并从新 predecessor重规划，两个 authorization fence绝
 `(expected_length, expected_root, expected_full_prefix_digest, current_fence)` 原子 CAS，
 复算并签发 successor frontier。每次 transition 分为 immutable intent、mutable append
 authorization envelope与 store-signed committed envelope/receipt。`transition_operation_id` 是覆盖 39 kinds 的
-closed derivation：publication-domain 35 kinds exact 为
+closed derivation：`owner_claimed` exact 为
+`SHA256(JCS({v:"GH700:claim-operation-id:v1",repo_node_id,owner_generation,run_id,run_attempt,
+transition_slot,predecessor_frontier,record_kind:"owner_claimed",claim_pre_nonce_core_digest,
+time_bound_request_id}))`；该 ID在 draft nonce/capsule签发前保留，client core/request ID均不含 authority字段。
+其余 publication-domain 34 kinds exact 为
 `SHA256(JCS({v:"GH700:publication-operation-id:v1",repo_node_id,owner_generation,run_id,run_attempt,
 transition_slot,predecessor_frontier,record_kind,publication_payload_core_digest,
 trusted_time_proof_request_id_or_null}))`；non-time kind 以完整 payload 作 core 且 request ID 为 literal null，
-time-dependent kind 以上述 proof-free core/request ID 构造 operation ID，取得 proof 后才生成 final payload/payload digest/intent digest。三种 normal governance kinds exact 为
+heartbeat/takeover以上述 authority core/request ID构造 operation ID；三种 time-dependent kind都在取得 proof后才生成 final payload/payload digest/intent digest。三种 normal governance kinds exact 为
 `SHA256(JCS({v:"GH700:governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
 predecessor_frontier,rotation_cutover_certificate_digest}))`；`trust_emergency_root_cutover` exact 为
 `SHA256(JCS({v:"GH700:emergency-governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
@@ -683,7 +688,8 @@ compensation字段；`draft_deleted`不得缺任一 deletion branch字段。外�
 `exhaustive_negative_discovery_digest`仍须绑定同一线性化快照的 Release/draft/PR/current-marker
 全量发现，不能由 nested evidence替代。
 `generated_pr_planned` response loss只允许下列 closed recovery：唯一 exact active PR/ref match写
-`generated_pr_bound`；唯一 merged match写 `generated_pr_merged`；同一 authenticated exhaustive snapshot
+`generated_pr_bound`；唯一 merged match须在同一 durable/anchor unit先写 `generated_pr_bound`，再以其 operation ID
+作 `bound_operation_id`写 `generated_pr_merged`，并按 ledger contract返回/永久索引两张 ordered receipts；同一 authenticated exhaustive snapshot
 证明 PR/ref/queue均无 effect，且 broker quiescent、default unchanged时写 `generated_pr_not_applied`；其余
 ambiguous结果写对应 PR recovery-blocked record。`generated_pr_not_applied`是 terminal slot closure，不能
 rebind/reopen；继续尝试只能从 fresh transition slot、nonce、ref、review core、commit与 check identity创建
