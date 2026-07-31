@@ -22,23 +22,15 @@ trust_bundle_digest,blocked_attempt_ledger,trusted_time_service,bootstrap_govern
 restore_anchor_service,restore_backup_service,anchor_signing_policy,predicate_evaluator_roster}`；
 backend必须 exact 为 `publication_authority_sqlite_v1`。
 `predicate_evaluator_roster` exact 为 `{schema_version,signature_profile,entries}`，schema version exact
-`GH700:predicate-evaluator-roster:v1`；`signature_profile` exact 为
-`{algorithm:"ed25519",message_digest:"sha256_jcs_v1",signature_encoding:"base64url_nopad_v1",
-key_version_policy:"manifest_pinned_v1"}`。entries按 `(reason_code,predicate_id,issuer_key_id,issuer_key_version)`
-UTF-8 bytes升序、去重，每项 exact 为
+`GH700:predicate-evaluator-roster:v1`；profile exact 为 `{algorithm:"ed25519",message_digest:"sha256_jcs_v1",
+signature_encoding:"base64url_nopad_v1",key_version_policy:"manifest_pinned_v1"}`。entries按
+`(reason_code,predicate_id,issuer_key_id,issuer_key_version)` UTF-8 bytes升序去重，每项 exact 为
 `{reason_code,predicate_id,predicate_definition_digest,evaluator_identity_digest,issuer_key_id,
-issuer_key_version,public_key_spki_der_b64url,public_key_spki_sha256}`；`issuer_key_version`是非零 unsigned
-64-bit integer；`public_key_spki_der_b64url`是 RFC 5280 Ed25519 SubjectPublicKeyInfo DER bytes的 RFC 4648
-URL-safe、无 padding canonical编码，decoded bytes的 SHA-256须 byte-equal `public_key_spki_sha256`。
-两个 digest与 SPKI hash编码 canonical lowercase `sha256:<64hex>`，禁止 ambient key lookup。reason/predicate closed membership只由
-[publication_ledger_contract.md](publication_ledger_contract.md)拥有；empty/duplicate/unknown entry或
-profile drift使 authority non-ready。
-`client_api` 与 `control_api` 是同一 authority 每次启动同时绑定的两个 required objects，不是 union、
-alias或 fallback。`client_api` exact 为 `{endpoint,transport,api_version,
-server_identity_bundle_digest,client_auth_policy_digest}`：endpoint是 manifest-pinned absolute HTTPS
-origin+path且禁 redirect/userinfo/query/fragment，transport exact `tls13_mtls_http2_jcs_v1`，API version
-exact `GH700:publication-authority-client-api:v1`。`control_api` exact 为 `{socket_path,transport,
-api_version,server_process_identity_digest,peer_auth_policy_digest}`：socket是 manifest-pinned absolute
+issuer_key_version,public_key_spki_der_b64url,public_key_spki_sha256}`；key version是非零 u64，SPKI字段是 RFC 5280
+Ed25519 DER的 RFC 4648 URL-safe无 padding编码且 decoded SHA-256须 byte-equal hash，所有 digest/hash为
+lowercase `sha256:<64hex>`并禁止 ambient lookup。reason/predicate闭集只由 [publication_ledger_contract.md](publication_ledger_contract.md)拥有；empty/duplicate/unknown/profile drift使 authority non-ready。
+`client_api` 与 `control_api` 是同一 authority 每次启动同时绑定的 required objects，不是 union/alias/fallback。
+`client_api` exact 为 `{endpoint,transport,api_version,server_identity_bundle_digest,client_auth_policy_digest}`：endpoint是 manifest-pinned absolute HTTPS origin+path且禁 redirect/userinfo/query/fragment，transport exact `tls13_mtls_http2_jcs_v1`，API version exact `GH700:publication-authority-client-api:v1`。`control_api` exact 为 `{socket_path,transport,api_version,server_process_identity_digest,peer_auth_policy_digest}`：socket是 manifest-pinned absolute
 Unix path，transport exact `unix_peercred_jcs_v1`，API version exact
 `GH700:publication-authority-control-api:v1`，只开放 bootstrap/migrate/recover/ready 方法且永不监听网络。
 两个 API 的每个 request/response/startup receipt都必须绑定相同 top-level `authority_id`、
@@ -106,13 +98,16 @@ backup/restore、KMS administration或 policy mutation权限，authority SQLite/
 唯一 production recovery-byte backend是独立 backup-governance AWS account的
 `publication_restore_backup_s3_object_lock_v1`。`restore_backup_service` exact 为
 `{backend,endpoint,transport,api_version,resource_identity,writer_auth_policy_digest,recovery_auth_policy_digest,
-retention_class,minimum_retention_seconds,encryption_contract}`；manifest钉住 account/region/bucket ARN+name+
+retention_class,minimum_retention_seconds,encryption_contract,data_key_wrap_contract}`；`data_key_wrap_contract`
+exact 为 `{provider:"aws_kms_v1",operation:"GenerateDataKey",key_spec:"AES_256",
+kms_key_arn,encryption_context_schema:"GH700:backup-data-key-context:v1"}`。manifest钉住 account/region/bucket ARN+name+
 creation time、versioning/Object-Lock enabled、独立 KMS key ARN/key ID与 public-CA/server identity，禁 ambient
 endpoint/proxy/credential。retention exact `permanent_no_ttl_legal_hold_v1`：每个 version以 Compliance mode至少
 100年且开启 legal hold，无 lifecycle/overwrite/delete；governance须在不足10年剩余窗口前 threshold批准延长，
-否则 authority non-ready。writer的短期 OIDC→STS role只能 `PutObject`、`GetObjectVersion`、读 retention/hold，
-不能 delete、overwrite version、解除 hold、改 lifecycle/KMS；protected recovery role只在 threshold-approved
-restore中读 exact versions并调用 pinned KMS decrypt，authority routine role不能解密或管理 bucket/key。
+否则 authority non-ready。writer的短期 OIDC→STS role只允许 S3 `PutObject`/`GetObjectVersion`/读 retention/hold，
+及 exact KMS key上的 `kms:GenerateDataKey`，且 IAM/key policy以 encryption-context conditions绑定下述 exact字段；
+显式无 `kms:Decrypt`/`Encrypt`/`ReEncrypt*`/key administration、S3 delete/overwrite/解除 hold/lifecycle权限。
+protected recovery role只在 threshold-approved restore中读 exact versions并以同 context调用 pinned KMS decrypt。
 
 每个 committed successor先生成 exact `backup_set_core={backup_id,resource_identity,snapshot_object_key,
 snapshot_version_id,snapshot_ciphertext_digest,manifest_object_key,manifest_version_id,
@@ -123,10 +118,17 @@ wrapped_data_key_set_digest,aead_contract_digest,retention_until,legal_hold_stat
 retention_receipt_digest,legal_hold_receipt_digest}`，`backup_confirmation_digest=SHA256(JCS(backup_confirmation))`，
 `backup_set_ref={backup_set_core,backup_set_core_digest,backup_confirmation_digest}`；三者都不包含自己的 digest。SQLite snapshot、
 recovery manifest和 WAL（包括 canonical empty WAL）分别使用 fresh 256-bit data key与 96-bit nonce执行
-`aes_256_gcm_siv_v1` authenticated encryption；immutable object header保留 nonce、wrapped data-key bytes、tag和
+`aes_256_gcm_siv_v1` authenticated encryption。`successor_frontiers={publication_history_frontier,blocked_attempt_frontier}` exact，两个 frontier都含 full-prefix且来自同一 successor；
+`successor_frontiers_digest=SHA256(JCS(successor_frontiers))`并编码 lowercase `sha256:<64hex>`。每个 object先构造 exact KMS context
+`{schema_version:"GH700:backup-data-key-context:v1",authority_id,repo_node_id,backup_id,object_kind,
+successor_frontiers_digest,prior_anchor_digest}`，再调用一次 `GenerateDataKey(KeyId=manifest exact ARN,
+KeySpec="AES_256",EncryptionContext=exact context)`；只接受32-byte plaintext与对应 `CiphertextBlob`，plaintext只在
+内存完成该 object加密后立即清零且绝不落盘/上传，wrapped data-key bytes exact 为 `CiphertextBlob`。immutable
+object header保留 nonce、exact KMS context、wrapped data-key bytes、tag和
 `AAD=JCS({authority_id,repo_node_id,backup_id,object_kind,successor_frontiers,time_high_water,plaintext_digest,
-prior_anchor_digest})`，三者禁止明文或 unauthenticated compression。上传后须 exact-version strong GET，重算
-ciphertext/header digest并确认 retention+legal hold，任何对象未确认都不能签 anchor或释放 receipt。
+prior_anchor_digest})`；encrypt及 restore/decrypt都从 AAD exact frontiers重算 digest并要求 byte-equal KMS context字段，三者禁止明文或 unauthenticated compression。上传后须 exact-version strong GET，重算
+ciphertext/header/wrapped-key digest并确认 retention+legal hold；wrong key ARN/spec/context、重复 data key、
+plaintext残留或任何对象未确认都不能签 anchor或释放 receipt。
 
 DB successor transaction 只固化 exact `anchor_plan_core={authority_id,authority_identity_digest,policy_epoch,
 repo_node_id,anchor_schema_version,restore_epoch,latest_frontier,blocked_attempt_ledger_frontier,time_high_water,
@@ -213,9 +215,13 @@ client_auth_policy_digest}`，endpoint为无 redirect/query/fragment的 manifest
 exact `tls13_mtls_rfc3161_sha256_v1`，threshold至少二且不超过 source数。source须独立 administration/
 signing root；ambient DNS/proxy/CA、TOFU、同 root重复 signer、unknown policy/algorithm均拒绝。
 
-每个 time-dependent transition 先冻结 `publication_payload_core`：它是该 kind 的 final payload 去掉所有
-proof-produced fields（`trusted_time_proof_digest`、trusted interval/new high water、accepted-at/expiry）后的 closed object，
-并保留 known prior high water。然后生成 fresh 256-bit nonce，`nonce_b64u` 是其32 bytes的 canonical
+T10只提交 ledger contract的 proof-free `time_bound_intent/client_payload_core`与可重算
+`time_bound_request_id`。T3验证 method/kind/exact predecessor并从 signed fold取 prior high water；
+`owner_claimed`以 `claim_pre_nonce_core_digest` durable reserve operation为 `claim_reserved`，再按 operation ID
+幂等签发并 FULL-fsync唯一 draft nonce/capsule为 `claim_capsule_frozen`。三种 transition的
+`publication_payload_core`均由 authority构造：删除 final payload的 trusted-time-produced字段、保留 fold-owned
+high water，claim core另含 frozen capsule四字段；client hash/preimage不含 authority字段。然后生成 fresh
+256-bit trusted-time nonce，`nonce_b64u` 是其32 bytes的 canonical
 unpadded base64url encoding，并计算
 `nonce_digest=SHA256(JCS({v:"GH700:trusted-time-nonce:v1",authority_id,repo_node_id,
 owner_generation,run_id,run_attempt,transition_slot,record_kind,nonce_b64u}))`，再计算
@@ -301,14 +307,28 @@ approval同时签该 exact recovery contract；缺失、阈值不足、同管理
 当 normal leaf/root rotation因 active key过期/撤销或 current threshold不可达而不可能满足 pre-state trust时，唯一
 恢复路径是 `trust_emergency_root_cutover`。authority先冻结 publication/broker与 normal governance，strong-read
 DynamoDB HEAD和其 exact encrypted backup set，完成 restore-grade AEAD/full-prefix/time-high-water验证；rollback、
-fork、pending anchor或 backup缺失时不得开始。经过 manifest delay后，distinct recovery threshold signer对
+fork、pending anchor或 backup缺失时不得开始。然后构造 exact
+`incident_open_intent={schema_version:"GH700:break-glass-incident-open:v1",repo_node_id,recovery_incident_id,cause,
+current_anchor_digest,current_frontier,current_trust_epoch,recovery_policy_digest}`，`incident_open_intent_digest=SHA256(JCS(incident_open_intent))`；T3以 normal RFC3161 quorum生成
+incident-open proof及 interval，并 conditional anchor immutable `INCIDENT#<recovery_incident_id>` row。exact
+`incident_open_receipt={incident_open_intent_digest,trusted_time_proof_digest,trusted_lower_bound,
+trusted_upper_bound,prior_time_high_water,new_time_high_water,anchor_epoch,anchor_transaction_digest}`，其 `incident_open_receipt_digest=SHA256(JCS(incident_open_receipt))`；same incident same bytes幂等，异值冲突。
+
+cutover须取得另一个 fresh trusted-time proof，exact
+`audit_delay_evidence={incident_open_receipt_digest,incident_open_trusted_upper_bound,
+cutover_trusted_lower_bound,minimum_audit_delay_seconds,cutover_trusted_time_proof_digest}`；intent digest须重算且 byte-equal anchored receipt字段，evidence的 receipt digest/upper bound须 byte-equal该 receipt，cutover lower bound/proof digest须 byte-equal fresh verified proof，minimum须 byte-equal manifest的 governance值，且 only-if
+`cutover_trusted_lower_bound >= incident_open_trusted_upper_bound + minimum_audit_delay_seconds`；等式允许，
+`audit_delay_evidence_digest=SHA256(JCS(audit_delay_evidence))`；interval overlap、host/client time、未 anchored
+open receipt、pre-state drift或 time-high-water rollback均拒绝。
+distinct recovery threshold signer只对含 `{incident_open_receipt_digest,audit_delay_evidence_digest}`的
 `{repo_node_id,cause,evidence_digest,current_anchor_digest,current_frontier,current_trust_epoch,new_bundle_digest,
-next_trust_epoch,recovery_incident_id,audit_log_digest}`做 domain-separated offline approval；new bundle须有全新 root、
+next_trust_epoch,recovery_incident_id,audit_log_digest,incident_open_receipt_digest,audit_delay_evidence_digest}`
+做 domain-separated offline approval；new bundle须有全新 root、
 满足正常 threshold的 signer roster、单调 next epoch与 release-identity attestation。special envelope只接受该
 bootstrap-pinned recovery chain，不要求已失效 old key；它 append exact-predecessor emergency record，再将新的 encrypted
 backup、完整 break-glass audit和 privileged `emergency_root_cutover` signature CAS到更高 external anchor epoch。
 anchor确认前 old state仍 active且零 write/receipt；确认后只从 anchored successor启用 new root。approval、incident/
-cause证据、参与 signer、trusted-time proof、backup/anchor request/read-back与 cutover receipt永久保留且可独立审计；
+cause证据、参与 signer、incident-open/cutover trusted-time proofs与 intervals、backup/anchor request/read-back及 cutover receipt永久保留且可独立审计；
 不能改写旧 history、降低 time/frontier、重置 bootstrap或跳过 external anchor。recovery roster本身不足 threshold时
 系统保持 blocked，只能通过另一个已 bootstrap-pinned recovery threshold，绝无单人/admin/manual DB bypass。
 
@@ -591,11 +611,15 @@ owner重放 suffix并从新 predecessor重规划，两个 authorization fence绝
 `(expected_length, expected_root, expected_full_prefix_digest, current_fence)` 原子 CAS，
 复算并签发 successor frontier。每次 transition 分为 immutable intent、mutable append
 authorization envelope与 store-signed committed envelope/receipt。`transition_operation_id` 是覆盖 39 kinds 的
-closed derivation：publication-domain 35 kinds exact 为
+closed derivation：`owner_claimed` exact 为
+`SHA256(JCS({v:"GH700:claim-operation-id:v1",repo_node_id,owner_generation,run_id,run_attempt,
+transition_slot,predecessor_frontier,record_kind:"owner_claimed",claim_pre_nonce_core_digest,
+time_bound_request_id}))`；该 ID在 draft nonce/capsule签发前保留，client core/request ID均不含 authority字段。
+其余 publication-domain 34 kinds exact 为
 `SHA256(JCS({v:"GH700:publication-operation-id:v1",repo_node_id,owner_generation,run_id,run_attempt,
 transition_slot,predecessor_frontier,record_kind,publication_payload_core_digest,
 trusted_time_proof_request_id_or_null}))`；non-time kind 以完整 payload 作 core 且 request ID 为 literal null，
-time-dependent kind 以上述 proof-free core/request ID 构造 operation ID，取得 proof 后才生成 final payload/payload digest/intent digest。三种 normal governance kinds exact 为
+heartbeat/takeover以上述 authority core/request ID构造 operation ID；三种 time-dependent kind都在取得 proof后才生成 final payload/payload digest/intent digest。三种 normal governance kinds exact 为
 `SHA256(JCS({v:"GH700:governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
 predecessor_frontier,rotation_cutover_certificate_digest}))`；`trust_emergency_root_cutover` exact 为
 `SHA256(JCS({v:"GH700:emergency-governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
@@ -615,7 +639,7 @@ transition按上述规则不创建 owner或授权 Release/PR mutation。claim in
 `owner_generation`，store仅在 exact predecessor fold 证明 length-zero/no owner 或 prior
 owner terminal、repository publication lease/current fence有效、server-auth run/candidate/
 frozen-plan tuple、nonce capsule与 predecessor frontier匹配时，才在同一事务创建 generation、
-secret capsule、history append及 committed envelope；已有 active owner必须走 takeover，不能再 claim。并发 claim只能一个
+消费/激活 exact `claim_capsule_frozen`、history append及 committed envelope；不得重新创建 capsule。已有 active owner必须走 takeover，不能再 claim。并发 claim只能一个
 成功；stale lease/fence、复用 generation或错误 predecessor均拒绝。
 ack不确定时重放 signed latest prefix：已提交 exact op接受 receipt及合法 suffix fold；未提交
 old fence失败，同 owner generation取得新 fence后以相同 intent重新授权；head advanced禁止
@@ -676,7 +700,7 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | `trust_leaf_rotated` | `{rotation_id,current_trust_epoch,next_trust_epoch,old_leaf_key_id,new_leaf_key_id,new_leaf_certificate_digest,approval_digest,rotation_cutover_certificate_digest}` |
 | `trust_root_rotated` | `{rotation_id,current_trust_epoch,next_trust_epoch,old_bundle_digest,new_bundle_digest,old_threshold_signature_digest,new_threshold_signature_digest,approval_digest,rotation_cutover_certificate_digest}` |
 | `trust_key_revoked` | `{rotation_id,current_trust_epoch,next_trust_epoch,revoked_key_id,revocation_reason_code,replacement_key_or_bundle_digest_or_null,approval_digest,rotation_cutover_certificate_digest}` |
-| `trust_emergency_root_cutover` | `{rotation_id,recovery_incident_id,cause,evidence_digest,current_anchor_digest,current_trust_epoch,next_trust_epoch,old_bundle_digest,new_bundle_digest,recovery_roster_digest,recovery_threshold_signature_digest,audit_log_digest,trusted_time_proof_digest,backup_set_ref_digest,rotation_cutover_certificate_digest}` |
+| `trust_emergency_root_cutover` | `{rotation_id,recovery_incident_id,cause,evidence_digest,current_anchor_digest,current_trust_epoch,next_trust_epoch,old_bundle_digest,new_bundle_digest,recovery_roster_digest,recovery_threshold_signature_digest,audit_log_digest,incident_open_receipt_digest,audit_delay_evidence_digest,trusted_time_proof_digest,backup_set_ref_digest,rotation_cutover_certificate_digest}` |
 
 closed enums exact 为 `intent_kind={publish_valid,publish_nonvalid}`、
 `pr_kind={decurrent,rollback,new_current,nonvalid_row,invalidate_current}`、
@@ -703,7 +727,10 @@ compensation字段；`draft_deleted`不得缺任一 deletion branch字段。外�
 `exhaustive_negative_discovery_digest`仍须绑定同一线性化快照的 Release/draft/PR/current-marker
 全量发现，不能由 nested evidence替代。
 `generated_pr_planned` response loss只允许下列 closed recovery：唯一 exact active PR/ref match写
-`generated_pr_bound`；唯一 merged match写 `generated_pr_merged`；同一 authenticated exhaustive snapshot
+`generated_pr_bound`；唯一 merged match须在同一 recovery orchestration串行完成两个完整
+DB→backup→anchor→read-confirm cycles：先写 `generated_pr_bound`，再以 confirmed operation ID作
+`bound_operation_id`写 `generated_pr_merged`，两者间 crash只补第二 successor，并按 ledger contract返回/
+永久索引两张 ordered receipts；同一 authenticated exhaustive snapshot
 证明 PR/ref/queue均无 effect，且 broker quiescent、default unchanged时写 `generated_pr_not_applied`；其余
 ambiguous结果写对应 PR recovery-blocked record。`generated_pr_not_applied`是 terminal slot closure，不能
 rebind/reopen；继续尝试只能从 fresh transition slot、nonce、ref、review core、commit与 check identity创建

@@ -158,9 +158,10 @@ digest三者各自验证；`oracle.reject`八项必须各生成一个 only-one-c
 ### `trusted_time_authority_owned_v1`
 
 - Planned canonical path: **tests/fixtures/public_benchmark/publication/trusted_time_authority_owned_v1.json**
-- Exact fixture object/JCS bytes: `{"case_id":"trusted_time_authority_owned_v1","expected":"accept","input":{"allowed_methods":["claim_publication_owner","renew_publication_owner","takeover_publication_owner"],"append_time_kinds":"rejected","client_supplied_time_fields":[],"preparation_states":["prepared","proof_frozen","transition_committed","anchor_confirmed"]},"oracle":{"reject":["client_proof_request","client_tsa_token","client_time_bounds","client_high_water","client_final_intent","generic_append_time_kind","second_nonce_after_crash","second_proof_after_freeze","committed_same_op_stale"]},"schema_version":"GH700:publication-conformance-vector:v1"}`
-- SHA-256: `aed5508b165e7bf1c3412324d477d60e844fb0ca3c09c25383e158eb0151b817`
-- Oracle: 三个专用 method与单调 durable preparation accept；九项 authority-bypass/crash/retry mutation逐项 reject。
+- Exact fixture object/JCS bytes: `{"case_id":"trusted_time_authority_owned_v1","expected":"accept","input":{"allowed_methods":["claim_publication_owner","renew_publication_owner","takeover_publication_owner"],"append_time_kinds":"rejected","claim_preparation_states":["claim_reserved","claim_capsule_frozen"],"client_supplied_time_fields":[],"predecessor_binding":"exact","preparation_states":["prepared","proof_frozen","transition_committed","anchor_confirmed"],"reauthorization_recovery":"same_preparation","time_bound_request_id":"recomputed"},"oracle":{"reject":["client_proof_request","client_tsa_token","client_time_bounds","client_high_water","client_final_intent","generic_append_time_kind","predecessor_mismatch","forged_time_bound_request_id","capsule_before_claim_reserved","second_claim_capsule_after_crash","second_nonce_after_crash","second_proof_after_freeze","second_preparation_after_reauthorization","committed_same_op_stale"]},"schema_version":"GH700:publication-conformance-vector:v1"}`
+- SHA-256: `ac92842f496125320bf444d96eb9783e1dc83c3f681048480f51fc1f69731a1f`
+- Oracle: 三个专用 method、exact predecessor/request ID、claim pre-nonce durable states与后续单调 preparation accept；
+  十四项 authority-bypass/crash/reauthorization/retry mutation逐项 reject。
 
 ## Post-invalidation suffix
 

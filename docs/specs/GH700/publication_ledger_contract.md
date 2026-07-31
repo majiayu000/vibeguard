@@ -20,46 +20,75 @@ operation_request_digest,body}`；`operation_request_digest` 是删除自身后�
 | method | exact request `body` | exact success `result` |
 | --- | --- | --- |
 | `get_publication_head` | `{}` | `{current_head_receipt}` |
-| `claim_publication_owner` | `{claim_request,publication_lease_authorization,secret_channel_binding}` | `{transition_receipt,nonce_capsule_receipt}` |
-| `renew_publication_owner` | `{heartbeat_request,publication_lease_authorization}` | `{transition_receipt}` |
-| `takeover_publication_owner` | `{takeover_request,publication_lease_authorization}` | `{transition_receipt}` |
+| `claim_publication_owner` | `{time_bound_intent,time_bound_request_id,publication_lease_authorization,secret_channel_binding}` | `{transition_receipt,nonce_capsule_receipt}` |
+| `renew_publication_owner` | `{time_bound_intent,time_bound_request_id,publication_lease_authorization}` | `{transition_receipt}` |
+| `takeover_publication_owner` | `{time_bound_intent,time_bound_request_id,publication_lease_authorization}` | `{transition_receipt}` |
 | `append_publication_transition` | `{intent,append_authorization}` | `{transition_receipt}` |
 | `plan_release_mutation` | `{intent,append_authorization,secret_channel_binding}` | `{planned_transition_receipt,mutation_capsule_receipt}` |
 | `deliver_release_mutation` | `{planned_operation_id,broker_delivery_id,delivery_authorization}` | `{delivery_state,transition_receipt_or_null,send_once_audit_digest}` |
 | `recover_release_mutation` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipt}` |
-| `plan_generated_pr` | `{intent,append_authorization}` | `{planned_transition_receipt}` |
+| `plan_generated_pr` | `{intent,append_authorization}` | `{planned_transition_receipt,generated_pr_delivery_id}` |
 | `deliver_generated_pr` | `{planned_operation_id,generated_pr_delivery_id,delivery_authorization}` | `{delivery_state,transition_receipt_or_null,send_once_audit_digest}` |
-| `recover_generated_pr` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipt}` |
+| `recover_generated_pr` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipts}` |
 | `append_blocked_attempt` | `{attempt_record,expected_attempt_subject_key,ledger_append_authorization}` | `{attempt_record_receipt,blocked_attempt_frontier_receipt}` |
 | `bind_blocked_attempt` | `{binding_intent,ledger_append_authorization}` | `{binding_record_receipt,blocked_attempt_frontier_receipt}` |
 | `list_blocked_attempts` | `{source_identity_key,candidate_identity_or_null,run_id_or_null,run_attempt_or_null,attempt_record_kind_or_null,attempt_subject_key_or_null,page_cursor_or_null,page_size}` | `{attempt_records,next_page_cursor_or_null,enumeration_snapshot_receipt}` |
 | `commit_reconciliation_watermark` | `{reconciliation_watermark,terminal_listing_proof,ledger_append_authorization}` | `{watermark_receipt,blocked_attempt_frontier_receipt}` |
 | `get_blocked_attempt_frontier` | `{}` | `{blocked_attempt_frontier_receipt}` |
 
-三个 time-dependent client request 是非权威 closed objects：`claim_request` exact 为
-`{run_id,run_attempt,transition_slot,owner_generation,candidate_tag_identity_digest,frozen_plan_digest,liveness_policy_digest}`；
-`heartbeat_request` exact 为
+`time_bound_intent` exact 为 `{record_kind,client_payload_core,predecessor_frontier}`；method与
+`record_kind`只允许 `{claim_publication_owner:owner_claimed,renew_publication_owner:owner_heartbeat,
+takeover_publication_owner:publication_owner_taken_over}`。client计算
+`time_bound_request_id=SHA256(JCS({v:"GH700:time-bound-request:v1",repo_node_id,method,
+time_bound_intent}))`，authority须在任何 nonce issuance前从 wire bytes重算。request envelope的
+`expected_publication_frontier_or_null`必须 non-null且 byte-equal
+`time_bound_intent.predecessor_frontier`；任一 null/mismatch报 `invalid_request`。
+
+`client_payload_core`是 method-tagged closed union：claim exact
+`{owner_generation,run_id,run_attempt,transition_slot,candidate_tag_identity_digest,frozen_plan_digest,
+liveness_policy_digest}`；heartbeat exact
 `{owner_generation,heartbeat_sequence,prior_liveness_operation_id,transition_slot,liveness_policy_digest}`；
-`takeover_request` exact 为
-`{run_id,run_attempt,transition_slot,candidate_tag_identity_digest,prior_owner_generation,new_owner_generation,liveness_policy_digest}`。
-它们都不是 immutable history intent。client不得提交 final intent/payload/digest/operation ID、trusted-time
-nonce/proof request/token/bounds/high-water/accepted-at/expiry、TSA endpoint/policy/signer配置、claim capsule或
-takeover expiry/slot-chain evidence。authority验证 auth/frontier/request后，从 signed fold读取 prior high water、
-owner/run/lease/slot state，独占构造 proof-free payload core，并按 root contract派生 nonce、proof request、
-operation ID、RFC3161 quorum proof、final payload与 immutable intent；TSA unavailable时零 transition且不得回退 host/client time。
-首次 TSA I/O 前 authority须按 `operation_request_digest` 永久写 authority-owned
+takeover exact `{run_id,run_attempt,transition_slot,candidate_tag_identity_digest,prior_owner_generation,
+new_owner_generation,liveness_policy_digest}`。claim branch同时定义
+`claim_pre_nonce_core_digest=SHA256(JCS({v:"GH700:claim-pre-nonce-core:v1",repo_node_id,
+time_bound_request_id,client_payload_core,predecessor_frontier}))`。client不得提交 prior/new high water、
+draft-claim nonce/capsule、trusted-time nonce/proof/interval/accepted time、expiry/slot-chain evidence或其它
+authority字段；T3从 signed fold独占派生 prior high water、current owner/run/lease/slot、expiry/slot-chain
+evidence。三种 method除 claim独有 `secret_channel_binding`外使用同一 proof-ownership boundary；
+unknown/extra/cross-branch field一律拒绝。
+
+上述三个 request 都不是 immutable history intent。client不得提交 final intent/payload/digest/operation ID、
+TSA endpoint/policy/signer配置、takeover expiry/slot-chain evidence或任何 authority-only字段。authority验证
+auth/frontier/request后，从 signed fold读取 owner/run/lease/slot/high-water state，按 root contract派生 claim operation
+identity、nonce/proof request、RFC3161 quorum proof、final payload与 immutable intent；TSA unavailable时零
+transition且不得回退 host/client time。authority-owned preparation exact 为
 `trusted_time_preparation={authority_id,repo_node_id,method,operation_request_digest,predecessor_frontier,
-record_kind,owner_generation,run_id,run_attempt,transition_slot,publication_payload_core_digest,
-prior_time_high_water,nonce_digest,trusted_time_nonce_capsule_id,capsule_ciphertext_digest,kms_key_version,
-trusted_time_proof_request_id,transition_operation_id,preparation_state,proof_capsule_digest_or_null,
+time_bound_request_id,record_kind,owner_generation,run_id,run_attempt,transition_slot,claim_pre_nonce_core_digest_or_null,
+publication_payload_core_digest_or_null,prior_time_high_water,claim_nonce_digest_or_null,
+claim_nonce_capsule_id_or_null,claim_capsule_ciphertext_digest_or_null,claim_kms_key_version_or_null,
+trusted_time_nonce_digest_or_null,trusted_time_nonce_capsule_id_or_null,
+trusted_time_capsule_ciphertext_digest_or_null,trusted_time_kms_key_version_or_null,
+trusted_time_proof_request_id_or_null,transition_operation_id,preparation_state,proof_capsule_digest_or_null,
 final_payload_digest_or_null,final_intent_digest_or_null,committed_receipt_digest_or_null,
-anchor_receipt_digest_or_null}`。state exact 单调为
-`prepared→proof_frozen→transition_committed→anchor_confirmed`，所有 `*_or_null`只可按顺序 null→non-null且不得
-覆写。TSA验证后须在 append前原子持久化完整 token proof capsule、final payload/intent bytes及 digests并
-FULL fsync成 `proof_frozen`；commit与 anchor各自再 durable推进。same request重试先查 request/operation：
+anchor_receipt_digest_or_null}`。claim state exact 单调为
+`claim_reserved→claim_capsule_frozen→prepared→proof_frozen→transition_committed→anchor_confirmed`；
+heartbeat/takeover从 `prepared`开始。claim须在任何 draft nonce/capsule生成前，以 operation/request/core
+identity写 `claim_reserved`并 FULL fsync；nonce issuance keyed by `transition_operation_id`且只允许一次，完整
+nonce/capsule bytes/digests/KMS refs原子写入并 FULL fsync成 `claim_capsule_frozen`。崩溃重试只能取回同一
+frozen capsule；之后 T3加入 fold-owned high water/evidence构造 publication core与 trusted-time nonce/proof
+request，并在首次 TSA I/O 前 FULL fsync成 `prepared`。所有 `*_or_null`只可按顺序 null→non-null且不得覆写，
+非 claim的全部 `claim_*_or_null`必须 literal null。TSA验证后须在 append前原子持久化完整 token proof capsule、
+final payload/intent bytes及 digests并 FULL fsync成 `proof_frozen`；commit与 anchor各自再 durable推进。
+same request重试先查 request/operation：
 anchor-confirmed返原 receipt；committed恢复同一 anchor；proof-frozen续同一 append；prepared续同一 proof request；
-只有尚未提交且 predecessor被其它 operation推进才 deterministic stale-frontier。不得签发第二 nonce/request/
-operation/proof/final payload。
+claim-capsule-frozen续同一 trusted preparation；claim-reserved续同一 capsule issuance；只有尚未提交且
+predecessor被其它 operation推进才 deterministic stale-frontier。不得签发第二 capsule/nonce/request/operation/
+proof/final payload。
+authority须永久 UNIQUE `(repo_node_id,method,time_bound_request_id)`并保存
+`trusted_time_reauthorization_index(operation_request_digest→time_bound_request_id)`。fresh lease/fence
+authorization先重算同一 time-bound ID：same ID/same intent只把新 authorization envelope digest映射到原 preparation，
+从其 durable state恢复；same ID/different intent永久 `operation_conflict`。不得因
+`operation_request_digest`变化建立第二 preparation/capsule/nonce/proof/operation。
 
 method partition exact：`owner_claimed`只可由 `claim_publication_owner`、`owner_heartbeat`只可由
 `renew_publication_owner`、`publication_owner_taken_over`只可由 `takeover_publication_owner`构造；
@@ -81,6 +110,26 @@ authority_non_ready,internal_durability_failure}`；`retry_class` exact 为
 `{never,after_fresh_read,after_new_authorization,same_request_read_confirm_only}`。
 `outcome_uncertain`只配 `same_request_read_confirm_only`；unknown method/code/field、method/body/result
 错配、null-not-declared或 error/result并存均拒绝，不得 fallback。
+
+`plan_generated_pr` success中的 `generated_pr_delivery_id`必须按 history contract从 committed
+`planned_operation_id`及其 exact plan identity唯一重算。authority在同一 plan transaction建立永久 unique index
+`(repo_node_id,generated_pr_delivery_id)`，值绑定 `{planned_operation_id,plan_record_digest,
+generated_pr_delivery_state}`；same ID/same plan只返原 receipt，same ID/different plan永久冲突。
+`deliver_generated_pr`须 byte-equal该 index ID，broker outbox、delivery attempt、send-once audit与 recovery均以该
+ID作唯一 key；首次 authenticated send后任何重放只可 read-confirm，不得以新 ID再次 create。missing index、
+caller-chosen ID、plan mismatch、第二次 send或 index/outbox/audit不一致均 `operation_conflict`并保留 owner；
+`recover_generated_pr`必须从 `planned_operation_id`反查同一 index/ID，不能建立 replacement delivery identity。
+
+`recover_generated_pr.recovery_state` exact closed union为 `{bound_existing,merged_existing,not_applied,blocked}`；
+`transition_receipts`按 committed successor顺序排列且不得为空。`bound_existing`、`not_applied`、`blocked`分别要求
+exact一张 `{generated_pr_bound}`、`{generated_pr_not_applied}`、`{corresponding_pr_recovery_blocked}` receipt。
+`merged_existing`要求 exact两张 `[generated_pr_bound,generated_pr_merged]` receipts：authority在一个
+recovery orchestration中串行执行两个完整 successor cycles：先 append/backup/anchor/read-confirm
+`generated_pr_bound`，再以其 confirmed successor与 operation ID为 predecessor/`bound_operation_id`
+append/backup/anchor/read-confirm `generated_pr_merged`；两张 receipt都确认后才返回。两 cycle间崩溃时按
+永久 plan→delivery index及已确认 bound receipt恢复，只补第二 successor，不重新发送或重写第一条。
+response loss按 `planned_operation_id`返回原 ordered receipts；single merged receipt、跳过 bound、顺序/
+PR identity不一致或任一 cycle未确认均 `internal_durability_failure`且不释放 owner。
 
 ## Ledger authorization and receipts
 
@@ -327,7 +376,8 @@ bytewise排序。任一页缺失、重复、cursor/query/frontier drift或无法
 ## Terminal listing proof and reconciliation watermark
 
 `terminal_attempt_key` exact 为
-`{workflow_id,run_id,run_attempt,event,conclusion,source_identity_key,candidate_identity_or_null}`；列表按
+`{workflow_id,run_id,run_attempt,event,conclusion,source_identity_key,candidate_identity_or_null}`，其中
+`conclusion={failure,cancelled,timed_out}`且 byte-equal前述 `terminal_conclusion`；列表按
 `(workflow_id,run_id,run_attempt,event)`升序且无重复。
 `terminal_attempt_key_digest=SHA256(JCS(terminal_attempt_key))`；
 `source_record_set_digest=SHA256(JCS(digest-bytes升序、去重的 exact source record digest array))`；
@@ -337,12 +387,30 @@ lowercase `sha256:<64hex>`。`terminal_listing_proof` exact 为
 page_receipt_digests,terminal_attempt_keys,terminal_attempt_keys_digest}`，其中 provider exact 为
 `github_actions_server_terminal_runs_v1`；page receipt按 server page顺序保留，且
 `terminal_attempt_keys_digest=SHA256(JCS(terminal_attempt_keys))`。proof capsule必须保存全部 authenticated
-server response bytes/digests、pagination completion、permissions与 ref alignment；workflow input/artifact/free text无效。
+server response bytes/digests、pagination completion、permissions与 ref alignment。`server_query_plan` exact 为
+`{schema_version,provider,repo_node_id,source_identity_key,candidate_identity_or_null,terminal_streams,
+conclusion_audit}`，schema version exact `GH700:terminal-listing-query-plan:v1`。
+`terminal_streams` exact 为按 ASCII固定顺序 `[cancelled,failure,timed_out]` 的三项 array，每项 exact
+`{conclusion,request_jcs,request_digest,page_receipt_digests,pagination_completion_digest}`；decoded
+`request_jcs` exact 为 `{provider,repo_node_id,source_identity_key,candidate_identity_or_null,conclusion,
+page_size}`且 filter由 server-side执行，`request_digest=SHA256(exact JCS bytes)`。
+`conclusion_audit` exact 为
+`{request_jcs,unfiltered_request_digest,page_receipt_digests,pagination_completion_digest,
+observed_conclusions}`，其 decoded request object与 stream相同但无 `conclusion`，digest同样从 exact bytes重算；
+observed array按 ASCII升序去重。`server_query_digest=SHA256(JCS(server_query_plan))`并编码 lowercase
+`sha256:<64hex>`；proof keys只能来自三条完整 terminal streams。closed nonblocking conclusion仅
+`{success,skipped}`，它们不进 proof/count/max/set且不阻塞；audit发现 `neutral`、unknown或其它表外值，
+任一 stream/audit分页不完整、filter/query/receipt drift均 fail closed。workflow input/artifact/free text、
+client-side过滤或省略 audit均无效。
 proof schema version exact `GH700:terminal-listing-proof:v1`。
 `terminal_listing_proof_digest=SHA256(JCS(terminal_listing_proof))`。durable
 `terminal_listing_proof_capsule` exact 为
 `{terminal_listing_proof_digest,provider_response_capsule_id,provider_response_bytes_digest,
-page_receipt_digests,pagination_completion_digest,permissions_digest,ref_alignment_digest}`；capsule ID只定位同
+server_query_plan_jcs,server_query_plan_digest,combined_page_receipt_digests,pagination_completion_digest,
+permissions_digest,ref_alignment_digest}`。plan字段保存 exact UTF-8 JCS bytes且重算 digest须 byte-equal
+proof的 `server_query_digest`；combined receipts exact 为
+`cancelled pages || failure pages || timed_out pages || conclusion-audit pages`并 byte-equal proof的
+`page_receipt_digests`。每个 request digest均从 plan内保存的 exact request bytes重算。capsule ID只定位同
 transaction持久化的 encrypted exact response bytes，不能替代 digest/bytes。proof、capsule、response bytes及
 KMS retention refs无 TTL，并由 watermark/binding digest引用。
 
@@ -358,7 +426,9 @@ schema version exact `GH700:reconciliation-watermark:v1`；
 
 authority提交 watermark前必须：
 
-1. 验证 terminal listing proof 全分页、server-authenticated、candidate/source exact且 digest匹配；
+1. 重算并验证 server query plan、三条 terminal streams与 unfiltered conclusion audit，证明 listing proof是
+   三种 terminal conclusion的全分页 server-authenticated exact集合、candidate/source exact且 digest匹配，
+   且 observed conclusions除这三种与 `{success,skipped}`外为空；
 2. 重算 proof中每个 `terminal_attempt_key_digest`；要求 reconciliation array无重复，
    `terminal_attempt_reconciliations.length == terminal_attempt_count == terminal_attempt_keys.length`，
    reconciliation key digest set与 proof key digest set byte-exact相等、无 missing/extra；watermark字段与
@@ -367,7 +437,8 @@ authority提交 watermark前必须：
    terminal key；不得要求旧 proof digest等于当前增量 listing proof。failure resolution可对应同一 matrix
    attempt的多个 target-scoped records或一个 release/interruption record；recovery resolution对应一个
    binding，并须读取该 binding payload，重算其 `terminal_attempt_key_digest`且要求 key/proof digest分别
-   byte-equal reconciliation key与该 reconciliation的创建时 proof digest；当前 proof只需包含 byte-equal同 key；
+   byte-equal reconciliation key与该 reconciliation的创建时 proof digest；当前 proof只需包含 byte-equal同 key。
+   每个 resolution record的 repo/source/run tuple、candidate与 terminal outcome须 byte-equal该 key；
 3. 证明 `covered_record_digests`与所有 reconciliation的 `resolution_record_digests`完整 union相等，而非
    subset/superset，且每个 record只计一次；binding的 source records不重复计入 recovery resolution；
 4. 重算 count、max tuple、record-set digest，并以 CAS验证 latest watermark digest；
