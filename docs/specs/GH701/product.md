@@ -233,7 +233,9 @@ GH-701 已完成。
     target 必须仍是同一 identity。byte-identical
     inode replacement、parent-directory swap、symlink、watcher gap/overflow、额外编辑
     或 old-FD late write 都保持 `partial/needs_human`。H-001-selected lifecycle provider
-    必须位于 same-user process trust domain 外，持有用户不可读的 journal/signing root、
+    必须位于 same-user process trust domain 外；H-001 exact-pin provider kind/version、覆盖
+    generation/CAS/lease/state/retirement 的 transition policy digest、measured-caller/IPC
+    authentication policy digest 与用户不可读的 journal/signing root，provider 持有
     sealed recovery payload、generation/CAS 与 target lease；所有 authoritative record 都
     签名并绑定 journal root/sequence/previous digest，0600/0700 本地文件仅为 untrusted
     cache。provider 只接受 measured approved VibeGuard caller，并独立验证 transition；
@@ -250,7 +252,8 @@ GH-701 已完成。
     必须 atomic abort-release-record 后解锁；activating/publishing abort 必须留下
     `publication_aborted + reverse_status: pending + retirement_allowed: false` 和 sealed reverse
     payload。terminal/local tombstone 不证明回滚；只有 fresh exclusion 内 provider atomic
-    verified reverse/retirement commit 后才可退休。owner-death/有界 expiry 保证 fail-closed
+    verified reverse/retirement commit 后才可退休；`rollback_required: false` 不得替代该
+    commit。owner-death/有界 expiry 保证 fail-closed
     但不永久锁 host。
     reverse/clean 必须在 fresh exclusion 内把 final barrier+identity/bytes/absence re-read、
     completed→consumed CAS、consume receipt 与 release 原子绑定；prewritten tx intent/commit
@@ -290,7 +293,9 @@ GH-701 已完成。
     SHA-256、VibeGuard runtime SHA-256、config digest 与 correlation IDs。freshness 只从
     protected supervisor/provider run metadata、native event monotonic-to-trusted-wall mapping
     和 attestation issuer time 计算；三者固定最大 skew 300 秒，candidate `observed_at`
-    只能在同一 skew 内 exact-match，不能提供时间权威或刷新旧 run。超过 7×24 小时、
+    只能在同一 skew 内 exact-match，不能提供时间权威或刷新旧 run。H-001 必须 exact-pin
+    trusted clock source identity 与 mapping policy digest；self-selected clock/mapping 无授权力。
+    超过 7×24 小时、
     future/skew、延迟重放、head/event/digest 不匹配、缺 witness 或 witness 早于 event
     时 gate 必须阻断。proof gate 还必须消费当前 H-001 decision result，并 exact-match
     获批的 host_id/option、host release、protocol snapshot、native blocking
@@ -315,7 +320,9 @@ GH-701 已完成。
     high-side commitment、candidate-view digest、typed transcript root、output schema 与 sink
     manifest。sentinel exact-byte scan 仅为 diagnostic defense-in-depth，不能证明无泄漏；
     split/reorder/encode/compress/encrypt/hash 与 cross-field/sink reconstruction fixture 必须
-    均被 access/noninterference boundary 阻断。
+    均被 access/noninterference boundary 阻断。H-001 closed selection 必须 exact-pin high-side
+    supervisor identity/version、declassification policy raw digest 与 low-side output schema raw
+    digest；self-selected、missing、substituted 或 drifted boundary 不能产生 accepted proof。
     supervisor 必须输出固定 schema/path 的 detached attestation；验证器 exact-match
     protected workflow issuer/identity/ref/SHA，并把 runtime proof SHA、candidate
     head、event/nonce/process/distribution、host-acquisition-ack/use-release receipt digests、
@@ -323,7 +330,9 @@ GH-701 已完成。
     绑定为 attested subjects，缺任一绑定都阻断。
     H-001 closed selection 还必须批准 security provider kind/version、containment/
     executable-memory policy digests、mutation-exclusion provider kind/version/policy digest、
-    lifecycle journal trust-root digest、
+    lifecycle provider kind/version、transition 与 caller-auth policy digests、journal trust-root
+    digest、trusted clock source identity 与 monotonic-to-wall mapping policy digest、
+    high-side supervisor identity/version、declassification policy 与 low-side output schema digests、
     固定 **schemas/gh701-host-acquisition-ack.schema.json**、
     **schemas/gh701-use-release-receipt.schema.json** raw-byte digests；两 path 必须在
     resolved trust set；`$ref` 只许同文件 fragment，external/relative/remote/dynamic refs 禁止，
@@ -458,9 +467,10 @@ GH-701 已完成。
   保持 needs-human。
 - [ ] verified-file authority 来自 H-001-selected protected provider journal，而不是
   same-user 可写的 0600/0700 mirror；replace/replay/delete local cache、伪造 provider IPC、
-  stale snapshot/signature/journal root 均不得产生 completed/use/consume/retire。每个
+  provider kind/version/transition/caller-auth policy drift、stale snapshot/signature/journal root
+  均不得产生 completed/use/consume/retire。每个
   publication-aborted crash window 保留 sealed reverse payload 与 retirement-disabled；
-  只有 atomic verified reverse commit 才授权退休。
+  只有 atomic verified reverse commit 才授权退休，`rollback_required: false` 不构成替代授权。
 - [ ] 每次 verified-file host use 在 completed tuple read 前取得 H-001-bound exclusion，
   exact loaded-byte acquisition ack 后 drain post-load barrier 并 CAS re-read pointer，再 atomic
   use-release；ack/release exact bytes 必须是 manifest+attestation authenticated proof subjects，
@@ -468,8 +478,9 @@ GH-701 已完成。
 - [ ] GH-699/GH-700 README claims 与第三 host proof 各由固定 gate 消费；缺失、
   tampered、stale、wrong-head/event/digest/witness、candidate 可见 credential、
   signing job 执行 candidate、subject blob/认证 manifest 缺失替换或重哈希不符、
-  high-side boundary/declassification evidence 缺失或 split/encoded/cross-sink 泄漏，
-  trusted supervisor/run/attestation time 缺失、skew/replay，以及 containment
+  H-001 high-side supervisor/declassification/output-schema binding 缺失或 split/encoded/
+  cross-sink 泄漏，trusted clock source/mapping 或 supervisor/run/attestation time 缺失、
+  drift/skew/replay，以及 containment
   setsid/double-fork/broker/breakaway、Linux uninterruptible descendant 未经 bounded outer
   VM destroy、inbound/outbound process-memory write、private-COW exec、bad relocation/page
   mismatch、self/implementer-signed relocation、patch-then-restore、RWX、load-unload、

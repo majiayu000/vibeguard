@@ -215,8 +215,10 @@ acceptance snapshot rules 与 collector trust identity：
         "protocol_snapshot_sha256", "native_blocking_event",
         "security_provider_kind", "security_provider_version",
         "containment_policy_sha256", "executable_memory_policy_sha256",
-        "mutation_exclusion_provider_kind", "mutation_exclusion_provider_version",
-        "mutation_exclusion_policy_sha256", "lifecycle_journal_trust_root_sha256",
+        "high_side_supervisor_identity", "high_side_supervisor_version", "declassification_policy_sha256", "low_side_output_schema_sha256",
+        "trusted_clock_source_identity", "trusted_clock_mapping_policy_sha256", "mutation_exclusion_provider_kind", "mutation_exclusion_provider_version",
+        "mutation_exclusion_policy_sha256", "lifecycle_provider_kind", "lifecycle_provider_version", "lifecycle_transition_policy_sha256",
+        "lifecycle_caller_auth_policy_sha256", "lifecycle_journal_trust_root_sha256",
         "host_acquisition_ack_schema_sha256", "use_release_receipt_schema_sha256",
         "relocation_manifest_sha256", "relocation_signing_identity"
       ]
@@ -437,16 +439,15 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
 8. `rollback`：任一 apply/probe 失败时，用 journal lease token 查询同一 API；只有 token 仍归属本 transaction、current version 精确等于 apply 返回的 version 且 digest 等于 candidate，
    才以 version CAS 恢复 snapshot。token/version/digest 任一 drift（含 byte-identical newer version）都保留当前内容并输出 `broken/needs_human`、snapshot path/version/digest。
 
-versioned crash recovery 仍以 journal lease/version CAS 判定 rollback；普通 file digest 不能替代
-storage capability。`verified_file_setup_v1` 完整实现 appendix §3：H-001-selected provider 在
+versioned crash recovery 仍以 journal lease/version CAS 判定 rollback；普通 file digest 不能替代 storage capability。`verified_file_setup_v1` 完整实现 appendix §3：H-001-selected provider 在
 same-user trust domain 外持有 journal/signing root、sealed recovery payload、CAS/lease；本地
 0600/0700 files 仅 untrusted cache，每次授权 exact-match fresh signed snapshot。closed success
 为 planned→activating→publishing→completed→consumed + terminal aborted；present base 由用户恢复
 exact bytes/semantics，absent base 删除并验证 stable absence/unregistration。identity/digest/event
-drift 均 `needs_human`。provider/policy/journal root exact-bind H-001。publication abort 保留 sealed
-reverse、`reverse_status: pending` 且禁止 retire；仅 atomic verified reverse 可授权 retire。
-host use 在 tuple read 前另取 exclusion，至 exact loaded-byte acquisition+post-load barrier 后 atomic
-use-release；consume tx intent/commit，supersession multi-record CAS N/N+1；`active`/skip invalid。
+drift 均 `needs_human`。provider kind/version、transition/CAS/lease policy、caller-auth policy 与 journal
+root 全部 exact-bind H-001。publication abort 保留 sealed reverse、`reverse_status: pending` 且禁止 retire；
+仅 atomic verified reverse 可授权 retire，`rollback_required: false` 不能替代或授权 retirement。
+host use 在 tuple read 前另取 exclusion，至 exact loaded-byte acquisition+post-load barrier 后 atomic use-release；consume tx intent/commit，supersession multi-record CAS N/N+1；`active`/skip invalid。
 
 ### 5. Deterministic README claim evidence
 
@@ -532,14 +533,15 @@ artifact/log/response/witness；correlation ID 是不从 native/payload/digest �
 proof 由真实 released host session 产生，direct wrapper/runtime/demo 不能生成
 `proof_kind: native_session`。artifact 不提交进 source commit，所以 gate 可要求
 `candidate_head_sha == git rev-parse HEAD`；age 只由 protected run/supervisor event/
-attestation issuer 的 trusted time 计算，三者 max skew 300s；`0 <= age <= 7 * 24h`，future/replay 拒绝。
+attestation issuer 的 trusted time 计算，三者 max skew 300s；H-001 exact-pin trusted clock source identity 与 monotonic-to-wall mapping policy digest；`0 <= age <= 7 * 24h`，future/replay 拒绝。
 protected workflow 固定拆成两个 job/VM。credential-free execution job 使用
 `permissions: {}`；candidate 环境缺少 `GITHUB_TOKEN`、OIDC request、Actions
 runtime/artifact/attestation token，且 VM 不能读取 supervisor state/output/handoff。
 trusted supervisor 在 VM 外实现 candidate-independent high-side boundary：unknown/free-form
 默认 secret，仅 closed digest-bound policy 的 low typed fields 经单向 channel 进入 candidate；
 secret/derived digest/encoding/substrings/length/key/opaque handle 均不可读。closed output schema
-由 supervisor canonicalize。attestation 绑定 policy、高侧 keyed commitment、candidate view、
+由 supervisor canonicalize。H-001 exact-pin high-side supervisor identity/version、declassification policy
+与 low-side output schema digests；attestation 绑定这些选择、高侧 keyed commitment、candidate view、
 typed transcript、output schema 与 sink manifest。byte sentinel 仅 diagnostic；split/encoded/
 hashed/cross-sink reconstruction 由 access/noninterference proof 阻断。
 native proof 完整实现 appendix §1–2：Linux 内层 cgroup 清理有界；D-state descendant 未退出时
@@ -571,7 +573,8 @@ gate 还必须消费当前 protected CI run 的
 的 `host_id` 按 `host_id_by_option` 闭集 exact-match H-001 selected option，再逐项
 exact-match H-001 的
 `host_release`、`host_distribution_provenance`、`protocol_snapshot_sha256`、
-`native_blocking_event`、lifecycle journal trust root、两个 host-use subject schema digests 与 candidate head。distribution provenance 是 closed
+`native_blocking_event`、high-side supervisor/declassification/output-schema、trusted-clock source/mapping、
+lifecycle provider kind/version/transition+caller-auth policies/journal trust root、两个 host-use subject schema digests 与 candidate head。distribution provenance 是 closed
 union：签名 package identity + registry integrity，或 signed release manifest +
 platform asset digest；两者都绑定 issuer/subject/release/platform 与 expected
 binary SHA-256。gate 从受信 metadata/H-001 attestation 取得 identity，并验证 supervisor bundle 的固定 schema/path/issuer/workflow/ref/SHA/run/subjects/predicate、
@@ -628,10 +631,10 @@ config/payload/log content。
 | B-022 | v2 top-level hosts/per-hook mappings/non-host entries | `bash tests/test_manifest_contract.sh`；`bash scripts/ci/validate-hooks-manifest.sh` 的 key-set、non-host、contradiction negative fixtures |
 | B-023 | v1 compatibility/deprecation | `bash tests/test_manifest_contract.sh`：v1 read+warning、v1 third-host reject、v2-only writer 与 v1/v2 Claude/Codex golden parity |
 | B-024 | complete unknown matrix | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml` 分别固定 contract/discovery/protocol/runtime outcomes |
-| B-025 | versioned transaction + protected-journal verified-file lifecycle | setup tests 覆盖 same-user mirror/IPC forgery、publication-aborted pending reverse→atomic verified retire、consume/N+1 CAS、H-001 publish/abort/use；appendix §3 |
+| B-025 | versioned transaction + protected-journal verified-file lifecycle | setup tests 覆盖 same-user mirror/IPC forgery、H-001 provider/transition/caller-auth drift、publication-aborted pending reverse→atomic verified retire、`rollback_required: false` bypass rejection、consume/N+1 CAS、H-001 publish/abort/use；appendix §3 |
 | B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
-| B-028 | H-001-bound proof/witness and trusted time | harness 验证 confidentiality policy、trusted run/event/issuer time+300s skew、journal root/use subjects、relocation/page equality；replay/substitution/write/trace gap 均 nonzero；appendix §§2–3 |
+| B-028 | H-001-bound proof/witness and trusted time | harness 验证 H-001 high-side supervisor/policy/output schema、trusted clock source/mapping + run/event/issuer time+300s skew、journal provider/root/use subjects、relocation/page equality；replay/substitution/write/trace gap 均 nonzero；appendix §§2–3 |
 | B-029 | stale branch closure gate | protected GitHub ruleset API fixture：deleted allowed；readonly retain 仅 exact head/owner/unexpired/exact-target update+delete deny/zero bypass allowed；retain→delete without fresh H-003、`ls-remote` only、rule/head drift/new push blocked |
 | B-030 | H-004 mutually exclusive decision + issue acceptance binding | decision-gate fixtures：strict-four allowed；preserve only with matching immutable issue node/digest allowed；missing/double/unsynced/re-witness-missing blocked |
 | B-031 | live-source decision record/attestation + task binding | `bash tests/test_gh701_decision_gate.sh`；current protected run + latest generation 对 eligible descendant HEAD/digests allowed，source edit/delete/revoke/newer selection、offline preview、self-filled/stale/cached/wrong-spec records blocked |
@@ -735,18 +738,19 @@ config/payload/log content。
   normalization、enforcement suppress correction、multi-block、correlation/fix cap、
   oversize primary closed fallback、
   malformed/privacy 与 encode failure。
-- [ ] Lifecycle tests：全 phase、lock/deadlock、versioned CAS/lease 与 crash rollback；
-  verified-file 覆盖 same-user mirror/IPC forgery、failed/publication abort verified reverse+retire、
-  consume crash、N/N+1 CAS、present/absent、H-001 journal/publish/abort/use 与 owner-death negatives。
+- [ ] Lifecycle tests：全 phase、lock/deadlock、versioned CAS/lease 与 crash rollback；verified-file
+  覆盖 same-user mirror/IPC forgery、failed/publication abort verified reverse+retire、
+  `rollback_required: false` retirement rejection、consume crash、N/N+1 CAS、present/absent、
+  H-001 provider/transition/caller-auth/journal/publish/abort/use 与 owner-death negatives。
 - [ ] Evidence tests：README-claim schema/gate 的 protected producer attestation、
   GH-699 exact producer SHA/argv，以及 GH-700 committed Release summary/report/
   publish-intent binding 与 standalone rerun/draft/unsigned/wrong-workflow matrices；
   H-004 strict/preserve/unsynced issue matrix；decision source edit/delete/revoke/
   newer-generation matrix；separate host-proof/witness 的 H-001 provenance/head/
-  source/config matrix；candidate-independent high-side policy 与 split/encoded/hashed/cross-sink leakage；
+  source/config matrix；H-001-pinned high-side identity/policy/output schema 与 split/encoded/hashed/cross-sink leakage；
   execution VM credential absence、job separation、signing job no-candidate-code、
   authenticated subject blobs/manifest/re-hash，以及 missing/extra/substituted blob、
-  trusted-time skew/replay、journal-root drift、D-state outer-VM teardown、broker escape/late output、
+  trusted clock source/mapping drift、trusted-time skew/replay、lifecycle provider/policy/journal-root drift、D-state outer-VM teardown、broker escape/late output、
   inbound/outbound write、private-COW exec/self-signed relocation/page mismatch、trace gap/load-unload、
   preload/DYLD/plugin/unknown image/JIT negatives；所有
   negative fixtures 先通过 schema 再被 semantic gate 拒绝。

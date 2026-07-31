@@ -142,6 +142,13 @@ not. Redacted fields become per-run opaque handles that have no guest lookup ope
 and are removed from output. If the selected host behavior requires raw high-side data,
 that proof mode is unsupported rather than silently exposing it.
 
+The H-001 closed selection exact-pins the high-side supervisor identity and version,
+the raw declassification-policy SHA-256, and the raw low-side output-schema SHA-256.
+The supervisor attestation and proof gate exact-match all four values before accepting
+the typed transcript or any sink. A self-selected, missing, substituted, or drifted
+supervisor, policy, or schema is unsupported even when its subjects are internally
+consistent.
+
 The candidate has no filesystem, memory, IPC, network, inherited handle, or broker path
 to high-side bytes or redaction keys. Its output uses a closed low-side schema; the
 supervisor ignores candidate labels, rejects opaque handles/arbitrary byte carriers, and
@@ -162,6 +169,9 @@ finish, attestation issuance, clock-source identity, and fixed maximum skew of 3
 seconds. The gate live-reads the protected run metadata, verifies the attestation
 integrated/issuance time, requires those trusted sources to agree within the bound, and
 exact-matches candidate `observed_at` to the trusted event time within the same skew.
+H-001 exact-pins the trusted clock-source identity and monotonic-to-wall mapping-policy
+SHA-256; the gate rejects a self-selected, substituted, or drifted clock or mapping even
+when its signed times fall within 300 seconds of later attestation issuance.
 The seven-day window is calculated from trusted event and issuance times to current
 protected gate time; a later witness cannot refresh an old run. Missing time authority,
 future/skewed candidate time, delayed replay, archived subjects with a fresh witness, or
@@ -201,10 +211,14 @@ epoch and revalidate identity and digest before relying on it.
 The H-001-selected lifecycle provider runs outside the same-user process trust domain
 and owns the authoritative append-only journal, monotonic generations, transaction CAS,
 target leases/exclusions, sealed recovery payloads, and signing key. Its trust-root digest
-is an H-001 field; arbitrary same-user processes cannot read the key/journal or invoke an
-authority-conferring transition. The provider accepts only measured approved VibeGuard
-callers and independently verifies policy, watcher, probe, identity, and transaction
-expectations. A platform without this boundary is unsupported.
+is an H-001 field. H-001 also exact-pins lifecycle provider kind/version, a transition
+policy digest covering generation/CAS/lease/exclusion/state/abort/reverse/retirement
+semantics, and a caller-authentication policy digest covering measured callers and every
+provider IPC entrypoint. Arbitrary same-user processes cannot read the key/journal or
+invoke an authority-conferring transition. The provider independently verifies the
+pinned policies, watcher, probe, identity, and transaction expectations. A missing,
+self-selected, substituted, or drifted provider/policy, or a platform without this
+boundary, is unsupported.
 
 Each authoritative receipt has a unique ID and state `planned`, `activating`,
 `publishing`, `completed`, `consumed`, or terminal `aborted`. Canonical records bind the
@@ -407,8 +421,10 @@ then at one linearization point persists N+1 as completed/current, persists N as
 with exact successor ancestry, and removes the exclusion. A provider lacking multi-record
 atomicity is unsupported. A mismatch or pre-commit crash
 completes neither effect and leaves N completed; recovery uses the transaction receipt.
-Consumed receipts and aborted receipts carrying exact `reverse_status: verified` or
-provider-proved `rollback_required: false` may later be retired; all others remain.
+Consumed receipts and aborted receipts carrying exact `reverse_status: verified` may
+later be retired; all others remain. In particular, `rollback_required: false` is not a
+retirement authorization for any publication-aborted receipt and cannot replace the
+protected verified-reverse transaction.
 
 `completed → consumed` is the only consume transition. Its atomic CAS/release record binds the
 exact completed receipt digest, original clean ancestry/presence, verified restore or
@@ -447,10 +463,14 @@ multi-record CAS that completes N+1 and consumes N together or does neither. Pro
 also reject missing/untrusted schema paths, schema-byte drift, wrong H-001 digests, every
 non-fragment/cross-document reference, and any resolver I/O.
 Publication-abort fixtures keep sealed reverse data and retirement disabled through every
-denied/gap/stale/crash phase, then require atomic verified reverse before retirement.
+denied/gap/stale/crash phase, then require atomic verified reverse before retirement and
+reject `rollback_required: false` as a bypass.
 Authority fixtures let a same-user attacker replace/replay/delete every local mirror and
 call provider IPC with arbitrary payloads; no forged completed/use/consume/retire result
-is accepted without the fresh signed journal snapshot and measured approved caller.
+is accepted without the H-001-pinned provider kind/version, transition and caller-auth
+policies, fresh signed journal snapshot, and measured approved caller. Proof authority
+fixtures likewise reject high-side supervisor/policy/output-schema or trusted-clock/
+mapping drift even when the substituted artifacts are self-consistent and signed.
 Consume fixtures accept only completed→consumed with exact clean/successor ancestry and
 reject every direct, early, replayed, or mismatched transition.
 
