@@ -8,6 +8,9 @@ GH-702
 
 [`product.md`](product.md)
 
+External monotonic persistence 与 crash recovery 的 canonical contract 是
+[`monotonic-anchor-contract.md`](monotonic-anchor-contract.md)；本文件只引用，不另建第二套状态机。
+
 ## Spec 状态与实施门
 
 本文件是 Draft design，不是 approved implementation plan。H-001–H-009 仍是未批准的
@@ -234,16 +237,11 @@ Recommended H-004 layout（未批准）：
   overrides/<source_storage_key>/<target>/<profile>.json
 ```
 
-三个 mirror 的 authority 是 user-state tree 外、Core-owned local IPC `core_monotonic_anchor_v1`；
-v1 reference backend 是 `tpm2_nv_v1`（TPM2 NV monotonic counter、authenticated root digest、
-sealed non-exportable key）。其他 backend 需单独批准同等 crash/rollback semantics；普通文件、
-Keychain/credential item 或同树签名记录不合格。`root_id = SHA256("vibeguard.guard-pack.anchor.v1"
-|| core_installation_id || user_principal_id)`；closed policy/installation/time leaves 分别覆盖
-floor+pointer digest、floor+generation digest、clock_epoch+sequence+high-water+state digest。
-compare-and-increment receipt 绑定 backend ID、TPM NV name/device-key digest、root/leaf ID、counter
-及 previous/new root/leaf digest。每次读取经本地 IPC 取得 attestation，并要求 mirror exact 相等；
-coherent HOME restore、backend identity 或 root/leaf/counter/digest mismatch、missing attestation/
-IPC failure 均 fail closed。无 backend 不得升为 block；recovery 不能重建/降低/替代 external root。
+三个 mirror 的 authority 是 user-state tree 外的 authenticated monotonic root；exact record identity、
+durable pre-CAS intent、two-generation mirror、commit journal、barrier 与 crash matrix 只由 supporting
+contract 定义。runtime/management 要求 backend attestation 与 selected mirror exact 相等；coherent
+HOME restore 或 unknown root transition fail closed，而已证明 external target 的 local lag 必须从
+intent/journal roll forward，不能永久停在 unavailable。backend/platform 选择仍未批准。
 
 `source_storage_key` 是 closed union：official 为
 `official/<normalized_publisher>/<normalized_pack>`；local 为

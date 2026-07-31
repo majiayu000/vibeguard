@@ -4,6 +4,11 @@
 
 GH-702
 
+## Supporting Contract
+
+[`monotonic-anchor-contract.md`](monotonic-anchor-contract.md) 定义 external CAS、本地两代 mirror、
+commit journal 与 barrier recovery；其 backend/platform 选择仍须维护者批准。
+
 ## 当前事实
 
 截至 2026-07-27，仓库只有一个内置 `safe-bash` Guard Pack。它是现有 Core
