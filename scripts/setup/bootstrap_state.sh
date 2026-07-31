@@ -83,33 +83,33 @@ bootstrap_setup_lease_write() {
     rm -f -- "${temporary}"; return 1
   fi
 }
+bootstrap_setup_lease_liveness() {
+  local lease_file="$1" owner_pid="$2" nonce="$3"; BOOTSTRAP_SETUP_LEASE_LIVENESS="ambiguous"
+  bootstrap_setup_lease_read "${lease_file}" || return 0
+  [[ "${BOOTSTRAP_LEASE_OWNER_PID}" == "${owner_pid}" && "${BOOTSTRAP_LEASE_NONCE}" == "${nonce}" ]] || return 0
+  [[ "${BOOTSTRAP_LEASE_STATE}" == "active" ]] || { BOOTSTRAP_SETUP_LEASE_LIVENESS="dead"; return 0; }
+  bootstrap_process_group_liveness "${BOOTSTRAP_LEASE_PGID}"
+  [[ "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" == "dead" ]] && { BOOTSTRAP_SETUP_LEASE_LIVENESS="dead"; return 0; }
+  [[ "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" == "active" ]] \
+    && bootstrap_process_snapshot "${BOOTSTRAP_LEASE_LEADER_PID}" \
+    && [[ "${BOOTSTRAP_PROCESS_PGID}" == "${BOOTSTRAP_LEASE_PGID}" ]] \
+    && [[ "${BOOTSTRAP_PROCESS_IDENTITY}" == "${BOOTSTRAP_LEASE_LEADER_IDENTITY}" ]] \
+    && BOOTSTRAP_SETUP_LEASE_LIVENESS="active"; return 0
+}
 bootstrap_setup_lease_clear_inactive() {
-  local lease_file="$1" owner_pid="$2" nonce="$3"
-  local claimed="${lease_file}.reap.$$.$RANDOM" lease_status="ambiguous"
-  [[ ! -e "${lease_file}" && ! -L "${lease_file}" ]] && return 0
-  if [[ -e "${claimed}" || -L "${claimed}" ]] || ! mv -- "${lease_file}" "${claimed}"; then
-    bootstrap_error "could not claim setup lease for liveness verification: ${lease_file}"
+  local lease_file="$1" owner_pid="$2" nonce="$3" claimed="${1}.reap.$$.$RANDOM"
+  [[ ! -e "${lease_file}" && ! -L "${lease_file}" ]] && return 0; bootstrap_setup_lease_liveness "${lease_file}" "${owner_pid}" "${nonce}"
+  if [[ "${BOOTSTRAP_SETUP_LEASE_LIVENESS}" != "dead" ]]; then
+    bootstrap_error "setup process group is ${BOOTSTRAP_SETUP_LEASE_LIVENESS}; preserving its lock and worktree."
     return 1
   fi
-  if bootstrap_setup_lease_read "${claimed}" \
-    && [[ "${BOOTSTRAP_LEASE_OWNER_PID}" == "${owner_pid}" ]] \
-    && [[ "${BOOTSTRAP_LEASE_NONCE}" == "${nonce}" ]]; then
-    if [[ "${BOOTSTRAP_LEASE_STATE}" == "active" ]]; then
-      bootstrap_process_group_liveness "${BOOTSTRAP_LEASE_PGID}"
-      lease_status="${BOOTSTRAP_PROCESS_GROUP_LIVENESS}"
-      if [[ "${lease_status}" == "active" ]] \
-        && bootstrap_process_snapshot "${BOOTSTRAP_LEASE_LEADER_PID}" \
-        && [[ "${BOOTSTRAP_PROCESS_PGID}" == "${BOOTSTRAP_LEASE_PGID}" ]] \
-        && [[ "${BOOTSTRAP_PROCESS_IDENTITY}" == "${BOOTSTRAP_LEASE_LEADER_IDENTITY}" ]]; then
-        lease_status="active"
-      elif [[ "${lease_status}" == "active" ]]; then
-        lease_status="ambiguous"
-      fi
-    else lease_status="dead"
-    fi
+  if [[ -e "${claimed}" || -L "${claimed}" ]] || ! mv -- "${lease_file}" "${claimed}"; then
+    bootstrap_error "could not claim inactive setup lease: ${lease_file}"
+    return 1
   fi
-  if [[ "${lease_status}" != "dead" ]]; then
-    bootstrap_error "setup process group is ${lease_status}; preserving its lock and worktree."
+  bootstrap_setup_lease_liveness "${claimed}" "${owner_pid}" "${nonce}"
+  if [[ "${BOOTSTRAP_SETUP_LEASE_LIVENESS}" != "dead" ]]; then
+    bootstrap_error "setup process group changed during lease claim; preserving its lock and worktree."
     if [[ ! -e "${lease_file}" && ! -L "${lease_file}" ]]; then
       mv -- "${claimed}" "${lease_file}" || \
         bootstrap_error "could not restore setup lease after liveness verification: ${claimed}"

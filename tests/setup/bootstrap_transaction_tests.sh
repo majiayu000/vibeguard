@@ -115,6 +115,82 @@ done
 assert_cmd "orphaned setup child finishes without its killed parent" \
   bash -c '! kill -0 "$1" 2>/dev/null' _ "${orphan_setup_pid}"
 
+dual_recovery_home="${TMP_HOME}/bootstrap-dual-recovery-home"
+dual_recovery_ready="${TMP_HOME}/bootstrap-dual-recovery.ready"
+dual_recovery_setup_fifo="${TMP_HOME}/bootstrap-dual-recovery-setup.fifo"
+dual_recovery_ps_fifo="${TMP_HOME}/bootstrap-dual-recovery-ps.fifo"
+dual_recovery_ps_ready="${TMP_HOME}/bootstrap-dual-recovery-ps.ready"
+dual_recovery_bin="${TMP_HOME}/bootstrap-dual-recovery-bin"
+dual_recovery_first_out="${TMP_HOME}/bootstrap-dual-recovery-first.out"
+dual_recovery_second_out="${TMP_HOME}/bootstrap-dual-recovery-second.out"
+dual_recovery_real_ps="$(command -v ps)"
+mkdir -p "${dual_recovery_home}" "${dual_recovery_bin}"
+mkfifo "${dual_recovery_setup_fifo}" "${dual_recovery_ps_fifo}"
+env "${bootstrap_base_env[@]}" \
+  HOME="${dual_recovery_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${lock_wait_release}" \
+  VIBEGUARD_TEST_SETUP_READY="${dual_recovery_ready}" \
+  VIBEGUARD_TEST_SETUP_CONTINUE_FIFO="${dual_recovery_setup_fifo}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >/dev/null 2>&1 &
+dual_recovery_parent_pid=$!
+for _dual_recovery_setup_attempt in {1..100}; do
+  [[ -s "${dual_recovery_ready}" ]] && break
+  sleep 0.05
+done
+dual_recovery_setup_pid="$(cat "${dual_recovery_ready}" 2>/dev/null || true)"
+assert_cmd "dual-recovery fixture starts an isolated setup child" bash -c \
+  'test "$1" -gt 1 && kill -0 "$1"' _ "${dual_recovery_setup_pid:-0}"
+kill -KILL "${dual_recovery_parent_pid}"
+wait "${dual_recovery_parent_pid}" 2>/dev/null || true
+cat > "${dual_recovery_bin}/ps" <<SH
+#!/usr/bin/env bash
+if [[ "\$*" == *"pgid="* && ! -e "${dual_recovery_ps_ready}" ]]; then
+  : > "${dual_recovery_ps_ready}"
+  IFS= read -r _signal < "${dual_recovery_ps_fifo}"
+fi
+exec "${dual_recovery_real_ps}" "\$@"
+SH
+chmod +x "${dual_recovery_bin}/ps"
+dual_recovery_first_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${dual_recovery_home}" PATH="${dual_recovery_bin}:${PATH}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${lock_wait_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >"${dual_recovery_first_out}" 2>&1 &
+dual_recovery_first_pid=$!
+for _dual_recovery_pause_attempt in {1..100}; do
+  [[ -e "${dual_recovery_ps_ready}" ]] && break
+  sleep 0.05
+done
+assert_cmd "first stale recoverer pauses during setup-group liveness proof" \
+  test -e "${dual_recovery_ps_ready}"
+dual_recovery_second_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${dual_recovery_home}" VIBEGUARD_TEST_RELEASE_DIR="${lock_wait_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >"${dual_recovery_second_out}" 2>&1 || dual_recovery_second_rc=$?
+assert_cmd "second stale recoverer fails closed while the setup group is active" \
+  test "${dual_recovery_second_rc}" -eq 73
+assert_contains "$(cat "${dual_recovery_second_out}")" "setup process group" \
+  "second stale recoverer observes the canonical active lease"
+assert_cmd "dual stale recovery preserves lock, lease, and active setup child" bash -c \
+  'test -f "$1" && test -f "$2" && kill -0 "$3"' _ \
+  "${dual_recovery_home}/.vibeguard/dist/.bootstrap.lock" \
+  "$(find "${dual_recovery_home}/.vibeguard/dist" -maxdepth 1 -name '.bootstrap.lock.lease.*' -print -quit)" \
+  "${dual_recovery_setup_pid}"
+printf 'continue\n' > "${dual_recovery_ps_fifo}"
+wait "${dual_recovery_first_pid}" || dual_recovery_first_rc=$?
+assert_cmd "first stale recoverer also fails closed after liveness proof" \
+  test "${dual_recovery_first_rc}" -eq 73
+printf 'continue\n' > "${dual_recovery_setup_fifo}"
+for _dual_recovery_child_attempt in {1..100}; do
+  kill -0 "${dual_recovery_setup_pid}" 2>/dev/null || break
+  sleep 0.05
+done
+assert_cmd "dual-recovery orphaned setup child exits after test release" \
+  bash -c '! kill -0 "$1" 2>/dev/null' _ "${dual_recovery_setup_pid}"
+
 gate_failure_home="${TMP_HOME}/bootstrap-gate-failure-home"
 gate_failure_bin="${TMP_HOME}/bootstrap-gate-failure-bin"
 gate_failure_marker="${TMP_HOME}/bootstrap-gate-failure.leader"
