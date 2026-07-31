@@ -76,10 +76,12 @@ else
   TOTAL=$((TOTAL + 1))
 fi
 assert_contains "${gh719_bad_state_out}" "refusing to mutate malformed install-state" "malformed install-state failure is visible"
-assert_eq "$(shasum -a 256 "${gh719_home}/.vibeguard/installed/version" | cut -d ' ' -f1)" \
-  "${gh719_snapshot_hash}" "malformed state preserves installed snapshot"
-assert_eq "$(shasum -a 256 "${gh719_home}/.vibeguard/run-hook.sh" | cut -d ' ' -f1)" \
-  "${gh719_wrapper_hash}" "malformed state preserves active wrapper"
+assert_cmd "malformed state preserves installed snapshot" test \
+  "$(shasum -a 256 "${gh719_home}/.vibeguard/installed/version" | cut -d ' ' -f1)" = \
+  "${gh719_snapshot_hash}"
+assert_cmd "malformed state preserves active wrapper" test \
+  "$(shasum -a 256 "${gh719_home}/.vibeguard/run-hook.sh" | cut -d ' ' -f1)" = \
+  "${gh719_wrapper_hash}"
 mv "${gh719_home}/.vibeguard/install-state.valid.json" \
   "${gh719_home}/.vibeguard/install-state.json"
 
@@ -128,7 +130,8 @@ fi
 assert_contains "${gh719_malformed_out}" "disabled_skills" "malformed disabled_skills is reported by path"
 assert_contains "${gh719_malformed_out}" "config_type_error" "malformed disabled_skills fails with a typed config error"
 gh719_after_hash="$(shasum -a 256 "${gh719_home}/.vibeguard/install-state.json" | awk '{print $1}')"
-assert_eq "${gh719_after_hash}" "${gh719_before_hash}" "malformed config fails before install-state mutation"
+assert_cmd "malformed config fails before install-state mutation" test \
+  "${gh719_after_hash}" = "${gh719_before_hash}"
 
 printf '%s\n' '{"version":1,"disabled_skills":["plan-flow"]}' > "${gh719_config}"
 mv "${gh719_home}/.codex/skills/plan-flow" "${gh719_home}/.codex/skills/plan-flow-managed"
