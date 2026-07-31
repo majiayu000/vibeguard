@@ -157,14 +157,15 @@ epoch and revalidate identity and digest before relying on it.
 
 A 0600 receipt in a 0700 VibeGuard state directory has a unique ID, monotonically
 increasing generation, and state `planned`, `activating`, `publishing`, `completed`,
-or `consumed`. It binds target, parent identity, base presence/identity, candidate identity/digest,
+`consumed`, or terminal `aborted`. It binds target, parent identity, base presence/identity, candidate identity/digest,
 apply operation, failure-reverse operation, clean operation, preserved entries, and
 all operation digests. Raw bytes and diffs remain local and never enter logs or proof
 artifacts.
 
-The state enum is closed. The only forward path is
-`planned → activating → publishing → completed → consumed`; retry creates a new
-generation rather than skipping a state. The literal state `active`, a direct
+The state enum is closed. The success path is
+`planned → activating → publishing → completed → consumed`; failure may transition
+`planned`, `activating`, or `publishing` to terminal `aborted`, which has no outgoing
+edge. Retry creates a new generation rather than skipping a state. The literal state `active`, a direct
 `activating → completed` transition, and evidence that omits publishing/completion
 records are schema errors rejected by setup, check, doctor, runtime, proof, and recovery.
 
@@ -174,7 +175,9 @@ inode is stable in the 0700 state directory and cannot be replaced; crash releas
 Under that lock, a writer snapshots the current pointer as expected generation+digest
 (or expected absence). Any publish/consume operation is a compare-and-swap that first
 re-reads and exact-matches that expected pair; mismatch rejects the stale operation and
-cannot consume either receipt. Atomic replacement without this comparison is invalid.
+cannot consume either receipt. Supersession is the sole multi-record form: its current-
+pointer expectation is N+1 publishing while a separate immutable-receipt CAS expectation
+names predecessor N completed. Atomic replacement without these comparisons is invalid.
 
 An existing completed receipt cannot be overwritten by a planned update. Probe success
 creates and fsyncs an immutable `activating` bundle containing the receipt, probe result,
@@ -221,8 +224,10 @@ effects atomic is unsupported.
 Every non-success path after exclusion acquisition—including denied write, gap, drift,
 timeout, cancellation, crash recovery, orphan intent/completion, stale CAS, or policy
 error—must instead run journaled atomic `abort_release_and_record`. At one durable point
-it records a closed abort reason and provider/watcher roots, preserves the prior receipt,
-CASes any exact publishing pointer to a non-state tombstone, persists the exclusion
+it records a closed abort reason and provider/watcher roots, preserves any predecessor
+completed receipt, CASes the owned planned/activating/publishing receipt to terminal
+`aborted` when its exact expectation still matches, CASes an owned publishing pointer to
+a non-state tombstone, and otherwise records stale mismatch without changing current state. It persists the exclusion
 release receipt, and removes the mandatory policy. It is idempotent by exclusion ID plus
 generation/digest. No completed evidence is produced. On owner death or bounded,
 non-renewable expiry, the provider itself executes the same `abort_release_and_record`;
@@ -258,7 +263,9 @@ lifetime of completed evidence.
 
 For protected proof, the exact `host_acquisition_ack` and `use_release_and_record`
 receipt bytes are mandatory content-addressed handoff subjects. Their manifest roles and
-digests are closed by the H-001-approved subject-schema digests; the supervisor
+digests are validated by fixed **schemas/gh701-host-acquisition-ack.schema.json** and
+**schemas/gh701-use-release-receipt.schema.json** bytes. Both paths belong to
+`resolved_trust_paths`; H-001 exact-binds their protected-main raw-byte digests. The supervisor
 attestation exact-binds both to the same event, nonce, measured host process, completed
 tuple, watcher roots, and candidate head. The proof gate rehashes both subjects and
 exact-matches every binding before `proof_accepted`. A current config digest, self-report,
@@ -286,36 +293,51 @@ restores the original unmanaged clean base carried through superseding generatio
 For an absent base, both operations are an exact-target deletion instruction for the
 user, not creation of an empty file. VibeGuard never writes or deletes the host target.
 
-After the user applies either operation, the verifier takes the target lock, starts a
-new loss-detecting watcher, and acquires the H-001-approved mandatory exclusion against
-the restored target or absent directory entry before the first bounded observation.
+After the user applies a completed-receipt clean/reverse or a failed-probe receipt's
+failure-reverse, the verifier takes the target lock, starts a new loss-detecting watcher,
+and acquires the H-001-approved mandatory exclusion against the restored target or absent
+directory entry before the first bounded observation.
 For absent base it uses the retained parent handle and no-follow `fstatat`/equivalent to
 require stable absence across two observations and proves host-native unregistration.
 For present base it pins the restored target, requires exact original bytes/semantics
 and stable parent/target identities across the same observations, and confirms the
-receipt-specified restored/unmanaged state.
+receipt-specified restored/unmanaged state. Before the final barrier it fsyncs an
+immutable transition intent containing a unique transaction ID, transition kind, exact
+starting receipt/pointer generation+digest, exclusion ID, and verification roots.
 
-While exclusion remains enforced, `consume_release_and_record` drains a final watcher/
-provider barrier, repeats the held-handle identity+byte read or absence+unregistration
-proof, CASes the exact completed generation/digest to `consumed`, persists the consume
-record, invalidates candidate evidence, and removes the policy at one durable
-linearization point. Only then may it report `restored` or `not_installed` and later
-delete receipt data. Any event, denied attempt, gap, drift, recreation, late old-FD write,
-remaining registration, stale CAS, crash, or timeout atomically abort-releases the
-exclusion and leaves the completed receipt unconsumed; owner-death/expiry remains live.
+For a completed receipt, `consume_release_and_record` drains the final watcher/provider
+barrier, repeats the held-handle identity+byte read or absence+unregistration proof,
+CASes the exact completed generation/digest to `consumed`, persists an idempotent commit
+receipt, invalidates candidate evidence, and removes the policy at one durable
+linearization point. For a native-probe failure, which never creates a completed receipt,
+`failed_reverse_release_and_record` performs the same protected final verification but
+CASes the exact `planned` failure receipt to terminal `aborted` and persists the verified
+reverse/abort commit receipt; it cannot use `consumed` or authorize host use. Only an
+exact commit may report `restored`/`not_installed` and later retire receipt data.
 
-A superseding plan carries two ancestries: immediate rollback base for failed update,
-and original unmanaged clean base/presence for later clean. The old completed receipt is
-consumed only after the new receipt durably carries both ancestries, its native probe
-passes, and the new completion tuple is exact. Failure leaves the old completed receipt
-intact. Consumed receipts may then be deleted; planned/activating/publishing/completed
-or drifted receipts must remain available with only path+digest shown to the user.
+Recovery queries the provider journal by transaction ID. Before linearization, any event,
+denied attempt, gap, drift, recreation, remaining registration, stale CAS, crash, or
+timeout idempotently abort-releases and leaves the starting completed/planned receipt
+unchanged. After linearization, the exact commit receipt is authoritative: recovery
+reconciles the durable `consumed`/`aborted` result and never runs abort or rolls it back.
+Unknown outcome remains fail-closed until the provider returns the commit or performs its
+pre-commit owner-death/expiry abort; expiry cannot overwrite a committed transaction.
+
+A superseding plan carries immediate rollback and original unmanaged clean ancestries.
+After fsyncing a transaction intent that binds both expected records, its atomic
+`supersede_release_and_record` is a multi-record CAS: it exact-matches the
+current N+1 publishing pointer/receipt and immutable predecessor N completed receipt,
+then at one linearization point persists N+1 as completed/current, persists N as consumed
+with exact successor ancestry, and removes the exclusion. A provider lacking multi-record
+atomicity is unsupported. A mismatch or pre-commit crash
+completes neither effect and leaves N completed; recovery uses the transaction receipt.
+Consumed/aborted receipts may later be retired; nonterminal or drifted receipts remain.
 
 `completed → consumed` is the only consume transition. Its atomic CAS/release record binds the
 exact completed receipt digest, original clean ancestry/presence, verified restore or
 absent-base deletion evidence, and either the clean operation or exact successor
 completed generation/digest. Supersession performs the predecessor consume in the same
-new-completion exclusion transaction; it cannot consume after that protection releases.
+multi-record new-completion transaction; it does not require N to remain the current pointer.
 Direct publishing/abort-to-consumed, missing successor
 ancestry, replay, or consuming the predecessor before successor completion is rejected.
 
@@ -342,6 +364,10 @@ Proof fixtures require authenticated exact ack/use-release subjects bound to the
 event/nonce/process/completed tuple and reject missing, substituted, stale, or cross-event
 subjects. Reverse/clean fixtures mutate at every final-observation→consume boundary and
 require atomic abort-release with the completed receipt retained.
+Transaction fixtures cover failed-probe planned→aborted without completed evidence,
+pre/post-linearization consume crashes and idempotent recovery, plus a supersession
+multi-record CAS that completes N+1 and consumes N together or does neither. Proof fixtures
+also reject missing/untrusted schema paths, schema-byte drift, and wrong H-001 digests.
 Consume fixtures accept only completed→consumed with exact clean/successor ancestry and
 reject every direct, early, replayed, or mismatched transition.
 

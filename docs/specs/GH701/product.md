@@ -229,8 +229,8 @@ GH-701 已完成。
     使本 activation epoch 失效，之后相同 bytes/identity 不能恢复它。重新解析出的
     target 必须仍是同一 identity。byte-identical
     inode replacement、parent-directory swap、symlink、watcher gap/overflow、额外编辑
-    或 old-FD late write 都保持 `partial/needs_human`。0600 manual receipt 有
-    planned/activating/publishing/completed/consumed generation。所有 writer/consumer 以同一 per-target
+    或 old-FD late write 都保持 `partial/needs_human`。0600 manual receipt 有 success
+    planned/activating/publishing/completed/consumed 与 terminal aborted。所有 writer/consumer 以同一 per-target
     state lock 串行；publish 必须 CAS exact expected pointer generation+digest。probe 后先
     fsync activating bundle；final pre-CAS barrier 起先取得不可旁路 OS mutation exclusion，
     continuous watcher 下发布 publishing intent/completion。任何 write attempt/gap 都 invalidate。
@@ -241,8 +241,10 @@ GH-701 已完成。
     ack commit 前不得 host dispatch/side effect；lazy/unattested load 禁止。所有失败/崩溃/orphan
     必须 atomic abort-release-record 后解锁；owner-death/有界 expiry 保证 fail-closed 但不永久锁 host。
     reverse/clean 必须在 fresh exclusion 内把 final barrier+identity/bytes/absence re-read、
-    completed→consumed CAS、consume receipt 与 release 原子绑定；任一 drift/gap 保留 completed。
-    supersession 只允许 exact completed successor ancestry 并在同一 protected transaction 消费。
+    completed→consumed CAS、consume receipt 与 release 原子绑定；prewritten tx intent/commit
+    区分线性化前 abort-retain 与线性化后幂等 reconcile。failed-probe verified reverse
+    原子 planned→aborted，不得伪造 completed/consumed。supersession 用 multi-record CAS
+    在同一线性化点完成 N+1 并消费 N；任一 mismatch 两者都不完成。
     present-base reverse 必须由用户恢复并按同一 identity/bytes/metadata 验证；
     absent-base reverse/clean 必须由用户删除 exact target，并以 watcher 连续性、两次
     bounded absence observation 与 host-native unregistration 验证。VibeGuard 不得写或
@@ -303,7 +305,9 @@ GH-701 已完成。
     绑定为 attested subjects，缺任一绑定都阻断。
     H-001 closed selection 还必须批准 security provider kind/version、containment/
     executable-memory policy digests、mutation-exclusion provider kind/version/policy digest、
-    host-acquisition-ack/use-release subject schema digests，
+    固定 **schemas/gh701-host-acquisition-ack.schema.json**、
+    **schemas/gh701-use-release-receipt.schema.json** raw-byte digests；两 path 必须在
+    resolved trust set，
     以及 relocation manifest digest/signing identity；lifecycle gate 必须 exact-match exclusion
     selection 并把 decision-record digest 绑定所有 publish/abort/use/consume records；
     gate 必须把 signer trust chain/provenance exact-match approved distribution。
@@ -424,7 +428,8 @@ GH-701 已完成。
 - [ ] verified-file failed-probe 与 clean/disable fixtures 仅在 current candidate /
   receipt 精确匹配时提供用户应用的 reverse diff；present base 的 identity/bytes/
   metadata 重验通过后才 restored/not-installed；fresh exclusion 下 final barrier/re-read、
-  consume CAS/receipt/release 必须一个 durable transaction；任何 drift/gap/crash 保留 completed。
+  consume CAS/receipt/release 必须一个 durable transaction；pre/post commit crash 由 tx receipt
+  幂等区分。failed-probe reverse 只许 planned→aborted；supersession N/N+1 multi-record CAS。
   atomic success/abort release、owner-death/expiry 各 crash 窗口必须确定性；只有 verified
   removal 或保留原 clean ancestry 的 superseding receipt 生效后才消费；absent base
   不得伪造空 base，clean 必须由用户删除 exact target 并经两次 bounded absence、
