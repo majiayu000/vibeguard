@@ -12,6 +12,47 @@ GH700 publication named-vector registry。这里的 fixture path是实现阶段�
 runner须先核对 bytes digest，再执行 positive object与 `oracle.reject`列出的每个独立 mutation；缺 fixture、
 digest不符、未执行 reject mutation或多余/unknown case均 fail closed。
 
+## Deterministic schema-complete expansion
+
+十个 named vectors之外，T3/T12必须实现本 contract拥有的 `contract_vector_generator_v1`；生成 cases不是新的
+named registry成员。planned generator path为
+**scripts/ci/generate_publication_contract_vectors.py**，唯一 inputs为 planned
+**schemas/publication_history.schema.json** 与 **schemas/blocked_attempt_ledger.schema.json**，outputs位于
+planned **tests/fixtures/public_benchmark/publication/generated_schema_complete_v1/**。手写或 consumer-local
+fixtures不能满足 full-union acceptance。
+
+两个 schema须分别把 `record_kind` 39 branches与 `attempt_record_kind` 4 branches表达为 closed `oneOf`；
+每 branch discriminator用 exact `const`，且带一个完整 `x-gh700-canonical-example` object。example必须通过
+自身 branch、拒绝其它 branch，并满足本 packet的 enum、tag、applicability、digest-format与 cross-field规则。
+branch count不等于39/4、duplicate/missing discriminator、example缺失或 schema digest drift使 generator失败。
+
+generator按下列唯一算法展开每个 branch：
+
+1. 以 RFC8785 JCS序列化 canonical example，生成 `positive` case并要求 accept；
+2. 对 schema列出的每个 required field JSON Pointer逐一删除，生成 `missing_required` reject case；
+3. 对每个 `additionalProperties:false` object path加入 `"__unknown_field__":true`，生成 `extra_field` reject case；
+4. 对每个 non-null field逐一替换 canonical null，生成 `null_drift` reject case；
+5. 对 discriminator及每个 enum field逐一替换 `"__unknown__"`，并对 history discriminator另生成
+   `kind`/`type`/`record_type` alias，全部 reject；
+6. 对 schema声明的每个 tagged/applicability constraint逐一采用另一个 branch/code的值，生成
+   `inapplicable_value` reject case。此步骤必须覆盖 blocked-attempt 的 `closed_reason_code`、
+   `interruption_conclusion`、`interruption_stage`、`missing_evidence.missing_field_codes`及其 unknown值。
+
+每个 mutation descriptor exact 为 `{op,path,value_or_null}`，JSON Pointer使用 RFC6901；case ID exact 为
+`<domain>__<discriminator>__<variant>__<first16>`，其中 `domain={history,blocked_attempt}`，`first16`是
+`SHA256(JCS(mutation_descriptor))`的前16个 lowercase hex，positive使用 descriptor
+`{op:"none",path:"",value_or_null:null}`。case file exact object为
+`{schema_version,case_id,domain,discriminator,variant,mutation_descriptor,input,expected}`，schema version exact
+`GH700:schema-complete-case:v1`，`expected={accept,reject}`；file bytes为无 BOM/no-newline JCS，按 case ID
+UTF-8 bytewise升序写到 exact relative path `<case_id>.json`。
+
+manifest exact 为 `{schema_version,generator_version,input_schema_digests,history_discriminators,
+blocked_attempt_discriminators,cases,case_set_digest}`；versions exact
+`GH700:schema-complete-manifest:v1` / `contract_vector_generator_v1`，两个 discriminator arrays UTF-8排序且
+count exact 39/4，`cases`按 case ID排序并存 `{case_id,path,bytes_sha256,expected}`，
+`case_set_digest=SHA256(JCS(cases))`。validator须重新生成到临时目录并 byte-for-byte比较 manifest与所有 files；
+缺 case、未知 branch未拒绝、enum/applicability mutation漏跑或 generated tree有额外文件均失败。
+
 ## Frontier
 
 ### `frontier_valid_v1`
