@@ -440,34 +440,32 @@ typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏�
    展示该验签 summary 内绑定的 required 或 display-only report，不能读取游离附件；
 5. 只有 valid 或获批 `publish_nonvalid` 分支可运行 `publish-release`，一次性发布
    binary、payload、checksums、manifest 与对应 benchmark reports。已 published 的同 tag
-   release 一律拒绝变更。pre-intent exact owner 无可见 transition且已有 receipt（若有）
-   验签绑定该 exact owner后可删 exact draft；已 de-current 则只能在 receipt-bound exact rollback merge 后删除，二者均禁止 publish。
+   release 一律拒绝变更。pre-intent claim 无 draft或 exact bound draft 无 transition时可证明/删除后
+   terminal；pending de-current PR 必须先取得 revocation receipt；已 merged
+   de-current 则 exact rollback merge 后才删 draft。各路径均禁止 publish。
    post-intent：matching public Release→verify+README；否则 matching intent-bound draft→
    publish+README；否则 `release_recovery_blocked` 并保留 owner。
 publication 使用 attempt-scoped draft 与一个统一 durable state machine：
-1. actors 只按 source/candidate → `repository_ledger_lease` → `repository_publication_lease` →
-   branch CAS 短暂取锁；禁止反向。等待 review 时释放 lease，active durable owner仍阻断新 candidate。
-2. canonical frontier 为 `(repo_node_id, history_length, history_root, full_prefix_digest)`；
-   length-zero maintainer genesis 仅在 store 无 head 时初始化，此后 prior-release frontier
-   仅作下界。reader 取得 store 签名的最新单调 head并重放 prefix精确至该 head；append 对
-   `(expected_length, expected_root, expected_full_prefix_digest, current_fence)` 原子 CAS，
-   store 复算/签发 successor；versioned closed record union 以 `jcs-rfc8785-v1` digest，覆盖 prepared/receipt/intent/commit/
-   takeover/四类 recovery-blocked/recovered/terminal；每项绑定 owner、prior phase/frontier、
-   expected/new fence、payload、issuer/workflow/subject；deterministic fold 导出唯一状态。
-   缺失/截断/fork/非法 transition/过期 fence fail closed；phase A先 append prepared owner。
-3. `rollover_one` 证明单 current、merge reviewed de-current 并在 intent 前 durable append
-   merge SHA/前后 blob receipt；`genesis_zero` 证明零 marker、history 无历史 eligible valid
-   publication、除本 exact owner 外无 active owner，再 append history-frontier-bound zero
-   receipt；corpus ledger 只证明 artifact identities，不参与 publication 判定。
-4. receipt durable 后 valid intent 才绑定 receipt/pre-approved new-current patch；nonvalid
-   intent 绑定 unmarked-row。两者先 CAS 至 `intent_written`；只有 `intent_written` 可进入
-   `release_committed_valid_marker_pending` 或 `release_committed_nonvalid_row_pending`；
-   crash 由 prepared owner/intent/sentinels补齐。
-5. de-current 后 intent 前取消进入 `valid_rollback_pending`；rollback/new-current/nonvalid-row
-   PR reject/close/timeout/owner loss 由 reconciler 提升 fence并建同 candidate/exact replacement。
-   无获批 replacement attests `rollback_recovery_blocked`、`marker_recovery_blocked` 或
-   `nonvalid_row_recovery_blocked` 并继续阻断；no-visible draft cleanup、
-   rollback+delete 或 Release+README completion 后才 terminal。
+1. actors 只按 source/candidate → ledger lease → publication lease → branch CAS；禁止反向；等待 review 可释放短 lease，但 active durable owner仍阻断新 candidate。
+2. frontier 为 `(repo_node_id, history_length, history_root, full_prefix_digest)`；length-zero genesis仅在 store 无 head时初始化，prior-release frontier只作下界。reader取得签名 latest
+   head并精确重放；append原子 CAS完整 expected frontier+fence，store复算/签发 successor。
+   versioned closed union以 `jcs-rfc8785-v1` 覆盖 claim/binding/prepared/de-current plan|binding|revocation/receipt/intent/commit/takeover/六类 blocked/recovered/terminal，绑定 owner、prior phase/
+   frontier、expected/new fence、payload与 issuer identity；deterministic fold拒绝缺失/截断/fork/非法 transition/过期 fence。
+3. 首次 Release API/PR mutation前 append `owner_claimed`，绑定 server-auth repo/workflow/run/ref、candidate/tag/source、plan digests、fence与 claim nonce；create response后、upload前 append
+   exact release-node `draft_bound`，重验 manifest后 CAS `prepared`。response loss只按 nonce+repo/tag/source查找：唯一 match先 higher-fence bind；仅 authenticated exhaustive negative receipt可 terminal。
+   stale/ordinary zero保持 owner重试；分页/权限不全、rate-limit/5xx、歧义/mismatch或无 negative-proof
+   API → `draft_recovery_blocked`；deadline不得推断未创建，无 durable claim禁止 draft mutation。
+4. `rollover_one` 创建 PR前 append `valid_decurrent_pr_pending(planned)`绑定 patch/marker/base/deterministic head/ruleset，创建后 bind PR/head/base/review/queue identity。required merge-time
+   owner gate匹配 latest signed frontier/fence/exact PR；merge后 append SHA/blob receipt。
+   `genesis_zero`由 history证明零 marker、无历史 eligible valid publication及无其它 active owner，
+   再 append frontier-bound receipt；corpus ledger只证明 artifact identities。
+5. pending de-current取消先 higher-fence CAS cancel-pending，撤销旧 gate、dequeue、close PR、compare-delete head；revocation receipt证明 closed/unmerged、queue/head absent、base/marker unchanged、
+   ruleset无 bypass。已 merge→rollback；无法证明→`decurrent_pr_recovery_blocked`。pending reject/close/stall/drift replacement须先 revoke receipt，再用新 fence/head/PR fresh review；
+   original/replacement同时授权、late merge、reopen/ref ABA均被 latest-frontier gate拒绝。
+6. valid receipt/nonvalid prepared都先 CAS `intent_written`，它是两类 Release commit state唯一 predecessor。merged de-current的 pre-intent取消→rollback；rollback/new-current/nonvalid-row
+   失败由 higher-fence exact reviewed replacement恢复，无批准则分别进入 rollback/marker/
+   nonvalid-row blocked。claim/draft cleanup、pending-PR revocation+delete、rollback+delete或
+   Release+README completion后才 terminal。
 required target 不能原生执行时显式 `unavailable` 并使 summary non-valid；非 required
 target unavailable 只展示、不阻断。不得用 host/cross binary 贴 native 目标标签；若
 approved set 含四 target 就必须配置四个 native runners。required platforms 的
@@ -517,8 +515,9 @@ hard-cancel、runner loss、job/workflow timeout 不能依赖上述 wrapper 继�
 completion reconciler，由 release workflow 终态事件触发；source 只读、attestation store
 可追加，protected environment 显式授予 `actions: read`、`contents: write`、
 `pull-requests: write`；
-   该权限只允许删除无可见 transition 的 prepared draft、按 intent 完成同一 draft，或按
-   durable owner supersede并创建同 candidate exact rollback/new-current/nonvalid-row replacement；
+   该权限只允许按 durable claim bind/delete exact draft、撤销 pending de-current PR、
+   按 intent 完成同一 draft，或按 durable owner supersede并创建同 candidate exact
+   de-current/rollback/new-current/nonvalid-row replacement；
    README PR 均须 review/CAS。reconciler 用 `(repo_node_id, workflow_id, candidate tag/source
    commit, run_id, run_attempt)` 查询预发布阶段已
 attested staged identity。cancelled/timed_out/failure 且无 normal record 时，先复验
@@ -527,7 +526,8 @@ intent-bound draft则发布并完成 README；两者 append `recovered_publicati
 两者皆无则 `release_recovery_blocked`，不写 recovered/interruption；仅无 intent 且最终
 不发布时生成 `pipeline_interrupted` manifest，report/evidence/checksum identity 为 null，
    `missing_evidence` 为闭集，保留 provenance、policy、interruption 与 publication phase。
-   它先物化 prepared owner：无可见动作可删 draft；`valid_rollback_pending` 恢复旧 marker再删；
+   它只能 takeover 已存在 claim：唯一 claim-nonce draft先 bind再删；pending de-current
+   先撤销 gate/queue/PR/head并验 revocation receipt；`valid_rollback_pending` 恢复旧 marker再删；
    post-intent 严格按上述三分支；valid-marker/nonvalid-row pending 在 deadline/heartbeat/
    rejection 后以更高 fence接管并重建 exact reviewed replacement，不伪报 sentinels absent。它按
 `jcs-rfc8785-v1` 计算 attempt-bound digest并把完整 manifest
@@ -605,7 +605,7 @@ branch 跳过这两个 marker 动作，只添加无 marker row并保留 latest-v
 | B-015 shared human/JSON aggregate and exits | renderers + strict report schema | semantic golden and 3×3×terminal-ok/error matrix cover persisted/failed-report paths, exits and blank headlines without renderer recomputation |
 | B-016 staged exact release regeneration | strict summary + attempt draft/publish-intent commit | input/self-digest mutations cannot publish; all assets verify in private draft before intent; cancellation before/after intent/commit converges without public partial assets |
 | B-017 generated README table | branch-aware verified-summary-to-doc generator | valid publication de-currents before commit then adds new current; publish_nonvalid preserves latest-valid current and adds only an unmarked row; drift fails freshness |
-| B-018 closed release-policy branches | release/README policy fixtures + completion reconciler | pre-intent/no-visible cancel deletes its draft; merged de-current first rolls back; both record interruption with no Release/new row. post-intent matching Release/draft completes and records only recovered publication; neither match → `release_recovery_blocked`; policy/evidence failures block |
+| B-018 closed release-policy branches | release/README policy fixtures + completion reconciler | pre-intent claim/draft cleanup; pending de-current requires revocation receipt; merged de-current requires rollback. post-intent matching Release/draft completes and records only recovered publication; neither match → `release_recovery_blocked`; ambiguous draft/PR recovery blocks |
 | B-019 explicit schema compatibility | versioned parsers | current/legacy/unknown schema fixtures prove only declared mapping loads; unknown version nonzero unavailable |
 | B-020 unofficial isolation | CLI option policy + README ingest gate | custom/dev report carries `official:false`, uses separate path and is rejected by README generator |
 | B-021 verified current-exe identity chain | independently trusted native launcher + offline bundle + handle-bound exec/mapped-image handshake | launcher verifies manifest and runtime handle digest before exec; start modified image then replace pathname with signed binary still fails; Unix inherited exec fd/Windows deny-write handle binds executing image to signed manifest |
@@ -616,7 +616,7 @@ branch 跳过这两个 marker 动作，只添加无 marker row并保留 latest-v
 | B-026 independent ground truth and mapping | attested maintainer roster + signed review-record schema | fake distinct IDs sharing key/subject, unrostered role, bad signature/digest/commit and forbidden overlaps all fail before execution |
 | B-027 immutable version→digest ledger | published + permanent blocked-attempt trust frontier + ledger validator | mutation suite rewrites a blocked suffix and asserts mismatch against the longest verified frontier; missing/out-of-order/wrong-lineage anchors fail; approved genesis and exact tuple reuse pass |
 | B-028 partial GH699 dependency | no-clone discovery + distribution launcher dispatch smoke | main fixture accepts merged payload but remains unavailable until actual launcher exists and each manifest-declared launcher forwards bench argv/IO/exit without setup/init |
-| B-029 immutable per-attempt blocked-release evidence | lease/watermark + two-phase draft reconciler | missing target uses explicit null identities; server-authenticated pre-attestation interruption remains enumerable; exact ledger identity and failed inputs persist; before/after-intent cancellation converges without partial public state |
+| B-029 immutable per-attempt blocked-release evidence | lease/watermark + two-phase draft reconciler | missing target uses explicit null identities; server-authenticated pre-attestation interruption remains enumerable and mutation-free without claim; exact ledger identity persists; all cancel edges converge or retain a blocked owner |
 | B-030 readonly production-layout snapshot | signed-manifest handle reader + canonical-config/all-executable materializer + wrapper executor | user config/PATH mutation cannot change official output; only signed config/baseline/executable closure is copied, materialization is outside timer, and undeclared child exec fails before sampling |
 | B-031 approved required-platform summary gate | protocol + strict summary preimage/detached attestation | delete-self-field JCS golden is unique; placeholder/self/attestation-in-preimage and omitted/replaced required or displayed inputs fail; all displayed reports are signed while only exact required evidence affects validity |
 
@@ -671,10 +671,10 @@ planned **tests/test_public_benchmark.sh** 的最终产物断言不能只看 exi
   report 的 retry 仍有不同 run/attempt-bound identity。最终 workflow 非零且
   Release/candidate-row sentinel 均不存在；
   publish_nonvalid fixture 则最终产生同版本 non-valid report/row。
-- valid fixture 覆盖 genesis self-owner admitted/other-owner rejected 与 rollover receipt；
-  公开前有 prepared owner，commit/owner-update crash可恢复，旧 row不再标 current。
-- rollback/new-current/nonvalid-row PR 的 reject/close/stall/crash 都产生 same-candidate
-  reviewed replacement或 durable recovery-blocked；未 terminal 前下一 candidate 被拒。
+- valid fixture 覆盖 pre-draft claim/draft binding、genesis self-owner/other-owner 与 rollover；
+  pending de-current cancel取得不可再 merge receipt，commit/owner-update crash可恢复。
+- draft/de-current/rollback/new-current/nonvalid-row 的歧义、reject/close/stall/crash都产生
+  exact reviewed replacement或 durable recovery-blocked；未 terminal 前拒绝下一 candidate。
 
 ## 数据流
 
@@ -701,13 +701,13 @@ release source commit
                        ├─ human renderer
                        ├─ JSON + schema gate
                        └─ required-platform summary gate
-                            ├─ valid ──> prepared owner ──> genesis receipt / de-current PR
+                            ├─ valid ──> owner_claimed ──> draft_bound ──> prepared ──> genesis receipt / de-current PR
                             │                              └─ intent_written ──> publish ──> owned new-current PR
                             ├─ non-valid + block_release
                             │      └─ permanent per-attempt failure manifest
                             │            └─ job failure (no Release/current row)
                             └─ non-valid + publish_nonvalid
-                                   └─ prepared owner ──> intent_written ──> publish ──> owned unmarked row
+                                   └─ owner_claimed ──> draft_bound ──> prepared ──> intent_written ──> publish ──> owned unmarked row
 ```
 没有网络调用或用户数据输入。持久化面是以下闭集：
 1. caller 显式选择的本次 local report；
@@ -770,9 +770,9 @@ temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期
       environment distortion、parallel runs、interruption、legacy schema 和 sentinels；
       E2E sample 必须按 fixed schedule 由 readonly snapshot wrapper spy 观察到。
 - [ ] Release contract: native reports/strict summary；`repo_node_id` exact-ref identity、唯一
-      source/candidate→ledger→publication→CAS 顺序和 pre-transition durable owner 阻止并发/
-      deadlock/ownerless publish；failure retention、genesis/rollover/rollback/new-current 与
-      nonvalid-row takeover/recovery-blocked 均受测试。
+      source/candidate→ledger→publication→CAS 顺序、pre-mutation claim/draft binding、pending
+      de-current revocation gate阻止并发/deadlock/orphan/late merge；genesis/rollover/rollback/
+      new-current/nonvalid-row takeover及六类 recovery-blocked 均受测试。
 - [ ] Documentation: 3×3×terminal、per-surface latency、双 locale 与 branch-aware marker
       freshness；仅 valid metrics 显示数字，links 指向 immutable release evidence。
 - [ ] Existing regression:

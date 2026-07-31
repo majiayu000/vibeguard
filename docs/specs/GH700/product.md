@@ -240,28 +240,34 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     顺序来自 protocol schedule。数字不得手工编辑；表格必须明确它代表哪个 release。
     所有会公开 Release/README 的分支都先按唯一顺序取得
     source/candidate、repository-ledger、repository-publication 执行 lease，再做
-    default-branch CAS；禁止反向或持后序 lease 再取前序 lease。完整重验 draft、summary、
-    policy 与 exact human-reviewed README patches 后，且在任何 marker/Release/README
-    可见动作前，必须在受认证、retention-independent、append-only
-    `publication_history` 中 fenced-CAS append durable
-    `publication_ownership_record(phase=prepared)`，绑定
-    `repo_node_id`、candidate/run/attempt、fence、draft/summary/policy、base digest、
-    deadline/heartbeat 与闭集 marker plan。短 lease 可在等待 review 时释放，durable active
-    owner 仍阻断其它 candidate；恢复时按同一顺序重取 lease并提升 fence。
+    default-branch CAS；禁止反向或持后序 lease 再取前序 lease。完整重验 local assets、
+    summary、policy 与 exact human-reviewed README patches 后，且在首次 Release API mutation、
+    generated PR、marker/Release/README 动作前，必须在受认证、retention-independent、
+    append-only `publication_history` 中 fenced-CAS append durable `owner_claimed`，绑定
+    server-authenticated `repo_node_id`/workflow/run/attempt/ref、candidate/tag/source、fence、
+    summary/policy/asset-manifest/base/review/marker-plan digest、deadline/heartbeat 与
+    `draft_claim_nonce_digest`。它不需要 draft ID但立即成为 active owner。只有该 owner 可携
+    claim nonce 创建 exact private draft；服务端返回后、任何 asset upload 前必须 append
+    `draft_bound`（release node ID/tag/target/source/claim digest），全部上传并重验后才 CAS
+    `prepared`。短 lease 可在等待 review 时释放，active owner 仍阻断其它 candidate；
+    恢复时按同一顺序重取 lease并提升 fence。
     canonical frontier 是 `(repo_node_id, history_length, history_root,
     full_prefix_digest)`。维护者批准的 length-zero genesis 只能在 store 尚无 head 的首次
     初始化使用；此后上一 release frontier 仅作下界，reader 必须取得 store 签名的最新单调
     current-head receipt、重放 prefix并证明精确结束于该 head。store 对
     `(expected_length, expected_root, expected_full_prefix_digest, current_fence)` 原子 CAS，
     复算并签发 successor frontier。record schema 是 versioned closed discriminated union，
-    canonical digest 使用 `jcs-rfc8785-v1`，覆盖
-    prepared、receipt、intent、commit、takeover、四类 recovery-blocked、
+    canonical digest 使用 `jcs-rfc8785-v1`，覆盖 owner claim、draft binding、prepared、
+    de-current plan/binding/revocation、receipt、intent、commit、takeover、六类 recovery-blocked、
     `recovered_publication` 与 terminal；每项绑定 owner key、prior phase/frontier、
     expected/new fence、payload digest 与受信 issuer/workflow/subject，deterministic fold
     唯一导出 active owner/phase，非法 transition/fence/owner 直接拒绝。缺失、尾部截断、
     fork、过期 fence 或 checkout 自报 anchor 均 fail closed。
-    valid plan 只能是：`rollover_one`（CAS 证明恰有一个 eligible current valid row，合并
-    human-reviewed de-current PR并在 intent 前持久化 merge SHA/前后 blob digest receipt）或
+    valid plan 只能是：`rollover_one`（CAS 证明恰有一个 eligible current valid row；
+    创建 PR 前 append `valid_decurrent_pr_pending(planned)` 绑定 owner/fence、patch/marker/base、
+    deterministic head ref与 ruleset；创建后 bind PR node/head/base/review/queue identity。
+    required merge gate 每次按最新 signed history frontier 验证 owner/fence/PR/head/base，
+    合并后在 intent 前持久化 merge SHA/前后 blob digest receipt）或
     `genesis_zero`（CAS 证明零 marker、`publication_history` 没有历史 eligible valid
     publication，且除本次 exact current prepared owner
     `(repo_node_id, candidate, run_id, run_attempt, fence)` 外没有 active owner；history 证明
@@ -273,7 +279,15 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     重审。ownership 以 fenced CAS 推进 `valid_zero_marker → intent_written →
     release_committed_valid_marker_pending`；即使 worker 在 Release commit 后、状态推进前
     消失，reconciler 也必须从既有 prepared owner + intent + public sentinel 幂等补齐状态。
-    de-current 后 intent 前取消则进入 `valid_rollback_pending`，只允许恢复 receipt 绑定旧
+    de-current PR 未 merge 时取消先以 higher-fence CAS 进入 `valid_decurrent_pr_cancel_pending`，
+    撤销旧 fence 的 merge authorization、disable auto-merge/dequeue、关闭 exact PR、
+    compare-delete head ref并取得 server-authenticated revocation receipt，证明 PR closed/
+    unmerged、queue absent、head absent、default branch/marker 未变、ruleset 无 bypass，才可删
+    draft并 terminal；竞争中已 merge则转 `valid_rollback_pending`。pending PR rejected/closed/
+    stalled/branch-drift 但 candidate 继续时，必须先 higher-fence revoke旧 gate/queue/PR/head并
+    取得 receipt，再以新 fence/head/PR回到 planned/bound并 fresh review；original/replacement
+    不能同时获 merge authorization。任一证明失败进入 `decurrent_pr_recovery_blocked`。
+    de-current 已 merge且 intent 前取消只允许恢复 receipt 绑定旧
     marker 的 reviewed PR。rollback/new-current PR closed、rejected、超时或 owner 消失时，
     reconciler/scheduled audit 以更高 fence supersede并创建同 candidate、同 exact patch 的
     human-reviewed replacement；无获批 replacement 则 attest 对应
@@ -288,6 +302,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     留下无 row 的 public Release 后放行下一 candidate。exact unmarked row merge 后才 terminal。
     intent 后 exact draft 缺失/不匹配且没有 matching public Release 时只能 attest
     `release_recovery_blocked`，active owner 保持，不得改发 block record 或放行其它 candidate。
+    `owner_claimed` 后 draft create response 丢失时仅可按 claim nonce+exact repo/tag/source 查询：
+    唯一匹配先 higher-fence bind后清理；普通零结果保持 owner并重试，只有服务端认证的全量/
+    完整分页且满足一致性边界的 negative receipt才可 terminal；若 API 不提供此证明，或遇到
+    stale zero、分页/权限裁剪、多个、不匹配、rate-limit/5xx，则进入
+    `draft_recovery_blocked`。deadline/heartbeat 不得推断“从未创建”。无 durable claim 的
+    pre-attestation interruption 必须证明零 Release mutation。
 18. B-018: release 报告无效、缺平台或 pipeline 中断时必须按获批的闭集
     `release_policy` 唯一分支，且不得保留前一 release 数字但换成新版本标签：
     - `block_release`：按 B-029 保存永久失败证据后阻断；不创建 GitHub Release、
@@ -306,18 +326,20 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     按同一 candidate/run/attempt 身份补写与最终状态一致的
     `recovered_publication` 或 interruption record。它除只读 source 与
     attestation 写权限外，只能取得 environment-protected、attempt-bound 的 Release
-    mutation 权限：仅可删除 prepared 且尚无可见 transition/intent 的同一 draft、按已验签
-    `publish_intent` 完成/验证同一 draft，或按 durable owner 创建/supersede exact
-    rollback、new-current、nonvalid-row recovery PR 并等待 human review/merge；
+    mutation 权限：仅可按 durable claim 枚举/bind/delete exact draft；revoke owner gate、
+    disable auto-merge/dequeue、close exact pending de-current PR并 compare-delete exact head；
+    按已验签 `publish_intent` 完成/验证同一 draft；或按 durable owner创建/supersede exact
+    de-current/rollback/new-current/nonvalid-row recovery PR并等待 human review/merge；
     不得直接写 default branch，也不得创建或改写其他 tag/release。任何新 mutation 前必须
     审计 publish sentinels；post-intent 严格按 B-029 三分支真值表恢复，不能依赖已终止 job。
-    发布路径必须使用 attempt-scoped draft two-phase commit：所有 assets/checksums/summary
-    先上传到非公开 draft并完整重验；然后按 B-017 唯一锁顺序和 CAS 写
-    `publication_ownership_record(prepared)`。valid 选择并证明 `genesis_zero` 或
+    发布路径必须使用 attempt-scoped draft two-phase commit：先按 B-017 唯一锁顺序 CAS
+    `owner_claimed`，再创建并 bind private draft；只有 `draft_bound` 可上传
+    assets/checksums/summary，完整重验后 CAS `prepared`。valid 选择并证明 `genesis_zero` 或
     `rollover_one` receipt 后再写不可变 `publish_intent`；`publish_nonvalid` 的 intent
     绑定 exact unmarked-row plan。最后以唯一 draft→published 作为 commit point。prepared
-    且无可见动作的取消可删 draft并 terminal；de-current 后 intent 前取消进入可接管的
-    reviewed rollback；intent 后严格按 B-029 matching Release/matching draft/neither 三分支；
+    且无可见动作的取消可删 exact draft并 terminal；pending de-current PR 必须先撤销 merge
+    authority并取得 revocation receipt，已 merge de-current 则进入可接管的 reviewed rollback；
+    intent 后严格按 B-029 matching Release/matching draft/neither 三分支；
     commit 后由同一 durable owner
     完成 valid marker 或 nonvalid row。不存在 public partial assets、无 owner 的 zero marker、
     无 owner 的 public Release 或 unrecovered README PR 合法状态。
@@ -487,8 +509,9 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     public Release 则验证并完成 README；否则 matching intent-bound private draft 则发布并
     完成 README；两者都 append `recovered_publication`。若二者皆无则 attest
     `release_recovery_blocked`、保留 owner，不能写 recovered/interruption。只有无 intent
-    且恢复最终证明不发布时（无可见 transition 直接删 draft；已 de-current 则 exact
-    rollback+draft delete），才创建 schema 的 `pipeline_interrupted` 分支：包含同一
+    且恢复最终证明不发布时（claim 无 draft；无 transition 删除 bound draft；pending
+    de-current 先取得 revocation receipt；已 merged de-current 则 exact rollback+draft delete），
+    才创建 schema 的 `pipeline_interrupted` 分支：包含同一
     candidate/run/attempt、staged provenance、selected/effective policy、interruption
     conclusion/stage、publish-sentinel audit，以及闭集 `missing_evidence`；此分支明确将
     report/evidence/checksum identity 置空而不伪造。reconciler 用相同 canonical profile
@@ -581,12 +604,13 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
       phase 分流：无 intent 最终不发布时才把 target 或 release-scoped failure manifest
       永久内嵌到不可覆盖 attestation/ledger；post-intent matching Release/draft 完成 exact
       publication并只写 `recovered_publication`，neither 则 `release_recovery_blocked`。它的
-      Release 写权限仅能删除无可见 transition 的 prepared private draft、按验签 intent
-      完成同一 draft，或按 durable owner 创建/supersede human-reviewed rollback、
-      new-current、nonvalid-row PR；不能直接写 default branch或改写其他 release；
+      Release 写权限仅能按 durable claim bind/delete exact private draft、撤销 pending
+      de-current PR、按验签 intent 完成同一 draft，或按 durable owner创建/supersede reviewed
+      de-current、rollback、new-current、nonvalid-row PR；不能直接写 default branch或改写其他 release；
       `repo_node_id` identity、candidate/source → ledger → publication 的唯一 lease 顺序、
       fenced CAS + merged watermark 阻止 prior attempt 或并发 candidate 后的 rerun/publish；
-      genesis zero-marker、rollover rollback、post-intent Release、post-commit marker 与
+      pre-draft claim/binding、pending de-current revocation、genesis zero-marker、
+      rollover rollback、post-intent Release、post-commit marker 与
       nonvalid row 都必须有
       pre-transition durable owner、intent 前 receipt、retained authenticated publication
       history并恢复到 terminal；draft/Release 不匹配则 `release_recovery_blocked`。
