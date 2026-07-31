@@ -429,7 +429,7 @@ budget 数值。
 `.github/workflows/semantic-assets.yml` 生成并绑定 release 的外部 asset。这样
 `complete: true` 只表示该 reference path 的 repo source、schema、policy、asset build/
 install、doctor/status、canonical latency runner、tests 与 docs surface 无遗漏，不表示
-H-001–H-020 已批准。当前共 103 条唯一 repo paths：63 条 existing、40 条 planned。
+H-001–H-020 已批准。当前共 104 条唯一 repo paths：63 条 existing、41 条 planned。
 `semantic-sidecar/` 是新 product root，因此 `docs/directory-map.md` 必须同步登记。任一
 决定改变 provider、ecosystem、host、packaging、policy、status route 或 tests 时，
 必须先修订此 manifest；`tasks.md` 不得增加未列 surface。
@@ -495,6 +495,7 @@ H-001–H-020 已批准。当前共 103 条唯一 repo paths：63 条 existing�
     "scripts/learn/analyze.py",
     "scripts/learn/adoption.py",
     "scripts/ci/self-application/check-u22-coverage.sh",
+    "scripts/ci/self-application/u22-critical-files.json",
     "setup.sh",
     "scripts/setup/check.sh",
     "scripts/setup/install.sh",
@@ -566,7 +567,7 @@ Complete-path cross-check：
 | Observability schema migration | `schemas/event-log.schema.json`; `schemas/session-metrics.schema.json`; `docs/command-schemas.md`; `tests/test_observability_schemas.sh`; `tests/fixtures/observability-schemas/` | docs declare the new schema/version and typed signal/receipt fields；legacy/current positives plus missing/unknown/malformed negatives prove compatibility and fail-visible parsing |
 | Learn signal contract | `schemas/learn-signal.schema.json`; `tests/test_workflow_contracts.sh`; `tests/test_learn_adoption.sh` | new semantic-defense signal/typed source positives and invalid classification/action/path cases preserve the classification-bound action space before adoption |
 | Semantic release assets | `.github/workflows/release.yml`; `.github/workflows/semantic-assets.yml`; `tests/test_release_workflow.sh`; `tests/test_payload.sh`; `scripts/release/payload-manifest.txt` | release contract fixes same-tag checksums, attestations, dependency metadata, target matrix, explicit install provenance and revoke/rollback behavior for every semantic artifact |
-| U-22 measured coverage | `scripts/ci/self-application/check-u22-coverage.sh`; `tests/test_u22_coverage.sh`; `vibeguard-runtime/Cargo.toml`; planned **semantic-sidecar/Cargo.toml**; `.github/workflows/ci.yml` | pinned `cargo-llvm-cov` runs runtime and sidecar manifests separately at ≥80% line coverage so aggregate coverage cannot hide either crate；JSON file coverage requires 100% for runtime `semantic_defense/{mod,config,identity,protocol,provider,inventory,test_weakening,runtime_signal,cache}.rs` and sidecar `protocol.rs`/`sandbox.rs`，including final reducer/orchestration、inventory verdict、semantic weakening verdict、W-rule transitions、project/session isolation and every WAL/cache/journal recovery branch；`tests/test_u22_coverage.sh` must reject any omitted critical module, missing/malformed report, aggregate masking, path-normalization miss or critical file below 100%，while the focused B-003/B-009/B-011–B-015/B-019/B-020/B-022–B-028 suites exercise each decision、isolation and injected-failure path before coverage is accepted |
+| U-22 measured coverage | planned **scripts/ci/self-application/u22-critical-files.json**; `scripts/ci/self-application/check-u22-coverage.sh`; `tests/test_u22_coverage.sh`; `tests/test_manifest_contract.sh`; `vibeguard-runtime/Cargo.toml`; planned **semantic-sidecar/Cargo.toml**; `.github/workflows/ci.yml` | pinned `cargo-llvm-cov` runs runtime and sidecar manifests separately at ≥80% line coverage so aggregate coverage cannot hide either crate；the closed inventory assigns `required_line_coverage=100` to `vibeguard-runtime/src/{project_config,hook_orchestrator_context,hook_orchestrator,event_schema}.rs`、runtime `semantic_defense/{mod,config,identity,protocol,provider,inventory,inventory_adapters/mod,inventory_adapters/typescript_npm,test_weakening,runtime_signal,cache,metrics}.rs` and sidecar `{protocol,sandbox}.rs`，covering final reducer/orchestration、inventory/adapter verdict、semantic weakening、W-rule transitions、metrics eligibility、payload/project/session isolation and every WAL/cache/journal recovery branch；the gate rejects duplicate/unknown/missing paths, missing/malformed reports, aggregate masking, path-normalization misses, unclassified new `semantic_defense`/sidecar security modules and every listed file below 100%；`tests/test_u22_coverage.sh` owns an independent exact mandatory-set fixture and compares it with the inventory in both directions，while `tests/test_manifest_contract.sh` requires every inventory path in the planned affected-file map；focused B-001/B-003/B-009/B-011–B-015/B-017–B-020/B-022–B-028 suites must exercise each decision、isolation and injected-failure path before coverage is accepted |
 
 ## Product-to-Test Mapping
 
@@ -690,11 +691,12 @@ H-020 批准。
 - [ ] Regression tests: 现有 W-12/W-16/W-02/W-13/W-14/W-15、runtime config/event schema、
       project opt-in schema/parser/isolation、precision tracker、Learn schema/adoption、
       observability legacy/current fixtures、release asset checksums/attestations/metadata、
-      payload、hook manifest、两 crate 独立 ≥80% line coverage；final reducer/mod、
-      inventory、test weakening、runtime signal、cache/journal recovery 与
-      config/identity/protocol/provider/sandbox 所有 decision/isolation/durability 分支
-      100% coverage，且 coverage contract 对遗漏模块、aggregate masking、path-normalization
-      和每个关键文件低于 100% 都必须失败；以及 docs contracts。
+      payload、hook manifest、两 crate 独立 ≥80% line coverage；closed critical inventory
+      覆盖 final reducer/mod、inventory/adapters、test weakening、runtime signal、metrics、
+      project config/context/orchestrator/event schema、cache/journal recovery 与 sidecar
+      protocol/sandbox 的所有 decision/isolation/durability 分支 100% coverage。独立合同
+      必须对 inventory 与 mandatory set 任一方向差异、未分类新模块、aggregate masking、
+      path-normalization 和每个关键文件低于 100% 失败；以及 docs contracts。
 - [ ] Performance tests: cold/warm core 和 installed hook P50/P95/P99/max、large diff/
       inventory、parallel sessions、timeout/cancel；cold/warm L2 必须分别通过
       planned **tests/bench_semantic_core.sh** core runner、`tests/bench_hook_latency.sh` installed
