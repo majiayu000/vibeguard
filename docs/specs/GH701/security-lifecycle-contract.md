@@ -200,29 +200,42 @@ exact intent with state `publishing` and fsync the directory. This pointer is du
 pending state, never completed evidence; every consumer must reject it.
 
 Still under both locks, the publisher drains a post-CAS watcher barrier and repeats
-the held-handle read. On any event, gap, or drift it CASes the exact publishing pointer
-to a durable invalid tombstone and fsyncs before lock release. Only a clean result may
-create and fsync an immutable `publish_completion` binding the publishing pointer/intent
+the held-handle read. Only a clean result may create and fsync an immutable
+`publish_completion` binding the publishing pointer/intent
 digest, both barrier roots, final reads, target identities, and evidence digest. The
 completion file plus directory are fsynced while exclusion remains enforced. The
-provider then performs one atomic `release_and_record` operation that removes the
-mandatory policy and durably persists a release receipt binding the completion digest,
-final watcher/provider sequence, zero denied attempts/gaps, and exact identities. The
-generation stays `publishing` until this operation succeeds. Only an exact pointer,
-intent, completion marker, and release receipt makes it `completed`; no missing, partial,
-or orphan record is completed. Consumers cannot take the per-target lock until the
-publisher finishes release-and-record and releases that lock.
+provider then performs one journaled atomic `release_and_record` transaction. At one
+durable linearization point it (1) CASes the exact publishing generation/digest,
+(2) persists a receipt and pointer carrying literal `state: completed`, exact ancestry,
+intent/completion digests, and the provider release receipt, and (3) removes the
+mandatory policy. The release receipt binds final watcher/provider sequence, zero denied
+attempts/gaps, and exact identities. Consumers accept only this completed pointer/receipt
+tuple; they never reinterpret a publishing pointer. A provider unable to make all three
+effects atomic is unsupported.
+
+Every non-success path after exclusion acquisition—including denied write, gap, drift,
+timeout, cancellation, crash recovery, orphan intent/completion, stale CAS, or policy
+error—must instead run journaled atomic `abort_release_and_record`. At one durable point
+it records a closed abort reason and provider/watcher roots, preserves the prior receipt,
+CASes any exact publishing pointer to a non-state tombstone, persists the exclusion
+release receipt, and removes the mandatory policy. It is idempotent by exclusion ID plus
+generation/digest. No completed evidence is produced. On owner death or bounded,
+non-renewable expiry, the provider itself executes the same `abort_release_and_record`;
+policy removal and its durable abort/release event are indivisible. If the caller-side
+abort fails, VibeGuard remains fail-closed while the provider completes that transaction
+by the deadline, so the host target cannot remain locked indefinitely.
+Consumers cannot take the target lock until a success or abort release receipt exists.
 
 Pointer presence alone never authorizes use. While holding the same target lock, every
-consumer first exact-matches a completed pointer/intent/marker/release tuple, drains its new
+consumer first exact-matches a literal completed pointer/receipt/intent/marker/release tuple, drains its new
 watcher epoch past a barrier taken after that read,
 revalidates held parent/target identity and bytes, and re-reads the unchanged pointer.
 Any mutation, gap, target drift, or pointer/marker change rejects the generation before
 host use/proof. Because every consumer takes the same lock, publishing state is never
 acceptable evidence. The bundles remain durable for the lifetime of completed evidence.
 
-Recovery takes the target lock and enumerates immutable bundles, pointer, completion,
-and tombstone records.
+Recovery takes the target lock and reconciles immutable bundles, pointer, completion,
+abort/tombstone, exclusion status, and success/abort release records.
 An unpointed `activating` bundle is never assumed completed or consumed: retry must open
 new held identities, run a fresh zero-mutation watcher epoch and native probe, and
 either create/commit a new generation or retain the orphan with `needs_human` and the
@@ -230,15 +243,13 @@ exact user reverse. Only an exact completed pointer/intent/marker/release tuple 
 normal consumer revalidation path. A pointer naming an activating/intent record without
 completion follows the incomplete-publication path below. Missing, torn, duplicate,
 or conflicting records/CAS expectations are `needs_human`; no evidence is published and
-the prior receipt is not consumed. Any `publishing` pointer lacking an exact durable
-completion marker and release receipt—including crash after pointer fsync, during the
-barrier/completion fsync, or before release-and-record—is non-completed. Recovery must
-first CAS it to a durable invalid
-tombstone, then open fresh identities and run a new zero-mutation watcher epoch and
-native probe in a new generation; restored bytes cannot complete the old probe. An
-orphan completion/release record is also rejected. Supersession consumes the old receipt only
-after the new completion tuple is durable and exact; every earlier crash leaves it
-unconsumed.
+the prior receipt is not consumed. Any `publishing` pointer lacking the atomic completed
+receipt/pointer/release tuple is non-completed. Recovery must finish
+`abort_release_and_record` (or reconcile the provider owner-death/expiry release event
+into the same durable abort record) before opening fresh identities and running a new
+watcher epoch/native probe; restored bytes cannot complete the old probe. Unknown release
+status remains fail-closed while bounded expiry preserves host liveness. Orphan success/
+abort release records are rejected.
 
 For a present base, failure-reverse restores the exact base bytes/semantics; clean
 restores the original unmanaged clean base carried through superseding generations.
@@ -265,18 +276,29 @@ passes, and the new completion tuple is exact. Failure leaves the old completed 
 intact. Consumed receipts may then be deleted; planned/activating/publishing/completed
 or drifted receipts must remain available with only path+digest shown to the user.
 
+`completed → consumed` is the only consume transition. Its atomic CAS record binds the
+exact completed receipt digest, original clean ancestry/presence, verified restore or
+absent-base deletion evidence, and either the clean operation or exact successor
+completed generation/digest. Direct publishing/abort-to-consumed, missing successor
+ancestry, replay, or consuming the predecessor before successor completion is rejected.
+
 ### 3.3 Required fixtures
 
 Positive fixtures cover present-base install/failure reverse/clean, absent-base fresh
 install/failure deletion/clean deletion, completed receipt retention, and safe update
 supersession, plus crash recovery around intent/pointer/barrier/completion/tombstone
-fsync. Negative fixtures cover concurrent installers/recovery/clean, stale expected
+fsync. Success fixtures assert atomic publishing→completed pointer+receipt+release;
+abort fixtures cover every phase/reason, idempotent retry, owner death/expiry, durable
+abort before release, eventual host writability, and zero completed evidence. Negative
+fixtures cover concurrent installers/recovery/clean, stale expected
 generation/digest, early receipt deletion, missing/torn/duplicate pointer or generation,
 publishing reuse, exclusion bypass/write attempt/gap, crash before release receipt,
 mutation+restore after pointer fsync, orphan completion/release, candidate/receipt drift,
 temporary same-inode write-and-restore, byte-identical target replacement, parent
 swap, symlink/hard-link/mount change, watcher overflow, partial reverse/delete, target
 recreation, delayed old-FD write, and stale evidence used by runtime/proof.
+Consume fixtures accept only completed→consumed with exact clean/successor ancestry and
+reject every direct, early, replayed, or mismatched transition.
 
 ## 4. Closure rule
 

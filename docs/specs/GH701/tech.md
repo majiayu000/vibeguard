@@ -447,7 +447,8 @@ exclusion 与 closed planned→activating→publishing→completed→consumed st
 base 用用户执行的 exact-target deletion，并验证稳定 absence + host-native unregistration。
 byte-identical inode/parent swap、write attempt/gap、late write/recreate 或 identity/digest
 drift 全部 `needs_human`。manual evidence exact-bind pointer/intent/completion/release tuple；
-schema/tests 拒绝 `active` state、direct transition 或缺 publishing/completion record。
+atomic success/abort release respectively persists completed state or tombstone and unlocks；
+schema/tests 拒绝 `active`、direct/early consume、missing ancestry/release 或 permanent lock。
 
 ### 5. Deterministic README claim evidence
 
@@ -630,7 +631,7 @@ config/payload/log content。
 | B-022 | v2 top-level hosts/per-hook mappings/non-host entries | `bash tests/test_manifest_contract.sh`；`bash scripts/ci/validate-hooks-manifest.sh` 的 key-set、non-host、contradiction negative fixtures |
 | B-023 | v1 compatibility/deprecation | `bash tests/test_manifest_contract.sh`：v1 read+warning、v1 third-host reject、v2-only writer 与 v1/v2 Claude/Codex golden parity |
 | B-024 | complete unknown matrix | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml` 分别固定 contract/discovery/protocol/runtime outcomes |
-| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 mandatory mutation exclusion+continuous watcher、publishing/completion/release tuple；write/bypass/gap、各 crash 窗口、mutation-restore、stale/orphan、`active`/direct transition、inode/parent swap 均 blocked；appendix §3 |
+| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 atomic success publishing→completed pointer/receipt/release、all-path abort_release_and_record、owner-death/expiry unlock、completed→consumed ancestry；partial/permanent-lock/active/direct/early/replay 均 blocked；appendix §3 |
 | B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
 | B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 H-001 provider/policy + relocation signer/digest binding、normalized page equality；self/implementer-signed manifest、inbound/outbound write、private-COW exec、bad relocation、patch-restore、RWX、trace gap/load-unload 均 nonzero；appendix §2 |
@@ -738,8 +739,8 @@ config/payload/log content。
   oversize primary closed fallback、
   malformed/privacy 与 encode failure。
 - [ ] Lifecycle tests：全 phase、lock/deadlock、versioned CAS/lease 与 crash rollback；
-  verified-file 覆盖 exclusion→publishing→completion→atomic release receipt，及 write/bypass/gap、
-  各 crash、mutation-restore、stale/orphan、`active`/direct transition、inode/parent swap negatives。
+  verified-file 覆盖 atomic success/abort release、owner-death/expiry unlock、completed→consumed
+  ancestry，及各 crash/write/gap/stale/orphan/partial/permanent-lock/active/direct/replay negatives。
 - [ ] Evidence tests：README-claim schema/gate 的 protected producer attestation、
   GH-699 exact producer SHA/argv，以及 GH-700 committed Release summary/report/
   publish-intent binding 与 standalone rerun/draft/unsigned/wrong-workflow matrices；

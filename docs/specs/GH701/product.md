@@ -234,9 +234,10 @@ GH-701 已完成。
     state lock 串行；publish 必须 CAS exact expected pointer generation+digest。probe 后先
     fsync activating bundle；final pre-CAS barrier 起先取得不可旁路 OS mutation exclusion，
     continuous watcher 下发布 publishing intent/completion。任何 write attempt/gap 都 invalidate。
-    provider atomic release-and-record 后 exact pointer/intent/completion/release tuple 才是 completed；
-    consumer 再做新 watcher barrier、target revalidation 与 pointer re-read。crash 缺 release
-    receipt 必须 durable invalidate + fresh probe；mutation-restore 不能完成旧 generation。
+    provider atomic release-and-record 必须同时 CAS/persist literal completed pointer+receipt、
+    release receipt 和 exclusion removal；consumer 只接受该 tuple。所有失败/崩溃/orphan
+    必须 atomic abort-release-record 后解锁；owner-death/有界 expiry 保证 fail-closed 但不永久锁 host。
+    completed→consumed 只允许 verified clean 或 exact completed successor ancestry。
     present-base reverse 必须由用户恢复并按同一 identity/bytes/metadata 验证；
     absent-base reverse/clean 必须由用户删除 exact target，并以 watcher 连续性、两次
     bounded absence observation 与 host-native unregistration 验证。VibeGuard 不得写或
@@ -413,8 +414,8 @@ GH-701 已完成。
   额外编辑或 late write 都保持 partial。
 - [ ] verified-file failed-probe 与 clean/disable fixtures 仅在 current candidate /
   receipt 精确匹配时提供用户应用的 reverse diff；present base 的 identity/bytes/
-  metadata 重验通过后才 restored/not-installed；per-target CAS、mutation exclusion/watcher、
-  publishing/completion/release/tombstone 各 crash 窗口必须确定性；只有 verified
+  metadata 重验通过后才 restored/not-installed；atomic success/abort release、owner-death/
+  expiry、publishing/completed/consumed 各 crash 窗口必须确定性；只有 verified
   removal 或保留原 clean ancestry 的 superseding receipt 生效后才消费；absent base
   不得伪造空 base，clean 必须由用户删除 exact target 并经两次 bounded absence、
   watcher continuity 与 host-native unregistration 验证；任一第三方 drift 都不覆盖并
