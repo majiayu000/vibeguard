@@ -225,7 +225,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     digests，以及 source-applicable revocation binding：official 必须有 registry-event
     evidence digest，local 必须为 `not_applicable` 且该字段 absent。receipt 还必须绑定
     `decision_valid_until`、source-applicable `override_valid_until`、expiry fallback/reason、
-    committed evaluation policy identity、source storage key、target/profile/capabilities、所有
+    committed evaluation policy 的 exact digest、authoritative generation、validity-evidence
+    digest、source storage key、target/profile/capabilities、所有
     owned files 和 config entries 的 before/after digests、transaction ID、audit evidence
     与 effective decisions。source storage key 必须是 closed discriminated union：
     official 使用 normalized publisher + pack；local 使用完整 canonical local identity 的
@@ -290,8 +291,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     README、install command 或 artifact-embedded publication policy 临时覆盖。policy
     更新必须在不改写 bundle/index identity 的前提下重算 eligibility；Core-owned
     authoritative local evaluation-policy pointer 一旦切换，runtime 必须在下一次 enforcement
-    比较其 digest 与 committed generation：可读、合法且不低于 floor 的新 pointer 若 digest
-    mismatch，立即使用 warn/off fallback 并标记 `policy_changed + audit_required`；pointer/floor
+    比较其 exact `(digest, generation, validity_evidence_digest)` 与 committed generation；任一
+    identity drift 即使 digest 后来相同，也立即使用 warn/off fallback、durably latch
+    `policy_changed + audit_required`；pointer/floor
     缺失、malformed 或 pointer generation 低于 floor 时则是 `runtime_guard_unavailable`，必须
     拒绝本次操作并非零返回，不能通过 fallback 放行。两者都不能等旧 horizon 到期。status
     同时显示 publication、committed evaluation 与 authoritative active evaluation policy
@@ -313,10 +315,14 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     time high-water 检测回退：任意 `runtime_time < last_trusted_runtime_time`，即使仍位于
     evaluation/expiry interval 内，也必须立即忽略旧 block、使用 fallback 并显示
     `clock_rollback + audit_required`。high-water state 必须按 active generation 隔离并由同一
-    installation-scope pointer 选择；runtime 必须先取得 installation runtime-state lock，再在
-    锁内读取 current pointer、派生 state path，并在 CAS/执行前重验 pointer identity 未变，
+    installation-scope pointer 选择；runtime 必须按 canonical order 取得 policy lock 与
+    installation runtime-state lock，在锁内读取并直到 decision 执行后持续重验 policy
+    pointer/floor、active pointer/state，
     同时验证 pointer 的 monotonic installation generation 不低于独立 floor，禁止使用取锁前
-    缓存或被 replay 的旧 generation。新 state 在 pointer switch 前不可影响旧 generation。
+    缓存或被 replay 的旧 generation。每个可信 `runtime_time >= high_water` 观测必须先 CAS
+    推进 high-water 再选择 block/fallback；expiry、policy drift 或其他 semantic fallback 还须
+    在同一 state 不可逆锁存 `audit_required` reason，runtime 不得自行清除。新 state 在 pointer
+    switch 前不可影响旧 generation。
     management commit 必须在读取旧 high-water/sequence 前取得 installation runtime-state lock，
     并持锁直到新 state fsync 与 active pointer switch 完成，禁止 runtime 在交接窗口推进旧 state。
     high-water 缺失、损坏、身份不匹配或 bounded retry 后仍无法锁定/原子推进时必须拒绝本次
@@ -348,7 +354,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 31. B-031: core-curated packs 与 community packs 使用同一 per-rule precision eligibility
     计算和 no-data降级语义；curated badge、仓库内置或 high severity 都不能绕过 floor。
     两者的 publisher/trust来源可以不同，但差异必须由 H-003/H-008 policy 明示。
-32. B-032: precision evidence digest、current evaluation policy digest、rule bytes、
+32. B-032: precision evidence digest、current evaluation policy exact digest/generation/validity
+    identity、rule bytes、
     capability mapping、provenance evidence digest、official registry-event evidence digest、
     compatibility contract digest、source-applicable revocation binding 或 normalized
     evaluation time 任一变化（包括 collapsed status 未变，或仅跨越 freshness/expiry/
@@ -357,7 +364,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     保持不变，旧 evidence 不得绑定新 bytes，same-content retry 也不得跳过。若 active block
     不再 eligible，下一次 audit 必须 fail visible 并按获批 evaluation policy 降级，而不是
     继续静默 block。即使没有 add/update/audit，runtime 发现 authoritative local policy
-    digest mismatch、到达 `decision_valid_until`/`override_valid_until`，或发现 trusted-time
+    digest/generation/validity identity mismatch、到达 `decision_valid_until`/
+    `override_valid_until`，或发现 trusted-time
     high-water rollback/drift，也必须先施加本地 fallback ceiling 并标记 `audit_required`；
     只有 fresh management audit（clock rollback 另需 B-028 trusted-clock reconciliation；
     promotion 另需 fresh explicit confirmation）才可恢复 block。
@@ -408,7 +416,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     `current`，applicable revoke event 无论 cache age 都保持 `revoked` 并执行 ceiling；
     cache 缺失、malformed、identity mismatch 或 non-revocation proof 超过 window 时才是
     `unknown` 并按 policy 降级。runtime 不联网但必须检查 committed validity horizon：
-    horizon 到期、authoritative policy digest mismatch 或 trusted-time high-water rollback
+    horizon 到期、authoritative policy digest/generation/validity identity mismatch 或
+    trusted-time high-water rollback
     即使用 warn/off fallback 并标记 `audit_required`。不能把 availability failure 当成新的
     current 证据，也不能把仍有效 cache 错报 unknown，或让已知 revoke 因过期恢复。
 

@@ -76,8 +76,9 @@ H-008/H-009 属于 security/default-policy decisions，批准证据还要满足�
 
 - `publication_policy_digest`：在 build/publish 时固定，进入 immutable index entry 与
   bundle manifest，解释 artifact 当时依据的选择；
-- `evaluation_policy_digest`：每次 resolve/install/audit 从 current approved policy 读取，
-  进入 eligibility、transaction plan、receipt 与 audit，但不写回 bundle/index。
+- evaluation policy identity：每次 resolve/install/audit 绑定 current approved policy 的 exact
+  `(digest, authoritative_generation, validity_evidence_digest)`，进入 eligibility、plan、receipt
+  与 audit，但不写回 bundle/index；generation/validity drift 即使 digest 相同也不是同一 identity。
 
 发布当时二者可由同一 approved bytes 产生，字段和 role 仍必须分开。H 选择改变时，旧 pack
 保留原 publication identity，同时在新 evaluation identity 下 re-audit；不得要求 republish、
@@ -248,13 +249,13 @@ validity evidence、previous/target generation；再 CAS+fsync floor、atomic sw
 保持 fail closed。runtime 验证 pointer generation `>= floor`，旧 replay 即使 digest 匹配也
 无效。pack/environment/CLI/publication artifact 均不能改写。每个 active generation 有独立
 closed、Core-owned runtime-state entry，
-绑定 generation/policy digest、`clock_epoch`、单调 sequence 与 `last_trusted_runtime_time`；
-active set pointer 同时选择 generation 和对应 state。runtime 必须先取得专用 bounded lock，
-再在锁内读取 current pointer、由该 snapshot 派生 state path，并在 CAS 与执行前重验 pointer
-identity 未变；只有 `runtime_time >= last_trusted_runtime_time`、generation/policy identity
-仍匹配且 state 可原子推进时才可执行 block。取锁前缓存的 pointer/state 不得执行；否则按
-下述 semantic fallback/runtime-guard denial 分流。新进程
-继承 durable high-water，不得以启动时间
+绑定 installation generation、committed policy exact identity、`clock_epoch`、单调 sequence、
+`last_trusted_runtime_time` 与不可逆 `audit_required` latch。runtime 按 `policy.lock` → 专用
+bounded runtime-state lock 取得两锁，在锁内读取并持续重验 policy pointer/floor、active pointer/
+state，直到 CAS 与 decision 执行完成。每个可信且不回退的 time observation 必须先原子推进
+high-water；expiry/identity drift 等 fallback 同时锁存 reason，只有新 management generation
+可清除。取锁前缓存的 authority/pointer/state 不得执行；任一锁/CAS 失败按 runtime-guard denial。
+新进程继承 durable high-water，不得以启动时间
 重置。同 epoch 的 audit 不得降低它；显式 trusted-clock reconciliation 必须验证 Core-approved
 time evidence，在 management locks 下重新 audit，递增 epoch，并将 evidence、新 generation
 及其新 state 以 active pointer 原子提交。失败保持旧 pointer/state，普通 audit 不声称恢复。
@@ -305,7 +306,8 @@ dependencies 需要引用集合，最后一个 owner remove 才可删除。
 
 journal 每完成一步原子 append/replace closed state。audit 成功后先在
 `committed/<transaction_id>/` 写入并 fsync 全部 resolved dependency receipts、active
-identities、shared ownership refs、publication/evaluation policy、provenance/
+identities、shared ownership refs、publication policy 与 committed evaluation policy exact
+`(digest, authoritative_generation, validity_evidence_digest)`、provenance/
 compatibility/precision evidence、source-applicable revocation binding、eligibility
 digests、`decision_valid_until`、expiry fallback/reason 和 commit marker，并在 journal 记录
 目标 monotonic installation generation、pointer/state digests；再推进并 fsync 独立
@@ -373,6 +375,8 @@ compatibility_contract_digest
 precision_evidence_digest | null
 precision_evidence | null
 evaluation_policy_digest
+authoritative_policy_generation
+policy_validity_evidence_digest
 approved_evaluation_policy
 evaluation_time
 local_override | null
@@ -444,22 +448,18 @@ normalized evaluation-time 变化产生新 digest 并触发 audit，即使 colla
 这包括只跨越 freshness/expiry/revocation window、其他 bytes 均未变化的情况。
 active block 失去 eligibility 时按 H-008 action 事务降级，失败进入 `needs_repair`。
 
-runtime hot path 每次 enforcement 先读取 authoritative policy pointer 与独立 monotonic floor。
-两者 valid、pointer generation `>= floor` 但 digest 与 committed generation 不同时，立即使用
-semantic fallback 并派生 `policy_changed + audit_required`。pointer/floor 缺失或 malformed，
-或 pointer generation 低于 floor（旧 pointer replay）时则是 `runtime_guard_unavailable`，必须
-保守拒绝并非零返回；不可将不可读 authority 当成新 policy。两类都不等旧 horizon。
-随后取得 per-installation lock，在锁内读取 active set pointer 与独立 installation-generation
-floor、派生 generation-scoped state path，并在 CAS/执行前重验 current pointer identity 且其
-monotonic generation `>= floor`，再验证
-`evaluation_time <= runtime_time < decision_valid_until` 及
-`runtime_time >= last_trusted_runtime_time`；即使 runtime time 仍在 validity interval 内，只要
-小于 durable high-water 就是 rollback。只有先原子 CAS 提升/保持 high-water 成功才执行
-committed block。已知 expiry、override expiry、clock rollback 或 horizon invalid 时使用
-committed warn/off fallback + closed reason + `audit_required`。state/floor 缺失、损坏、identity
-mismatch，或 lock/CAS 经 bounded retry 仍失败则是 `runtime_guard_unavailable`：不得用 warn/off
-放行，而应保守拒绝本次 operation、非零退出并保持 audit evidence。clock rollback 只有显式
-reconciliation 可恢复；其他 official block 需 fresh audit，promotion 还需 fresh confirmation。
+runtime hot path 每次 enforcement 先取得 bounded `policy.lock`，在锁内读取 policy pointer/floor，
+再取得 per-installation runtime-state lock 并读取 active pointer/installation floor/state；两锁
+持有到 decision 执行结束，且执行紧邻前重验全部 identity。policy pointer 必须 valid、generation
+`>= floor`，且 exact `(digest, generation, validity_evidence_digest)` 等于 committed identity；任一
+drift 即使 digest 后来相同，也锁存 `policy_changed + audit_required` 并使用 semantic fallback。
+pointer/floor/state 缺失、malformed、replay 或任一 lock/CAS 失败为 `runtime_guard_unavailable`，
+保守拒绝并非零返回。对可信时间先验证 `runtime_time >= last_trusted_runtime_time`，再 CAS 推进
+high-water，随后才判断 evaluation/decision/override horizon；因此 block 与 expiry fallback 都
+持久化本次 observation。expiry、horizon invalid 或其他 semantic fallback 还在同一 state
+锁存 closed reason + `audit_required`，runtime 不得因后续时钟或 policy bytes 返回旧值而清除。
+clock rollback 只有显式 reconciliation 可恢复；其他 official block 需 fresh audit，promotion
+还需 fresh confirmation。
 hot path 不联网，也不等待后台 scheduler 或用户先运行命令。
 
 ### 8. Registry governance、publish 与 revocation
@@ -624,12 +624,12 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | Role-separated loader + active-policy journal/pointer/floor | crash before/after intent, floor and pointer switch recovers exact policy；concurrent activation cannot cross management commit；replay/unavailable state denies |
-| B-028 insufficient evidence degrades | Eligibility + generation-scoped runtime guard + renderer | runtime reads/revalidates active pointer under lock；concurrent runtime cannot advance or execute old state across management switch；same-epoch high-water never decreases；guard failure denies/nonzero |
+| B-027 policy-owned thresholds | Active-policy journal/pointer/floor + policy lock | runtime revalidates exact digest/generation/validity under lock through execution；same digest at a newer generation still falls back；activation cannot cross management commit |
+| B-028 insufficient evidence degrades | Generation-scoped runtime guard + renderer | every trusted time including fallback advances high-water；expiry/policy drift durably latches audit_required；clock rollback and guard failure cannot restore block |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
 | B-031 same gate for core/community | Shared eligibility function | identical evidence inputs under curated/community publishers yield identical eligibility; badge/high severity cannot bypass |
-| B-032 evidence drift re-audit | Audit + eligibility identity + runtime policy/high-water ceiling | binding/policy/horizon drift degrades locally；fresh audit restores ordinary drift，clock rollback additionally requires trusted-time reconciliation，promotion additionally requires confirmation |
+| B-032 evidence drift re-audit | Audit + eligibility identity + runtime latch | digest/generation/validity or horizon drift latches degradation；only fresh audit/new generation restores ordinary drift，clock rollback also requires reconciliation |
 | B-033 opt-in private feedback | Export renderer/redactor | default install/runtime packet capture is empty; export field golden is redacted; cancel-before-send makes zero network calls |
 | B-034 immutable registry history | Index + registry-event validators | duplicate publisher+pack+version, entry overwrite/delete/reorder and transfer-without-event fixtures fail；valid yank/revoke changes only event evidence digest；historical receipt remains explainable |
 | B-035 yank/revoke actions | Registry event + audit transaction | yank/revoke action references exact signed event evidence digest；yank blocks new install；revoke degrades existing；write failure produces needs_repair |
