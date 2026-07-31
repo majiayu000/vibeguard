@@ -37,8 +37,10 @@ identity 比较，不能选择 identity 或 cache partition。
 
 - direct installed hook 使用 OS-authenticated parent process identity，加 runtime-owned、不可由
   inherited environment 选择的 session epoch/nonce；
-- Codex app-server 使用 server-owned `SessionState` 中当前 thread session，通过 private typed
-  capability 传给 hook dispatcher；payload/env 中的 session ID 只作 correlation echo；
+- Codex app-server 使用 server-owned `SessionState` 中当前 thread session，并在 owning Rust
+  process 内直接调用 semantic Core；typed capability 只在内存调用栈传递，不导出给 Bash
+  hook、stdin JSON、env、cwd 或文件。child hook 只运行 legacy L1；payload/env 中的 session
+  ID 只作 correlation echo，不能授权 child 运行 L2；
 - host 没有可验证 session source 时，整个 L2 在 cache/provider/state 前返回
   `unavailable`；不得执行 uncached L2，也不得退回 inherited `VIBEGUARD_SESSION_ID`、
   per-invocation random value、空值、process cwd 或相邻 session partition。
@@ -46,7 +48,8 @@ identity 比较，不能选择 identity 或 cache partition。
 `VIBEGUARD_SESSION_ID` 或 payload echo 若存在，必须 constant-time 比较 trusted value；不匹配
 在任何 cache lookup、provider start、journal/status read 前 fail visible。相同 untrusted env
 不能使两个 OS/app-server session 读取彼此 result。fixture 必须覆盖 env spoof、missing trusted
-source、app-server echo conflict、session rotation 与 same-input cross-session cache miss。
+source、app-server echo conflict、session rotation、captured env/payload direct-process replay 与
+same-input cross-session cache miss。
 
 ### 1.2 Trusted Git executable identity
 
@@ -146,19 +149,21 @@ append/fsync 与 durable applied/tail commit 完成**：
 3. 在同一 lease 下为 exact key durable 写 `projection_prepared`，只在 expected offset
    append/fsync derived record；
 4. `receipt_route` 必须是预先注册在 runtime-owned closed project-state directory 的 exact
-   capability，绑定 state-root ID、directory/file identity、relative receipt key、expected
-   project-receipt offset 与 digest；不能只有 project hash，也不能要求扫描 project/HOME；
+   capability，绑定 state-root ID、directory/file identity 与 content-addressed `receipt_key =
+   H(source project, event, barrier, global record digest)`；每个 key 是独立 create-if-absent slot，
+   不能使用共享 project-receipt append offset，也不能要求扫描 project/HOME；
 5. 仍在同一 lease 下把 `projection_applied`、allocator committed tail 与 checksummed
    `receipt_prepared {route, bounded_receipt_body, source barrier/record digest}` outbox intent
    原子提交到同一 metadata generation；只有该 generation durable 后才释放 lease、回收
    reservation body；
-6. receipt worker 从 outbox oldest-first 打开 exact registered route，按 expected offset/digest
-   append/fsync project receipt，再提交 `receipt_applied`，随后才允许 `projection_done` 与回收
-   outbox item。
+6. receipt worker 从 outbox oldest-first 打开 exact registered route，以 no-follow temp + fsync +
+   atomic create-if-absent 写 keyed receipt slot；slot 已存在且 digest 相同则补
+   `receipt_applied`，同 key 不同 digest 才 `needs_repair`。随后才允许 `projection_done` 与回收
+   outbox item；同一 project 的多个未 flush intent 使用不同 keys，可任意 recovery order。
 
 因此 reservation A 未 applied 时，reservation B 不能 append；不会出现 later offset 先落盘、
 earlier offset 留洞。crash recovery 只查 earliest reservation、exact key/offset/digest：缺 record
-则补 append，匹配 record 则补 marker/tail/outbox intent，不匹配则 `needs_repair`。crash 在
+则补 append，匹配 record 则补 marker/tail/outbox intent/receipt slot，不匹配则 `needs_repair`。crash 在
 applied 与 tail/outbox generation 之间时 reservation 仍 committed，可幂等重建；generation
 之后即使 source project 永不再运行，outbox 也独立携带 exact route/body。route inaccessible/
 identity mismatch 保持 pending lag；outbox 无法为下一最大 receipt admission 时在新 reservation
@@ -171,20 +176,23 @@ append。allocator/index/outbox full/corrupt/timeout 保持 `projection_lag` + �
 实际 app-server session owner `vibeguard-runtime/src/codex_app_server_core.rs` 与
 PostToolUse/PostEdit delivery owner `vibeguard-runtime/src/hook_orchestrator_post_edit.rs` 必须进入
 affected-file manifest、focused test ownership 与 U-22 critical inventory。前者生成不可由
-client thread ID/env 重现的 server-owned capability 并覆盖 restart/rotation/spoof；后者的
+client thread ID/env 重现的 server-owned capability，并在 app-server Rust process 内调用
+semantic Core，覆盖 restart/rotation/spoof/captured-value replay；后者的
 payload→trusted session/root handoff、cache/provider ordering、error path 和 short-circuit
 condition 达到 100% line + branch/condition coverage。
 
 Codex `applyPatchApproval` 是 pre-application approval event，不能触发 semantic post-edit。
-`codex_app_server_file_changes.rs` 必须把 legacy L1 post-hook request 与 semantic completion gate
-分离：approval、decline、failed/in-progress apply 全部在 semantic cache/provider/WAL 前零活动；
-只有 app-server-owned completion event 绑定已应用的 exact before/after identity 后执行一次。
+`codex_app_server_strategies.rs` 与 `codex_app_server_file_changes.rs` 必须把 legacy child-Bash L1
+post-hook request 与 in-process semantic completion gate 分离：approval、decline、failed/
+in-progress apply 全部在 semantic cache/provider/WAL 前零活动；只有 app-server-owned
+completion event 绑定已应用的 exact before/after identity 后在 owning process 内执行一次。
 协议没有 trusted completion callback 时，该 trigger 的 L2 必须 `unavailable`，禁止轮询猜测。
 
 最小证明矩阵还必须包含：
 
 - hostile PATH fake Git、verified Git replacement/revocation 与 ancestry/config no-follow cases；
-- inherited session spoof、app-server trusted-session conflict/rotation 与 cross-session cache isolation；
+- inherited session spoof、captured child value replay、app-server trusted-session conflict/rotation
+  与 cross-session cache isolation；
 - sidecar byte/version/target/protocol/manifest/attestation/revoke 的 eligibility + cache + evidence
   invalidation；
 - approval/decline/failed apply 零 semantic activity，以及 completion 后 exactly-once delivery；

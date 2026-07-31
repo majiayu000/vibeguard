@@ -194,7 +194,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     detector/model/protocol/policy identity、sidecar artifact identity、项目 scope 与
     trusted session identity；source/dependency/model/policy/sidecar/project/session 改变必须
     失效。trusted session 只能来自 OS-authenticated runtime ownership boundary 或 app-server
-    owned `SessionState` capability；inherited `VIBEGUARD_SESSION_ID`/payload 只可作 matching
+    owned `SessionState` capability；Codex semantic Core 必须在 owning Rust process 内消费该
+    in-memory capability，不能把它导出给 Bash/stdin/env/cwd/file。inherited
+    `VIBEGUARD_SESSION_ID`/payload 只可作 matching
     echo，不能选择 cache partition，冲突须在 cache/provider/state 前 fail visible。仅同一
     project + trusted session 内的并发相同请求至多产生一个权威结果；不同 project 或
     session 不得互相读取或复用。host 无 trusted session source 时整个 L2 在 cache/provider/
@@ -232,7 +234,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 20. B-020: runtime W-rule signal 必须使用 closed、versioned schema，至少含 stable
     `rule_id`、`signal_id`、project/session/event identity、detector/model/policy
     identity（适用时）、evidence digest、window、decision、status 与 closed reason；
-    禁止从 free-text reason 正则猜 rule identity。
+    禁止从 free-text reason 正则猜 rule identity。weekly reflection 等所有 shipped consumer
+    必须显式解析 typed kinds/identity；不得继续 substring-classify string 后静默漏计。
 21. B-021: GH-704 只把 H-010 批准的具名 W-rule delta 计入“新增”。每条必须列出现有
     baseline、exact new signal、输入证据、window/state transition、severity 和
     verification corpus；已有 advisory/block 或仅改 reason 文案不计数。
@@ -300,8 +303,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     applied 时禁止 later offset append。reservation 自身携带 bounded derived body、source
     project identity 与 independently routable receipt route/body。释放 reservation 前必须在
     同一 lease/metadata generation 把 applied marker + allocator tail 与 checksummed global
-    receipt-outbox intent 原子提交；outbox worker 只按 exact registered project-state route/
-    expected receipt offset/digest 补 project receipt。恢复只按 earliest reservation 或 receipt
+    receipt-outbox intent 原子提交；outbox worker 只按 exact registered project-state route +
+    content-addressed receipt key/digest 写独立 create-if-absent slot，不共享 project append offset。
+    恢复只按 earliest reservation 或 receipt
     intent 的 exact key/offset/digest 判断，禁止扫描 project/HOME/global log、跳洞、丢 receipt
     或释放 reservation 后由 per-key writer 乱序 append。
     derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
@@ -341,9 +345,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     一致的非伪造状态。rollback/kill switch 后纯 L1 路径与其原有验证必须恢复。
 37. B-037: semantic post-edit 只允许 trusted host completion event 触发。Codex
     `applyPatchApproval`/approval request、decline 与 apply-in-progress 都不是 completion；即使
-    legacy adapter 以 `run_post_hooks=true` 调用现有 L1 hook，semantic path 也必须在 cache/
-    provider/WAL 前 short-circuit 且零 L2 state。只有 app-server 确认 edit 已成功应用、绑定
-    exact before/after change identity 后才能执行一次 L2；若 host 没有 completion callback，
+    legacy adapter 以 `run_post_hooks=true` 调用现有 child-Bash L1 hook，semantic path 也必须在
+    cache/provider/WAL 前 short-circuit 且零 L2 state。只有 app-server 确认 edit 已成功应用、
+    绑定 exact before/after change identity 后，才能在 owning Rust process 内执行一次 L2；
+    若 host 没有 completion callback，
     该 host/trigger 的 L2 为 `unavailable`，禁止轮询或从 filesystem timestamp 猜完成。
 
 ## 验收标准
@@ -373,13 +378,15 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       单一 group-commit 的 `all_activated` barrier 是所有 reader/aggregate 唯一可见点，
       partial activation 可幂等补齐/回滚，reconcile cap 的最小合法值能完成最大 atomic
       record，durable projection prepare/queue/sequencer 不丢失 payload、不重用 offset 且
-      serialized append 无洞；applied reservation 在释放前原子转入 exact-route receipt
-      outbox，dormant source project 也可无扫描补 receipt；free-text/global mirror 不再是权威路径。
+      serialized append 无洞；applied reservation 在释放前原子转入 exact-route keyed receipt
+      outbox，同 project 多 intent 不共享 offset，dormant source project 也可无扫描补 receipt；
+      free-text/global mirror 不再是权威路径。
 - [ ] trusted session 不能由 inherited env/payload 选择；session spoof/conflict/rotation 均在
       cache/provider/state 前失败或失效。实际 sidecar artifact identity 的任一字段变化同时
       使 approval/eligibility、cache、precision 与 status evidence 失效。
 - [ ] Codex approval/decline/apply-in-progress fixtures 证明 semantic provider/cache/WAL 为零；
-      只有 exact completion-backed event 执行一次。server-owned session owner 与 completion
+      只有 exact completion-backed event 在 owning process 内执行一次；captured child value
+      direct replay 不能选择 session。server-owned session owner/lifecycle router 与 completion
       adapter 都进入 affected-file/U-22 inventory。
 - [ ] cross-session correction 只产生 read-only `defense_gap` candidate；adopt/verify/
       regressed 仍需现有 Learn 人工门。
