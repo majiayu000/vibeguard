@@ -167,11 +167,18 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    完成或中止 claim-prepared，并把所有 matching reservation/outbox 完成为 fsynced
    keyed receipt slot 后原子转入 per-source admin/quarantine lag plane，释放 shared outbox/
    completed-index capacity；此阶段不写 project journal/marker，也不创建 `receipt_delivered`。
-   只有 matching live registry/reservation/outbox/completed-index 均为零，且仍持 exclusive lease no-follow
-   重读的 config file identity+digest 与 saved request 完全相等，才提交 effective off；若已
+   只有 matching live registry/reservation/outbox 与 `receipt_delivered`/pending/off-blocking completed refs 均为零
+   （每个未 ack ref 在 admin handoff 前都必须持有 capacity token），且仍持 exclusive lease、释放
+   global leases 后在 project-lock critical section no-follow 重验的 requested-off identity 与 saved
+   request 完全相等，才提交 effective off；retention 内的 `project_acknowledged` success 仍留在同一
+   completed history index 供查询但不携带 capacity token、也不阻塞 off。requested-off identity 可以是
+   existing config file identity+digest，或绑定 trusted project/root identity、canonical parent directory
+   stable handle、exact basename 与 start/final no-follow `ENOENT` proof 的 closed absent-file identity；
+   file/symlink 出现、parent/entry 漂移或 unreadable/permission error 均 pending/error。若已
    enabled 则转入 durable bounded rebind；若为另一 off request，必须先以 checksummed old-admin-set
-   digest + bounded cursor 原子 adopt/retag 所有旧 ref/stub 到新 request，或为每项提供 closed
-   source-bound terminal proof，确认无旧 token/ref 后才以新 epoch/cursor 重启 drain，
+   digest + bounded cursor 选择 closed completion mode：要么全量原子 adopt/retag 并提交
+   `admin_adoption_complete`，要么逐项提交 source-bound terminal proof 并证明旧 ref/stub/token 为零；
+   两者是 alternatives，successful adoption 后不得额外要求 maintenance terminal proof，
    invalid/unreadable 则保持 pending/error，任何 stale request 都不得关停。否则保持
    `opt_out_pending/error` + counts/oldest age，禁止伪称 off。生效后不得写 source
    slot/marker 且不占 shared live/completed capacity；retention watermark 越过 query scope 不能删除
@@ -395,7 +402,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     或释放 reservation 后由 per-key writer 乱序 append。off-preparing 必须先用同一
     keyed-slot durability 完成 matching live outbox，再以 reservation-backed token fsync per-source
     `off_receipt_lag_ref` 并由 global CAS 发布 stub、reclaim outbox及释放 completed token；admin
-    publication 失败保持 pending。shared completed index 中该 source 也归零后才能 effective off，
+    publication 失败保持 pending。shared completed index 中该 source 的 unacknowledged refs（handoff 前
+    必须 capacity-bearing）归零后才能 effective off；retained `project_acknowledged` history 无 token且不阻塞，
     因此 off project 不能占用 shared live/completed capacity 阻塞其他 project。
     derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
     反向推断 eligibility、重写 project journal 或伪称 global view 已同步。
@@ -489,8 +497,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       outbox，同 project 多 intent 不共享 offset，dormant source project 也可无扫描补 receipt；永久
       删除/替换的 route 进入 per-source durable rebindable quarantine 并释放 shared outbox capacity，
       reservation-backed token 保留到 global ack，支持 ack 前故障/retention 原子转移、A/B replacement 与三阶段 retirement；
-      ready 先 claim 后 reserve，active absent-reservation claim 必须恢复 exact reservation；仅 matching off-preparing 可 freeze，且 config 反转/漂移不得用 stale request 提交 off；新 off request 原子 adopt/retag 旧 admin set；永久不可达 pre-barrier route 以 token-backed admin isolation 释放 live slot；
-      effective off 前所有 receipt 必须转入 query-scoped admin lag 且 shared completed capacity 为零，
+      ready 先 claim 后 reserve，active absent-reservation claim 必须恢复 exact reservation；仅 matching off-preparing 可 freeze，且 config 反转/漂移不得用 stale request 提交 off；新 off request 以全量 adopt/retag 或全量逐项 source proof 二选一闭合旧 admin set；永久不可达 pre-barrier route 在释放 live slot 前 fsync token-backed bounded body admin entry，global stub 只带 query metadata并覆盖 in/out-window；
+      effective off 前所有 receipt 必须转入 query-scoped admin lag 且 shared unacknowledged completed capacity 为零，retained `project_acknowledged` history 不阻塞；present config identity 或绑定 trusted parent capability、start/final ENOENT 的 stable absent-file identity 均可精确复核，TOCTOU/权限错误 fail visible，
       admin ref 只有 rebind+ack 或 source-bound terminal proof 后才退休；frozen/quarantine stub 的 timestamp/bucket/global lag offset/query scope 可独立判定窗口；
       false-positive report/triage 只接受 finalized typed identity，observe v1/v2 兼容且 aggregate proof 从 retained completed index + 全量 ordered barrier/lag refs + stable global root/four subgenerations/watermark 构造，health/Codex-status/quality-grader/constraint-frequency 与 Rust enforcement-history readers 对 lag/unfinalized 统一 degraded/empty/零计数；free-text/global mirror 不再是权威路径。
 - [ ] trusted session 不能由 inherited env/payload 选择；session spoof/conflict/rotation 均在

@@ -124,13 +124,22 @@ queued，matching abort 则确认 durable `aborted`；coordinator 返回 digest-
 后释放 project/delivery locks，dispatcher 才重新取得 registry lease，以 compare-and-swap 提交
 ready，或在 abort tombstone/reclaim 的同一 root transition 释放 frozen-lag token。未知/损坏 entry fail visible 且禁止覆盖。
 source route 若在 ready/abort receipt 前由 closed identity/owner/ACL proof 证明永久删除、替换或不可达，
-dispatcher 必须用 admission 时预留的 frozen-lag token 在同一 global root CAS 将 live registration
-转为 `unreachable_registration_ref {source,event,expected_barrier,projection_prepared_digest,
-source_route_identity,canonical_event_timestamp,retention_bucket,global_lag_offset,query_scope_digest}`，
-发布 query-scoped admin lag stub 并释放 live registry slot；transient/证据不全仍保留 live slot + visible lag。
-该 ref 只可由新 exact route bounded rebind，或下述 source-bound terminal discard proof 退休，不能 age-delete。
+dispatcher 必须用 admission 时已按 closed-max body bytes/time 预留的 frozen-lag token，先在 per-source
+admin root 写/fsync `unreachable_registration_entry {source,event,expected_barrier,projection_prepared_digest,
+bounded_derived_body,source_route_identity,canonical_event_timestamp,retention_bucket,global_lag_offset,
+query_scope_digest}`；body 及其 digest 都进入 entry digest。随后同一 global root CAS 才以
+`unreachable_registration_lag_stub {source,event,expected_barrier,admin_root_id,entry_digest,
+canonical_event_timestamp,retention_bucket,global_lag_offset,query_scope_digest}` 替换 live registration 并
+释放 live slot，stub 不复制 body；CAS 前 crash 保持 live entry，CAS 后 stub 可全局枚举。transient/证据
+不全仍保留 live slot + visible lag。新 exact route bounded rebind 必须从 admin body 恢复 exact
+registration/reservation；否则该 ref 只可由下述 source-bound terminal discard proof 退休，不能 age-delete。
 requested off 在 exclusive delivery lease → project lock 下先提交 durable `off_preparing {old_epoch,
-requested_config_identity, requested_config_digest, cursor}`：它立即禁止新 L2/shared admission，但还不是 effective
+requested_off_identity, requested_config_digest, cursor}`：identity 是 existing config 的 no-follow file
+identity+digest，或 `absent_file_identity {trusted_project_root_identity,canonical_parent_identity,
+config_basename,start_absence_proof_digest}`；后者从 retained trusted parent capability 对 exact basename 做
+`fstatat(..., NOFOLLOW)` 等价 lookup，只接受 `ENOENT`，不能从 ambient pathname 推断；symlink、`EACCES`/
+unreadable 与其他错误不是 absence。
+它立即禁止新 L2/shared admission，但还不是 effective
 off。释放 project lock 后仍持 delivery lease，再取 global registration lease，将旧
 epoch 的 pre-barrier 或 barrier-ready-but-unclaimed registrations 以 digest/epoch/state CAS
 提交为 checksummed `off_frozen` administrative tombstone，并在同一 registry subgeneration/root
@@ -260,16 +269,23 @@ append/fsync 与 durable applied/tail commit 完成**：
    retention_bucket,global_offset,query_scope_digest,registration_id,state_root_id,route_identity_digest,
    old_epoch,request_digest}`；随后单一 global root CAS 同时发布 bounded lag stub、提交
    `receipt_applied`、reclaim outbox并释放 completed-index token。admin root/stub 任一失败则保持 outbox
-   pending/error 且不得 effective off。只有 registry、reservation、live outbox 与 completed index 中该 source 均为零，
-   才在仍持 exclusive delivery lease 时 no-follow 重开 config，复核 current file identity+digest
-   与 saved request 完全相等，再取 project lock 提交 effective off epoch。若已变回 enabled，
+   pending/error 且不得 effective off。只有 registry、reservation、live outbox 与 completed index 中该 source
+   所有 unacknowledged refs 均为零（每个 ref 在 admin handoff 前必须保留 capacity token），才在仍持
+   exclusive delivery lease、且已释放全部 global leases 后取得 project lock，并重验 saved
+   requested-off identity：present variant no-follow 重开并匹配 file identity+digest；absent variant 从同一
+   trusted parent capability 再做 exact no-follow lookup，只接受 `ENOENT`，并匹配 project root、parent
+   identity 与 start proof；file/symlink 出现、parent replacement、permission/error 或 identity drift 均拒绝。
+   retention-owned `project_acknowledged` success 保留在 completed index、无 capacity token且不参与 zero predicate。
+   final identity check 与同一 project-lock critical section 的 effective-state commit 组成线性化点；其后
+   创建 config 属于新 requested-state change，任一 worker 写入前仍须重验。若已变回 enabled，
    原子转为 durable `enable_rebind {new_identity,digest,cursor}`，保留 keyed slots/admin refs 并
    bounded rebind 全部 off-frozen/off-receipt canonical refs，完成前禁止新 L2；若是另一 off digest/identity，
    必须先提交 `off_supersede_pending {old_admin_set_digest,new_epoch,new_request_digest,cursor}`，再以
-   policy-bound pass 对每个旧 ref + stub 做同一 global-root CAS，原子 adopt/retag 到 new request且保留
-   token/query scope/recovery locator；只有 `admin_adoption_complete` 覆盖旧 set digest 后才以新 cursor
-   zero 重启 off-preparing。closed supersession 也必须携带 source-bound terminal discard proof，不能只改
-   request digest；invalid/unreadable 则保持 pending/error。
+   policy-bound pass 选择 tagged completion mode：`adopt_all` 对每个旧 ref + stub 做同一 global-root CAS，
+   原子 adopt/retag 到 new request并保留 token/query scope/recovery locator，随后
+   `admin_adoption_complete {old_admin_set_digest}` 即可继续；`terminal_discard_all` 则为每项验证 source-bound
+   terminal proof并最终证明旧 ref/stub/token 为零。两模式不可串联，successful adoption 不再要求 terminal
+   proof；任一项 missing/mismatch 或 config invalid/unreadable 都保持 pending/error。
    stale request 不得提交 effective off。任一 cap/deadline/route 失败保持 `opt_out_pending/error` + counts/
    oldest age，禁止新 L2 但不伪称 off，后续 bounded pass 续传；因而 effective off
    永不占 shared live registry/outbox/completed-index capacity。effective-off cleanup 只按 admin root
