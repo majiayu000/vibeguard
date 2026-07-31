@@ -450,10 +450,9 @@ typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏�
    publish+README；否则 `release_recovery_blocked` 并保留 owner。
 publication 使用 attempt-scoped draft 与一个统一 durable state machine：
 1. actors 只按 source/candidate→ledger lease→publication lease→branch CAS；等待 review用 H-006 heartbeat续活。H-006 唯一批准者为 repo release/security maintainer；未批准 publication unavailable。sequence 1的 `previous_accepted_at=claim_accepted_at`，之后取前一 heartbeat accepted-at；store仅在 prior expiry前、间隔≥300s续租，`expiry=min(accepted_at+3600,claim_accepted_at+604800)`且须严格延长；scheduler 900s，7日 cap后只可 expiry+takeover。
-2. frontier为 `(repo_node_id,length,root,full_prefix_digest)`；只信 independently anchored digest-pinned trust bundle。append authorization是 closed union：publication records用 owner/publication fence；trust leaf/root rotation/revocation用独立 governance actor/threshold/lease/fence且不含 owner。stable rotation ID绑定 repo/purpose/epochs/kind/payload/approval但不含 predecessor/fence；rotation index先幂等，同 approval遇 publication suffix可换 predecessor/op重规划。pre-state trust验证 rotation、successor起 new trust；governance fold不改 owner/phase/liveness，两域 fence禁互换。
-   publication immutable op绑定 repo/generation/run/slot/predecessor/kind/payload；union覆盖 governance rotation、release-mutation plan/bind/recovery/compensation、tag guard、claim/heartbeat/draft/generated-PR/intent/commit/takeover/七 blocked/invalidation/recovered/terminal。unique indexes、exact predecessor与 actual authorization fence事务验证；ack-loss返原 receipt，fork/ABA拒绝。
-3. 首次 Release API/PR mutation前原子 claim，绑定 immutable protected tag identity、plans/liveness/nonce；KMS capsule只供 current exact actor或 expiry后 successor恢复。所有 Release write kind `{draft_create,draft_update,draft_delete,asset_upload,asset_delete,publish}` 在 call前 append immutable planned slot（repo/tag/owner/kind/slot/op/predecessor/nonce digest+capsule ID/App、exact pre/non-secret request template/expected-post及 kind-specific full tuple）与 pre-call guard authorization；history request commitment只 hash template+nonce digest/capsule ID，raw nonce仅经 authenticated secret channel交 broker且不入 intent/history/log/receipt；fence/lease仅在 envelope。
-   构造先冻结 operation-independent plan core/stable mutation-slot ID，再算 typed nonce digest/request commitment，以 slot ID而非 operation ID作 capsule AAD，纳入 ciphertext后最后算 payload/op ID；capsule与 plan事务同提交。broker重算整条 derivation、仅替换每个 declared secret的唯一 placeholder，signed audit无 raw secret并拒绝 same slot/delivery二次发送。
+2. frontier唯一为 `(repo_node_id,history_length,history_root,full_prefix_digest)`；只信 independently anchored digest-pinned trust bundle。append authorization是 closed union：publication records用 owner/publication fence；trust leaf/root rotation/revocation用独立 governance actor/threshold/lease/fence且不含 owner。stable rotation ID绑定 repo/purpose/epochs/kind/payload/approval但不含 predecessor/fence；rotation index先幂等，同 approval遇 publication suffix可换 predecessor/op重规划。pre-state trust验证 rotation、successor起 new trust；governance fold不改 owner/phase/liveness，两域 fence禁互换。
+   **schemas/publication_history.schema.json** 的唯一 top-level discriminator为 `record_kind`，拒绝 `kind`/`type`/`record_type`及 alias；publication immutable op绑定 repo/generation/run/slot/predecessor/`record_kind`/payload。八个 blocked variants exact 为 `{release_mutation_recovery_blocked,draft_recovery_blocked,decurrent_pr_recovery_blocked,rollback_recovery_blocked,marker_recovery_blocked,nonvalid_row_recovery_blocked,invalidation_recovery_blocked,release_recovery_blocked}`；union另覆盖 governance rotation、release-mutation plan/bind/recovery/compensation、tag guard、`owner_claimed`/`owner_heartbeat`/`draft_bound`/`prepared`、generated-PR/intent/commit/takeover/`recovered_publication`/terminal。unique indexes、exact predecessor与 actual authorization fence事务验证；ack-loss返原 receipt，fork/ABA拒绝。
+3. 首次 Release API/PR mutation前原子 claim；六种 `mutation_kind` exact 为 `{draft_create,draft_update,draft_delete,asset_upload,asset_delete,publish}`。call前 append planned slot，绑定 repo/tag/owner/kind/slot/predecessor/App、exact pre-state/public non-secret request template/expected-post、kind tuple、plan-core/stable slot ID及 typed mutation nonce digest/capsule；`draft_create`另绑定 claim digest/capsule。构造先冻结 operation-independent core/slot ID，再算 nonce digest/request commitment，以 slot ID作 capsule AAD，纳入 ciphertext后最后算 payload/op ID，capsule与 plan事务同提交。raw或可逆 secret不入 intent/history/op/log/report/receipt/persisted request；broker重算 derivation、只替换每个 declared secret的唯一 placeholder，回签 effective-request/send-once audit并拒绝 same slot/delivery二发；fence/lease仅在 envelope。
    response+postcheck后才 bind completed receipt。任一 uncertainty禁重发，完整发现 Release/assets+broker audit：唯一 post-state→recovered bind；exact pre-state+exhaustive negative+quiescence receipt→not-applied后新 slot；partial/conflict→planned guarded compensation；不可逆/不可证明→blocked。phase gate要求每 slot∈`{bound,not_applied,compensated}`、intended effect有唯一 bound或已恢复且无 pending/blocked/in-flight/extra；finalization fresh，takeover引用旧 plan fresh authorize。
 4. 五种 generated PR在首次 mutation前 planned/bound；response loss全分页查 PR/ref，唯一 active/merged/closed分别 bind/recover/revoke。invalidation plan只含 base/head/reviewed commit/expected tree/blobs/patch/method/ruleset，拒绝 future merge fields；post-merge receipt才绑定 actual merge OID/PR/method/default refs/tree/blobs/owner/fence/frontier/evidence。
 5. protocol surface只绑定 stable `{id,path,grammar,renderer,output schema}`；claim/attempt plan绑定 mutable default ref与逐 surface base/hash/marker/expected/patch，drift须新 slot/nonce/head/render/review。
@@ -491,7 +490,7 @@ reason。每个 required target 都必须有 `input_state` discriminated union�
    以 no-overwrite artifact upload 保存；同时以
    `(run_id, run_attempt, failure_manifest_digest)` 为 predicate/ledger identity，把
    **完整 canonical failure manifest 内容**与本 candidate 的 ledger
-   `(length, root, full_prefix_digest)` 内嵌到不可覆盖、
+   `(ledger_length, ledger_root, full_prefix_digest)` 内嵌到不可覆盖、
    retention-independent 永久可检索的 attestation predicate（或等价 append-only
    immutable ledger），并以 bundle digest 为 subject；只写 pointer/digest/job summary
    不合格；
@@ -668,10 +667,13 @@ planned **tests/test_public_benchmark.sh** 的最终产物断言不能只看 exi
   report 的 retry 仍有不同 run/attempt-bound identity。最终 workflow 非零且
   Release/candidate-row sentinel 均不存在；
   publish_nonvalid fixture 则最终产生同版本 non-valid report/row。
-- valid fixture 覆盖 pre-draft claim/draft binding、genesis self-owner/other-owner 与 rollover；
-  pending de-current cancel取得不可再 merge receipt，commit/owner-update crash可恢复。
-- draft与五种 generated PR 的 create/bind response-loss、stale-zero/分页/歧义/各 state match、
-  reject/close/stall/crash都恢复 exact resource或 durable blocked；未 terminal 前拒绝下一 candidate。
+- publication-history goldens必须由 Rust/Python/shell共用：`frontier_valid_v1` 的 exact JCS bytes为
+  `{"full_prefix_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","history_length":7,"history_root":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","repo_node_id":"R_kgDOGH700"}`，SHA-256为 `e52c3472ae93b565704e4f26a97f02260e7c9d2c724b8add3350a7f7317edf73`；`length`/`root` alias、`kind`/`type`/`record_type` discriminator及 `update`/`delete` mutation aliases均 schema-invalid。
+- `blocked_record_kinds_valid_v1` 为八个 exact variants各含一条 schema-complete record；unknown/alias逐条
+  reject。`draft_create_secret_boundary_v1` 只接受 claim/capsule/template/effective-request digests并拒绝
+  raw nonce、`nonce_b64u`或 secret request bytes。所有 positive vectors固定 exact JCS bytes/SHA-256。
+- valid fixture另覆盖 pre-draft claim/binding、genesis、rollover、pending de-current cancel，以及 draft/五种
+  generated PR 的 response-loss/歧义/reject/crash恢复 exact resource或对应 blocked kind。
 
 ## 数据流
 
@@ -769,7 +771,7 @@ temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期
 - [ ] Release contract: native reports/strict summary；`repo_node_id` exact-ref identity、唯一
       source/candidate→ledger→publication→CAS 顺序、pre-mutation claim/draft binding、五种 PR
       planned/bound discovery及 de-current revocation gate阻止 orphan/late merge；三种 valid plan、
-      rollback/new-current/nonvalid-row/invalidation takeover及七类 recovery-blocked 均受测试。
+      rollback/new-current/nonvalid-row/invalidation takeover及八个 exact recovery-blocked kind 均受测试。
 - [ ] Documentation: 3×3×terminal、per-surface latency、双 locale 与 branch-aware marker
       freshness；仅 valid metrics 显示数字，links 指向 immutable release evidence。
 - [ ] Existing regression:
