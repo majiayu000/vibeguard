@@ -205,7 +205,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     依次切换。该 switch 本身就是 durable commit boundary，runtime 只消费完整、
     digest-valid 的 dependency-set generation，禁止 partial active。pointer 必须携带 monotonic
     installation generation；已 fsync 的 transaction journal 先记录目标 pointer/state，再推进
-    独立 durable generation floor，最后 switch。runtime 拒绝低于 floor 的旧 pointer replay；
+    独立 durable generation floor，最后 switch。policy/installation floor 与 trusted-time
+    high-water/epoch/sequence 都必须绑定 B-027 定义的独立 authenticated monotonic root；同一
+    user-state tree 内的 JSON 只可作 mirror，不能作为 anti-rollback authority。runtime 拒绝低于 floor 的旧 pointer replay；
     floor fsync 是 roll-forward-only prepared boundary：此前失败可 rollback；此后必须保留
     journal/generation/state 并重试或恢复 exact pointer switch，不能 rollback、降低 floor 或猜测
     目标 generation；switch 前不得声称 installed，长期失败进入 `needs_repair`。
@@ -304,7 +306,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     pending intent，绑定目标 policy digest、validity evidence 及前后 generation，再原子推进并
     fsync durable monotonic `policy_generation_floor`，最后切换 authoritative pointer；崩溃恢复
     只能验证该 intent 后幂等完成 switch，不能凭新 floor 猜目标 policy。
-    runtime 同时验证 pointer generation 不低于该 floor。旧 pointer replay 即使 digest 再次
+    runtime 同时验证 pointer generation 不低于该 floor。floor mirror 必须绑定 Core installation、
+    user principal、anchor schema 与 policy leaf identity，并与独立 `core_monotonic_anchor_v1`
+    backend 当前 counter/root/leaf digest exact 相等；旧 user-state snapshot 即使 coherent 也因
+    external root 不回退而失配。旧 pointer replay 即使 digest 再次
     匹配 committed generation 也必须按 unavailable 拒绝，floor 缺失/损坏同样 fail closed。
     management commit 必须在最终校验前取得同一 policy lock，并持有到 active-generation
     pointer switch 完成；若使用等价 CAS，则必须在 switch 紧邻前重验并在 drift 时 rollback、
@@ -330,6 +335,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     并持锁直到新 state fsync 与 active pointer switch 完成，禁止 runtime 在交接窗口推进旧 state。
     high-water 缺失、损坏、身份不匹配或 bounded retry 后仍无法锁定/原子推进时必须拒绝本次
     操作并非零返回，不能降为 warn/off 后放行，也不能因进程重启静默降低 high-water。
+    high-water/`clock_epoch`/sequence 每次推进都须以相同 external root 的 installation leaf
+    CAS 为 authority，本地 runtime-state 只是 authenticated mirror；backend 缺失、不可验证或
+    restore 后 counter/root/leaf 任一不等必须 `runtime_guard_unavailable`，不得执行旧 block。
     rollback 后普通 fresh audit 不能降低同一 clock epoch 的 high-water；恢复必须走显式
     trusted-clock reconciliation，在 locks 下验证 Core-approved time evidence、重新 audit，
     递增 `clock_epoch` 并把 reconciliation evidence 与新 generation/runtime state 通过同一
@@ -407,7 +415,7 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     与 precision reason、`decision_valid_until`/expiry state/`audit_required`，以及
     publication policy identity、committed 与 authoritative evaluation policy 各自的 exact
     digest/generation/validity-evidence identity、policy generation floor、active installation
-    generation/floor、runtime-state sequence/latch、source-applicable `override_valid_until`、
+    generation/floor、runtime-state sequence/latch、monotonic anchor backend/root/leaf/counter、source-applicable `override_valid_until`、
     trusted-time high-water 与 `clock_epoch`，并以
     nonzero 区分 `{invalid, incompatible, revoked, needs_repair, protection_suspended,
     runtime_guard_unavailable}`；任何 `audit_required` 或 active protection 降级/暂停也必须

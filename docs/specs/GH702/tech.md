@@ -216,7 +216,7 @@ Recommended H-004 layout（未批准）：
   store/sha256/<bundle_digest>/        readonly verified content
   committed/<transaction_id>/         immutable dependency-set generation
   active/sets/<installation_scope_id>  one atomic dependency-set generation pointer
-  active/floors/<installation_scope_id>.json  durable installation-generation floor
+  active/floors/<installation_scope_id>.json  authenticated installation-floor mirror
   receipts/<source_storage_key>/<target>/<profile>.json  derived/read-only view
   transactions/<transaction_id>/
     plan.json
@@ -228,11 +228,22 @@ Recommended H-004 layout（未批准）：
   locks/targets/<target>.lock
   locks/runtime-state/<installation_scope_id>.lock
   policy/active-evaluation.json          Core-owned authoritative local policy pointer
-  policy/evaluation-generation-floor.json  durable anti-replay floor
+  policy/evaluation-generation-floor.json  authenticated policy-floor mirror
   policy/activation-journal.json         closed recoverable pending intent
-  runtime-state/<installation_scope_id>/<active_generation_digest>.json
+  runtime-state/<installation_scope_id>/<active_generation_digest>.json  authenticated time mirror
   overrides/<source_storage_key>/<target>/<profile>.json
 ```
+
+三个 mirror 的 authority 是 user-state tree 外、Core-owned local IPC `core_monotonic_anchor_v1`；
+v1 reference backend 是 `tpm2_nv_v1`（TPM2 NV monotonic counter、authenticated root digest、
+sealed non-exportable key）。其他 backend 需单独批准同等 crash/rollback semantics；普通文件、
+Keychain/credential item 或同树签名记录不合格。`root_id = SHA256("vibeguard.guard-pack.anchor.v1"
+|| core_installation_id || user_principal_id)`；closed policy/installation/time leaves 分别覆盖
+floor+pointer digest、floor+generation digest、clock_epoch+sequence+high-water+state digest。
+compare-and-increment receipt 绑定 backend ID、TPM NV name/device-key digest、root/leaf ID、counter
+及 previous/new root/leaf digest。每次读取经本地 IPC 取得 attestation，并要求 mirror exact 相等；
+coherent HOME restore、backend identity 或 root/leaf/counter/digest mismatch、missing attestation/
+IPC failure 均 fail closed。无 backend 不得升为 block；recovery 不能重建/降低/替代 external root。
 
 `source_storage_key` 是 closed union：official 为
 `official/<normalized_publisher>/<normalized_pack>`；local 为
@@ -250,7 +261,7 @@ validity evidence、previous/target generation；再 CAS+fsync floor、atomic sw
 无效。pack/environment/CLI/publication artifact 均不能改写。每个 active generation 有独立
 closed、Core-owned runtime-state entry，
 绑定 installation generation、committed policy exact identity、`clock_epoch`、单调 sequence、
-`last_trusted_runtime_time` 与不可逆 `audit_required` latch。runtime 按 `policy.lock` → 专用
+`last_trusted_runtime_time` 与不可逆 `audit_required` latch，并绑定上述 time leaf attestation。runtime 按 `policy.lock` → 专用
 bounded runtime-state lock 取得两锁，在锁内读取并持续重验 policy pointer/floor、active pointer/
 state，直到 CAS 与 decision 执行完成。每个可信且不回退的 time observation 必须先原子推进
 high-water；expiry/identity drift 等 fallback 同时锁存 reason，只有新 management generation
@@ -617,7 +628,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-012 online/offline failure semantics | Locator/cache/revocation policy | timeout/malformed/redirect/fresh-absence/expired-absence/cached-revoked/expired-known-revoke/identity-mismatch matrix asserts exact current/revoked/unknown status |
 | B-013 target compatibility | Capability/host resolver | unknown host, incompatible protocol, unsupported capability, missing Core and valid Claude/Codex fixtures produce distinct closed statuses and cannot be promoted by override |
 | B-014 runtime privacy/capability | Sealed capability registry + sandbox boundary | network/credential/path/log access sentinels and child-env capture prove undeclared access never runs or persists |
-| B-015 transaction state machine | Transaction journal + dependency-set generation/floor | pre-floor failures rollback；post-floor failures preserve evidence and roll forward exact switch；old pointer replay cannot restore superseded generation |
+| B-015 transaction state machine | Transaction journal + authenticated generation anchor | pre-floor failures rollback；post-floor failures preserve evidence and roll forward exact switch；coherent local replay mismatches external root |
 | B-016 scoped rollback/repair | Transaction rollback/recovery | pre-floor injections restore before digests；post-floor switch failures retain evidence and roll forward；recovery failure reports needs_repair |
 | B-017 interruption recovery | Journal recovery + confirmation epochs | partial state fixture asserts ordered locks + recovery precede discovery/plan；confirmation timeout holds no lock；post-confirm generation/evidence/time drift forces re-plan/re-confirm |
 | B-018 complete committed receipt | Receipt schema/writer + source storage key | official receipt requires event digest；local requires not_applicable + absent event；all block receipts bind committed policy and finite decision/override horizons/fallback；local round-trip needs no publisher sentinel |
@@ -629,8 +640,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | Active-policy journal/pointer/floor + policy lock | runtime revalidates exact digest/generation/validity under lock through execution；same digest at a newer generation still falls back；activation cannot cross management commit |
-| B-028 insufficient evidence degrades | Generation-scoped runtime guard + renderer | every trusted time including fallback advances high-water；expiry/policy drift durably latches audit_required；clock rollback and guard failure cannot restore block |
+| B-027 policy-owned thresholds | Active-policy journal/pointer + authenticated policy anchor | exact policy identity and external root/leaf attestation revalidate through execution；coherent restore and newer same-digest generation fall back |
+| B-028 insufficient evidence degrades | Anchored generation-scoped runtime guard | every trusted time advances externally anchored high-water；expiry/policy drift latches audit_required；clock/local-tree rollback cannot restore block |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
 | B-031 same gate for core/community | Shared eligibility function | identical evidence inputs under curated/community publishers yield identical eligibility; badge/high severity cannot bypass |
@@ -670,7 +681,7 @@ vibeguard add <locator>
 
 runtime hook
   └─ authoritative active-policy generation/digest + anti-replay floor + committed generation
-       ├─ generation-scoped runtime-state lock/CAS + durable trusted-time high-water
+       ├─ external authenticated root + generation-scoped runtime-state lock/CAS/high-water mirror
        │    ├─ identity match + monotonic time + before applicable horizon → committed decision
        │    ├─ policy drift/expiry/override expiry/rollback → fallback + audit_required
        │    └─ state/floor/lock/CAS unavailable → conservative deny + nonzero
@@ -679,8 +690,8 @@ runtime hook
 
 持久化面是 closed set：content-addressed verified store、index/registry-event caches、
 transaction journals/before snapshots、committed receipts/active identities、durable installation-generation
-floors、authoritative local evaluation-policy pointer/activation journal、durable evaluation-policy
-generation floor、trusted-time runtime state、local overrides
+floor mirrors、authoritative local evaluation-policy pointer/activation journal、evaluation-policy
+floor/time mirrors and external-root attestation receipts、local overrides
 和用户显式生成的 feedback export。临时下载与 staging 在 commit/rollback 后清理；
 `needs_repair` evidence 在成功 recovery 前保留。任何 temp 路径、raw response、credential、
 用户代码或 event payload 不进入 receipt/status。
