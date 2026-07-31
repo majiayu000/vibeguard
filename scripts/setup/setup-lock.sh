@@ -24,7 +24,8 @@ setup_lock_acquire() {
   local lock_parent="${HOME}/.vibeguard"
   local lock_dir="${lock_parent}/setup.lock"
   local owner_file="${lock_dir}/owner"
-  local owner_pid="" owner_nonce="" line
+  local reclaim_dir="${lock_dir}/reclaiming"
+  local owner_pid="" owner_nonce="" observed_owner="" current_owner="" line
 
   if [[ -L "${lock_parent}" || (-e "${lock_parent}" && ! -d "${lock_parent}") ]]; then
     red "ERROR: setup lock parent must be a regular directory or absent: ${lock_parent}"
@@ -41,13 +42,14 @@ setup_lock_acquire() {
       red "ERROR: setup lock is malformed: ${lock_dir}"
       return 1
     fi
+    observed_owner="$(cat "${owner_file}")" || return 1
     while IFS= read -r line; do
       case "${line}" in
         pid=*) owner_pid="${line#pid=}" ;;
         nonce=*) owner_nonce="${line#nonce=}" ;;
         *) red "ERROR: setup lock owner metadata is malformed"; return 1 ;;
       esac
-    done < "${owner_file}"
+    done <<< "${observed_owner}"
     if [[ ! "${owner_pid}" =~ ^[0-9]+$ || -z "${owner_nonce}" ]]; then
       red "ERROR: setup lock owner metadata is incomplete"
       return 1
@@ -56,7 +58,29 @@ setup_lock_acquire() {
       red "ERROR: another VibeGuard setup is active (pid ${owner_pid})"
       return 1
     fi
-    if ! rm -f -- "${owner_file}" || ! rmdir -- "${lock_dir}"; then
+
+    # Serialize stale reclaimers inside the existing lock directory, then
+    # compare the complete owner generation before deleting anything. Another
+    # process may have reclaimed the stale lock after our first read.
+    if ! mkdir "${reclaim_dir}" 2>/dev/null; then
+      red "ERROR: another VibeGuard setup lock reclaim is active"
+      return 1
+    fi
+    if [[ -L "${owner_file}" || ! -f "${owner_file}" ]] \
+      || ! current_owner="$(cat "${owner_file}")" \
+      || [[ "${current_owner}" != "${observed_owner}" ]]; then
+      rmdir -- "${reclaim_dir}" 2>/dev/null || true
+      red "ERROR: setup lock owner changed while reclaiming; refusing stale deletion"
+      return 1
+    fi
+    if kill -0 "${owner_pid}" 2>/dev/null; then
+      rmdir -- "${reclaim_dir}" 2>/dev/null || true
+      red "ERROR: setup lock owner became active while reclaiming (pid ${owner_pid})"
+      return 1
+    fi
+    if ! rm -f -- "${owner_file}" \
+      || ! rmdir -- "${reclaim_dir}" \
+      || ! rmdir -- "${lock_dir}"; then
       red "ERROR: stale setup lock contains unexpected data: ${lock_dir}"
       return 1
     fi

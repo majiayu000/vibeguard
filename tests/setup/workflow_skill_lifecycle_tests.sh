@@ -22,6 +22,63 @@ printf 'pid=99999999\nnonce=stale-fixture\n' > "${gh719_lock_home}/.vibeguard/se
 assert_cmd "stale setup lifecycle lock is reclaimed" env HOME="${gh719_lock_home}" \
   bash -c 'source "$1/scripts/setup/lib.sh"; setup_lock_acquire; setup_lock_release' _ "${REPO_DIR}"
 
+gh719_lock_race_home="${TMP_HOME}/gh719-lock-race-home"
+gh719_lock_race_control="${TMP_HOME}/gh719-lock-race-control"
+mkdir -p "${gh719_lock_race_home}/.vibeguard/setup.lock" \
+  "${gh719_lock_race_control}"
+printf 'pid=99999999\nnonce=stale-generation\n' \
+  > "${gh719_lock_race_home}/.vibeguard/setup.lock/owner"
+HOME="${gh719_lock_race_home}" bash -c '
+  control_dir="$2"
+  kill() {
+    if builtin kill "$@" 2>/dev/null; then return 0; fi
+    touch "${control_dir}/delayed_after_dead_check"
+    while [[ ! -e "${control_dir}/resume_reclaim" ]]; do sleep 0.01; done
+    return 1
+  }
+  source "$1/scripts/setup/lib.sh"
+  if setup_lock_acquire; then
+    touch "${control_dir}/delayed_acquired"
+    setup_lock_release || true
+  else
+    touch "${control_dir}/delayed_rejected"
+  fi
+' _ "${REPO_DIR}" "${gh719_lock_race_control}" >/dev/null 2>&1 &
+gh719_delayed_reclaimer_pid=$!
+for _ in {1..500}; do
+  [[ -e "${gh719_lock_race_control}/delayed_after_dead_check" ]] && break
+  sleep 0.01
+done
+HOME="${gh719_lock_race_home}" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  if setup_lock_acquire; then
+    touch "$2/active_acquired"
+    while [[ ! -e "$2/release_active" ]]; do sleep 0.01; done
+    if setup_lock_release; then
+      touch "$2/active_released"
+    else
+      touch "$2/active_release_failed"
+    fi
+  else
+    touch "$2/active_rejected"
+  fi
+' _ "${REPO_DIR}" "${gh719_lock_race_control}" >/dev/null 2>&1 &
+gh719_active_lock_pid=$!
+for _ in {1..500}; do
+  [[ -e "${gh719_lock_race_control}/active_acquired" ]] && break
+  sleep 0.01
+done
+touch "${gh719_lock_race_control}/resume_reclaim"
+wait "${gh719_delayed_reclaimer_pid}"
+touch "${gh719_lock_race_control}/release_active"
+wait "${gh719_active_lock_pid}"
+assert_cmd "stale reclaimer rejects a changed owner generation" test \
+  -e "${gh719_lock_race_control}/delayed_rejected"
+assert_cmd "stale reclaimer never acquires over a changed owner generation" test \
+  ! -e "${gh719_lock_race_control}/delayed_acquired"
+assert_cmd "active owner survives a delayed stale reclaim" test \
+  -e "${gh719_lock_race_control}/active_released"
+
 gh719_state_home="${TMP_HOME}/gh719-state-home"
 gh719_runtime="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
 mkdir -p "${gh719_state_home}/.vibeguard"
