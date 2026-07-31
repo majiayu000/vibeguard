@@ -531,10 +531,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
   "issue": 702,
   "complete": true,
   "paths": [
-    "vibeguard-runtime/Cargo.toml",
-    "vibeguard-runtime/Cargo.lock",
-    "vibeguard-runtime/src/main.rs",
-    "vibeguard-runtime/src/guard_pack/mod.rs",
+    "vibeguard-runtime/Cargo.toml", "vibeguard-runtime/Cargo.lock",
+    "vibeguard-runtime/src/main.rs", "vibeguard-runtime/src/guard_pack/mod.rs",
     "vibeguard-runtime/src/guard_pack/model.rs",
     "vibeguard-runtime/src/guard_pack/locator.rs",
     "vibeguard-runtime/src/guard_pack/archive.rs",
@@ -544,17 +542,15 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "vibeguard-runtime/src/guard_pack/transaction.rs",
     "vibeguard-runtime/src/guard_pack/runtime_guard.rs",
     "vibeguard-runtime/src/guard_pack/render.rs",
-    "schemas/guard-pack.schema.json",
-    "schemas/guard-pack-index.schema.json",
-    "schemas/guard-pack-registry-event.schema.json",
-    "schemas/guard-pack-capability.schema.json",
-    "schemas/guard-pack-precision.schema.json",
-    "schemas/guard-pack-policy.schema.json",
-    "schemas/guard-pack-receipt.schema.json",
-    "schemas/guard-pack-transaction.schema.json",
-    "schemas/guard-pack-override.schema.json",
-    "schemas/guard-pack-runtime-state.schema.json",
+    "vibeguard-runtime/src/guard_pack/anchor/",
+    "schemas/guard-pack.schema.json", "schemas/guard-pack-index.schema.json",
+    "schemas/guard-pack-registry-event.schema.json", "schemas/guard-pack-capability.schema.json",
+    "schemas/guard-pack-precision.schema.json", "schemas/guard-pack-policy.schema.json",
+    "schemas/guard-pack-receipt.schema.json", "schemas/guard-pack-transaction.schema.json",
+    "schemas/guard-pack-override.schema.json", "schemas/guard-pack-runtime-state.schema.json",
     "schemas/guard-pack-feedback.schema.json",
+    "schemas/guard-pack-anchor-intent.schema.json", "schemas/guard-pack-anchor-commit.schema.json",
+    "schemas/guard-pack-anchor-mirror.schema.json", "schemas/guard-pack-anchor-ipc.schema.json",
     "packs/safe-bash/pack.yaml",
     "packs/safe-bash/README.md",
     "scripts/lib/guard_packs.py",
@@ -564,6 +560,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "scripts/precision-tracker.py",
     "scripts/ci/validate-guard-pack-publish.py",
     "scripts/setup/guard-packs.sh",
+    "scripts/setup/guard-pack-anchor-service/",
     "scripts/release/payload-manifest.txt",
     "setup.sh",
     "data/guard-pack-policy.json",
@@ -574,7 +571,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "tests/test_guard_pack_supply_chain.sh",
     "tests/test_guard_pack_transactions.sh",
     "tests/test_guard_pack_precision_policy.sh",
-    "tests/fixtures/guard_packs/",
+    "tests/test_guard_pack_anchor.sh", "tests/perf_guard_pack_anchor.sh",
+    "tests/fixtures/guard_packs/", "tests/fixtures/guard_pack_anchor/",
     "tests/test_payload.sh",
     "tests/test_release_workflow.sh",
     "tests/test_manifest_contract.sh",
@@ -590,6 +588,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
   "spec_refs": [
     "docs/specs/GH702/product.md",
     "docs/specs/GH702/tech.md",
+    "docs/specs/GH702/monotonic-anchor-contract.md",
     "docs/specs/GH702/tasks.md"
   ]
 }
@@ -603,6 +602,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | Capability/host | planned **guard_pack/capability.rs**; consume approved GH-701 registry when available | Claude/Codex/unknown/incompatible/unsupported fixture matrix |
 | Transaction/receipt | planned **guard_pack/transaction.rs**, receipt/transaction schemas | crash-at-every-stage, concurrent lock, drift, rollback, recovery and canary tests |
 | Precision/runtime policy | planned **guard_pack/precision.rs**, **runtime_guard**, precision/policy/override/runtime-state schemas, `scripts/precision-tracker.py` | exhaustive eligibility truth table + binding/freshness/override/policy-rotation/clock-rollback negatives |
+| Monotonic anchor | planned **guard_pack/anchor/** + four anchor schemas；exact IPC/backend/service/provision/mirror/recovery owners in supporting contract | H-010 platform availability, IPC trust, lifecycle/rotation/reinstall, every-barrier crash and every-hook CAS latency suites |
 | Author publish | planned **scripts/lib/guard_pack_manifest.py**, **guard_pack_publish.py**, **scripts/ci/validate-guard-pack-publish.py** | two-build digest equality; half-publish/index-CAS/revoke/yank fixtures |
 | Legacy migration | `scripts/lib/guard_packs.py`, `scripts/lib/guard_pack_receipts.py`, `packs/safe-bash/` | existing 623-case shell surface remains green plus migration ownership sentinels |
 | Release distribution | `scripts/release/payload-manifest.txt`, `scripts/setup/guard-packs.sh`, `setup.sh`, `tests/test_payload.sh`, `tests/test_release_workflow.sh` | GH-699 actual no-clone launcher invokes Rust client; payload tamper fails closed |
@@ -615,7 +615,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-001 released no-checkout command | Runtime registry + GH-699 actual launcher integration | fresh HOME fixture runs discovered released `vibeguard add` with `.git`, Python, Cargo and API key absent; checkout-only route reports unofficial |
 | B-002 canonical exact identity | Locator + discriminated embedded/resolved identity model | table rejects missing/empty/mismatch/floating fields；official requires immutable entry/event/publication-policy digests；local requires locator/bundle/publication-policy digests and rejects registry fields |
 | B-003 external author independence | Author CLI + external-repo fixture | fixture root outside VibeGuard builds/publishes/installs while `git diff` of VibeGuard source stays empty |
-| B-004 closed versioned schemas | Pack manifest schema + nine planned artifact/policy schemas; Rust production reader and Python authoring/legacy readers | duplicate-key/unknown-field/enum/semver/range/rule-ID corpus fails in both Rust and Python readers |
+| B-004 closed versioned schemas | Pack/artifact/policy schemas + anchor intent/commit/mirror/IPC quartet；Rust production and Python authoring/legacy readers | duplicate/unknown/empty/cross-record identity corpus fails consistently |
 | B-005 zero-side-effect invalid input | Resolver/preflight | missing/empty/unknown/tampered/zero-rule fixtures assert store/receipt/active/config canaries absent |
 | B-006 approved decision gate | Role-separated policy schema + offline gate | invalid-at-publication blocks publish；valid signed publication later expiry/spec drift does not block install；missing/stale/current-spec-drift evaluation blocks；rotation re-audits without republish |
 | B-007 visible trust states | Source-kind model + renderers + receipt | official matrix covers current/revoked/unknown and requires event digest；local matrix requires unofficial + not_applicable and rejects present/synthetic event fields |
@@ -626,9 +626,9 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-012 online/offline failure semantics | Locator/cache/revocation policy | timeout/malformed/redirect/fresh-absence/expired-absence/cached-revoked/expired-known-revoke/identity-mismatch matrix asserts exact current/revoked/unknown status |
 | B-013 target compatibility | Capability/host resolver | unknown host, incompatible protocol, unsupported capability, missing Core and valid Claude/Codex fixtures produce distinct closed statuses and cannot be promoted by override |
 | B-014 runtime privacy/capability | Sealed capability registry + sandbox boundary | network/credential/path/log access sentinels and child-env capture prove undeclared access never runs or persists |
-| B-015 transaction state machine | Journal + authenticated anchor + durable pointer | post-floor retry repeats exact rename, pointer fsync and parent-dir fsync before complete；coherent replay mismatches root |
+| B-015 transaction state machine | Transaction + anchor supporting contract | durable intent/two mirrors survive lost CAS response；exact target rolls forward through barrier, other root needs_repair；pointer dual-fsync precedes complete |
 | B-016 scoped rollback/repair | Transaction rollback/recovery | pre-floor restores before digests；post-floor every applied/host/config CAS match rolls forward；any drift preserves state/evidence and needs_repair |
-| B-017 interruption recovery | Journal recovery + confirmation epochs | crash each rename/fsync/cleanup stage and mutate applied/host/config；recovery either repeats exact durable switch or needs_repair, never false receipt |
+| B-017 interruption recovery | Transaction + anchor recovery | crash every local/external/barrier stage and mutate applied/host/config；exact target resumes, mismatch needs_repair, never false receipt or permanent proven-target unavailable |
 | B-018 complete committed receipt | Receipt schema/writer + source storage key | official receipt requires event digest；local requires not_applicable + absent event；all block receipts bind committed policy and finite decision/override horizons/fallback；local round-trip needs no publisher sentinel |
 | B-019 ownership preservation | Planner + reservation + structured config adapters | update/remove succeeds only when current state matches receipt after digest；matching before but not after is drift；fresh conflict/cancel preserves canaries |
 | B-020 dependency graph | Dependency resolver + set generation | missing/cycle/range/undeclared recursion zero-apply；same publisher+pack+version/different digest conflicts，while same publisher+version/different pack names coexist；valid graph uses one pointer |
@@ -638,8 +638,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | Active-policy journal/pointer + authenticated policy anchor | policy rename+pointer/dir fsync precede journal completion；post-floor drift rolls forward suspended；authority revalidates through execution |
-| B-028 insufficient evidence degrades | Anchored generation-scoped runtime guard | every trusted time advances externally anchored high-water；expiry/policy drift latches audit_required；clock/local-tree rollback cannot restore block |
+| B-027 policy-owned thresholds | Policy journal + external anchor CAS | pre-CAS intent/fence and barrier bind exact authority；rotation/reinstall/backend identity drift cannot reuse old decision；post-floor drift rolls forward suspended |
+| B-028 insufficient evidence degrades | Anchored generation-scoped runtime guard | every hook advances high-water via authenticated IPC/external CAS；lost-response target resumes；expiry/policy drift latches audit_required；rollback cannot restore block |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
 | B-031 same gate for core/community | Shared eligibility function | identical evidence inputs under curated/community publishers yield identical eligibility; badge/high severity cannot bypass |
@@ -652,8 +652,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-038 GH-701 interface boundary | Host adapter compatibility layer | merged-Draft-only fixture stays fixed Claude/Codex；only decisions + merged implementation + compatibility/native proof accepts registry IDs；reject second registry/early third-host active claim |
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds under the same publication policy match digest；evaluation-policy rotation does not rebuild；publish failures never create resolvable partial entry |
-| B-041 truthful list/status/audit | Shared status aggregate/renderers | golden output enumerates committed/authoritative policy identities, policy/installation floors, sequence/latch, horizons and high-water/epoch；degradation exits nonzero |
-| B-042 offline runtime stability | Committed eligibility + local policy/high-water ceiling | block network；local stays not_applicable；official trust conclusions remain exact；policy mismatch, horizon expiry or rollback below persisted high-water degrades block without network |
+| B-041 truthful list/status/audit | Shared status + anchor renderer | golden output enumerates authority identities/floors/time plus backend/root/leaf/counter/barrier/availability/repair；degradation exits nonzero without key material |
+| B-042 offline runtime stability | Committed eligibility + local anchor IPC | block network but require authenticated local service；every-hook latency budget and IPC/backend failure fixtures degrade/deny without stale mirror fallback |
 
 ## 数据流
 
@@ -773,6 +773,8 @@ bash scripts/local-contract-check.sh --quick
 bash tests/test_guard_pack_supply_chain.sh
 bash tests/test_guard_pack_transactions.sh
 bash tests/test_guard_pack_precision_policy.sh
+bash tests/test_guard_pack_anchor.sh
+bash tests/perf_guard_pack_anchor.sh
 ```
 
 - [ ] Documentation:

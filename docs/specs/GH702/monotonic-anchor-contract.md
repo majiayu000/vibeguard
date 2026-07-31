@@ -110,6 +110,46 @@ IPC 超时或 attestation invalid 时执行既有 conservative denial。经验�
 可以在 bounded retry 内完成；超过预算返回 nonzero 并留下可由 management recovery 继续的 exact
 intent/journal，不得删除或从 previous mirror 放行。
 
+## Implementation ownership
+
+H-010 获批后，下列 owner map 必须一一落到 `tech.md` planned-change manifest；owner 不得互相
+重做 identity、CAS 或 recovery 判断：
+
+| Concern | Single owner | Required surfaces |
+| --- | --- | --- |
+| Hook/management client | Rust `guard_pack::anchor::client` | bounded IPC、request identity、attestation validation；不得直接读 backend |
+| Local persistence | Rust `guard_pack::anchor::{mirror,recovery}` | intent、commit、mirror schemas；file/dir fsync、two-generation GC、barrier state machine |
+| IPC protocol | Rust `guard_pack::anchor::ipc` | versioned closed request/response schema、peer/session binding、timeouts、replay rejection |
+| Core service | Rust `guard_pack::anchor::service` + `scripts/setup/guard-pack-anchor-service/` | endpoint lifecycle、selected platform packaging/health/status；不拥有 H-010 choices |
+| External backend | Rust `guard_pack::anchor::backend` | H-010 selected adapter、atomic successor CAS、attested current read、device/backend identity |
+| Provision/lifecycle | Rust `guard_pack::anchor::provision` + setup/release integration | create/reattach/rotate/reinstall/device replacement/reset plan、confirmation、receipt、rollback/repair |
+| Public schemas | `schemas/guard-pack-anchor-{intent,commit,mirror,ipc}.schema.json` | closed versions、duplicate/unknown-field rejection、cross-language corpus |
+| Status renderer | existing `guard_pack::render` | backend/root/leaf/counter、barrier/repair/availability without secret/key material |
+
+Platform service assets 只能进入 manifest 已预留的 setup directory；H-010 必须先选择 supported
+platform/backend/service model 并在 approved artifact 固定该目录 inventory。在该 approval 前不得
+生成 `tasks.md` 或把 generic service module 冒充为 macOS/Linux/Windows availability。
+
+## Verification manifest
+
+| Gate | Required fresh evidence |
+| --- | --- |
+| Schema parity | Rust/Python readers share positive/negative corpus for intent/commit/mirror/IPC；unknown, duplicate, empty and cross-record identity mismatch fail visibly |
+| Barrier crash matrix | deterministic fault after every temp fsync, rename, directory fsync, external CAS response, commit-journal write, mirror selection, barrier and cleanup；exact from rolls back/prepares, exact target rolls forward, other enters needs_repair |
+| Lost-response recovery | external CAS advances but response/journal write is lost；durable intent + target mirror + backend current attestation complete barrier after restart without permanent unavailable |
+| Cross-platform availability | every H-010 claimed release OS/architecture provisions real selected backend/service, restarts and completes CAS；unclaimed platform reports explicit unsupported and cannot block |
+| IPC trust | wrong executable/user/principal, stale session, replayed response, protocol downgrade, endpoint substitution, malformed attestation and service restart all fail closed |
+| Identity/lifecycle | fresh provision, idempotent reattach, key/backend rotation, same-device reinstall, Core reinstall, backup restore and device replacement follow each exact H-010 choice；identity ambiguity never auto-resets |
+| Failure/repair | backend locked/full/unavailable, IPC timeout, partial provision, forked intents, target mirror corruption and reset interruption preserve evidence and expose the approved repair authority |
+| Every-hook performance | real hook path performs required external read/CAS/barrier; benchmark p50/p95/p99 and timeout/queue contention on every claimed platform against the H-010 approved budget，not a mocked or management-only path |
+| Concurrency | parallel hooks plus policy/install mutation prove unique external successors, canonical lock order, no forked mirrors and bounded nonzero failure |
+| Packaging | verified payload contains client/service/backend/provision modules, schemas and selected platform service assets；fresh no-checkout install proves peer identity and service target |
+
+planned **tests/test_guard_pack_anchor.sh** owns schema/IPC/lifecycle/crash/concurrency fixtures；
+planned **tests/perf_guard_pack_anchor.sh** owns every-hook latency distribution and budget gate。CI 必须在每个
+H-010 claimed platform 运行真实 backend conformance 或明确、获批且 fail-closed 的 hardware/service
+fixture；单一 Linux mock 不能证明 cross-platform availability。
+
 本文不规定 backend 实现、平台支持集合、provision/reinstall/device-replacement policy、IPC peer
 authentication 或 latency budget；这些必须由 product spec 的未批准 H-010 决定，并由
 `tech.md` 的 manifest/verification matrix 证明后才可实现。
