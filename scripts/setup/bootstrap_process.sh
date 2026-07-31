@@ -220,37 +220,12 @@ bootstrap_setup_tty_is_foreground() {
        END { exit !(!bad && ok) }' <<< "${terminal_state}"
 }
 
-bootstrap_setup_group_terminate() {
-  local leader_pid="$1" pgid="$2"
-  kill -s TERM -- "-${pgid}" 2>/dev/null || kill -s TERM "${leader_pid}" 2>/dev/null || true
-  kill -s CONT -- "-${pgid}" 2>/dev/null || true
-  wait "${leader_pid}" 2>/dev/null || true
-}
-
-bootstrap_cancel_setup() {
-  local signal="$1" status="$2"
-  if [[ "${BOOTSTRAP_SETUP_LAUNCHING:-0}" == "1" \
-    && -z "${BOOTSTRAP_SETUP_LEADER_PID:-}" ]]; then
-    BOOTSTRAP_SETUP_PENDING_SIGNAL="${signal}"
-    BOOTSTRAP_SETUP_PENDING_STATUS="${status}"
-    return 0
-  fi
-  trap - INT TERM HUP
-  if [[ -n "${BOOTSTRAP_SETUP_LEADER_PID:-}" && -n "${BOOTSTRAP_SETUP_PGID:-}" ]]; then
-    kill -s "${signal}" -- "-${BOOTSTRAP_SETUP_PGID}" 2>/dev/null \
-      || kill -s "${signal}" "${BOOTSTRAP_SETUP_LEADER_PID}" 2>/dev/null || true
-    kill -s CONT -- "-${BOOTSTRAP_SETUP_PGID}" 2>/dev/null || true
-    wait "${BOOTSTRAP_SETUP_LEADER_PID}" 2>/dev/null || true
-  fi
-  exit "${status}"
-}
-
 bootstrap_run_setup_with_lease() {
   local setup_path="$1" dist_root="$2" owner_pid="$3" nonce="$4"
   shift 4
   local lease_file="${dist_root}/.bootstrap.lock.lease.${nonce}"
   local gate_file="${BOOTSTRAP_TMP}/setup-lease-start" leader_pid setup_rc=0
-  local monitor_enabled=0 tty_requested=0 stopped=0 owner_identity
+  local monitor_enabled=0 tty_requested=0 stopped=0 owner_identity termination_signal
   if ! bootstrap_process_snapshot "${owner_pid}" \
     || [[ "${BOOTSTRAP_PROCESS_STATE}" == Z* ]]; then
     bootstrap_error "could not establish bootstrap owner identity before setup launch."
@@ -273,20 +248,28 @@ bootstrap_run_setup_with_lease() {
     exec env PYTHONDONTWRITEBYTECODE=1 bash "${setup_path}" "$@"
   ) &
   leader_pid=$!
-  BOOTSTRAP_SETUP_LEADER_PID="${leader_pid}"
-  BOOTSTRAP_SETUP_LAUNCHING=0
-  if [[ -n "${BOOTSTRAP_SETUP_PENDING_SIGNAL:-}" ]]; then
-    bootstrap_cancel_setup "${BOOTSTRAP_SETUP_PENDING_SIGNAL}" "${BOOTSTRAP_SETUP_PENDING_STATUS}"
-  fi
+  BOOTSTRAP_SETUP_LEADER_PID="${leader_pid}" BOOTSTRAP_SETUP_PGID="${leader_pid}"
   if ! bootstrap_process_snapshot "${leader_pid}" \
     || [[ "${BOOTSTRAP_PROCESS_PGID}" != "${leader_pid}" ]] \
     || [[ "${BOOTSTRAP_PROCESS_STATE}" == Z* ]]; then
-    bootstrap_setup_group_terminate "${leader_pid}" "${leader_pid}"
+    termination_signal="${BOOTSTRAP_SETUP_PENDING_SIGNAL:-TERM}"
+    if ! bootstrap_setup_group_terminate "${leader_pid}" "${leader_pid}" "${termination_signal}"; then
+      [[ "${monitor_enabled}" == "1" ]] || set +m
+      return 73
+    fi
     [[ "${monitor_enabled}" == "1" ]] || set +m
+    BOOTSTRAP_SETUP_LEADER_PID="" BOOTSTRAP_SETUP_PGID="" BOOTSTRAP_SETUP_LAUNCHING=0
+    if [[ -n "${BOOTSTRAP_SETUP_PENDING_SIGNAL:-}" ]]; then
+      trap '' INT TERM HUP
+      exit "${BOOTSTRAP_SETUP_PENDING_STATUS}"
+    fi
     bootstrap_error "could not establish an isolated setup process group."
     return 1
   fi
-  BOOTSTRAP_SETUP_PGID="${BOOTSTRAP_PROCESS_PGID}"
+  BOOTSTRAP_SETUP_PGID="${BOOTSTRAP_PROCESS_PGID}" BOOTSTRAP_SETUP_LEADER_IDENTITY="${BOOTSTRAP_PROCESS_IDENTITY}" BOOTSTRAP_SETUP_LAUNCHING=0
+  if [[ -n "${BOOTSTRAP_SETUP_PENDING_SIGNAL:-}" ]]; then
+    bootstrap_cancel_setup "${BOOTSTRAP_SETUP_PENDING_SIGNAL}" "${BOOTSTRAP_SETUP_PENDING_STATUS}"
+  fi
   if [[ "${tty_requested}" == "1" ]]; then
     kill -s STOP -- "-${BOOTSTRAP_SETUP_PGID}" 2>/dev/null || true
     for _bootstrap_stop_attempt in {1..100}; do
@@ -294,7 +277,10 @@ bootstrap_run_setup_with_lease() {
       sleep 0.02
     done
     if [[ "${stopped}" != "1" ]]; then
-      bootstrap_setup_group_terminate "${leader_pid}" "${BOOTSTRAP_SETUP_PGID}"
+      if ! bootstrap_setup_group_terminate "${leader_pid}" "${BOOTSTRAP_SETUP_PGID}"; then
+        [[ "${monitor_enabled}" == "1" ]] || set +m
+        return 73
+      fi
       [[ "${monitor_enabled}" == "1" ]] || set +m
       bootstrap_error "could not stop the isolated setup process group before publication."
       return 1
@@ -305,7 +291,10 @@ bootstrap_run_setup_with_lease() {
       "${BOOTSTRAP_PROCESS_IDENTITY}" \
     || ! : > "${gate_file}"; then
     bootstrap_error "could not publish the setup process-group gate."
-    bootstrap_setup_group_terminate "${leader_pid}" "${BOOTSTRAP_SETUP_PGID}"
+    if ! bootstrap_setup_group_terminate "${leader_pid}" "${BOOTSTRAP_SETUP_PGID}"; then
+      [[ "${monitor_enabled}" == "1" ]] || set +m
+      return 73
+    fi
     [[ "${monitor_enabled}" == "1" ]] || set +m
     if bootstrap_setup_lease_clear_inactive "${lease_file}" "${owner_pid}" "${nonce}"; then
       BOOTSTRAP_SETUP_LEASE_HELD=0 BOOTSTRAP_SETUP_LEASE_FILE=""
@@ -315,7 +304,10 @@ bootstrap_run_setup_with_lease() {
   if [[ "${tty_requested}" == "1" ]]; then
     if ! bootstrap_setup_tty_is_foreground; then
       bootstrap_error "bootstrap stdin is a terminal but its process group is not foreground."
-      bootstrap_setup_group_terminate "${leader_pid}" "${BOOTSTRAP_SETUP_PGID}"
+      if ! bootstrap_setup_group_terminate "${leader_pid}" "${BOOTSTRAP_SETUP_PGID}"; then
+        [[ "${monitor_enabled}" == "1" ]] || set +m
+        return 73
+      fi
       setup_rc=73
     elif fg %% >/dev/null; then
       setup_rc=0
@@ -326,9 +318,9 @@ bootstrap_run_setup_with_lease() {
     kill -s CONT -- "-${BOOTSTRAP_SETUP_PGID}" 2>/dev/null || true
     wait "${leader_pid}" || setup_rc=$?
   fi
+  BOOTSTRAP_SETUP_LEADER_PID="" BOOTSTRAP_SETUP_PGID="" BOOTSTRAP_SETUP_LEADER_IDENTITY=""
   [[ "${monitor_enabled}" == "1" ]] || set +m
   bootstrap_setup_lease_clear_inactive "${lease_file}" "${owner_pid}" "${nonce}" || return 73
   BOOTSTRAP_SETUP_LEASE_HELD=0 BOOTSTRAP_SETUP_LEASE_FILE=""
-  BOOTSTRAP_SETUP_LEADER_PID="" BOOTSTRAP_SETUP_PGID=""
   return "${setup_rc}"
 }

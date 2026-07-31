@@ -3,5 +3,7 @@
 source "${REPO_DIR}/tests/setup/bootstrap_payload_tests.sh"
 # shellcheck source=setup/bootstrap_transaction_tests.sh
 source "${REPO_DIR}/tests/setup/bootstrap_transaction_tests.sh"
+# shellcheck source=setup/bootstrap_termination_tests.sh
+source "${REPO_DIR}/tests/setup/bootstrap_termination_tests.sh"
 # shellcheck source=setup/bootstrap_recovery_scheduler_tests.sh
 source "${REPO_DIR}/tests/setup/bootstrap_recovery_scheduler_tests.sh"

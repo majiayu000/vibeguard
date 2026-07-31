@@ -3,6 +3,7 @@ header "pinned payload bootstrap"
 BOOTSTRAP="${REPO_DIR}/scripts/setup/bootstrap.sh"
 BOOTSTRAP_LIB="${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
 BOOTSTRAP_PROCESS_LIB="${REPO_DIR}/scripts/setup/bootstrap_process.sh"
+BOOTSTRAP_TERMINATION_LIB="${REPO_DIR}/scripts/setup/bootstrap_termination.sh"
 BOOTSTRAP_STATE_LIB="${REPO_DIR}/scripts/setup/bootstrap_state.sh"
 BOOTSTRAP_VERSION="$(tr -d '[:space:]' < "${REPO_DIR}/vibeguard-runtime/VERSION")"
 BOOTSTRAP_ASSET="vibeguard-payload-${BOOTSTRAP_VERSION}.tar.gz"
@@ -11,10 +12,12 @@ BOOTSTRAP_RELEASE="${TMP_HOME}/bootstrap-release-good"
 assert_cmd "bootstrap entrypoint exists and is executable" test -x "${BOOTSTRAP}"
 assert_cmd "bootstrap helper exists" test -f "${BOOTSTRAP_LIB}"
 assert_cmd "bootstrap process helper exists" test -f "${BOOTSTRAP_PROCESS_LIB}"
+assert_cmd "bootstrap termination helper exists" test -f "${BOOTSTRAP_TERMINATION_LIB}"
 assert_cmd "bootstrap state helper exists" test -f "${BOOTSTRAP_STATE_LIB}"
 assert_cmd "bootstrap entrypoint syntax is correct" bash -n "${BOOTSTRAP}"
 assert_cmd "bootstrap helper syntax is correct" bash -n "${BOOTSTRAP_LIB}"
 assert_cmd "bootstrap process helper syntax is correct" bash -n "${BOOTSTRAP_PROCESS_LIB}"
+assert_cmd "bootstrap termination helper syntax is correct" bash -n "${BOOTSTRAP_TERMINATION_LIB}"
 assert_cmd "bootstrap state helper syntax is correct" bash -n "${BOOTSTRAP_STATE_LIB}"
 assert_cmd "bootstrap entrypoint stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 600' _ "${BOOTSTRAP}"
@@ -22,6 +25,8 @@ assert_cmd "bootstrap helper stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 600' _ "${BOOTSTRAP_LIB}"
 assert_cmd "bootstrap process helper stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_PROCESS_LIB}"
+assert_cmd "bootstrap termination helper stays below focused limit" bash -c \
+  'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_TERMINATION_LIB}"
 assert_cmd "bootstrap state helper stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_STATE_LIB}"
 
@@ -468,6 +473,19 @@ trap 'leader_signal HUP 129' HUP
 ) &
 child=$!
 printf '%s %s\\n' "$$" "${child}" > "${ready}"
+wait "${child}"
+"""
+elif kind == "signal-ignore":
+    setup = b"""#!/usr/bin/env bash
+set -euo pipefail
+ready="${VIBEGUARD_TEST_SETUP_READY:?}"
+trap '' INT TERM HUP
+(
+  trap '' INT TERM HUP
+  while :; do sleep 1; done
+) &
+child=$!
+printf '%s %s\n' "$$" "${child}" > "${ready}"
 wait "${child}"
 """
 elif kind == "foreign-owner":

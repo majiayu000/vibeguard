@@ -516,6 +516,14 @@ fi
 # shellcheck source=scripts/setup/bootstrap_process.sh
 source "${BOOTSTRAP_PROCESS_LIB}"
 
+BOOTSTRAP_TERMINATION_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bootstrap_termination.sh"
+if [[ ! -f "${BOOTSTRAP_TERMINATION_LIB}" ]]; then
+  bootstrap_error "missing bootstrap termination helper: ${BOOTSTRAP_TERMINATION_LIB}"
+  return 1
+fi
+# shellcheck source=scripts/setup/bootstrap_termination.sh
+source "${BOOTSTRAP_TERMINATION_LIB}"
+
 BOOTSTRAP_STATE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bootstrap_state.sh"
 if [[ ! -f "${BOOTSTRAP_STATE_LIB}" ]]; then
   bootstrap_error "missing bootstrap state helper: ${BOOTSTRAP_STATE_LIB}"

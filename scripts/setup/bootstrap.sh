@@ -126,7 +126,7 @@ TRANSACTION_COMMITTED=0
 LOCK_OWNER_PID=""
 LOCK_OWNER_NONCE=""
 BOOTSTRAP_SETUP_LEASE_FILE="" BOOTSTRAP_SETUP_LEASE_HELD=0
-BOOTSTRAP_SETUP_LEADER_PID="" BOOTSTRAP_SETUP_PGID="" BOOTSTRAP_SETUP_LAUNCHING=0 BOOTSTRAP_SETUP_PENDING_SIGNAL="" BOOTSTRAP_SETUP_PENDING_STATUS=""
+BOOTSTRAP_SETUP_LEADER_PID="" BOOTSTRAP_SETUP_PGID="" BOOTSTRAP_SETUP_LEADER_IDENTITY="" BOOTSTRAP_SETUP_LAUNCHING=0 BOOTSTRAP_SETUP_PENDING_SIGNAL="" BOOTSTRAP_SETUP_PENDING_STATUS="" BOOTSTRAP_SETUP_TERMINATION_FAILED=0
 bootstrap_reap_existing_lock() {
   local legacy_owner
 
@@ -280,9 +280,9 @@ bootstrap_restore_previous_current() {
   CURRENT_SWITCHED=0
   return 0
 }
-
-bootstrap_cleanup() {
-  local status=$?
+bootstrap_cleanup() { local status=$?
+  if [[ "${BOOTSTRAP_SETUP_TERMINATION_FAILED:-0}" == "1" ]]; then bootstrap_error \
+    "setup termination is unproven; preserving lease, lock, payload, and worktree evidence."; return 73; fi
   if [[ "${BOOTSTRAP_SETUP_LEASE_HELD}" == "1" ]]; then
     if ! bootstrap_setup_lease_clear_inactive "${BOOTSTRAP_SETUP_LEASE_FILE}" \
       "${LOCK_OWNER_PID}" "${LOCK_OWNER_NONCE}"; then

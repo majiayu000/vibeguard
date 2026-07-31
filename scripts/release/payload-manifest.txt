@@ -43,6 +43,7 @@ scripts/lib/workflow_contracts.py
 scripts/project-init.sh
 scripts/setup/bootstrap-lib.sh
 scripts/setup/bootstrap_process.sh
+scripts/setup/bootstrap_termination.sh
 scripts/setup/bootstrap_state.sh
 scripts/setup/bootstrap.sh
 scripts/setup/check.sh
