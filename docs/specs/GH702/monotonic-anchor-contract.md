@@ -31,7 +31,7 @@ Draft。本文是 [`product.md`](product.md) 与 [`tech.md`](tech.md) 的 suppor
   time/<installation_scope_id>`；
 - `from_external = (counter, root_digest, leaf_digest)`；
 - `target_external = (counter, root_digest, leaf_digest)`，counter 必须是 backend 认可的唯一 successor；
-- `mirror_generation_id`、mirror payload digest、previous mirror generation/digest；
+- `mirror_generation_id`、mirror `file_digest`、previous mirror generation/digest；
 - owner transaction/runtime operation、policy/installation generation 与适用 lock/fence identities。
 
 本地 closed persistence set 新增：
@@ -45,28 +45,35 @@ anchor/
     generations/<mirror_generation_id>.json
 ```
 
-mirror generation 只保存 exact external attestation identity、leaf payload、own digest 与 previous
-generation/digest；文件一旦 file+directory fsync 就 byte-immutable，不含 phase、receipt、selected
-flag 或 barrier flag，也不得原地改写。每个 leaf 至少保留 current 与 immediately previous 两个
-digest-valid generations；target barrier 完成前不得删除 previous，下一成功 successor barrier 前
-也不得删除 target 的 recovery predecessor。
+mirror generation 使用 closed envelope。`mirror_body` 保存 schema/generation identity、exact external
+attestation identity、leaf payload 与 previous generation/digest，但不含自己的 digest；
+`file_digest = sha256(UTF8(RFC8785_JCS(mirror_body)))` 是 envelope 中与 body 同级的 sibling。完整文件必须
+byte-equal `RFC8785_JCS({schema_version, mirror_body, file_digest})`，reader 拒绝 duplicate/unknown key、非 JCS
+bytes 或重算不等；digest 绝不包含 `file_digest` 字段自身。文件一旦 file+directory fsync 就
+byte-immutable，不含 phase、receipt、selected flag 或 barrier flag，也不得原地改写。每个 leaf 至少
+保留 current 与 immediately previous 两个 digest-valid generations；target barrier 完成前不得删除
+previous，下一成功 successor barrier 前也不得删除 target 的 recovery predecessor。
 
 phase 只存在于 durable intent 预先绑定的合法 digest、commit journal 的 predecessor-linked record，
-以及 selected pointer 所引用的 `selected_phase_digest`。intent 在 CAS 前用 closed canonical encoding
-预计算并绑定以下唯一链；这些 digest 都只使用 CAS 前已知的 exact identity，不吸收 backend 的随机
+以及 selected pointer 所引用的 `selected_phase_digest`。下式的 `H` 严格表示
+`sha256(UTF8(RFC8785_JCS(closed_phase_object)))`；每个 object 都有不同 `digest_domain`、literal `phase`、
+`schema_version` 与 named identity fields，不能使用位置 tuple 或字符串拼接。intent 在 CAS 前预计算
+并绑定以下唯一链；这些 digest 都只使用 CAS 前已知的 exact identity，不吸收 backend 的随机
 receipt bytes、wall clock、filename 或进程内状态：
 
 ```text
-prepared_phase_digest = H(domain, operation, mirror_digest, from_external, target_external)
-external_advanced_phase_digest = H(domain, prepared_phase_digest, target_external)
-selected_phase_digest = H(domain, external_advanced_phase_digest, mirror_generation_id, mirror_digest)
-barrier_complete_phase_digest = H(domain, selected_phase_digest, target_external, barrier_id)
+prepared_phase_digest = H(prepared_domain, operation, mirror_file_digest, from_external, target_external)
+external_advanced_phase_digest = H(external_advanced_domain, prepared_phase_digest, target_external)
+selected_phase_digest = H(selected_domain, external_advanced_phase_digest, mirror_generation_id, mirror_file_digest)
+barrier_complete_phase_digest = H(barrier_complete_domain, selected_phase_digest, target_external, barrier_id)
 ```
 
-backend receipt 是 `target_external` 的认证证据而不是 digest 输入；journal record 保存 receipt digest、
-phase name、该 phase digest 与 predecessor phase digest。`current.json` 保存 target generation/digest 和
+这里每行的 `domain` 均是该 literal phase 的独立 domain tag。backend receipt 是 `target_external` 的
+认证证据而不是 digest 输入；journal record 保存 receipt digest、phase name、该 phase digest 与
+predecessor phase digest。`current.json` 保存 target generation/`file_digest` 和
 `selected_phase_digest`。任一 phase 名、digest、predecessor 或 immutable identity 不 exact 时不得构造
-后继 phase；因此 crash recovery 可以重算同一个 digest，而不是猜测“最新”状态。
+后继 phase。schema golden vectors 必须从 envelope bytes 独立提取 body、重算 `file_digest`，再从
+intent 的 named fields 重算四个 phase digest；因此 crash recovery 只有一个合法结果。
 
 ## Ordered write protocol
 
@@ -74,7 +81,7 @@ phase name、该 phase digest 与 predecessor phase digest。`current.json` 保�
 并从 backend 读取 fresh authenticated `from_external`；只接受 exact backend/root/leaf identity
 以及 current mirror 与 attestation 全等的 base。
 
-1. 生成 closed pre-CAS intent，绑定上述全部 identity、target mirror bytes/digest、expected
+1. 生成 closed pre-CAS intent，绑定上述全部 identity、target mirror canonical body/`file_digest`、expected
    successor、commit-journal path、barrier ID 与四个合法 phase digest；写入临时文件并 fsync，
    rename 后 fsync intent file 与 parent directory。intent durable 前禁止 external CAS。
 2. 将 target 写入 inactive mirror generation；fsync file 与 generations directory。不得覆盖
@@ -86,8 +93,8 @@ phase name、该 phase digest 与 predecessor phase digest。`current.json` 保�
    predecessor 必须是 intent 的 `prepared_phase_digest`；fsync journal file 与 parent directory。
    若进程在 CAS response 后、此 fsync 前崩溃，durable intent + backend current attestation 仍足以
    重构同一个 external-advanced record；不得要求内存 response 才能恢复。
-5. target mirror 保持 byte-immutable；重验其 bytes/digest 后，atomic rename `current.json` 到绑定
-   target generation/digest 与 exact `selected_phase_digest` 的新 pointer，重开校验并 fsync pointer
+5. target mirror 保持 byte-immutable；重验其 body/`file_digest` 后，atomic rename `current.json` 到绑定
+   target generation/`file_digest` 与 exact `selected_phase_digest` 的新 pointer，重开校验并 fsync pointer
    与 parent directory；再把同一 selected phase append/replace 到 journal 并 fsync。
 6. barrier verifier 重新读取 backend current attestation、intent、commit journal、immutable target
    mirror 与 current pointer；外部 target、四个预绑定 phase digest、journal predecessor chain、pointer
@@ -110,9 +117,10 @@ recovery 必须先取得同一 locks/fence，验证 backend/root/leaf identity�
 | --- | --- |
 | intent 不 durable | external CAS 不得发生；清理 private temp，不改变 current |
 | intent durable，backend exact `from_external` | CAS 未发生；可删除 prepared target 或重试同一 CAS，不得选 target mirror |
-| backend exact `target_external`，journal 缺 receipt | 验证 intent 与 immutable prepared target digest，重算 intent-bound external-advanced phase，向 journal 补写 backend current attestation 并 roll forward |
+| backend exact `target_external`，journal 缺 receipt | 验证 intent 与 immutable prepared target `file_digest`，重算 intent-bound external-advanced phase，向 journal 补写 backend current attestation 并 roll forward |
 | backend exact target，journal 已 external_advanced，pointer 仍 previous | 重验 immutable target generation，重算 exact selected phase 后重复 current-pointer rename + file/dir fsync |
-| pointer 已 target，barrier 未完成 | 重读五方 identity；全等则补写/fsync barrier，否则按下述 mismatch 失败 |
+| pointer 已 target，external-advanced journal durable 但 selected journal 缺失 | 重验 pointer `selected_phase_digest`、immutable mirror `file_digest` 与 intent；以 external-advanced 为 predecessor 幂等重建 selected record，fsync journal file+parent、重开 exact 校验后才可进入 barrier |
+| pointer 与 selected journal 已 target，barrier 未完成 | 重读五方 identity；全等则补写/fsync barrier，否则按下述 mismatch 失败 |
 | barrier complete，intent/旧 mirror 未清 | 保持 committed，幂等清理；不得重做 CAS |
 | backend 既非 exact from 也非 exact target | `needs_repair`；保留两代 mirror、intent、journal，不猜测或覆盖 external root |
 
@@ -168,11 +176,40 @@ platform/backend/service model 并在 approved artifact 固定该目录 inventor
 | Concurrency | parallel hooks plus policy/install mutation prove unique external successors, canonical lock order, no forked mirrors and bounded nonzero failure |
 | Packaging | verified payload contains client/service/backend/provision modules, schemas and selected platform service assets；fresh no-checkout install proves peer identity and service target |
 
+### Latency result and decision contract
+
+每个 H-010 approved fixture 产生一个 closed result。identity fields 至少是 `fixture_id`、
+`platform_id`、`backend_profile_id`、`host_kind`、exact `installed_wrapper_path`、`anchor_enabled=true`、
+`surface=hook_e2e_ms` 与 `runs`。`budget` 必须原样记录该 fixture 获批的
+`hook_e2e_{p50,p95,p99,max}_ms`、`cas_timeout_ms`、`ipc_timeout_ms`、`queue_wait_budget_ms`、
+`contention_total_budget_ms`、`contention_retry_limit_count`。
+
+`initial` 与非空 `confirmation` 使用同一 closed shape：`hook_e2e_ms`、`anchor_cas_ms`、
+`anchor_ipc_ms`、`anchor_queue_wait_ms`、`anchor_contention_total_ms` 各含 integer
+`p50/p95/p99/max`，`anchor_contention_retry_count` 含 integer `p50/p95/p99/max`；另存
+`cas_timeout_count`、`ipc_timeout_count`、`sample_error_count`。result 还必须保存按 exact field path
+排序的 `initial_breaches`、`confirmation_breaches` 与 `decision`，不得用一个 P95 status 代表其他项。
+
+initial 的 hook 四分位/max 分别比较同名预算；CAS/IPC max 分别比较 timeout，queue/contention max
+分别比较其 millisecond budget，contention retry max 比较 count limit。任一 numeric breach 触发同一
+fixture identity、inputs、runs、backend/profile 与 workload schedule 的完整 confirmation batch；每批
+使用记录的 successor baseline/non-overlapping leaf，禁止为“相同状态” rollback external root。confirmation 必须重测
+并保留全部 fields，只有全部回到预算内才是 `cleared_transient`，任一项仍超限即
+`confirmed_regression` 并使 CI nonzero。missing/null/non-integer、identity/budget drift、sample error 或
+任何 timeout count 非零是 `confirmation_error` 并立即 nonzero，不得用 confirmation 清除。
+
+`tests/test_hook_perf_contract.sh` 必须逐 field 断言 closed shape/units、budget echo、initial 与
+confirmation 保留、breach path 与 blocking decision；对 P50/P95/P99/max、CAS、IPC、queue、
+contention-time、retry-count 分别注入唯一 breach 并要求 gate nonzero，再证明仅 numeric transient
+且 confirmation 全字段通过时才清除。它还必须固定每个 anchor-enabled Claude/Codex installed fixture
+ID 在 runner/budget table/CI/result 中各恰好一次，并用 wrapper 与 anchor-service sentinels 证明真实
+installed path 已执行。
+
 planned **tests/test_guard_pack_anchor.sh** owns schema/IPC/lifecycle/crash/concurrency fixtures；planned
 **tests/perf_guard_pack_anchor.sh** 可保留 anchor fault attribution 专项，但不得自建发布 SLA gate。
 canonical distribution/budget evidence 必须接入 `tests/bench_hook_latency.sh`，并由
-`tests/test_hook_perf_contract.sh` 固定每个 anchor-enabled Claude/Codex installed fixture ID、H-010 budget
-wiring、confirmation/result/CI contract。CI 必须在每个 H-010 claimed platform 运行真实 backend
+`tests/test_hook_perf_contract.sh` 固定每个 anchor-enabled Claude/Codex installed fixture ID、H-010 每项
+budget 的 result/confirmation/blocking/CI contract。CI 必须在每个 H-010 claimed platform 运行真实 backend
 conformance 或明确、获批且 fail-closed 的 hardware/service fixture；单一 Linux mock 不能证明
 cross-platform availability。
 

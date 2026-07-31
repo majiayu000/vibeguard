@@ -600,7 +600,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | Capability/host | planned **guard_pack/capability.rs**; consume approved GH-701 registry when available | Claude/Codex/unknown/incompatible/unsupported fixture matrix |
 | Transaction/receipt | planned **guard_pack/transaction.rs**, receipt/transaction schemas | crash-at-every-stage, concurrent lock, drift, rollback, recovery and canary tests |
 | Precision/runtime policy | planned **guard_pack/precision.rs**, **runtime_guard**, precision/policy/override/runtime-state schemas, `scripts/precision-tracker.py` | exhaustive eligibility truth table + binding/freshness/override/policy-rotation/clock-rollback negatives |
-| Monotonic anchor | planned **guard_pack/anchor/** + four anchor schemas；exact IPC/backend/service/provision/mirror/recovery owners in supporting contract | immutable-mirror/phase-digest crash suite；H-010 platform/IPC/lifecycle gates；canonical installed Claude/Codex CAS latency contract |
+| Monotonic anchor | planned **guard_pack/anchor/** + four anchor schemas；exact IPC/backend/service/provision/mirror/recovery owners in supporting contract | non-self-referential JCS mirror/phase crash suite；H-010 platform/IPC/lifecycle；all-budget installed Claude/Codex latency gate |
 | Author publish | planned **scripts/lib/guard_pack_manifest.py**, **guard_pack_publish.py**, **scripts/ci/validate-guard-pack-publish.py** | two-build digest equality; half-publish/index-CAS/revoke/yank fixtures |
 | Legacy migration | `scripts/lib/guard_packs.py`, `scripts/lib/guard_pack_receipts.py`, `packs/safe-bash/` | existing 623-case shell surface remains green plus migration ownership sentinels |
 | Release distribution | `scripts/release/payload-manifest.txt`, `scripts/setup/guard-packs.sh`, `setup.sh`, `tests/test_payload.sh`, `tests/test_release_workflow.sh` | GH-699 actual no-clone launcher invokes Rust client; payload tamper fails closed |
@@ -651,7 +651,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds under the same publication policy match digest；evaluation-policy rotation does not rebuild；publish failures never create resolvable partial entry |
 | B-041 truthful list/status/audit | Shared status + anchor renderer | golden output enumerates authority identities/floors/time plus backend/root/leaf/counter/barrier/availability/repair；degradation exits nonzero without key material |
-| B-042 offline runtime stability | Committed eligibility + local anchor IPC | authenticated local service；canonical `bench_hook_latency.sh` exercises anchor-enabled installed Claude/Codex wrappers under H-010 latency/IPC/CAS/queue/contention budgets；failure denies without stale fallback |
+| B-042 offline runtime stability | Committed eligibility + local anchor IPC | canonical runner executes anchor-enabled installed Claude/Codex wrappers；contract test independently breaches every H-010 metric/timeout/contention field and asserts confirmation/blocking；failure denies without stale fallback |
 
 ## 数据流
 
