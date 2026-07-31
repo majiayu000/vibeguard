@@ -43,8 +43,13 @@ H-002 approval 必须固定正整数 seconds 的 `heartbeat_cadence_seconds`、
 
 Authority 在每个 cadence deadline 加获批 jitter bound 之前 durable append+fsync
 digest-linked `{authority_id, authority_mode, authority_epoch, heartbeat_sequence,
-heartbeat_at, expires_at, prior_digest}`。迟到 heartbeat 不得回填连续性。journal 使用独立
-path、lock 与 atomic-commit domain，不与 canonical log、coverage ledger 或 spool 共故障域。
+heartbeat_at, expires_at, prior_digest}`。`heartbeat_at` 只能来自 H-002 批准 provider 以同一 boot
+monotonic ordering约束的 trusted wall-clock anchor；host wall clock、scheduler enqueue time与 caller timestamp
+均不授权续租。令 `deadline(n)=authority_epoch_started_at+n*heartbeat_cadence_seconds`，sequence `n`
+只在 `deadline(n-1)<heartbeat_at<=deadline(n)+heartbeat_max_jitter_seconds` 且前一 heartbeat 尚未过期时接受，
+`expires_at=checked_add(heartbeat_at,heartbeat_expiry_seconds)`；overflow、倒退、跳号、晚到或不等式不成立均
+封闭旧 epoch并形成 gap，不得回填连续性。journal 使用独立 path、lock 与 atomic-commit domain，不与
+canonical log、coverage ledger 或 spool 共故障域。
 
 每个 canonical caller 在执行 event-capable work 前必须拥有单次、严格递增且不复用的
 `{authority_epoch, invocation_id, attempt_sequence, attempted_at}` reservation：
@@ -89,9 +94,11 @@ open/spawned slot、boot identity/monotonic ordering 连续且 clock uncertainty
 把 fence 两侧已覆盖的 available intervals 拼接，而不是要求 unavailable interval 有 heartbeat。
 
 缺 suspend-begin/boot proof、provider 不受信、clock rollback/uncertainty、未确认 launcher、open slot
-或边界与 window 相交时，必须从
-`min(last_trusted_heartbeat_at, earliest_unacknowledged_claim_at)` 到 recovery checkpoint 记录 gap。
-因此正常 sleep/reboot 不必自动降级，而 coverage evidence 真正缺失时仍不可伪造 complete。
+或边界与 window 相交时，gap 起点 exact 为 present operands 的 minimum：
+`min(last_trusted_heartbeat_at, earliest_unacknowledged_claim_at)`，其中 absent
+`earliest_unacknowledged_claim_at` 等价 `+∞`，所以无 pending claim 时从 last trusted heartbeat开始；
+last heartbeat也 absent是非法 authority state，整个 epoch从 `authority_epoch_started_at` 到 recovery
+checkpoint均为 gap。正常 sleep/reboot不必自动降级，而 coverage evidence真正缺失时仍不可伪造 complete。
 
 ## 4. Ledger、compaction 与 coverage truth
 
@@ -101,9 +108,13 @@ length/digest、retention tombstone、availability fence 以及
 `earliest_provable_window_start`/`coverage_unprovable_before` watermark。
 
 GC 必须先写/fsync archive 与 parent directory，再 commit archive ledger entry，最后才 rewrite/reclaim
-live rows；retention 删除前先 commit tombstone/watermark。成功 reservation 只有在 matching row 已进入
-tail 后才能折叠。closed gap 仅在完全早于 retention + maximum catch-up 最早查询 window 后 compact，
-且 watermark、gap digest 与 sequence range 永久保留；open gap 不 compact。
+live rows。retention 在 lifecycle lock 内先 fold并验证第 7 节 pointer chain，取得 current target的
+generation/receipt/object identities并对该 target加 durable pin；candidate selection必须排除 pinned target，
+直到另一个 pointer commit或 clean的 no-current tombstone成功后才可解除。pointer chain缺失、fork、损坏或
+current target无法重验时停止全部 retirement，不得先写 tombstone。其余 candidate删除前先 commit
+tombstone/watermark。成功 reservation只有在 matching row已进入 tail后才能折叠。closed gap仅在完全早于
+retention + maximum catch-up最早查询 window后 compact，且 watermark、gap digest、interval与 sequence
+range永久保留；open gap不 compact。
 
 authority journal 按 cadence bucket compact。完全 closed bucket 记录 first/last sequence、count 与
 event-tail/root digest；含 pending/unacknowledged/gap 的 bucket 固化成覆盖整个 bucket 的 conservative
@@ -113,21 +124,27 @@ hard bound 为
 heartbeat_expiry_seconds) / heartbeat_cadence_seconds) + 3`。超限必须 partial/error，禁止丢 proof。
 
 complete window 要求：所有 available intervals 有连续、未过期 heartbeat；所有 host-unavailable
-interval 有第 3 节 trusted fence；authority/attempt sequence 连续；每个 reservation 已 commit row 或
-closed gap；source snapshot 有效。连续 proof + 空 reservation/event set 才是 complete-empty。
+interval 有第 3 节 trusted fence；authority/attempt sequence 连续；每个与 query window相交的 reservation
+都有 matching committed row，且不存在任何相交的 open或 closed gap；source snapshot有效。closed gap只
+证明已知缺口的 terminal accounting，绝不证明 complete。连续 proof + 空 reservation/event set且零相交 gap
+才是 complete-empty；任何 query-overlap gap一律 `partial_coverage`。
 
 ## 5. Immutable source generation 与 lock budget
 
 writer/GC 的 `<log>.lock.d` 是短 critical lock，不是 archive hashing lock。reader 必须：
 
-1. 在 lock 内固定 ledger generation/root、window 所需 live/archive entries、snapshot lengths 与
-   no-follow readonly handles；拒绝 symlink/非 regular file，并验证 identity/length 与 entry；
-2. 生成 immutable `source_snapshot_id`，绑定 generation/root、完整 ordered entry identities、handles、
-   lengths 与 approved budgets；GC 对已发布 archive 禁止 in-place mutation，只能发布新 generation；
+1. 在 lock 内固定 ledger 的 `captured_prefix_root`/generation、window所需 live/archive entries、snapshot
+   lengths、query evidence frontier与 no-follow readonly handles；拒绝 symlink/非 regular file，并验证
+   identity/length 与 entry；
+2. 生成 immutable `source_snapshot_id`，绑定 captured prefix、完整 ordered entry identities、handles、
+   lengths、query frontier与 approved budgets；GC 对已发布 archive 禁止 in-place mutation，只能发布新 generation；
 3. 在释放 `<log>.lock.d` 后由 bounded async verifier 读取 handles 的 snapshot length、计算 digest 并
    parse；writer、hook 与 GC 此时可继续取得 critical lock；
-4. verification 完成后重新取得短 lock，重验 ledger root/generation、entry state、tombstone 与 live tail，
-   然后释放；变化产生 `snapshot_changed`，不得把混合 generation 当 complete。
+4. verification完成后重新取得短 lock，证明 `captured_prefix_root`仍是 current ledger的 byte-identical
+   immutable ancestor、captured entries/handles仍匹配且未 tombstone，并 fold prefix之后的 suffix，确认没有
+   新 reservation/gap/archive/tombstone或 availability fact改变 query window的 evidence validity，然后释放。
+   unrelated current-period append、root/generation或 live tail单纯前进不使 snapshot失效；prefix不再可证明、
+   所需对象改变/retire或 suffix与 query相交才产生 `snapshot_changed`，不得把混合 generation当 complete。
 
 verifier 同时受 H-004 的 file/byte/elapsed budgets 约束；timeout/short read/identity change/
 post-verify ledger drift 都 fail visible。retained archive unreadable、gzip/row parse 失败或 digest mismatch
@@ -160,19 +177,25 @@ canonical tuple UTF-8 bytes 排序。同一 ID 的相同 tuple 折叠；同一 I
 history/<window-id>/<artifact_generation_id>/summary.json
 history/<window-id>/<artifact_generation_id>/summary.md
 history/<window-id>/<artifact_generation_id>/generation.json
-current-generation.json
+current-pointers/<pointer-sequence>-<pointer-id>.json
 ```
 
 producer 从同一 verified object 渲染 JSON/Markdown；`generation.json` 绑定 window、generation ID、
 两个 renderer 的 restricted relative path、length/digest、`summary_digest` 与 ownership receipt identity。
 发布顺序固定为 temp generation directory → 写两种 renderer/manifest → flush/fsync files → schema/digest
-verify → fsync generation directory/parent → append+fsync ownership receipt → 以一次 same-directory atomic
-replace 提交 `current-generation.json` commit marker → fsync parent → success state。
+verify → fsync generation directory/parent → append+fsync ownership receipt → append pointer record → fsync
+pointer directory/parent → success state。pointer record exact绑定 strictly monotonic sequence、CSPRNG ID、prior
+pointer digest、generation/receipt/object identities与 record digest，只能在 mode 0700 owned directory以
+no-follow `O_CREAT|O_EXCL` create-new提交；既有、symlink或 non-owned target导致 nonzero/stale，禁止 pathname
+replace、truncate或覆盖。consumer只 fold gap-free、digest-linked、receipt-authorized pointer chain并选择最后
+一个 generation或 clean提交的 no-current tombstone；unknown/fork/gap/tamper均 fail visible，不得分别追踪
+`current.json`/`current.md`或读取 orphan/partial generation。
 
-consumer 只读取并验证 `current-generation.json` 指向的 immutable generation；不得分别追踪
-`current.json`/`current.md`，也不得读取 orphan/partial generation。任一 renderer、manifest、receipt 或
-pointer commit 失败都保留旧 pointer、nonzero/stale，且新 generation 在 recovery 后按 receipt 安全回收。
-share export 同样只从 pointer 指向的 verified object 产生 H-005 allowlist projection。
+任一 renderer、manifest、receipt或 pointer commit失败都保留旧 logical pointer、nonzero/stale。receipt-durable
+但 pointer未提交的 orphan在 `capability_attested` backend上也只有 atomic expected-identity claim与同 identity
+retire成功才可删除；默认 `no_auto_delete` backend只记录 orphan identity/bytes并计入 approved hard caps，不删除。
+capability缺失/失败时保留 orphan；下一 write将触及 entries/bytes cap前停止新增，保证 bounded accounting且不
+依赖原 pathname。share export同样只从 pointer chain选中的 verified object产生 H-005 allowlist projection。
 
 ## 8. Focused verification
 
@@ -182,4 +205,5 @@ share export 同样只从 pointer 指向的 verified object 产生 H-005 allowli
 - large archive async hashing 与 GC/writer contention 下的 exact installed wrapper P95 gate；
 - archive corrupt terminal non-publish、missing/tombstone/snapshot-change partial 分支；
 - zero taxonomy match、version-match/digest-mismatch 与 duplicate-ID tuple permutation；
-- JSON-only、Markdown-only、manifest、receipt、pointer 各 crash barrier，consumer 永不看到 mixed generation。
+- JSON-only、Markdown-only、manifest、receipt、append-only pointer与 orphan-cap barrier，consumer永不看到
+  mixed generation、retention永不 retire current pin或 receipt-only replacement。

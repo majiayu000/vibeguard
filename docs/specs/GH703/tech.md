@@ -125,19 +125,20 @@ envelope：
 `data_status` closed 为 `ok`、`no_data`、`partial_coverage`；`status_reason` closed 为
 `complete_nonempty|complete_empty|source_missing|ledger_gap|ledger_corrupt|
 writer_coverage_unavailable|archive_missing|archive_tombstoned|
-event_identity_conflict|event_identity_missing|incompatible_host|unknown_host|
+event_identity_conflict|incompatible_host|unknown_host|
 unclassified_event|legacy_evidence|snapshot_changed|budget_exceeded`，禁止 free text 或扩展值。
 `archive_corrupt` 是 generator/state 的 closed terminal diagnostic，不是 summary schema
 可发布 `status_reason`；命中时必须 nonzero、保留旧 current 并标 stale。
 producer 必须先完成 candidate fact collection，再从所有适用的 partial reasons 按固定高到低顺序
 `ledger_corrupt > writer_coverage_unavailable > ledger_gap > source_missing >
-archive_missing > archive_tombstoned > event_identity_conflict > event_identity_missing >
-incompatible_host > unknown_host > unclassified_event > legacy_evidence > snapshot_changed > budget_exceeded`
+archive_missing > archive_tombstoned > event_identity_conflict > incompatible_host > unknown_host >
+unclassified_event > legacy_evidence > snapshot_changed > budget_exceeded`
 选择唯一 `status_reason`；扫描/枚举/错误发现顺序不得改变选择。`complete_empty` 或
 `complete_nonempty` 只在 candidate set 没有任何 partial reason 且 coverage complete 时选择。
 映射固定为 unknown host → `unknown_host`、known host/incompatible contract → `incompatible_host`、
-v2 `unclassified` → `unclassified_event`、v2 identity 缺失 → `event_identity_missing`、同一 `event_id`
-对应不同 canonical tuple → `event_identity_conflict`；只有缺 v2 identity 的真实 v1 row 才是 `legacy_evidence`。
+schema-valid v2 `unclassified` → `unclassified_event`、同一 `event_id`对应不同 canonical tuple →
+`event_identity_conflict`。声称 schema v2却缺 required `event_id`或 required typed identity是 malformed input，
+按 B-011 terminal nonzero/no-publish；只有缺 v2 identity的真实 v1 row才是 `legacy_evidence`。
 `no_data` 只允许 `coverage_status=complete`、`status_reason=complete_empty` 且 event set 为空；
 任何 coverage 缺口优先产生 `partial_coverage`，即使 event set 同样为空。`counts` 在
 `no_data` 或 `partial_coverage` 时必须严格使用 H-004 获批的
@@ -172,6 +173,7 @@ vibeguard-runtime/src/observe/weekly_value.rs：
    event 要求显式的 rule/reason identity。值必须来自作出 decision 的 typed 分支，
    不得由 `reason`/`detail` regex、substring 或 renderer 反推。这个最小合同由
    GH-703 自己实现；GH-704 可在将来消费/扩展，但不是批准或实现前置条件。
+   schema v2 required identity任何缺失都在 classification前 terminal拒绝，不能产生 publishable partial。
    `classification_status` closed 为 `typed|not_applicable|unclassified`，
    `classification_source` closed 为
    `rust_decision|shell_decision|python_authorized_discard_decision`；Python value 只允许
@@ -207,8 +209,8 @@ vibeguard-runtime/src/observe/weekly_value.rs：
    SHA-256，明确排除 `generated_at`、attempt/retry time、freshness 与 renderer metadata。
 8. internal JSON、shareable JSON 与 Markdown 都从同一个已验证 object 渲染；
    Markdown 不扫描 logs 或 taxonomy。`--shareable` 只做 allowlist projection。JSON/Markdown current
-   必须遵循 coverage contract 的 immutable generation + 单一 atomic `current-generation.json` commit
-   marker，禁止两个 renderer 各自推进 current。
+   必须遵循 coverage contract 的 immutable generation + 单一 create-only append-only pointer record，
+   禁止两个 renderer各自推进 current或 pathname replace现有 pointer。
 
 现有 `summary` / `health` / `session` 与
 `schemas/observe-output.schema.json` 保持兼容；weekly-value 用独立 schema，不把
@@ -229,14 +231,16 @@ fail-visible 行为，不能只验证新 weekly producer。
 - default value job 总是显式传 `--surface value`、exact window 和 installed
   runtime/taxonomy paths；
 - value artifacts 与 current visibility 必须使用 coverage contract 的
-  `history/<window-id>/<artifact_generation_id>/{summary.json,summary.md,generation.json}` 和单一
-  `current-generation.json` commit marker；不得独立替换 `current.json`/`current.md`；
+  `history/<window-id>/<artifact_generation_id>/{summary.json,summary.md,generation.json}` 和
+  `current-pointers/<pointer-sequence>-<pointer-id>.json` append-only chain；不得独立替换
+  `current.json`/`current.md`或覆盖任何 existing pointer record；
 - 自动 scheduler 不预先创建 shareable artifact；用户显式调用 export 后，才从
   已验证 current object 生成 allowlisted projection，并以 user-only 权限写入
   用户指定的新本地文件；
 - generation temp directory 在同一受限 parent 创建，mode 0700；两个 renderer/manifest 均以
-  mode 0600 写入并 flush/fsync、schema/digest verify，ownership receipt durable 后才一次 atomic
-  replace generation pointer；任何失败保留上一个 pointer 并记录 stale；
+  mode 0600写入并 flush/fsync、schema/digest verify，ownership receipt durable后才以 no-follow
+  `O_CREAT|O_EXCL`提交一个 prior-digest-linked pointer record；任何 collision/foreign target/失败都保留
+  上一个 logical pointer并记录 stale，禁止 rename/replace fallback；
 - scheduler attempt/success 只写 closed state/time/digest，不写 raw stderr、
   path、event 或 reason。
 
@@ -252,9 +256,12 @@ state 只记录已提交 ledger head，不作为唯一 ownership 证据。
 reverify→unlink race，默认 policy 必须是 `no_auto_delete`。只有 H-007 批准的 `capability_attested` backend 在
 startup/runtime 证明 stable non-reusable object identity、atomic expected-identity claim、同 identity retire、
 no-overwrite private quarantine、crash recovery 与 replacement-race evidence 全部可用时才 auto-retire；attestation
-identity/version/digest 写入 receipt，任一能力丢失立即降级且不得 pathname fallback。每次 publish 前在 lifecycle
-lock 内按 approved entries/bytes hard caps 计算；下一 history 将触及 cap 时 fail visible、保留 current/candidate、
-不写新 history。ledger 损坏同样停止删除和新增 history，不改 `scheduler_state`。
+identity/version/digest写入 receipt，任一能力丢失立即降级且不得 pathname fallback。retention在 lifecycle lock内
+先验证 pointer chain并 pin exact current generation/receipt/object identities；current target永不进入 candidate。
+receipt-durable/pointer-uncommitted orphan在默认 backend只做 identity/bytes accounting并保留，只有同一 attested
+capability完成 atomic expected-identity claim/retire才可删除。每次 publish前把 candidate、current pin与 orphan全部
+计入 approved entries/bytes hard caps；下一 history将触及 cap时 fail visible、保留所有对象、不写新 history。
+ledger或 pointer chain损坏同样停止删除和新增 history，不改 `scheduler_state`。
 
 ### 5. 独立 scheduler identity 与状态机
 
@@ -360,7 +367,7 @@ unsupported 平台的 doctor 必须显示 coverage contract 的 exact manual com
 
 `scripts/setup/clean.sh` 先取得 generation/retention 共用的 lifecycle lock，推进并
 durable commit `cleaned` generation，再停止并 probe scheduler inactive；随后只卸载
-owned value job、删除 value state/current pointer（保留 generation fence），
+owned value job、删除 value state并向 pointer chain append no-current tombstone（保留 chain与 generation fence），
 然后走现有 install cleanup。默认保留 history/share；现有 `--purge-data` 只有在
 H-007 获批包含 value report data 后，才按 durable ownership receipt 删除受限 owned
 paths；不能以当前 artifact schema 是否 valid 代替 ownership。clean 必须保留旧
@@ -384,12 +391,10 @@ synthetic canonical log → scheduled value summary → doctor → clean，全�
 network/Python/repository checkout。GH-699 T3–T7 可以与本 spec 分 tranche，但两者
 若同时修改 payload/setup surface 必须串行集成，不能各自维护不同 manifest。
 
-2026-08-01（Asia/Shanghai）复核时 PR #732 仍为 open，head 为
-`91ef1571921c9296473e8f8f52ccfa449d8da241`，merge state 为 `CLEAN`，Ubuntu、macOS、
-Windows、Self-Application 与 Benchmark checks 均成功。该 bootstrap orphan-lease
-结果仅是未来 implementation 的 distribution coordination 输入；开始实现前仍必须
-重新固定其最终 merge/result 与 payload contract。GH-703 Draft、structured event v2
-和本次 corrective 均不以 #732 合并为前提。
+PR #732 的 branch head、merge state与 check rollup是 mutable remote evidence，不进入 GH-703 normative
+contract，也不得从本段快照推导 readiness。未来 implementation开始前必须重新查询 live PR、固定当时 exact
+head/result与最终 payload contract，并把查询时间/证据留在 implementation handoff；PR变化即使旧 evidence
+失效。GH-703 Draft、structured event v2和本次 corrective均不以 #732合并为前提。
 
 ### 8. Privacy/export firewall
 
@@ -584,31 +589,31 @@ JSON：
 | B-015 invented_apis exact mapping without text heuristic | approved taxonomy invented entries | `bash tests/test_observe.sh` uses identical free text with mapped/unmapped rule evidence and asserts only mapped event counts |
 | B-016 full block accounting and GH-706 separation | aggregate cross-check + weekly classifier | `cargo test --manifest-path vibeguard-runtime/Cargo.toml weekly_value_accounting`; `bash tests/test_observe.sh` parity |
 | B-017 stable canonical event identity dedupe | event v2 writer + live/archive reader | copied/rotated same `event_id` counts once; two writer-created retries count twice; path/offset changes do not affect identity |
-| B-018 cross-render parity | one validated summary object + renderers | `bash tests/test_observe.sh` compares JSON/Markdown/current/share counts and digest；crash barriers prove one generation pointer never exposes mixed renderers |
+| B-018 cross-render parity | one validated summary object + renderers | `bash tests/test_observe.sh` compares JSON/Markdown/current/share counts and digest；crash barriers prove one append-only pointer chain never exposes mixed renderers |
 | B-019 share field allowlist | shareable schema projection | schema-valid key-set requires H-005-approved `generated_at` plus explicit `data_status` + closed `status_reason`, rejects missing/null/extra fields；digest verification binds stable status fields but excludes generated time |
 | B-020 sensitive fields absent | share privacy firewall | adversarial sentinel scan in `bash tests/test_observe.sh` and `bash tests/test_health_report_scheduler.sh` |
 | B-021 no automatic egress or clipboard | wrapper/runtime static and dynamic fixtures | `bash tests/test_payload.sh` PATH stubs fail on network/open/clipboard commands; explicit local writes still pass |
-| B-022 secure atomic local writes | immutable generation + one commit marker | JSON/Markdown/manifest/receipt/pointer crash barriers、0600/0700、same-dir rename and symlink/non-owned-output fixtures never expose partial/mixed generation |
+| B-022 secure atomic local writes | immutable generation + append-only pointer chain | JSON/Markdown/manifest/receipt/pointer crash barriers、0600/0700、create-only collision与 symlink/non-owned-output fixtures never overwrite or expose partial/mixed generation |
 | B-023 health/value surfaces independent | wrapper/installer closed surface dispatch | `bash tests/test_health_report_scheduler.sh` installs/disables each identity independently and compares outputs |
-| B-024 bounded owned retention | default no-delete + capability-attested backend + pre-publish cap | Linux/macOS user-writable fixtures never auto-delete；attested fake backend proves atomic identity lifecycle；cap-minus-one/cap/exceed fixtures stop before entries/bytes limits |
+| B-024 bounded owned retention | current pin + default no-delete + attested backend + pre-publish cap | Linux/macOS fixtures pin current并保留/count receipt-only orphan；attested backend proves atomic identity lifecycle；cap-minus-one/cap/exceed stop before limits |
 | B-025 existing health job migration safety | migration detector | legacy launchd/cron fixtures remain byte-identical while new value state does not claim legacy consent |
 | B-026 disabled state survives upgrade | weekly-value state schema + setup migration | two-version install fixture keeps `disabled_by_user`; missing-field fixture follows approved visible migration |
 | B-027 legal transitions require probe | lifecycle transition gate | direct file injection/history-only/executable-only fixtures remain non-active; explicit enable + probe becomes active |
 | B-028 concurrent lifecycle/generation serialization | shared bounded lifecycle lock | install/upgrade/disable/clean racing generator/retention yields no late publish；upgrade success/rollback advances generation and stale actor visibly exits |
-| B-029 clean removes only owned control state | setup clean + installer remove | `bash tests/test_setup.sh` preserves third-party jobs/history/exports by default and deletes owned reports only with approved purge |
+| B-029 clean removes only owned control state | setup clean + installer remove | `bash tests/test_setup.sh` appends no-current tombstone、preserves pointer audit/history/exports与 third-party jobs，approved purge才处理 owned reports |
 | B-030 doctor/verify orthogonal state truth | setup check four-dimension evaluator | matrix covers lifecycle × freshness/data × retention health，including active+no_data+blocked-retention，plus target/digest/ownership drift |
 | B-031 checkout/payload parity | payload manifest and no-clone smoke | `bash tests/test_payload.sh` exact schema/taxonomy/count/digest parity, no Python/network/checkout |
-| B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` maps unknown/incompatible/missing-identity evidence to exact closed reasons and excludes it with a coverage gap |
+| B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` maps unknown/incompatible evidence to closed partial reasons；missing required v2 identity is terminal nonzero/no-publish |
 | B-033 artifact evidence binding | stable content digest verifier + doctor/export | generated/attempt metadata changes preserve digest；tampered coverage/data/status reason/evidence/window/taxonomy changes alter/reject digest |
 | B-034 interruption recovery | pending state + atomic publish/lifecycle recovery | kill-at-each-phase fixtures followed by retry leave one owned job/current artifact and no temp/pending success claim |
 | B-035 closed live+archive snapshot | coverage contract + installed launchers/authorized-discard + fenced authority + async reader | trusted sleep/boot fences distinguish unavailable time from gaps；all three parents prove slot-before-work；manual/scheduled epochs stay separate；large-archive+GC contention latency uses exact wrappers/IPC/fsync |
-| B-036 structured classification at creation | event schema v2 + producer registry + Rust/shell/Python writers | version+digest exact match and typed zero-match both map `unclassified_event`；remaining schema/hook/Rust CLI fixtures preserve v1 and reject unknown schema |
+| B-036 structured classification at creation | event schema v2 + producer registry + Rust/shell/Python writers | version+digest exact match and typed zero-match map `unclassified_event`；missing required v2 identity is terminal，v1 missing identity maps `legacy_evidence` |
 | B-037 byte-stable event identity | writer-generated event ID + GC byte preservation | append→rotate→gzip→read preserves ID; copy dedupes, retry differs；duplicate-ID tuple permutations keep one deterministic conflict digest |
 | B-038 headline publication gate | summary schema + all renderers | empty/partial fixtures只接受 H-004 选中的 null 或 absent 形状且跨 renderer 一致；invalid evidence不发布；complete nonempty 可含真实零 |
 | B-039 stable summary digest | canonical stable-content projection + fixed status precedence | simultaneous-fact and duplicate-ID/full-tuple permutations keep reason/digest；generated/attempt/renderer metadata changes preserve digest；exact coverage/data/status reason/producer version/event/taxonomy/window changes differ |
 | B-040 orthogonal state dimensions | state schema + doctor/verify | exact 4 × 26 scheduler × artifact/data/retention table includes `invalid+null+not_initialized` and proves no dimension overwrites another；every omitted/extra/unknown combination fails visible |
 | B-041 generation/lifecycle exclusion | lifecycle fence + short source lock + async verifier | publish/retention races remain fenced；archive hashing never holds writer/GC lock；max-byte archive + GC contention keeps installed wrapper latency within gate；queued stale token exits zero-write |
-| B-042 current-object ownership | default no-auto-delete + attested identity backend | ordinary Linux/macOS paths and adversarial replacements never delete；capability loss disables retirement；attested backend claim/retire/crash fixtures preserve nonmatching objects and bounded caps |
+| B-042 current-object ownership | pointer pin + default no-auto-delete + attested identity backend | ordinary paths pin current/count orphan且不删除；capability loss disables retirement；attested claim/retire/crash preserves replacements and bounded caps |
 
 ## 数据流
 
@@ -628,9 +633,9 @@ JSON：
 6. producer 构造一个 schema-valid internal object，并从包含 coverage/data/status reason 的
    稳定内容投影计算 evidence/summary digests；generated/attempt/renderer metadata 不参与 identity。JSON、Markdown
    和后续显式 export 都从该 object 渲染。
-7. wrapper 完成同 generation 的 JSON/Markdown/manifest 后先提交 ownership receipt，再以一个
-   `current-generation.json` marker atomic publish；retention
-   重新打开并复核 current identity 后才可 quarantine/delete。
+7. wrapper 完成同 generation 的 JSON/Markdown/manifest 后先提交 ownership receipt，再 create-only append
+   一个 digest-linked pointer record；retention在 lifecycle lock内先 pin该 chain选中的 current identity，
+   receipt-only orphan只在 attested compare-by-identity backend删除，否则保留且计入 hard caps。
 8. doctor/verify 分别读取 scheduler lifecycle、artifact freshness、data status 与
    retention health，并
    重新验证 manager、target、state、taxonomy 和 current artifact；
@@ -708,13 +713,13 @@ bootstrap 边界，不属于 summary producer。
   authority expiry/unclean restart recovery gap、bounded checkpoint/compaction、hook-decision preservation、
   live+gzip immutable snapshot、async hash/GC race、duplicate-ID tuple permutation、contract version+digest mismatch、
   zero taxonomy match、legacy identity、mixed categories、GH-706 protocol split、unknown host、no-data/partial、
-  old/invalid taxonomy、single-pointer cross-render parity 和 sentinel。
+  old/invalid taxonomy、append-only-pointer cross-render parity、v2 required-identity terminal failure和 sentinel。
 - [ ] Launcher authority：Claude/Codex installed wrapper 与 standalone authorized-discard exact fixtures 覆盖
   invocation ID→durable fsync slot→spawn/work、pre-slot failure semantics、spawn/action crash、unused/expired slot、
   quiescence seal 与 opt-out bypass；禁止 mock IPC/fsync。
 - [ ] Scheduler lifecycle：launchd/systemd heartbeat+weekly-output plan/apply/probe/rollback、legacy health
   preservation、authority state ownership、repeat/concurrent install、missed run、generation-vs-disable/clean/upgrade race、
-  current-identity retention、same-path user replacement、pre-clean/pre-upgrade queued generator fence、
+  current-target pin、receipt-only orphan bounded accounting、same-path replacement、pre-clean/pre-upgrade queued generator fence、
   interrupt recovery。
 - [ ] Setup lifecycle：默认 plan disclosure、H-002 cadence/jitter/expiry inequality/provider、
   `--no-weekly-value`、unsupported manual start/status/generate/stop、exact 4 × 26
