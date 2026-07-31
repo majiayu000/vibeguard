@@ -44,7 +44,7 @@ H-001 / H-002 / H-003 / H-004 上的明确选择，不能把本 spec 的 recomme
   diff 并确认。auto-detect 即使获批也只提出 target，同样逐项确认，且不可并用。
 - Recommended H-003 为删除 stale branch。`readonly_retain` 必须记录 owner、expiry、
   expected head 与 active GitHub ruleset ID/digest；protected collector live 验证
-  exact-branch update deny/no bypass，expiry/head/rule 漂移失败；`ls-remote` 不足。
+  exact-branch update+delete deny/no bypass，expiry/head/rule 漂移失败；`ls-remote` 不足。
 - Recommended H-004 为 `strict_four`：首屏只渲染 positioning、demo、GH-699
   one-command 与 GH-700 benchmark，PR #705 的 clone install/拦截清单移到首屏
   后。互斥备选 `preserve_pr705_extras` 只有在 GH-701 issue acceptance 已由维护者
@@ -227,10 +227,8 @@ acceptance snapshot rules 与 collector trust identity：
       "branch": "docs/gh701-readme-first-screen",
       "expected_head_sha": "c77253b4bcdc7c18f8861bfc8693e6db89150436",
       "readonly_retain_required_fields": [
-        "owner",
-        "expires_at",
-        "protection_ruleset_id",
-        "protection_ruleset_sha256"
+        "owner", "expires_at", "protection_ruleset_id", "protection_ruleset_sha256",
+        "deny_update", "deny_delete", "bypass_actor_count"
       ]
     },
     "H-004": {
@@ -429,21 +427,25 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
 8. `rollback`：任一 apply/probe 失败时，用 journal lease token 查询同一 API；只有 token 仍归属本 transaction、current version 精确等于 apply 返回的 version 且 digest 等于 candidate，
    才以 version CAS 恢复 snapshot。token/version/digest 任一 drift（含 byte-identical newer version）都保留当前内容并输出 `broken/needs_human`、snapshot path/version/digest。
 
-versioned 崩溃恢复以 journal token 查询 lease/old/new version：candidate 已提交才 API CAS
-rollback，base 未变即未 apply，其他 version needs-human；不得从普通文件 digest 猜测，committed 后仅幂等 cleanup。`verified_file_setup_v1` 只执行 discover/plan，输出绑定 lifecycle/target、base/candidate digest、preserved entries、mode/owner 与 canonical
-no-follow target 的 apply diff，VibeGuard 对 host target 零 mutation。plan 同时在本地 0700 state 目录封存 0600 manual receipt：base bytes/mode/owner、apply/reverse diff 与
-各自 digest。用户确认并应用 apply diff 后，verifier 在 native probe 前后重开 target，
-exact-match candidate bytes/ownership/mode/owner，把 receipt/plan/confirmation、两次
-digest 与 probe 绑定为 evidence；任何 drift 均为 `partial/needs_human`。
-probe 失败或 clean/disable 时，rollback verifier 仅在 no-follow current bytes/mode/
-owner exact-match candidate 且 receipt/plan/apply/reverse digests 全部一致时展示 reverse
-diff；用户亲自应用后，再重开并 exact-match base bytes/mode/owner、解析旧配置与确认
-VibeGuard managed entry 已恢复/移除，才使 candidate evidence 失效、消费 receipt 并报告
-`restored`/`not_installed`。VibeGuard 不得自动应用 reverse；current/receipt drift、
-partial reverse、path swap 或 late write 必须保留当前内容并 `needs_human`。
-`active` 只来自 committed versioned transaction，或该 fresh manual-verified evidence。
+versioned crash recovery 以 journal token 查询 lease/old/new version：candidate 已提交才
+API CAS rollback，base 未变即未 apply，其他 version needs-human；不得从 file digest
+猜测。`verified_file_setup_v1` 只 discover/plan，输出绑定 lifecycle/target、base/candidate
+digest、preserved entries、mode/owner 与 canonical no-follow target 的 apply diff；host
+target 零 mutation。每个 plan 在本地 0700 state durable 写入 0600 manual receipt，含
+receipt_id/generation/state、base bytes/mode/owner、apply/reverse diff 与 digests。已有
+active receipt 不被新 planned receipt 覆盖。用户应用后 verifier 在 native probe 前后
+重开并 exact-match candidate bytes/ownership/mode/owner；probe 成功须先 fsync receipt
+为 active，再原子写绑定 exact receipt digest 的 manual evidence，二者 active 期间保留。
+probe 失败或 clean/disable 时，仅在 current candidate 与对应 planned/active receipt 全部
+exact-match 才展示 reverse；用户应用后重开并验证 base bytes/mode/owner、旧配置可解析、
+managed entry 已恢复/移除，才使 candidate evidence 失效并把 receipt 标记 consumed，报告
+`restored`/`not_installed`。superseding plan 必须让新 receipt 继承 original clean base /
+reverse ancestry；只有新 probe/evidence 原子 active 后才消费旧 receipt。current/receipt
+drift、partial reverse、path swap/late write 均保留内容与 receipts 并 needs-human。
+`active` 只来自 committed versioned transaction 或 fresh manual evidence+active receipt。
 
-journal/snapshot/manual receipt 固定写到本地 VibeGuard state，目录 0700、文件 0600；raw bytes/diff 不进 logs，完成后删除，drift 时仅输出 path+digest。
+versioned journal/snapshot 在 commit 后删除；manual receipt 仅在 verified removal 或 safe
+supersession 把该 generation 标记 consumed 后删除。raw bytes/diff 不进 logs；drift 时只输出 durable receipt path+digest。
 
 ### 5. Deterministic README claim evidence
 
@@ -540,21 +542,19 @@ path/size/SHA-256，以固定 byte-search 算法逐 sentinel/sink 要求零匹�
 attestation 绑定 inventory JCS digest、source class、injection receipt、sink manifest、
 算法与逐项零匹配，永不持久化 secret value。candidate 自报、缺 injection/sink、
 非零匹配、scan 后 digest drift 或 candidate 可读 supervisor state 均阻断。
-event-time native measurement 除 pidfd/start-time/exe handle（Linux）或 audit token/
-SecCode/CodeDirectory（macOS）外，还拒绝 preload/library-path/危险 DYLD/debug/plugin/
-injection env，并捕获完整 executable set：Linux 从 `/proc/<pid>/maps` 绑定 dev/inode/
-no-follow bytes，macOS 绑定 dyld image 逐项 CodeDirectory/signature。其 Merkle root 必须
-精确等于 H-001 signed distribution dependency closure；unknown/anonymous executable、
-JIT、post-start load、deleted/replaced mapping 均阻断，除非 H-001 有 digest-bound JIT
-闭集。interpreted CLI 另绑定 interpreter/argv/no-follow entrypoint/只读 package root，
-禁止外部 load；attestation 绑定 closed-environment digest 与 loaded-code root。
-orchestrator 在隔离边界外封存 proof/measurement，只向独立 protected attestation
-job 传 content-addressed digest manifest 与 immutable receipt。该 job 才有 OIDC/
-attestations permission，禁止 checkout/load/execute candidate；它重算 JCS digest、
-核对 receipt 后仅签 digest subjects。verifier exact-match 两个 job/VM identity、
-`permissions: {}`、credential-absence、handoff/receipt、OIDC workflow/ref/SHA/run，
-并绑定 issue/head/host/release/nonce/event/process/distribution/snapshot/redaction。
-candidate 可见 credential、job 合并、signing job 执行 candidate 或 drift 都阻断。
+native supervisor 以 suspended spawn 在第一条指令前安装 H-001 声明的完整 mediator，
+连续记录至 kill/reap：Linux exec/executable mmap+mprotect，macOS pre-resume hardened loader/
+library validation、executable-memory denial 及完整 image load/unload callbacks；每项出现时就以 no-follow bytes 或 CodeDirectory/
+signature exact-match signed dependency closure。append-only ledger 保留已卸载项，并绑定
+sequence/gap/drop/overflow counters、mediator attach receipt 与 final maps/dyld snapshot；
+late attach、任何 gap 或 unknown/anonymous/JIT/load-then-unload 均阻断。平台不能证明完整
+覆盖则该 host/release unsupported。interpreted CLI 仍绑定 interpreter/argv/no-follow
+entrypoint/只读 package root；attestation 绑定 environment、ledger 与 final-code roots。
+candidate kill/reap 后，supervisor no-follow 封存每个 subject blob 到 candidate 不可访问的 protected CAS（SHA-256+size+immutable version），并以独立 workload identity 认证 closed
+role/blob manifest。OIDC signing job 只读下载全部 blobs，先验签 manifest，禁止 checkout/load/execute candidate，逐 byte 重哈希并 exact-match inventory/version 后签 manifest digest 与
+subjects。verifier 绑定两 job/VM identity、credential absence、manifest auth/CAS receipt、
+OIDC workflow/ref/SHA/run 及全部 issue/head/event/process/distribution/snapshot/redaction/
+ledger subjects；missing/extra/duplicate/substituted blob、auth/digest drift 或 job merge 阻断。
 
 maintainer witness 是单独 artifact，由第 1 节同一个受保护 default-branch
 collector 从 fresh GitHub review/comment 只读生成。collector 只接受 PR/issue
@@ -634,11 +634,11 @@ config/payload/log content。
 | B-022 | v2 top-level hosts/per-hook mappings/non-host entries | `bash tests/test_manifest_contract.sh`；`bash scripts/ci/validate-hooks-manifest.sh` 的 key-set、non-host、contradiction negative fixtures |
 | B-023 | v1 compatibility/deprecation | `bash tests/test_manifest_contract.sh`：v1 read+warning、v1 third-host reject、v2-only writer 与 v1/v2 Claude/Codex golden parity |
 | B-024 | complete unknown matrix | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml` 分别固定 contract/discovery/protocol/runtime outcomes |
-| B-025 | versioned transaction + verified-file lifecycle | `bash tests/test_setup.sh`：CAS+lease positive；普通 file 自动路径零写入；用户 apply + probe 前后 exact match 才 active；failed probe/clean/disable 仅在 candidate+receipt match 后输出 user-applied reverse，base 重验才 restored/not-installed；drift/partial reverse/path swap/late write 均 needs-human |
+| B-025 | versioned transaction + verified-file lifecycle | `bash tests/test_setup.sh`：CAS+lease positive；manual planned/active/consumed receipt 与 evidence digest binding；failed probe/clean reverse、durable active retention、safe ancestry-preserving supersession；drift/partial reverse/path swap/late write 均 needs-human/零 host mutation |
 | B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
-| B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 credential-free execution、独立 OIDC signing、digest-only handoff、supervisor-owned sentinel injection/exact sink-byte scan 与 event-time loaded-code closure；credential/token exposure、missing injection/sink、secret/nonzero match、sink drift、native injection/unknown image/JIT/post-start load/deleted mapping、job merge、candidate execution 与 handoff drift 均 nonzero |
-| B-029 | stale branch closure gate | protected GitHub ruleset API fixture：deleted allowed；readonly retain 仅 exact head/owner/unexpired/ruleset exact-target update-deny/no-bypass allowed；`ls-remote`-only、rule/head drift/new push/缺字段 blocked |
+| B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 credential-free execution、authenticated subject-blob handoff+independent rehash、supervisor sentinel scan 与 continuous loaded-code ledger；blob substitution/missing/extra、manifest auth drift、trace gap/late attach/load-then-unload、native injection/JIT、job merge/candidate execution 均 nonzero |
+| B-029 | stale branch closure gate | protected GitHub ruleset API fixture：deleted allowed；readonly retain 仅 exact head/owner/unexpired/exact-target update+delete deny/zero bypass allowed；retain→delete without fresh H-003、`ls-remote` only、rule/head drift/new push blocked |
 | B-030 | H-004 mutually exclusive decision + issue acceptance binding | decision-gate fixtures：strict-four allowed；preserve only with matching immutable issue node/digest allowed；missing/double/unsynced/re-witness-missing blocked |
 | B-031 | live-source decision record/attestation + task binding | `bash tests/test_gh701_decision_gate.sh`；current protected run + latest generation 对 eligible descendant HEAD/digests allowed，source edit/delete/revoke/newer selection、offline preview、self-filled/stale/cached/wrong-spec records blocked |
 | B-032 | protected read-only maintainer evidence collector | host-proof harness 验证 separate runtime/witness artifacts、trusted workflow attestation、node/event/head/time/proof-SHA binding；current-run source edit/delete/revoke/supersede recheck 与 generation binding；embedded、cached 或 implementer-filled witness blocked |
@@ -663,11 +663,10 @@ config/payload/log content。
 5. core 按 index 独立判定每个 request 并逐项写 sanitized log；执行失败先变成
    fail-closed `hook_error`，aggregator 再按固定 priority 选 primary、保留所有
    blocks、合并有界 fixes。
-6. encoder 输出唯一 response；credential-free candidate 产出 runtime artifact；外部
-   supervisor 注入 sentinels、冻结并扫描 exact sink bytes、测量 closed environment /
-   loaded-code root 后封存 digest manifest。独立 job 只签 digest；collector 另取 fresh
-   witness，当前 protected run 重查 source/revocation 并与 H-001 distribution closure
-   对比后，proof gate 才绑定 node/event/head/time/proof/supervisor digests。
+6. credential-free candidate 产出 response/proof；supervisor 扫描 sinks、连续记录 loader
+   ledger，并把 exact subject blobs+认证 manifest 封存到 protected CAS。独立 signer
+   重哈希 blobs 后签名；collector 另取 fresh witness，gate 重查 source/revocation 并与
+   H-001 closure 对比，绑定 node/event/head/time/proof/supervisor/manifest digests。
 7. README-claim gate 读取 GH-699 tracked install evidence，并直接读取 GH-700 已
    committed Release 的验签 `public_benchmark_summary`、reports 与 publish intent；
    renderer 同时消费 approved H-004：strict 模式形成恰好四块，preserve 模式只加入
@@ -720,9 +719,9 @@ config/payload/log content。
 - Recovery：external writer 在 apply 后改 config 时禁止 automatic/stale manual
   rollback；保留外部内容与 receipt/digests 并 needs_human，不覆盖新更改。
 - Branch ownership：stale branch 只能 approved delete，或 owner+expiry 且 active
-  exact-target/no-bypass update restriction；protected API live check 失败即停止。
+  exact-target/no-bypass update+delete restrictions；protected API live check 失败即停止。
 - Evidence authority：candidate 只在无 GitHub/OIDC/artifact token 的隔离 VM 执行；独立
-  job 不执行 candidate，只签 supervisor digest；handoff/record/witness/head/time drift fail closed。
+  job 不执行 candidate，只在重哈希 authenticated subject blobs 后签名；drift fail closed。
 - Bootstrap authority：bootstrap 是一次性最小 control-plane tranche，不是
   H-001–H-004 的隐式批准。base gate evidence、allowlist、main-existence sentinel
   或 human review 任一缺失均停止；bootstrap 不得顺带实现产品面。
@@ -742,9 +741,9 @@ config/payload/log content。
   oversize primary closed fallback、
   malformed/privacy 与 encode failure。
 - [ ] Lifecycle tests：全 phase、lock/deadlock、versioned CAS/lease 与 crash rollback；
-  普通文件自动路径 zero mutation；verified-file 覆盖 apply+probe、failed-probe reverse、
-  clean/disable reverse 与 base reverify positives，以及 receipt/current drift、partial
-  reverse、path swap/old-FD negatives，所有 host-target write 都由用户执行。
+  verified-file 覆盖 planned→active→consumed、成功后 durable retention、failed-probe/
+  clean reverse、safe supersession positives，以及 early delete、receipt/current drift、
+  partial reverse、path swap/old-FD negatives；host-target write 全由用户执行。
 - [ ] Evidence tests：README-claim schema/gate 的 protected producer attestation、
   GH-699 exact producer SHA/argv，以及 GH-700 committed Release summary/report/
   publish-intent binding 与 standalone rerun/draft/unsigned/wrong-workflow matrices；
@@ -752,8 +751,9 @@ config/payload/log content。
   newer-generation matrix；separate host-proof/witness 的 H-001 provenance/head/
   source/config matrix；supervisor-owned sentinel injection 与 exact sink-byte scan；
   execution VM credential absence、job separation、signing job no-candidate-code、
-  immutable handoff，以及 missing injection/sink、secret/nonzero match、sink drift、
-  preload/DYLD/plugin、unknown image/JIT/post-start load/deleted mapping negatives；所有
+  authenticated subject blobs/manifest/re-hash，以及 missing/extra/substituted blob、
+  injection/sink/secret/nonzero/sink drift、trace late/gap/drop/overflow、load-then-unload、
+  preload/DYLD/plugin/unknown image/JIT negatives；所有
   negative fixtures 先通过 schema 再被 semantic gate 拒绝。
 - [ ] Bootstrap tests：ordinary `plan_first` handoff、维护者 GitHub spec approval +
   live duplicate evidence、完整 tasks coverage、固定 diff allowlist、candidate
@@ -797,4 +797,4 @@ GH-699/GH-700 任一 evidence/gate 失败时只移除对应 README generated blo
 删除仍有效的另一块或 approved H-004 要求保留的 PR #705 块；禁止恢复手写 claim。
 third-host proof 或独立 maintainer witness/attestation 失效时撤销 active/完成声明，
 不伪造刷新 timestamp。回滚 stale branch decision 也只能在 approved `deleted` 与
-带 active no-bypass ruleset 的 `readonly_retain(owner, expiry)` 间重批，不能恢复可写 branch。
+带 active no-bypass update+delete ruleset 的 `readonly_retain(owner, expiry)` 间重批，不能恢复可写 branch。

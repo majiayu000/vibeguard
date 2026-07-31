@@ -217,12 +217,16 @@ GH-701 已完成。
     只有该 evidence 可产出 active/proof。额外编辑、symlink/path swap、任一重读
     drift 或 old-FD late write 都保持 `partial/needs_human`。plan 还必须把 reverse
     diff、base bytes/mode/owner 与 base/candidate digest 封存在本地 0600 manual
-    receipt。candidate probe 失败或 clean/disable 时，只有 target 仍 exact-match
+    receipt；receipt 有 planned/active/consumed generation，active evidence 必须绑定
+    exact active receipt digest，成功安装不得删除。candidate probe 失败或
+    clean/disable 时，只有 target 仍 exact-match
     candidate 与原 receipt，才向用户展示该 reverse diff；用户应用后 verifier
     no-follow 重读并 exact-match base bytes/ownership/mode/owner，确认旧状态可解析，
     才撤销 evidence 并报告 restored/not-installed。VibeGuard 不得写 host target；
     candidate/receipt/current 任一漂移都禁止 stale reverse、保留当前内容并
-    `needs_human`。获批 proof host 若既无
+    `needs_human`。active receipt 仅在 verified restore/removal 后消费；superseding
+    plan 只有先 durable 写入继承原 clean base/reverse ancestry 的新 receipt、native
+    probe 成功并原子切换 active evidence 后，才能消费旧 receipt。获批 proof host 若既无
     versioned API 又不能完成 verified-file contract 才必须重新选择。Claude/Codex
     现有 JSON target 依 B-014 走 compatibility lifecycle，不得被静默改成 manual。
 26. B-026 versioned automatic branch 的同一 config 并发 writer 必须由 bounded
@@ -258,9 +262,12 @@ GH-701 已完成。
     candidate 必须运行在 credential-free execution job/VM：没有 `GITHUB_TOKEN`、
     OIDC request、Actions runtime/artifact 或 attestation token，也不能读取
     supervisor state/output/handoff。独立 protected attestation job 永不执行或加载
-    candidate code，只接收 orchestrator 从隔离边界导出的 immutable digest manifest，
-    重哈希全部 subjects 后才以 OIDC identity 签名；job/VM identity、handoff digest
-    或重哈希任一不匹配都阻断。
+    candidate code。candidate kill/reap 后，supervisor 必须把每个 subject 的 exact
+    bytes 封存在 candidate 不可访问的 protected content-addressed handoff，并以独立
+    supervisor workload identity 认证 closed subject manifest（role、size、digest、
+    immutable object version）。signing job 只读取得 manifest 与全部 blobs，逐一重哈希
+    exact bytes、拒绝 missing/extra/duplicate/substitution 后才以 OIDC identity 签名
+    manifest digest 与 subjects；认证、inventory、version 或 digest 不匹配都阻断。
     trusted supervisor 必须为每次运行独立生成 CSPRNG secret sentinels，并按 schema
     固定的 source class 注入 candidate；candidate 被 kill/reap 且所有 sink writer
     冻结后，supervisor 才以 no-follow handle 读取每个 required sink 的 exact bytes，
@@ -272,21 +279,25 @@ GH-701 已完成。
     head、event/nonce/process/distribution digests 与 redaction inventory digest
     绑定为 attested subjects，缺任一绑定都阻断。
     native binary 还须拒绝 `LD_PRELOAD`、library-path、危险 `DYLD_*`、debugger/plugin/
-    injection 环境，并在事件时枚举完整 executable mapping/image set：Linux 以
-    `/proc/<pid>/maps` 的 dev/inode/no-follow bytes，macOS 以 dyld image 与每项
-    CodeDirectory/signature 建立 loaded-code Merkle root，与 H-001 signed distribution
-    dependency closure 精确匹配；未知/匿名 executable、JIT、启动后额外 load、已删除或
-    被替换 mapping 均阻断，除非 H-001 对 JIT digest 作显式闭集批准。attestation
-    必须绑定 session nonce、进程身份、closed environment digest 与 loaded-code root；
+    injection 环境。supervisor 必须在 suspended spawn 恢复前安装平台 loader/executable
+    mapping mediator，并从第一条指令直到 kill/reap 连续记录每次 exec、executable
+    mmap/mprotect、image load 与 unload；每次出现时就以 no-follow bytes 或
+    CodeDirectory/signature exact-match H-001 signed distribution closure，不能等 blocking
+    event 才采样。unknown/anonymous executable、未批准 JIT、late attach、ledger gap/drop/
+    overflow 或任何未批准 load 即使随后 unload 都阻断。final mapping/image snapshot
+    必须与 append-only ledger 一致；attestation 绑定 session/process、closed environment、
+    ledger Merkle root/sequence/gap counters 与 final loaded-code root。平台无法证明完整
+    mediation/trace 时该 H-001 host/release 必须 unsupported；
     interpreted CLI 还必须绑定 interpreter、canonical argv/entrypoint 与受信发行
     manifest 的只读 package snapshot/Merkle root，禁止 snapshot 外 module load。
     gate-time 路径重读、binary 自报 release/SHA 或 pathname 不能建立 provenance。native
     event ID/free text 不得持久化。另一个第三 host 的有效 proof 不能替代获批选择。
 29. B-029 stale branch 最终状态只能是 `deleted`，或
-    `readonly_retain + owner + UTC expiry + active no-bypass update restriction`；
+    `readonly_retain + owner + UTC expiry + active no-bypass update/delete restrictions`；
     protected collector 必须从 GitHub ruleset/protection API live 验证规则覆盖
-    exact branch、禁止 update 且 bypass actor 为空，并绑定 rule ID/digest。仅
-    `ls-remote`、任何第三状态、缺字段、expiry 已过或发生新 push 都阻断 closure。
+    exact branch、同时禁止 update/delete 且 bypass actor 为空，并绑定 rule ID/digest。
+    retain 转 deleted 必须重新取得互斥 H-003 `delete` 决策；仅 `ls-remote`、任何第三
+    状态、缺字段、expiry 已过或发生新 push/delete 都阻断 closure。
 30. B-030 H-004 必须是维护者明确选择的互斥值 `strict_four` 或
     `preserve_pr705_extras`，推荐值 `strict_four` 本身不构成批准；后者还必须绑定
     已更新 GH-701 issue acceptance 的 immutable node/source URL、更新时间与
@@ -376,11 +387,14 @@ GH-701 已完成。
   active/proof，任一额外编辑、path swap 或 late write 都保持 partial。
 - [ ] verified-file failed-probe 与 clean/disable fixtures 仅在 current candidate /
   receipt 精确匹配时提供用户应用的 reverse diff；base bytes/mode/owner 重验通过后
-  才 restored/not-installed，任一第三方 drift 都不覆盖并保持 needs-human。
+  才 restored/not-installed；active receipt 跨成功安装保持 durable，只有 verified
+  removal 或保留原 clean ancestry 的 superseding receipt 生效后才消费；任一第三方
+  drift 都不覆盖并保持 needs-human。
 - [ ] GH-699/GH-700 README claims 与第三 host proof 各由固定 gate 消费；缺失、
   tampered、stale、wrong-head/event/digest/witness、candidate 可见 credential、
-  signing job 执行 candidate、handoff 重哈希不符、supervisor injection/sink/scan
-  缺失或泄漏，以及 native injection/unknown loaded-code fixtures 全部 nonzero。
+  signing job 执行 candidate、subject blob/认证 manifest 缺失替换或重哈希不符、
+  supervisor injection/sink/scan 缺失或泄漏，以及 native injection、load-then-unload、
+  trace gap/late attach/unknown loaded-code fixtures 全部 nonzero。
 - [ ] H-001–H-004 decision record 与 maintainer witness 分别通过固定 schema、
   protected collector attestation 和离线 gate；witness source 的 edit/delete/revoke
   在当前 protected run 被重新查询并拒绝；route/task/renderer/closure 都绑定当前
