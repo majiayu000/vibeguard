@@ -461,8 +461,7 @@ publication 使用 attempt-scoped draft 与统一 durable state machine；唯一
    pre-merge事实，post-merge receipt才绑定 server返回事实；suffix只消费 contract的 closed union与 tagged cleanup evidence。
 4. protocol surface只绑定 stable identity；attempt plan绑定 mutable base与逐 surface proof，drift须重规划。
    valid plan只可为 rollover、true genesis或 contract-proven post-invalidation；restoration/其它 owner/mixed/drift/缺 receipt均 blocked。
-5. valid/nonvalid intent分别在 publish前绑定 reviewed new-current或 unmarked-row plan；de-current须 revoke或 rollback，failed slot须 reviewed
-   replacement/compensation或 blocked；仅完整 cleanup/rollback/invalidation或 Release+README effect closure可 terminal。
+5. valid intent在 exact zero receipt与已 merged de-current rollover receipt间二选一，并在 publish前绑定 reviewed new-current plan；nonvalid只绑 unmarked-row plan。failed/retry先 revoke旧 gate/PR/head再 fresh replacement，merged cancellation走 rollback；仅完整 cleanup/rollback/invalidation或 Release+README effect closure可 terminal。
 required target 不能原生执行时显式 `unavailable` 并使 summary non-valid；非 required
 target unavailable 只展示、不阻断。不得用 host/cross binary 贴 native 目标标签；若
 approved set 含四 target 就必须配置四个 native runners。required platforms 的

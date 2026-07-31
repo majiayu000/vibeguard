@@ -661,7 +661,7 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | `prepared` | `{owner_generation,draft_bound_operation_id,asset_manifest_digest,checksums_digest,summary_digest,closed_slot_set_digest}` |
 | `genesis_zero_receipt` | `{owner_generation,first_frontier,verified_prefix_digest,zero_marker_surface_digest,bootstrap_receipt_digest,governance_suffix_digest}` |
 | `post_invalidation_zero_receipt` | `{owner_generation,invalidation_receipt_operation_id,invalidation_suffix_digest,zero_marker_surface_digest,terminal_chain_digest,governance_suffix_digest}` |
-| `intent_written` | `{owner_generation,intent_kind,prepared_operation_id,zero_marker_receipt_operation_id_or_null,new_current_pr_plan_digest_or_null,unmarked_row_plan_digest_or_null,summary_digest,release_manifest_digest}` |
+| `intent_written` | `{owner_generation,intent_kind,prepared_operation_id,zero_marker_receipt_operation_id_or_null,rollover_receipt_operation_id_or_null,new_current_pr_plan_digest_or_null,unmarked_row_plan_digest_or_null,summary_digest,release_manifest_digest}` |
 | `release_committed_valid_marker_pending` | `{owner_generation,intent_operation_id,release_node_id,published_release_digest,new_current_pr_plan_digest}` |
 | `release_committed_nonvalid_row_pending` | `{owner_generation,intent_operation_id,release_node_id,published_release_digest,nonvalid_row_pr_plan_digest}` |
 | `valid_decurrent_pr_cancel_pending` | `{owner_generation,decurrent_pr_bound_operation_id,higher_fence_receipt_digest,cancel_plan_digest}` |
@@ -697,9 +697,8 @@ closed enums exact 为 `intent_kind={publish_valid,publish_nonvalid}`、
 `pr_kind={decurrent,rollback,new_current,nonvalid_row,invalidate_current}`、
 `terminal_kind={published_valid,published_nonvalid,rollback_restored,invalidation_completed}`及
 `recovery_truth_branch={matching_public_release,matching_intent_bound_draft}`；`retain_owner`必须 literal `true`。
-`intent_written(intent_kind=publish_valid)` 必须在 publish slot 前将 human-reviewed exact base/patch/review
-identity 作 non-null `new_current_pr_plan_digest_or_null` 绑定，且 `unmarked_row_plan_digest_or_null`为 null；
-`publish_nonvalid` 则反之。两者同时 null/non-null 或 commit 后才首次出现 new-current plan 均 schema-invalid。
+`intent_written(intent_kind=publish_valid)`须在 publish前以 non-null `new_current_pr_plan_digest_or_null`绑定 human-reviewed exact base/patch/review，且 `unmarked_row_plan_digest_or_null`为 null；`publish_nonvalid`反之，两者同时 null/non-null或 commit后才出现 plan均 invalid。
+valid intent还须在 `zero_marker_receipt_operation_id_or_null`与`rollover_receipt_operation_id_or_null`中恰一 non-null；nonvalid两者均 null，rollover只能引用同 owner/prepared/frontier的 committed `generated_pr_merged(pr_kind=decurrent)` receipt。
 `release_mutation_recovery_blocked.mutation_kind`只允许
 `{draft_update,draft_delete,asset_upload,asset_delete,publish}`，`draft_create`只允许
 `draft_recovery_blocked`。broker audit、capsule、KMS refs、external anchor、time proof、PR/Release discovery与
@@ -723,10 +722,10 @@ frontier，`owner_heartbeat` 与 `publication_owner_taken_over` 都是 phase-neu
 只可由当前 generation 在 expiry 前追加；takeover 只可在 expiry 后以 new generation 追加；两者均保留
 candidate、publication phase、slot/pending/blocked state，其 successor 继续按该被保留 phase 的 edge 校验。
 terminal/no-owner frontier 不允许二者。除这两种 liveness edge 及下述 phase-neutral governance edge 外，
-`owner_claimed` 后只可 mutation plan 链或 `draft_bound`；`draft_bound`后闭合 upload/update slots才可 `prepared`；prepared valid先接 exact zero receipt再
-`intent_written(intent_kind=publish_valid)`，prepared non-valid直接接
-`intent_written(intent_kind=publish_nonvalid)`；intent后 publish slot bound才可相应 committed-pending，
-再经 generated PR planned→bound→merged/revoked/replacement链到 `record_kind=publication_terminal`。pre-intent cleanup
+`owner_claimed` 后只可 mutation plan 链或 `draft_bound`；`draft_bound`后闭合 upload/update slots才可 `prepared`。
+prepared valid只有两条互斥 pre-intent路径：`genesis_zero_receipt|post_invalidation_zero_receipt`→`intent_written(intent_kind=publish_valid,zero receipt non-null)`，或 rollover-one的
+`generated_pr_planned(pr_kind=decurrent)`→`generated_pr_bound`→`generated_pr_merged`→`intent_written(intent_kind=publish_valid,rollover receipt non-null)`；后者仅在 exact receipt提交且 fresh fold证明旧 current被原子移除后可写。
+planned/bound失败只可 revoke后以 new slot/head/nonce fresh-reviewed replacement或 `decurrent_pr_recovery_blocked`；merged取消只走 `valid_rollback_pending`，且最多一个未撤销 gate。prepared non-valid直接接 `intent_written(intent_kind=publish_nonvalid)`；intent后 publish slot bound才可相应 committed-pending，再经 generated PR链到 `record_kind=publication_terminal`。pre-intent cleanup
 只以 `publication_terminal_no_publication` 结束；invalidation只以 planned→bound→merged→
 `invalidate_current_merged_receipt`→`record_kind=publication_terminal, terminal_kind=invalidation_completed`结束。
 recovery pending只可到 bound/not-applied/compensation/对应 blocked；八 blocked kinds均保留 owner且非 terminal。
