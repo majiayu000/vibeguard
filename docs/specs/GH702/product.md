@@ -130,7 +130,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     使用无单位“fast/bounded”或用专项 microbenchmark 替代 installed-path end-to-end budget。每次
     gate 必须按 supporting contract 输出 budget、initial、confirmation、逐字段 breaches 与 blocking
     decision；P50/P95/P99/max、CAS、IPC、queue、contention time/retry 任一项都不能被 P95-only
-    verdict 隐藏。任何字段未选、平台无通过 conformance 的 backend、
+    verdict 隐藏。result 必须 exact 绑定获批 H-010/decision artifact digest 与 authoritative
+    evaluation-policy digest/generation/validity evidence；任一 policy/budget rotation 或 mismatch 必须
+    nonzero 并全量重跑，不能沿用旧 result。任何字段未选、平台无通过 conformance 的 backend、
     reinstall/device identity 不确定或 IPC peer 无法认证时，不得 provision/reset/迁移 root，也不得
     执行 official committed block；实现不能把 `tpm2_nv_v1` 或任何平台方案当作本 Draft 已批准。
 

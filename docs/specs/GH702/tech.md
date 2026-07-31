@@ -651,7 +651,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds under the same publication policy match digest；evaluation-policy rotation does not rebuild；publish failures never create resolvable partial entry |
 | B-041 truthful list/status/audit | Shared status + anchor renderer | golden output enumerates authority identities/floors/time plus backend/root/leaf/counter/barrier/availability/repair；degradation exits nonzero without key material |
-| B-042 offline runtime stability | Committed eligibility + local anchor IPC | canonical runner executes anchor-enabled installed Claude/Codex wrappers；contract test independently breaches every H-010 metric/timeout/contention field and asserts confirmation/blocking；failure denies without stale fallback |
+| B-042 offline runtime stability | Committed eligibility + local anchor IPC | installed Claude/Codex runner；contract test breaches every H-010 budget and mutates approved-H010/policy/generation/validity/decision identities；all mismatch/rotation nonzero without stale fallback |
 
 ## 数据流
 
