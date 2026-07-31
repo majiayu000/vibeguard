@@ -170,8 +170,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    只有 matching live registry/reservation/outbox 与 `receipt_delivered`/pending/off-blocking completed refs 均为零
    （每个未 ack ref 在 admin handoff 前都必须持有 capacity token），且仍持 exclusive lease、释放
    global leases 后在 project-lock critical section no-follow 重验的 requested-off identity 与 saved
-   request 完全相等，才提交 effective off；retention 内的 `project_acknowledged` success 仍留在同一
-   completed history index 供查询但不携带 capacity token、也不阻塞 off。requested-off identity 可以是
+   request 完全相等，才提交 effective off；retention 内的 `project_acknowledged` success 已转入独立
+   success-history plane，并携带其 entries/bytes/per-source-quota token 而不携带 live completed token，
+   因此可查询但不阻塞 off。requested-off identity 可以是
    existing config file identity+digest，或绑定 trusted project/root identity、canonical parent directory
    stable handle、exact basename 与 start/final no-follow `ENOENT` proof 的 closed absent-file identity；
    file/symlink 出现、parent/entry 漂移或 unreadable/permission error 均 pending/error。若已
@@ -337,8 +338,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     project recovery WAL 还必须有独立 positive entry/byte/segment/segment-byte bounds；每个 group
     在 semantic work 前预留足够的 WAL entitlement，terminal group 只有在所有仍引用它的 cursor、
     expected offset、consumer/barrier/projection recovery proof 已转移后才可 unpin。checkpoint/compaction
-    必须用独立 fixed A/B scratch entitlement，先 fsync checkpoint + compacted manifest，再由一个
-    metadata-generation CAS 推进 WAL watermark并释放旧 capacity；任一 full/crash/pin mismatch 保留旧
+    必须用独立 fixed A/B scratch entitlement：先 fsync checkpoint + compacted manifest，publish CAS
+    只切换 reader authority且 old live + new scratch 同时计费；exact old tombstone/unlink + directory fsync
+    durable 后，final CAS 才把 scratch 转为 live、推进 watermark并释放 old/surplus receipt。任一 full/crash/pin mismatch 保留
     authority并 backpressure，禁止 truncate/age-delete。semantic coordinator 还必须按 project lock →
     所有 canonical journal writer 共用的 bounded append lease，在同一 lease 内完成 tail read → WAL
     prepared/queue fsync → exact journal append/fsync → WAL journaled；legacy Rust/shell writer 也必须先取
@@ -364,6 +366,12 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     或 shell free-text projection 作为第二权威源。既有 L1 dual logging 行为不变；
     GH-704 global event/status 只允许从 `all_activated` barrier 做 idempotent derived
     projection，绑定 source event ID/barrier digest 与 durable projection receipt。
+    所有容量必须由 [runtime-integrity.md](runtime-integrity.md) 的 closed `ResourceLedger` inventory 与
+    单一 token machine 管理；每个 token 有 exact kind/object/owner/count/quota/bundle digest，只能
+    `free→reserved→live`、经 receipt-bound transfer，或在 exact tombstone/unlink + directory fsync 后 release。
+    每个 terminal root 对 reservation bundle 中所有 items 恰好一次 release/transfer/retain，否则整个
+    commit 拒绝；任一 publish/expiry/逻辑删除不能 early credit。实现必须同时证明 conservation、
+    single-owner、no-early-credit、terminal completeness、idempotence、liveness/admission feasibility。
     全部 activation receipts 匹配后、`all_activated` 前，project coordinator 必须先在 bounded
     global source registry 的 unique live slot + per-source frozen-lag administrative token durable 注册 inert route/body/barrier/eligibility；live
     registration 必须在 initial admission 保存并 digest-bind canonical event timestamp、retention bucket、
@@ -400,8 +408,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     bytes/target segment，full 时零 reservation/offset/write。compaction 另需独立于 live log capacity 的
     fixed A/B scratch entitlement，足以容纳
     最大 legal compacted segment + retained-proof manifest + metadata generation；即使 live entry/byte/
-    segment 已满也能 write-before-release，最终 old tombstone/directory durability 后才按 digest 释放 scratch。
-    scratch full/crash 保留旧 manifest并 backpressure，禁止先释放 live capacity。
+    segment 已满也能 write-before-release；publish 后 old live + new scratch 仍同时计费，最终 old exact
+    tombstone/directory durability 后由 final CAS 把 scratch 转 live并按 receipt 释放 old/surplus。
+    scratch full/crash 保留可恢复双计费 state并 backpressure，禁止先释放 live capacity。
     reservation 自身携带 bounded derived body、source
     project identity 与 independently routable receipt route/body，并从 live registration 复制
     canonical event timestamp、retention bucket、query-scope digest，同时绑定实际 allocated global
@@ -412,7 +421,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     receipt-outbox intent 原子提交并把 entitlement 转成 live intent；intent 必须闭合携带同一组
     canonical query fields，以及 `registration_id/state_root_id/route_identity_digest` exact recovery
     locator，reader 不得从 append position、wall clock 或 pathname 重建。只有 durable reservation
-    cancellation 才可释放未转换 entitlement；abort 仅在 slot 不存在时原子释放 slot/admin reserve，
+    cancellation/abort 才可按 bundle terminal-totality map 释放未转换的 slot/completed/outbox/quarantine/
+    success-history/global-admin/derived token；已 live 的项必须转 recovery/retirement owner，漏项拒绝 commit。
     slot 已 durable 则必须走 retirement。outbox worker 取得 matching source delivery lease 后只按 exact route +
     content-addressed receipt key/digest 写独立 create-if-absent slot，不共享 project append offset；
     slot file fsync、atomic create 与 route-directory fsync 全部成功后才可 global
@@ -444,9 +454,15 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     再 CAS repoint stub，one-entry-full 时不申请第二 entry/token。retirement 必须按 global
     `retirement_pending`、source `retired` proof、global delete/release 三阶段完成；最终 CAS 必须同时释放
     consumed global-admin entry/bytes并保存 lost-response 可恢复 receipt；任一 crash 向前恢复。
+    success-history GC 只能整 bucket 原子提交：同一 root CAS 删除 expired refs/bucket并释放 matching
+    entries/bytes/per-source quota，保存 replayable release receipt；CAS 前 ref+quota 都 live，任一缺失/
+    mismatch 保留 bucket且 fail visible，禁止先删 history 后补 credit。
     未 ack recovery locator、project WAL cursor/expected offset、barrier/projection marker 与 semantic
     watermark 必须 pin；scheduled `gc-logs.sh` rotation/rewrite 也必须在同一 journal lease 下服从这些
-    pins/watermarks，不能移动仍被 exact-offset recovery 引用的 canonical row。retention GC 不得 age-delete；只有 matching
+    pins/watermarks，并使用独立 fixed A/B journal scratch 走与 WAL/derived 相同的 stage→publish-with-old-
+    charged→unlink+dir-fsync→final-transfer/release protocol，不能移动仍被 exact-offset recovery 引用的
+    canonical row。所谓 allocator WAL 只能是预分配 fixed A/B global metadata root，不得另生 append/GC
+    capacity plane。retention GC 不得 age-delete；只有 matching
     rebind+ack retirement 或 terminal proof 才可删除并释放 token。仍存活 source 使用 source-lock terminal
     discard proof；initial registration 必须预留 runtime-owned identity-bearing source-object handle/capability，
     而非 path/digest anchor。旧 basename 的 ENOENT 只表示 route missing；若 handle identity 仍活着或 broker
@@ -470,8 +486,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     阻塞其他 project。absent-file off 必须绑定 trusted parent identity + runtime mutation fence/generation，
     final no-follow ENOENT lookup 是线性化点；fenced commit 发布前的第二次 lookup/generation check 发现
     create/drift 必须原子 rollback，之后完成的 create 是新 request且 worker 写入前重验。不同 off request
-    在任何 ref mutation 前把 `selected_mode`/policy digest/transaction ID 写入 durable supersession state；
-    `adopt_all` 先把全部 per-source primary/alternate entries inert stage，再由一个 global adoption-manifest
+    `adopt_all` 必须在 immutable mode 前用同一 global-admin snapshot 枚举完整 old set，证明并预留 exact
+    ordered manifest entry/bytes；`floor - 1` 或 set drift 时不得持久化该 mode，避免永久 pending。preflight
+    receipt durable 后，才在任何 ref mutation 前把 `selected_mode`/policy digest/transaction ID 写入 durable supersession state；
+    `adopt_all` 再把全部 per-source primary/alternate entries inert stage，并由一个 global adoption-manifest
     generation 原子切换整个 old admin set，commit 后只 roll-forward cleanup，禁止 partial/mixed adoption。
     derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
     反向推断 eligibility、重写 project journal 或伪称 global view 已同步。

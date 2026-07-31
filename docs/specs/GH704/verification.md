@@ -59,6 +59,43 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 | B-036 cleanup/rollback | provider/cache/hook lifecycle | `bash tests/hooks/test_semantic_defense.sh cleanup_interrupt_and_l1_rollback`；success/error/timeout/SIGINT matrix |
 | B-037 completion-backed post-edit | app-server lifecycle | `bash tests/hooks/test_semantic_defense.sh codex_post_edit_requires_completion`、`bash tests/hooks/test_semantic_defense.sh codex_thread_cap_pending_backpressure`；每个 selector unknown/zero-match nonzero；pre-completion zero L2；accepted patch exactly once；cap+1/all-pending backpressure before mutation；missing state visible；duplicate/no-callback safe |
 
+## ResourceLedger mandatory matrix
+
+以下是 B-027/B-028 的 mandatory exact supplement，不得由上表其它宽泛 crash/capacity suite 代替：
+
+- B-027：`bash tests/hooks/test_runtime_rule_signals.sh wal_compaction_capacity_transfer`、
+  `bash tests/hooks/test_runtime_rule_signals.sh allocator_wal_capacity_contract`、
+  `bash tests/test_gc_logs_rotation.sh canonical_journal_gc_scratch_capacity`；
+- B-028：`bash tests/hooks/test_runtime_rule_signals.sh capacity_ledger_model_check`、
+  `bash tests/hooks/test_runtime_rule_signals.sh reservation_bundle_terminal_closure`、
+  `bash tests/hooks/test_runtime_rule_signals.sh success_history_gc_release_receipt`、
+  `bash tests/hooks/test_runtime_rule_signals.sh derived_log_compaction_capacity_transfer`、
+  `bash tests/hooks/test_runtime_rule_signals.sh admin_adoption_capacity_preflight`。
+
+每个 owner script 必须接受 exact named selector，unknown/zero-match nonzero。`capacity_ledger_model_check`
+使用 capacity=1 与 2、两个 source、两个 reservation，穷举 reserve/commit/cancel/abort/ack/off/rebind/
+discard/expiry/GC/compaction/crash/replay；每个 reachable committed state 检查 closed resource-kind inventory、
+`sum(free,reserved,live,transfer/retirement states)=maximum`、single owner、无 early credit、bundle terminal
+totality、receipt replay idempotence与至少一条 bounded forward edge。`reservation_bundle_terminal_closure`
+逐 item 覆盖 completed/outbox/quarantine/history/admin/slot/derived 等 cancel/abort，以及 project-ack、
+off-receipt、rebind、terminal discard，mutation 分别删除任一 cancel token、owner 或 resource kind，均须在
+root commit 前 nonzero。
+
+两个 compaction selector与 canonical-journal selector必须对 project WAL、derived log、journal 分别在
+scratch reserve、stage write/fsync、manifest receipt、publish CAS、每个 old unlink + directory fsync、final
+transfer/release receipt 的 before/after 注入 crash；publish 后到 final receipt 前断言 old live + new scratch
+同时计费。mutation 把 live release 提前到 tombstone/dir-fsync 前必须失败。history selector 删除 quota item
+或 release receipt 必须失败；adoption selector 使用 manifest maximum、`floor - 1` 与 concurrent set drift，
+证明 immutable `adopt_all` 只能在 full-manifest entitlement durable 后出现。allocator selector证明所谓 WAL
+只有预分配 fixed A/B root、无 append/GC 第三容量平面。
+
+所有八个 selector 还必须执行 `N >> capacity` 的 deterministic long-run：正常完成、重复 cancel/abort、
+ack+history expiry、off/adopt/discard 与 repeated compaction 后，ledger 使用量回到 exact expected baseline，
+storage physical maximum 不增长，下一次 admission 在 capacity 可用时成功；token、entries、bytes、segments、
+per-source quota 任一泄漏、双 credit、ownerless state 或永久 earliest-reservation/adopt-all stall 都 nonzero。
+该 matrix 显式覆盖四个新增 P1、project-ack/off-receipt slot retirement、project WAL/GC/append lease 与
+derived-log counterpart；原有 focused selectors 仍保留，不能由 model check 反向替代。
+
 ## 数据流
 
 ```text
