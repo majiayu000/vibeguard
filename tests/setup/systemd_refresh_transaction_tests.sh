@@ -81,9 +81,17 @@ case "${1:-}" in
     exit 0
     ;;
   enable)
-    touch "${VIBEGUARD_TEST_SYSTEMD_ACTIVE}" \
-      "${VIBEGUARD_TEST_SYSTEMD_ENABLED}" \
-      "${VIBEGUARD_TEST_HASH_ACTIVATED}"
+    touch "${VIBEGUARD_TEST_SYSTEMD_ENABLED}"
+    if [[ "${2:-}" == "--now" ]]; then
+      touch "${VIBEGUARD_TEST_SYSTEMD_ACTIVE}" \
+        "${VIBEGUARD_TEST_HASH_ACTIVATED}"
+    fi
+    exit 0
+    ;;
+  start)
+    if [[ "${2:-}" == "vibeguard-gc.timer" ]]; then
+      touch "${VIBEGUARD_TEST_SYSTEMD_ACTIVE}"
+    fi
     exit 0
     ;;
   stop)
@@ -219,4 +227,35 @@ assert_cmd "refresh hash rollback restores units and receipt byte-for-byte" bash
   "${refresh_hash_receipt}" "${refresh_hash_before}"
 assert_cmd "refresh hash rollback restores prior active and enabled state" bash -c \
   'test -e "$1" && test -e "$2"' _ \
+  "${refresh_hash_active}" "${refresh_hash_enabled}"
+
+rm -f -- \
+  "${refresh_hash_active}" \
+  "${refresh_hash_enabled}" \
+  "${refresh_hash_activated}"
+inactive_refresh_before="$(
+  shasum -a 256 \
+    "${refresh_hash_service}" "${refresh_hash_timer}" "${refresh_hash_receipt}"
+)"
+inactive_refresh_rc=0
+inactive_refresh_out="$(
+  env HOME="${refresh_hash_home}" "${post_activation_hash_env[@]}" \
+    VIBEGUARD_REPO_DIR="${standalone_rollback_repo}" \
+    VIBEGUARD_TEST_SYSTEMD_ACTIVE="${refresh_hash_active}" \
+    VIBEGUARD_TEST_SYSTEMD_ENABLED="${refresh_hash_enabled}" \
+    VIBEGUARD_TEST_HASH_ACTIVATED="${refresh_hash_activated}" \
+    VIBEGUARD_TEST_HASH_FAIL_PATH="${refresh_hash_timer}" \
+    bash "${REPO_DIR}/scripts/install-systemd.sh" 2>&1
+)" || inactive_refresh_rc=$?
+assert_cmd "inactive disabled refresh hash failure returns nonzero" \
+  test "${inactive_refresh_rc}" -ne 0
+assert_contains "${inactive_refresh_out}" \
+  "failed to hash installed systemd units; restored the previous scheduler state" \
+  "inactive disabled refresh reports successful rollback"
+assert_cmd "inactive disabled refresh restores units and receipt byte-for-byte" bash -c \
+  'test "$(shasum -a 256 "$1" "$2" "$3")" = "$4"' _ \
+  "${refresh_hash_service}" "${refresh_hash_timer}" \
+  "${refresh_hash_receipt}" "${inactive_refresh_before}"
+assert_cmd "inactive disabled refresh does not activate or enable timer" bash -c \
+  'test ! -e "$1" && test ! -e "$2"' _ \
   "${refresh_hash_active}" "${refresh_hash_enabled}"

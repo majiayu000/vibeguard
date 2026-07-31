@@ -325,12 +325,63 @@ chmod 644 "${STAGED_SERVICE}" "${STAGED_TIMER}"
 chmod +x "${REPO_DIR}/scripts/gc/gc-scheduled.sh"
 
 INSTALL_REFRESH=0
+PRIOR_TIMER_ACTIVE=0
+PRIOR_SERVICE_ACTIVE=0
+PRIOR_TIMER_ENABLED=0
+
+scheduler_capture_active_state() {
+  local unit="$1" output_variable="$2"
+  local state="" state_rc=0
+  state="$(LC_ALL=C systemctl --user is-active "${unit}" 2>/dev/null)" \
+    || state_rc=$?
+  case "${state}" in
+    active)
+      printf -v "${output_variable}" '%s' 1
+      ;;
+    inactive|failed|unknown)
+      printf -v "${output_variable}" '%s' 0
+      ;;
+    *)
+      red "ERROR: cannot classify prior ${unit} active state (state=${state:-empty}, rc=${state_rc}); preserving scheduler state."
+      return 1
+      ;;
+  esac
+}
+
+scheduler_capture_enabled_state() {
+  local unit="$1" output_variable="$2"
+  local state="" state_rc=0
+  state="$(LC_ALL=C systemctl --user is-enabled "${unit}" 2>/dev/null)" \
+    || state_rc=$?
+  case "${state}" in
+    enabled)
+      printf -v "${output_variable}" '%s' 1
+      ;;
+    disabled|masked|not-found)
+      printf -v "${output_variable}" '%s' 0
+      ;;
+    *)
+      red "ERROR: cannot classify prior ${unit} enabled state (state=${state:-empty}, rc=${state_rc}); preserving scheduler state."
+      return 1
+      ;;
+  esac
+}
+
 if [[ -n "${SCHEDULER_RECEIPT_PARSED}" ]]; then
   INSTALL_REFRESH=1
   cp -p -- "${SERVICE_DEST}" "${INSTALL_WORK_DIR}/vibeguard-gc.service.backup"
   cp -p -- "${TIMER_DEST}" "${INSTALL_WORK_DIR}/vibeguard-gc.timer.backup"
   cp -p -- "${SCHEDULER_RECEIPT}" \
     "${INSTALL_WORK_DIR}/scheduler-ownership.backup"
+  if ! scheduler_capture_active_state \
+      vibeguard-gc.timer PRIOR_TIMER_ACTIVE \
+    || ! scheduler_capture_active_state \
+      vibeguard-gc.service PRIOR_SERVICE_ACTIVE \
+    || ! scheduler_capture_enabled_state \
+      vibeguard-gc.timer PRIOR_TIMER_ENABLED; then
+    rm -rf -- "${INSTALL_WORK_DIR}"
+    exit 1
+  fi
 fi
 
 scheduler_restore_install_transaction() {
@@ -349,8 +400,18 @@ scheduler_restore_install_transaction() {
   fi
   systemctl --user daemon-reload >/dev/null 2>&1 || restore_rc=1
   if [[ "${INSTALL_REFRESH}" == "1" ]]; then
-    systemctl --user enable --now vibeguard-gc.timer >/dev/null 2>&1 \
-      || restore_rc=1
+    if [[ "${PRIOR_TIMER_ENABLED}" == "1" ]]; then
+      systemctl --user enable vibeguard-gc.timer >/dev/null 2>&1 \
+        || restore_rc=1
+    fi
+    if [[ "${PRIOR_SERVICE_ACTIVE}" == "1" ]]; then
+      systemctl --user start vibeguard-gc.service >/dev/null 2>&1 \
+        || restore_rc=1
+    fi
+    if [[ "${PRIOR_TIMER_ACTIVE}" == "1" ]]; then
+      systemctl --user start vibeguard-gc.timer >/dev/null 2>&1 \
+        || restore_rc=1
+    fi
   fi
   return "${restore_rc}"
 }
