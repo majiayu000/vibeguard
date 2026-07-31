@@ -201,8 +201,10 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     protocol-digested `production_asset_registry` 打开 installed payload/wrappers、
     canonical benchmark config、environment-baseline workload、interpreters 与 mapped
     production paths 传递闭包内全部 external executables。manifest 绑定 registry digest，
-    production mapping 只引用 registry logical ID，receipt 只映射本地 path/handle；三者均
-    不得另行声明 identity。用户可变 `config.json`/tuning 不在 allowlist，不得枚举目录、
+    production mapping 只引用 registry logical ID并拒绝 digest/size/version/path identity，
+    receipt 只映射本地 path/handle；三者均不得另行声明 identity。runtime 不进入 registry，
+    仅由 manifest 直接绑定、launcher 验证的 handle 派生 singleton
+    `runtime_execution_grant`。用户可变 `config.json`/tuning 不在 allowlist，不得枚举目录、
     跟随链接、读取任意其它 HOME 数据或写入真实 HOME。校验后的 handles/bytes 只能
     materialize 到临时只读 snapshot，
     case/warmup/measurement 全程只使用该 snapshot。报告不得包含环境变量值、用户路径、
@@ -236,13 +238,17 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     interception 口径与 rate、false-positive rate、状态及报告链接；latency 不允许静默
     reduction，每个 production surface 必须有独立 P95/status 列（或独立子行），列集合与
     顺序来自 protocol schedule。数字不得手工编辑；表格必须明确它代表哪个 release。
-    只有 top-level `valid` publication 才在不可逆 `publish_intent` 前合并一个仅移除旧 row
+    只有 top-level `valid` publication 才能先取得 repository-wide、renewable/fenced
+    publication/marker lease；该 lease 必须跨 candidate 串行覆盖 de-current、publish 或
+    rollback、new-current merge，并以 default-branch CAS 拒绝 stale token。随后在
+    不可逆 `publish_intent` 前合并一个仅移除旧 row
     `current valid benchmark` 标识的 human-reviewed marker PR，并由 publish gate 对
     default-branch blob digest 与“没有 current marker”做 freshness 重验，永久记录绑定
     PR merge SHA、前后 blob digest 的 `marker_transition_receipt`，然后才允许 intent 绑定
     该 receipt；commit 后再以
-    独立 human-reviewed PR 添加新 row/current marker。该 PR 停滞或拒绝期间允许没有 current
-    marker，但绝不允许旧版本继续显示为 current。`publish_nonvalid` 不进入去旧/current
+    独立 human-reviewed PR 添加新 row/current marker，完成或 rollback 后才释放 lease。
+    该 PR 停滞或拒绝期间允许没有 current marker，但其它 candidate 不得进入 marker 状态机，
+    绝不允许旧版本继续显示为 current。`publish_nonvalid` 不进入去旧/current
     创建状态机：其新 row 永不带 current marker，已有 latest-valid row 可继续标
     `current valid benchmark`。
 18. B-018: release 报告无效、缺平台或 pipeline 中断时必须按获批的闭集
@@ -268,8 +274,9 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     不得直接写 default branch，也不得创建或改写其他 tag/release。各路径都必须
     先证明 publish sentinels 未发生，且不能依赖已终止 job 继续执行。
     发布路径必须使用 attempt-scoped draft two-phase commit：所有 assets/checksums/summary
-    先上传到非公开 draft 并完整重验；valid 分支持 candidate lease、watermark current 时
-    先完成并重验上述 marker transition/receipt，再写不可变 `publish_intent` attestation；
+    先上传到非公开 draft 并完整重验；valid 分支持 candidate lease、repository publication
+    lease、watermark current 时先用 default-branch CAS 完成并重验 marker transition/receipt，
+    再写不可变 `publish_intent` attestation；
     最后以唯一 draft→published 状态切换作为 commit point。marker transition 前取消由
     reconciler 删除 draft并记录 interruption；marker transition 后、intent 前取消必须先
     通过 human-reviewed rollback PR 恢复 receipt 绑定的旧 marker，恢复后才删除 draft；
@@ -375,8 +382,9 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     reviewer 不得是 fixture 作者、对应 detector 作者或 mapping 实现者；mapping reviewer
     不得是对应 detector 作者、mapping 实现者或 fixture 作者；dangerous shell/git
     mapping 另须一名不属于上述作者集合的 security reviewer。mapping 明确 real
-    installed entrypoint、raw-decision/reason schema、normalization、required assets 与
-    review evidence。reviewer 身份/role 必须来自 maintainer-controlled、signed/attested
+    installed entrypoint、raw-decision/reason schema、normalization、required asset logical
+    IDs 与 review evidence，并拒绝 registry-owned digest/size/version/path identity。
+    reviewer 身份/role 必须来自 maintainer-controlled、signed/attested
     roster；每条 review record 必须由 roster 中对应 identity 签名并绑定 artifact digest、
     role、decision、source commit。自报字符串 ID 或同一 key/identity 的多个别名不算独立。
     任一 roster/record 签名缺失、身份重叠或无法验证均使 official corpus
@@ -475,8 +483,10 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     checkout/mock/ambient-PATH fallback。preflight static inventory 与 child-exec audit
     只能发现明显漂移，不能充当运行时证明。每个 case/sample 的完整 process tree 必须置于
     protocol/manifest 绑定的、OS-authoritative deny-by-default exec broker 下；broker 在
-    每次 descendant image 启动前把 resolved handle/digest 映射到 registry logical ID，
-    只有闭包内 identity 才放行。任何 backend 不支持 pre-exec deny、broker 失联、分支
+    每次 descendant image 启动前只放行 resolved handle/digest 匹配的 registry logical ID，
+    或 manifest 直接绑定且由 launcher-verified inherited handle 派生的 singleton
+    `runtime_execution_grant`；grant 不写入 registry且禁止 pathname lookup。任何 backend
+    不支持 pre-exec deny、broker 失联、分支
     延迟触发 undeclared executable 或 identity race 均在 image 执行前拒绝并使 official
     axis fail closed；无合规 backend 的 target 在零 case/timed sample 前 `unavailable`。
 31. B-031: approved、versioned/digested protocol 必须携带非空、去重、canonical 排序的
@@ -524,8 +534,8 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
       release-scoped attempt manifest 永久内嵌到不可覆盖 attestation/ledger；它的
       Release 写权限仅能删除 transition 前的 private draft、按验签 intent 完成同一 draft，
       或按 receipt 创建 human-reviewed marker rollback PR；不能直接写 default branch或改写
-      其他 release；candidate/source-identity 双路由 lease +
-      repository-global ledger lease + merged reconciliation watermark 阻止任何 prior attempt 后的
+      其他 release；candidate/source-identity 双路由 lease + repository-global ledger lease +
+      marker 路径 fenced publication lease/CAS + merged watermark 阻止 prior attempt 或并发 candidate 后的
       rerun/publish；publish_nonvalid 只发布无 current 的同版本 row并保留 latest-valid marker。
 - [ ] unavailable/inconclusive/interrupted/legacy-schema 及 process-tree/report/schema/
       cleanup terminal errors 均非零退出、blank headline，且不会把历史数字冒充当前 release。

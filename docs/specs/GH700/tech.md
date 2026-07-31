@@ -135,8 +135,8 @@ tasks 文本、payload setup、仅 launcher 存在或猜测的 `vibeguard` shim 
 fixture JSONL 不携带 ground truth 或 executable path；每行只保存稳定 case ID、
 failure class 和合成 fixture。独立 ground-truth JSONL 以 case ID 关联
 `positive|negative`、matched pair、审核人/证据；production-mapping JSON 以 mapping ID
-关联实际 installed entrypoint、required asset digests、closed raw decision schema、
-normalization 与 mapping reviewer。示意形状：
+关联实际 installed entrypoint、required asset logical IDs、closed raw decision schema、
+normalization 与 mapping reviewer，并拒绝 registry 外的 digest/size/version/path identity。示意形状：
 
 ```json
 {
@@ -207,12 +207,12 @@ executable 的 executor，只能从 readonly snapshot 中启动 preflight 已验
 path/handle；脚本需要 PATH 解析时只提供由这些已验证 assets 构成的 minimal PATH。禁止
 `Command::new("bash")`、`Command::new("python")`、`Command::new("git")`、`/usr/bin/env`
 或 ambient PATH lookup。实现可以把 subprocess 改为进程内 library；static inventory 与
-child-exec audit 仅作预检，不能证明分支后续不会 exec。每个 case/sample 的完整 descendant
-tree 必须由 manifest/protocol 钉住的 OS-authoritative deny-by-default exec broker 监管：
-每次 image 启动前以 resolved handle/digest 匹配 registry logical ID，闭包外 identity 在
-执行前拒绝。所有 broker decisions、实际 executable identities 与四个 limits 进入 report
-provenance；backend 无 pre-exec deny、失联/race 或 undeclared exec 均 fail closed，无合规
-backend 的 target 在零 case/sample 前 `unavailable`。
+child-exec audit 仅作预检，不能证明分支后续不会 exec。每个 case/sample 的完整 descendant tree 必须由 manifest/protocol 钉住的 OS-authoritative deny-by-default exec broker 监管。
+每次 image 启动前只允许 resolved handle/digest 匹配 registry logical ID，或匹配 manifest
+直接绑定、launcher 已验证并以 inherited handle 派生的唯一 `runtime_execution_grant`；
+grant 不写回 registry且禁止 pathname lookup，闭包外 identity 在执行前拒绝。所有 broker
+decisions、实际 executable identities 与四个 limits 进入 report；backend 无 pre-exec deny、
+失联/race 或 undeclared exec 均 fail closed，无合规 backend 则零 sample `unavailable`。
 
 `dangerous_shell_or_git` fixture 只作为 hook stdin 分类，绝不执行 payload 中的 command。
 file/project fixtures 先在专用 temp root materialize 合成文件，再通过 installed
@@ -448,19 +448,18 @@ publication 使用 attempt-scoped two-phase draft：
 
 1. phase A 创建 run/attempt-bound **private draft Release**，上传全部 assets/checksums/
    reports/summary，逐项下载重验并证明无缺失/额外 asset；README current row 尚不创建；
-2. desired final state 为 `valid` 时，在任何 `publish_intent` 前先合并只移除旧 current
-   标识的 human-reviewed PR，重验 default-branch blob digest/current-marker count 为零，
-   并永久 append 绑定 PR merge SHA、前后 blob digest 的 `marker_transition_receipt`；
-   `publish_nonvalid` 跳过 marker transition，receipt 显式 null；
-3. 在 candidate lease 内重验 watermark、draft inventory 与 receipt，才写不可覆盖
+2. desired final state 为 `valid` 时，先取得 renewable、fenced `repository_publication_lease`；在任何 `publish_intent` 前，以 default-branch CAS 合并
+   只移除旧 current 的 human-reviewed PR，重验 marker count 为零，并永久 append 绑定
+   lease token、PR merge SHA、前后 blob digest 的 `marker_transition_receipt`；
+   `publish_nonvalid` 跳过 marker transition且 receipt null；
+3. 持 candidate/publication leases 重验 watermark、draft 与 receipt，才写不可覆盖
    `publish_intent`，绑定 draft/tag/source/assets/summary/policy/final state/receipt；
 4. 唯一 commit point 是把 draft 切为 published。transition 前取消删除 draft；valid
    transition 后、intent 前取消必须按 receipt 创建精确恢复旧 marker 的 PR，待 human
    review/merge 与 freshness 验证后才删 draft；intent 后取消则按 intent 幂等完成同一
    draft。commit 后只验证 public Release 与 intent byte-for-byte 对齐；
-5. valid commit 后由独立 PR 添加新 row/current marker；`publish_nonvalid` commit 后
-   PR 只添加永不带 current 的 non-valid row，既有 latest-valid current marker保持不变。
-   两个分支的重试都只复用同一 intent/draft identity，不创建第二个 release。
+5. valid commit 后仍持同一 fenced lease/CAS 合并独立 human-reviewed new-current PR；rollback/new-current 后才释放。`publish_nonvalid` 只加无 current row并保留 latest-valid marker；
+   重试只复用同一 intent/draft identity，不创建第二个 release。
 
 required target 不能原生执行时显式 `unavailable` 并使 summary non-valid；非 required
 target unavailable 只展示、不阻断。不得用 host/cross binary 贴 native 目标标签；若
@@ -556,8 +555,9 @@ early→candidate binding，并把 digest union 进 candidate watermark；无法
 唯一、内容一致的永久 record，并生成
 attested reconciliation watermark（覆盖最大 terminal run/attempt 与 record digest set）。
 存在 unreconciled attempt、run listing/permanent store 不可用、不同内容冲突或 watermark
-落后时 fail closed；reconciler 也按 canonical lock order 持 source/candidate 与
-`repository_ledger_lease`，append 后才推进 watermark，因此不能先 publish 再补 evidence。
+落后时 fail closed；reconciler 也按 canonical lock order 持 source/candidate、
+`repository_ledger_lease` 与 marker 路径的 `repository_publication_lease`，append 后才推进
+watermark；lease token/CAS 失效即停写并由同 candidate 恢复，不能并发发布或后补 evidence。
 
 `publish_nonvalid` 则必须先发布该 candidate 的 schema-valid non-valid report/evidence，
 再创建同版本 README row：每个 non-valid axis cell 为空并显示 status、closed reason code
@@ -769,8 +769,8 @@ temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期
       history-sensitive per-case isolation、all-launcher forwarding、detector error、timeout、
       environment distortion、parallel runs、interruption、legacy schema 和 sentinels；
       E2E sample 必须按 fixed schedule 由 readonly snapshot wrapper spy 观察到。
-- [ ] Release contract: native reports/strict summary；candidate/source-identity 与
-      repository-ledger leases、exact-ref early binding 阻止 unreconciled cancellation；failure manifest
+- [ ] Release contract: native reports/strict summary；candidate/source-identity、
+      repository-ledger/publication leases 与 exact-ref binding 阻止并发 marker/cancellation；failure manifest
       retention、required/display-only mutation、valid de-current/zero-gap/new-current 与
       publish_nonvalid preserve-current/unmarked-row 均受测试。
 - [ ] Documentation: 3×3×terminal、per-surface latency、双 locale 与 branch-aware marker
