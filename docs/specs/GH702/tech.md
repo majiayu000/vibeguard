@@ -313,10 +313,12 @@ rollback 失败保留 before/staged/journal 并返回 `needs_repair`，禁止删
 另一版本。
 
 commit 前还必须验证 authoritative policy pointer/floor 与 committed policy identity；为新
-generation 预写并 fsync 专属 runtime state，初值继承同 epoch
-`max(existing_high_water, evaluation_time)`。随后单次 active pointer replacement 同时选择新
-generation/state；switch 前 crash 仍选择旧 state，switch 后两者同时可见。policy/floor mismatch
-或 state 初始化失败均在 switch 前 rollback，不得预先改绑旧 generation 正使用的 state。
+generation 初始化 state 前，management 在既有 ownership/target locks 之后取得 installation
+runtime-state lock，并持锁跨越旧 state high-water/sequence snapshot、新 state fsync 与 active
+pointer switch；因此旧 generation runtime 不可能在 snapshot 后再推进。初值继承同 epoch
+`max(existing_high_water, evaluation_time)`，单次 pointer replacement 同时选择新 generation/
+state；switch 前 crash 仍选择旧 state，switch 后两者同时可见。policy/floor mismatch 或 state
+初始化失败均在 switch 前 rollback，不得预先改绑旧 state。
 
 same-content retry 先取得新的 normalized evaluation time，重算 freshness、revocation 与
 eligibility identity，再比较 receipt/active/store/publication-policy/evaluation-policy/
@@ -428,9 +430,11 @@ normalized evaluation-time 变化产生新 digest 并触发 audit，即使 colla
 这包括只跨越 freshness/expiry/revocation window、其他 bytes 均未变化的情况。
 active block 失去 eligibility 时按 H-008 action 事务降级，失败进入 `needs_repair`。
 
-runtime hot path 每次 enforcement 先读取 authoritative policy pointer 与独立 monotonic floor；
-pointer generation 低于 floor（包括旧 pointer replay）、digest 与 committed generation 不同、
-缺失或 malformed 时，立即 fallback 并派生 `policy_changed + audit_required`，不等旧 horizon。
+runtime hot path 每次 enforcement 先读取 authoritative policy pointer 与独立 monotonic floor。
+两者 valid、pointer generation `>= floor` 但 digest 与 committed generation 不同时，立即使用
+semantic fallback 并派生 `policy_changed + audit_required`。pointer/floor 缺失或 malformed，
+或 pointer generation 低于 floor（旧 pointer replay）时则是 `runtime_guard_unavailable`，必须
+保守拒绝并非零返回；不可将不可读 authority 当成新 policy。两类都不等旧 horizon。
 随后从 active set pointer 派生 generation-scoped state path，在 per-installation lock 下验证
 `evaluation_time <= runtime_time < decision_valid_until` 及
 `runtime_time >= last_trusted_runtime_time`；即使 runtime time 仍在 validity interval 内，只要
@@ -604,8 +608,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | Role-separated loader + active-policy pointer/floor | unauthorized rotation fails；rotate generation before old expiry then committed mismatch falls back；replay old pointer below durable floor stays rejected；activation crash is recoverable/fail-closed |
-| B-028 insufficient evidence degrades | Eligibility + generation-scoped runtime guard + renderer | stale/expiry/rollback uses fallback；pointer-switch crash keeps old generation/state；same-epoch high-water never decreases；explicit trusted-time reconciliation creates a new epoch；state/lock/CAS failure conservatively denies and exits nonzero |
+| B-027 policy-owned thresholds | Role-separated loader + active-policy pointer/floor | valid newer digest mismatch falls back；missing/malformed authority or pointer replay below floor conservatively denies；activation crash is recoverable/fail-closed |
+| B-028 insufficient evidence degrades | Eligibility + generation-scoped runtime guard + renderer | stale/expiry/rollback uses fallback；concurrent runtime cannot advance old state between management snapshot and pointer switch；same-epoch high-water never decreases；reconciliation creates a new epoch；guard failure denies/nonzero |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
 | B-031 same gate for core/community | Shared eligibility function | identical evidence inputs under curated/community publishers yield identical eligibility; badge/high severity cannot bypass |
@@ -654,7 +658,7 @@ runtime hook
 
 持久化面是 closed set：content-addressed verified store、index/registry-event caches、
 transaction journals/before snapshots、committed receipts/active identities、authoritative local
-evaluation-policy pointer、durable trusted-time runtime state、local overrides
+evaluation-policy pointer、durable evaluation-policy generation floor、trusted-time runtime state、local overrides
 和用户显式生成的 feedback export。临时下载与 staging 在 commit/rollback 后清理；
 `needs_repair` evidence 在成功 recovery 前保留。任何 temp 路径、raw response、credential、
 用户代码或 event payload 不进入 receipt/status。

@@ -286,13 +286,15 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     README、install command 或 artifact-embedded publication policy 临时覆盖。policy
     更新必须在不改写 bundle/index identity 的前提下重算 eligibility；Core-owned
     authoritative local evaluation-policy pointer 一旦切换，runtime 必须在下一次 enforcement
-    比较其 digest 与 committed generation，mismatch、pointer 缺失或 malformed 时立即使用
-    warn/off fallback 并标记 `audit_required`，不能等旧 `decision_valid_until` 到期。status
+    比较其 digest 与 committed generation：可读、合法且不低于 floor 的新 pointer 若 digest
+    mismatch，立即使用 warn/off fallback 并标记 `policy_changed + audit_required`；pointer/floor
+    缺失、malformed 或 pointer generation 低于 floor 时则是 `runtime_guard_unavailable`，必须
+    拒绝本次操作并非零返回，不能通过 fallback 放行。两者都不能等旧 horizon 到期。status
     同时显示 publication、committed evaluation 与 authoritative active evaluation policy
     identities。每次 policy activation 还必须在 Core-owned policy lock 下先原子推进并 fsync
     durable monotonic `policy_generation_floor`，再切换带 generation 的 authoritative pointer；
     runtime 同时验证 pointer generation 不低于该 floor。旧 pointer replay 即使 digest 再次
-    匹配 committed generation 也必须 fallback + `audit_required`，floor 缺失/损坏则 fail closed。
+    匹配 committed generation 也必须按 unavailable 拒绝，floor 缺失/损坏同样 fail closed。
 28. B-028: 某 rule 的 evidence 缺失、invalid、样本不足、过期或 precision 低于获批 floor
     时，其 official effective default 必须是 warn，绝不能 block；无数据必须显示空
     precision + closed reason，不能写 `0%` 或沿用旧证据。用户显式关闭属于 B-030 的
@@ -303,6 +305,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     evaluation/expiry interval 内，也必须立即忽略旧 block、使用 fallback 并显示
     `clock_rollback + audit_required`。high-water state 必须按 active generation 隔离并由同一
     installation-scope pointer 选择；新 state 在 pointer switch 前不可影响旧 generation。
+    management commit 必须在读取旧 high-water/sequence 前取得 installation runtime-state lock，
+    并持锁直到新 state fsync 与 active pointer switch 完成，禁止 runtime 在交接窗口推进旧 state。
     high-water 缺失、损坏、身份不匹配或 bounded retry 后仍无法锁定/原子推进时必须拒绝本次
     操作并非零返回，不能降为 warn/off 后放行，也不能因进程重启静默降低 high-water。
     rollback 后普通 fresh audit 不能降低同一 clock epoch 的 high-water；恢复必须走显式
