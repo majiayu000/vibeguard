@@ -221,8 +221,18 @@ environment-protection mismatch及 approval roster/class/incident substitution�
 trust revocation behavioral cases还须逐一拒绝 unknown reason、wrong replacement nullability/class、same key
 ID/version/SPKI、quorum或管理域下降、bootstrap-pinned key、inactive/already-revoked key及
 compromise/loss伪装 scheduled/superseded reason。
-同一 generator还须覆盖 bootstrap-initial-time purpose/subject、RFC3161 fractional `genTime`与
-missing/invalid accuracy、secret-channel request/session substitution、execution identity safe-integer上下界±1、
-generated-PR delivery state/receipt nullability、KMS logical-version attestation drift及
-successor→anchor-class错配；这些约束的 unknown/extra/alias/null/applicability reject与所属 contract schema
-一并生成，不得由 consumer维护本地例外。
+同一 generator还须覆盖 bootstrap-initial-time purpose/subject/RFC3161 fractional `genTime`，并对 durable ceremony逐项
+注入 approval/projection/journal-path、event gap/fork/state regression、second nonce/logical request、request-byte substitution、
+per-source token replacement、proof ack-loss、consumed replay及 bootstrap ceremony/receipt/manifest cross-digest drift。
+trusted-time policy须分别拒绝旧 `max_accuracy_seconds`、缺失/负值/错位 numeric编码的 `maximum_tsa_accuracy_ns`、
+quorum preimage删域/extra/source reorder/domain替换/digest mismatch与 missing/invalid/overflow accuracy。
+numeric generator须遍历四份 contract schema inventory中的每个 integer scalar，而非只测 execution identity：对 signed safe
+边界 `±9007199254740991`及越界±1、u16/u32/u64 的 0/max/max+1、nonzero zero、attestation times、body length、threshold、
+key version、durable/SQLite sequence、frontier/epoch/fence/run/slot逐项生成 safe-as-string、unsafe-as-number、fraction、
+exponent、`+`、leading zero、`-0`、whitespace、overflow与 decoded-numeric ordering negatives；任何未登记 scalar使生成失败。
+secret capsule须覆盖 initial-response ack-loss后新 TLS session read-confirm、original-exporter inequality但 current exporter valid、
+same-capsule fresh read audit，并拒绝未认证 replay、source/request/slot/actor substitution、second capsule及 ciphertext/KMS drift。
+backup KMS须接受三个 object各自 response ARN/actual `KeyMaterialId`/CiphertextBlob attestation及 nested set digests，拒绝
+logical `kms_key_version`、KeyId-as-UUID、missing/malformed/material substitution、Describe/current-material冒充 actual response、
+request/context/blob/attestation/set-digest drift；generated-PR nullability与 exhaustive anchor-class negatives继续逐项生成。
+这些约束的 unknown/extra/alias/null/applicability reject与所属 contract schema一并生成，不得由 consumer维护本地例外。

@@ -1,55 +1,32 @@
 # GH700 Publication History Contract
 
-本文件与 [publication authority API / blocked-attempt contract](publication_ledger_contract.md)、
-[authority protocol contract](publication_authority_protocol_contract.md) 及
-[publication conformance vectors](publication_conformance_vectors.md) 共同构成 `product.md` B-017/B-018
-与 `tech.md` publication machine 的规范性组成部分，隔离 publication ownership、mutation-secret、
-append-only history、trusted time、trust/fold 与 owner-liveness 概念边界。引用方可以通过链接或行为场景引用这里已经定义的 identifier，
-但不得复制、改名或局部覆盖这里的字段集合、枚举、canonical bytes、secret boundary
-或 fail-closed 语义；冲突时四份 contract各自拥有的 exact machine-facing identifiers为唯一真源。
+本文件与 [authority API / blocked-attempt contract](publication_ledger_contract.md)、[authority protocol](publication_authority_protocol_contract.md) 及
+[conformance vectors](publication_conformance_vectors.md) 共同构成 `product.md` B-017/B-018与 `tech.md` publication machine 的规范性组成部分，隔离 ownership、mutation-secret、append-only history、trusted time、trust/fold与 owner-liveness。
+引用方不得复制、改名或局部覆盖字段、枚举、canonical bytes、secret boundary或 fail-closed语义；冲突时四份 contract各自拥有的 exact machine-facing identifiers为唯一真源。
 
 ## Concrete durable authority
 
-唯一 production backend 是 `publication_authority_sqlite_v1`，由计划中的
-`vibeguard-runtime/src/publication_authority/{mod.rs,store.rs,broker.rs,recovery.rs,restore_anchor.rs,backup_store.rs,anchor_signer.rs,governance_recovery.rs}` 与
-`vibeguard-runtime/src/main.rs` 的 `publication-authority serve|recover` 命令实现；publication
-client、workflow、benchmark code 均不得另建 store、直接打开数据库或以内存/mock/checkout/
-Actions artifact降级。environment-protected service以单 active replica运行在独立于 runner、
-checkout、Release artifact与 owner lifecycle 的 durable volume；signed deployment manifest的
-closed planned **schemas/publication_authority_deployment.schema.json** 固定
-`{authority_id,backend,authority_identity_digest,policy_epoch,policy_bundle_digest,client_api,control_api,control_approval_policy,
-publication_store_path,publication_store_lock_path,volume_identity,kms_key_id,retention_policy_digest,
-trust_bundle_digest,blocked_attempt_ledger,trusted_time_service,bootstrap_governance,break_glass_governance,
-restore_anchor_service,restore_backup_service,anchor_signing_policy,predicate_evaluator_roster}`；
-backend必须 exact 为 `publication_authority_sqlite_v1`。
-`predicate_evaluator_roster` exact 为 `{schema_version,signature_profile,entries}`，schema version exact
-`GH700:predicate-evaluator-roster:v1`；profile exact 为 `{algorithm:"ed25519",message_digest:"sha256_jcs_v1",
-signature_encoding:"base64url_nopad_v1",key_version_policy:"manifest_pinned_v1"}`。entries按
-`(reason_code,predicate_id,issuer_key_id,issuer_key_version)` UTF-8 bytes升序去重，每项 exact 为
-`{reason_code,predicate_id,predicate_definition_digest,evaluator_identity_digest,issuer_key_id,
-issuer_key_version,public_key_spki_der_b64url,public_key_spki_sha256}`；key version是非零 u64，SPKI字段是 RFC 5280
-Ed25519 DER的 RFC 4648 URL-safe无 padding编码且 decoded SHA-256须 byte-equal hash，所有 digest/hash为
-lowercase `sha256:<64hex>`并禁止 ambient lookup。reason/predicate闭集只由 [publication_ledger_contract.md](publication_ledger_contract.md)拥有；empty/duplicate/unknown/profile drift使 authority non-ready。
+唯一 production backend `publication_authority_sqlite_v1`由计划中的 `vibeguard-runtime/src/publication_authority/{mod.rs,store.rs,broker.rs,recovery.rs,restore_anchor.rs,backup_store.rs,anchor_signer.rs,governance_recovery.rs}` 与 `vibeguard-runtime/src/main.rs` 的 `publication-authority serve|recover`实现；client/workflow/benchmark不得另建 store、直接开库或降级到 memory/mock/checkout/Actions artifact。
+environment-protected service以单 active replica运行在独立于 runner/checkout/Release artifact/owner lifecycle的 durable volume；signed deployment manifest的 closed planned **schemas/publication_authority_deployment.schema.json** 固定
+`{authority_id,backend,authority_identity_digest,policy_epoch,policy_bundle_digest,client_api,control_api,control_approval_policy,publication_store_path,publication_store_lock_path,volume_identity,kms_key_id,retention_policy_digest,trust_bundle_digest,blocked_attempt_ledger,trusted_time_service,bootstrap_governance,break_glass_governance,restore_anchor_service,restore_backup_service,anchor_signing_policy,predicate_evaluator_roster}`。
+`predicate_evaluator_roster` exact `{schema_version,signature_profile,entries}`，version `GH700:predicate-evaluator-roster:v1`；profile exact `{algorithm:"ed25519",message_digest:"sha256_jcs_v1",signature_encoding:"base64url_nopad_v1",key_version_policy:"manifest_pinned_v1"}`。
+entries按 `(reason_code,predicate_id,issuer_key_id,issuer_key_version)` UTF-8升序去重，每项 exact `{reason_code,predicate_id,predicate_definition_digest,evaluator_identity_digest,issuer_key_id,issuer_key_version,public_key_spki_der_b64url,public_key_spki_sha256}`；version是 `gh700_uint64_nonzero`，SPKI为 RFC5280 Ed25519 DER的 unpadded base64url且 decoded hash须等，digest/hash均 lowercase `sha256:<64hex>`并禁 ambient lookup。
+reason/predicate闭集只由 ledger contract拥有；empty/duplicate/unknown/profile drift使 authority non-ready。
 `client_api` 与 `control_api` 是同一 authority 每次启动同时绑定的 required objects，不是 union/alias/fallback。
-`client_api` exact 为 `{endpoint,transport,api_version,server_identity_bundle_digest,client_auth_policy_digest}`：endpoint是 manifest-pinned absolute HTTPS origin+path且禁 redirect/userinfo/query/fragment，transport exact `tls13_mtls_http2_jcs_v1`，API version exact `GH700:publication-authority-client-api:v1`。`control_api` exact 为 `{socket_path,transport,api_version,server_process_identity_digest,response_signing_key,peer_auth_policy,peer_auth_policy_digest}`：socket是 manifest-pinned absolute
-Unix path，transport exact `unix_peercred_jcs_v1`，API version exact
-`GH700:publication-authority-control-api:v1`，只开放 bootstrap/migrate/recover/ready 方法且永不监听网络。
-两个 API 的每个 request/response/startup receipt都必须绑定相同 top-level `authority_id`、
-`authority_identity_digest`、strictly monotonic `policy_epoch` 与 `policy_bundle_digest`；该 bundle同时
-digest method partition、两端 auth/approval policy、server/response-key identities及完整 `predicate_evaluator_roster`。client server bundle由 authority外的
-release-identity root锚定 exact service ID/issuer/SPKI；client auth policy闭合 repo/workflow/
-environment/ref/run/actor、cert issuer、role与允许 method；control peer policy闭合 executable digest、
-code-sign identity、uid/gid及允许 method。任一 API缺失、单边 rotation、四个 shared值不等、bundle
-内外不一致或 policy epoch回退使整个 authority non-ready；rotation必须由一份 signed manifest原子
-切换两端，旧新组合无 grace/fallback。每个 request还绑定对应 API version、frontier、operation/request
-digest及 anti-replay nonce。unknown endpoint/socket、ambient discovery/proxy/DNS trust、redirect、wrong
-transport/version/server/client/peer identity或 policy drift均拒绝。store path是唯一 absolute
-canonical SQLite file且必须位于该 volume，禁止默认/相对/temp路径。KMS policy由 manifest钉住；
-reconciler/workflow GitHub token始终 read-only，target write credential只存在于 authority sole broker的
-environment secret provider，client绝不接收、转发或记录它。
+`client_api` exact `{endpoint,transport,api_version,server_identity_bundle_digest,client_auth_policy_digest}`：manifest-pinned absolute HTTPS origin+path禁 redirect/userinfo/query/fragment，transport/version exact `tls13_mtls_http2_jcs_v1`/`GH700:publication-authority-client-api:v1`。`control_api` exact `{socket_path,transport,api_version,server_process_identity_digest,response_signing_key,peer_auth_policy,peer_auth_policy_digest}`：manifest-pinned absolute Unix path，transport/version exact `unix_peercred_jcs_v1`/`GH700:publication-authority-control-api:v1`，只开放 ledger闭集方法且不监听网络。
+两个 API 的 request/response/startup receipt绑定相同 `authority_id`、`authority_identity_digest`、strictly monotonic `policy_epoch`、`policy_bundle_digest`；bundle同时 digest method partition、auth/approval policy、server/response-key identities与 roster。client server bundle由外部 release-identity root锚定；两端 policy闭合 repo/workflow/environment/ref/run/actor/cert/role或 executable/code-sign/uid/gid及 method。
+任一 API缺失、单边 rotation、shared值/内外 bundle不等或 epoch回退使 authority non-ready；rotation由一份 signed manifest原子切换且无 grace。request还绑定 API version/frontier/operation/request digest/anti-replay nonce；unknown/ambient endpoint/socket/proxy/DNS/identity/policy均拒绝。
+store path是 volume内唯一 absolute canonical SQLite file，禁 default/relative/temp；KMS policy由 manifest钉住。reconciler/workflow GitHub token始终 read-only，target write credential只在 authority sole broker secret provider，client不得接收/转发/记录。
 
 client/control method wire只由 [publication_ledger_contract.md](publication_ledger_contract.md)定义；authority-owned
 trusted-time proof profile只由 [publication_authority_protocol_contract.md](publication_authority_protocol_contract.md)定义；本文件只定义 history与 shared durability。
+
+四份 normative contract 的所有 digest-bearing/wire JSON共享唯一 integer profile。`gh700_integer`逻辑值在
+`[-9007199254740991,9007199254740991]`内必须是无 fraction/exponent的 canonical JSON number，绝对值更大必须是
+canonical base-10 string（负数仅一个 leading `-`；禁止 `+`、leading zero、`-0`、whitespace）；safe值的 string与
+unsafe值的 JSON number均拒绝。`gh700_uint{16,32,64}`及 `_nonzero`先按该唯一表示解码，再验证对应 unsigned
+bit range/zero规则；times、length/count、threshold、key version、sequence/frontier/epoch/fence/run/slot均不得局部重定义。
+`u64be`仅是已验证 logical uint64的八字节 binary framing，不是 JSON替代编码；numeric comparison/sort按解码值。
 
 service启动先取得同 manifest钉住的 process lock，验证 volume支持 kernel lock与 durable `fsync`，再以 SQLite WAL、`journal_mode=WAL`、`synchronous=FULL`、foreign keys及
 `BEGIN IMMEDIATE`运行。history head/leaf、operation/rotation/slot unique indexes、owner/fence、
@@ -57,14 +34,9 @@ capsule ciphertext metadata、broker outbox/delivery/send-once audit与 complete
 事务中验证和提交；任何 lock/busy timeout、WAL/fsync/checkpoint、disk-full或 KMS error都使
 authority non-ready并 fail closed，不得返回成功 receipt。首次 database/WAL/lock 创建与 migration
 commit后还须 fsync file及 parent directory；禁止 destructive migration、truncate或 silent rebuild。
-authority-owned durable persistence是 exact closed inventory：signed deployment manifest与 bootstrap/
-migration/governance receipts；SQLite database/WAL/checkpoint及 history/blocked-attempt/operation/rotation/
-slot/owner/fence/delivery/terminal-reconciliation unique indexes；完整 attempt manifest/record/binding/
-terminal-listing proof capsule+encrypted provider bytes/reconciliation/watermark、RFC3161 token proof capsules、
-trusted-time preparations与 time high water；capsule ciphertext metadata与 KMS retained-key/version/retention
-references；broker outbox、delivery/send-once audit与 completed receipts；external restore anchor/epoch/two frontiers、每个 encrypted
-snapshot/manifest/WAL immutable backup object/version/AEAD header/retained wrapped key、backup confirmation、
-online-quorum signature及 restore/recovery/break-glass receipts。其外 cache/temp/log不得参与恢复或授权，
+authority-owned durable persistence是 exact closed inventory：signed manifest及 bootstrap/migration/governance receipts；
+pre-bootstrap ceremony journal/events/request bytes/tokens；SQLite DB/WAL/checkpoint及 history/blocked/operation/rotation/slot/owner/fence/delivery/reconciliation indexes；完整 attempt、RFC3161 preparation/proof/high-water、capsule ciphertext/KMS refs/read audits、broker outbox/audit/receipts；
+external anchor/epoch/frontiers、encrypted snapshot/manifest/WAL immutable versions/AEAD header/wrapped key、每项 AWS KMS material attestation、backup confirmation、quorum signatures及 restore/recovery/break-glass receipts。其外 cache/temp/log不得参与恢复或授权，
 inventory内任一缺失/不一致均 blocked。
 
 唯一 bootstrap owner 是 SP700-T3 的 publication-authority store/deployment single writer，经计划中的
@@ -98,11 +70,15 @@ backup/restore、KMS administration或 policy mutation权限，authority SQLite/
 唯一 production recovery-byte backend是独立 backup-governance AWS account的
 `publication_restore_backup_s3_object_lock_v1`。`restore_backup_service` exact 为
 `{backend,endpoint,transport,api_version,resource_identity,writer_auth_policy_digest,recovery_auth_policy_digest,
-retention_class,minimum_retention_seconds,encryption_contract,data_key_wrap_contract}`；`data_key_wrap_contract`
-exact 为 `{provider:"aws_kms_v1",operation:"GenerateDataKey",key_spec:"AES_256",
-kms_key_arn,kms_key_id,kms_key_version,kms_key_version_attestation,kms_key_version_attestation_digest,
-encryption_context_schema:"GH700:backup-data-key-context:v1"}`。logical `kms_key_version`是 nonzero safe integer；attestation exact为 `{schema_version:"GH700:kms-key-version-attestation:v1",attestation_core:{kms_key_arn,kms_key_id,kms_key_version,policy_epoch,prior_version_attestation_digest_or_null},threshold_signatures}`，signatures复用 manifest privileged profile并签 `SHA256(JCS({v:"GH700:kms-key-version-attestation-signature:v1",attestation_core}))`；digest须等于完整 attestation的 JCS SHA-256，轮换须 version/epoch递增且旧 attestation永久保留。
-`GenerateDataKey` response的 KeyId须 byte-equal manifest key ID，`backup_set_core.kms_key_version`只取该 verified attestation；AWS response、alias或 ambient metadata不得另造 version。manifest钉住 account/region/bucket ARN+name+
+retention_class,minimum_retention_seconds,encryption_contract,data_key_wrap_contract}`；`data_key_wrap_contract` exact 为
+`{provider:"aws_kms_v1",operation:"GenerateDataKey",key_spec:"AES_256",kms_key_arn,kms_key_id,
+require_key_material_id:true,encryption_context_schema:"GH700:backup-data-key-context:v1"}`。按 AWS KMS API，preflight
+`DescribeKey(KeyId=kms_key_arn)`只验证 response `KeyMetadata.{Arn,KeyId,Enabled,KeyUsage,KeySpec,Origin}`匹配 manifest且
+可用；`GetKeyRotationStatus`只验证 rotation readiness，二者都不作为某次 wrap的 material source。每次无 `Recipient`
+的 `GenerateDataKey` response必须有 `KeyId==kms_key_arn`、32-byte Plaintext、CiphertextBlob及 exact 64位 lowercase-hex
+`KeyMaterialId`；该 response的 KeyId是 ARN，不与 manifest UUID `kms_key_id`混淆。actual `KeyMaterialId`是该 wrapped key
+唯一权威 material identity；Describe eventual-consistent current material、alias、rotation日期或 local counter不得替代。
+manifest钉住 account/region/bucket ARN+name+
 creation time、versioning/Object-Lock enabled、独立 KMS key ARN/key ID与 public-CA/server identity，禁 ambient
 endpoint/proxy/credential。retention exact `permanent_no_ttl_legal_hold_v1`：每个 version以 Compliance mode至少
 100年且开启 legal hold，无 lifecycle/overwrite/delete；governance须在不足10年剩余窗口前 threshold批准延长，
@@ -113,8 +89,8 @@ protected recovery role只在 threshold-approved restore中读 exact versions并
 
 每个 committed successor先生成 exact `backup_set_core={backup_id,resource_identity,snapshot_object_key,
 snapshot_version_id,snapshot_ciphertext_digest,manifest_object_key,manifest_version_id,
-manifest_ciphertext_digest,wal_object_key,wal_version_id,wal_ciphertext_digest,kms_key_arn,kms_key_version,
-wrapped_data_key_set_digest,aead_contract_digest,retention_until,legal_hold_status}`，其中 `wrapped_data_key_set_digest=SHA256(JCS([{object_kind:"snapshot",wrapped_data_key_digest},{object_kind:"recovery_manifest",wrapped_data_key_digest},{object_kind:"wal",wrapped_data_key_digest}]))` 且数组顺序固定、每个 digest 取对应 immutable object header 中 exact wrapped-key bytes 的 SHA256；及
+manifest_ciphertext_digest,wal_object_key,wal_version_id,wal_ciphertext_digest,kms_key_arn,
+kms_data_key_attestation_set_digest,wrapped_data_key_set_digest,aead_contract_digest,retention_until,legal_hold_status}`；
 `backup_set_core_digest=SHA256(JCS(backup_set_core))`。detached `backup_confirmation` exact 为
 `{backup_set_core_digest,snapshot_get_receipt_digest,manifest_get_receipt_digest,wal_get_receipt_digest,
 retention_receipt_digest,legal_hold_receipt_digest}`，`backup_confirmation_digest=SHA256(JCS(backup_confirmation))`，
@@ -125,14 +101,21 @@ canonical ordered preimage exact 为 `successor_frontiers_preimage={v:"GH700:suc
 {frontier_kind:"blocked_attempt_ledger",frontier:{repo_node_id,ledger_length,ledger_root,full_prefix_digest}}]}`；array顺序
 固定、两个 frontier来自同一 successor；`successor_frontiers_digest=SHA256(JCS(successor_frontiers_preimage))`编码
 lowercase `sha256:<64hex>`。每个 object先构造 exact KMS context `{schema_version:"GH700:backup-data-key-context:v1",
-authority_id,repo_node_id,backup_id,object_kind,successor_frontiers_digest,prior_anchor_digest}`，再调用一次
-`GenerateDataKey(KeyId=manifest exact ARN,KeySpec="AES_256",EncryptionContext=exact context)`；只接受32-byte plaintext与
-对应 `CiphertextBlob`，plaintext只在内存完成该 object加密后立即清零且绝不落盘/上传，wrapped data-key bytes exact 为
-`CiphertextBlob`。immutable object header保留 nonce、exact KMS context、wrapped data-key bytes、tag和
+authority_id,repo_node_id,backup_id,object_kind,successor_frontiers_digest,prior_anchor_digest}`及 request
+`{KeyId:kms_key_arn,KeySpec:"AES_256",EncryptionContext:kms_context}`；`kms_generate_data_key_request_digest=
+SHA256(JCS({v:"GH700:kms-generate-data-key-request:v1",request}))`。authenticated AWS response立即规范化为 exact
+`kms_data_key_attestation={schema_version:"GH700:kms-data-key-attestation:v1",object_kind,
+kms_generate_data_key_request_digest,aws_request_id,response_key_arn,key_material_id,ciphertext_blob_digest}`，其中
+response ARN/actual material分别 byte-equal `KeyId`/`KeyMaterialId`，`ciphertext_blob_digest=SHA256(CiphertextBlob raw bytes)`；digest exact
+`kms_data_key_attestation_digest=SHA256(JCS(kms_data_key_attestation))`。immutable object header保留 nonce、exact KMS
+context、wrapped data-key bytes、attestation+digest、tag和
 `AAD=JCS({authority_id,repo_node_id,backup_id,object_kind,successor_frontiers_preimage,time_high_water,plaintext_digest,
 prior_anchor_digest})`；encrypt及 restore/decrypt都从 AAD exact frontiers重算 digest并要求 byte-equal context；禁止明文或
-unauthenticated compression。上传后 exact-version strong GET并重算 ciphertext/header/wrapped-key digest及确认 retention+
-legal hold；wrong key ARN/spec/context、重复 data key、plaintext残留或任一对象未确认都不能签 anchor或释放 receipt。
+unauthenticated compression。`kms_data_key_attestation_set`是按 `snapshot,recovery_manifest,wal`固定顺序的三项 exact
+`{object_kind,kms_data_key_attestation_digest,key_material_id}`，其 digest为 JCS SHA-256；`wrapped_data_key_set`同序且每项 exact
+`{object_kind,wrapped_data_key_digest,kms_data_key_attestation_digest,key_material_id}`，`wrapped_data_key_set_digest=SHA256(JCS(wrapped_data_key_set))`；每个 wrapped digest取 exact
+CiphertextBlob。上传后 exact-version strong GET并重算 ciphertext/header/wrapped-key/attestation digests及确认 retention+
+legal hold；missing/malformed `KeyMaterialId`、wrong ARN/request/context/blob binding、重复 data key、plaintext残留或任一对象未确认都不能签 anchor或释放 receipt。
 DB successor transaction只固化 exact `anchor_plan_core={authority_id,authority_identity_digest,policy_epoch,repo_node_id,
 anchor_schema_version,restore_epoch,latest_frontier,blocked_attempt_ledger_frontier,time_high_water,time_proof_digest,
 transition_class,privileged_transition_or_null,prior_anchor_digest,backup_id,anchor_plan_id}` 及其 JCS SHA-256；core禁止包含
@@ -214,12 +197,15 @@ history 共用 durable DB/backup/anchor gate，但 authorization domain、fronti
 
 host wall clock、process monotonic clock、client timestamp、GitHub event time与 unsigned HTTP `Date` 均不授权
 expiry/takeover。deployment manifest 的 `trusted_time_service` exact 为
-`{backend,api_version,threshold,sources,max_accuracy_seconds,proof_retention_policy_digest}`，backend/API exact
+`{backend,api_version,threshold,sources,maximum_tsa_accuracy_ns,proof_retention_policy_digest}`，backend/API exact
 为 `rfc3161_tsa_quorum_v1` / `GH700:trusted-time-api:v1`；`sources` 是至少三项按 `source_id` canonical排序的
 `{source_id,endpoint,transport,tsa_policy_oid,signer_bundle_digest,server_identity_bundle_digest,
 client_auth_policy_digest}`，endpoint为无 redirect/query/fragment的 manifest-pinned HTTPS path，transport
 exact `tls13_mtls_rfc3161_sha256_v1`，threshold至少二且不超过 source数。source须独立 administration/
-signing root；ambient DNS/proxy/CA、TOFU、同 root重复 signer、unknown policy/algorithm均拒绝。
+signing root；ambient DNS/proxy/CA、TOFU、同 root重复 signer、unknown policy/algorithm均拒绝。exact preimage为
+`trusted_time_quorum_policy_preimage={v:"GH700:trusted-time-quorum-policy:v1",backend,api_version,threshold,sources,
+maximum_tsa_accuracy_ns,proof_retention_policy_digest}`，`quorum_policy_digest=SHA256(JCS(
+trusted_time_quorum_policy_preimage))`；任何删域、改序、旧 `max_accuracy_seconds` alias或 digest drift均拒绝。
 
 T10只提交 ledger contract的 proof-free time-bound request；T3从 signed fold取 prior high water并按
 [authority protocol contract](publication_authority_protocol_contract.md)的 exact purpose/subject、domain-separated
@@ -243,7 +229,7 @@ accuracy overlap、restart/snapshot rollback、heartbeat-vs-takeover race与 anc
 deployment manifest 的 `bootstrap_governance` exact 为
 `{bootstrap_version,release_identity_root_digest,governance_roster_digest,governance_threshold,
 governance_signer_key_ids,initial_trust_bundle_digest,initial_trust_epoch,first_frontier,
-first_blocked_attempt_frontier,initial_time_high_water,initial_time_proof_digest}`。
+first_blocked_attempt_frontier,initial_time_high_water,initial_time_proof_bundle_digest}`。
 release-identity root在 store/history/AWS accounts之外，
 签 roster attestation并把 canonical distinct signer key IDs、`1 <= threshold <= signer_count`、repo/purpose、
 initial trust root/leaf certificates与 epoch钉住。`bootstrap_manifest_core_digest` exact 为

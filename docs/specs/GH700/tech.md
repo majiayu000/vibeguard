@@ -301,7 +301,7 @@ mode 不写 project/global event log，不读取前次报告。
 
 所有 digest 输入共享 `canonicalization_version: jcs-rfc8785-v1`：先拒绝 duplicate JSON
 keys/unknown schema；JSON number 仅允许 safe integer
-`[-9007199254740991, 9007199254740991]`，更大 run/asset/identity 使用 canonical decimal
+`[-9007199254740991, 9007199254740991]`，任何更大 integer 使用 canonical decimal
 string，rate 使用 reduced numerator/denominator 且 display decimal 也是 string；再生成
 UTF-8 RFC 8785 JCS bytes，不附加 BOM 或尾随换行，最后 SHA-256。Rust producer、Python
 validator 与 release packaging 必须通过同一组包含 key order、escaping、Unicode、
@@ -756,7 +756,7 @@ temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期
 ## 测试计划
 
 - [ ] Unit tests: split corpus/truth/mapping schemas、duplicate-key/join/completeness、
-      append-only ledger、offline attestation + handle-backed identity、safe-integer JCS boundary、
+      append-only ledger、offline attestation + handle-backed identity、全 GH700 integer number/string唯一边界、
       raw decision/reason closure、per-case initial-state reset、3×3 axis candidate + terminal
       override、strict input-bound summary aggregation、confusion matrix、report/failure/summary
       digest builders、fixed latency schedule/quantiles、redaction、cancellation 与 path containment。

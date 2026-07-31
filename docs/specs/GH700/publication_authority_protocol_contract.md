@@ -67,7 +67,7 @@ purpose→`publication_transition`，其余分别→`incident_open`/`emergency_c
 - `emergency_cutover`：`{subject_kind:"emergency_cutover",recovery_incident_id,incident_open_receipt_digest,audit_delay_evidence_core_digest,current_anchor_digest,current_publication_frontier,current_blocked_attempt_frontier,next_trust_epoch,new_bundle_digest}`。
 
 bootstrap subject字段来自待批准 deployment core删除两个 proof-produced
-`bootstrap_governance.initial_time_high_water/initial_time_proof_digest`后的 exact closed projection；两个 frontier必须
+`bootstrap_governance.initial_time_high_water/initial_time_proof_bundle_digest`后的 exact closed projection；两个 frontier必须
 是按 history root contract重算的 length-zero full frontiers，signer IDs按 UTF-8 bytes升序 distinct，quorum policy须
 byte-equal manifest钉住的 RFC3161 policy。该 projection不含 proof/bundle/manifest/approval/control-operation digest，
 因此 proof→manifest→approval无自引用；任何 caller-supplied digest或 nonzero pre-state拒绝。
@@ -101,13 +101,14 @@ trusted_time_nonce_digest,trusted_time_proof_request_id,transition_operation_id_
 proof_state,proof_capsule_digest_or_null}`，
 state只可 `reserved→requested→proof_frozen→anchor_confirmed`。UNIQUE `(authority_id,repo_node_id,purpose,
 trusted_time_replay_identity)`；same identity/same subject从 durable state恢复，different subject冲突。任一 nonce/request/
-message imprint/token capsule不得跨 purpose或 replay identity复用；crash/ack-loss不得生成第二 nonce或 TSA request。
+message imprint/token capsule不得跨 purpose或 replay identity复用；crash/ack-loss不得生成第二 nonce或 logical TSA
+request，只有下述 journal 已冻结而尚无 source token时可 retransmit byte-identical request bytes。
 
 每个 token 的 DER `TSTInfo.genTime`只接受 UTC `YYYYMMDDhhmmss[.fraction]Z`；fraction为1–9位且末位非零，
 解析为 exact signed Unix nanoseconds `gen_time_ns`，leap second、offset、本地时区、超过 nanosecond精度或
-overflow拒绝。RFC3161 `accuracy`必须存在且至少一个 component nonzero：`seconds`为 nonnegative safe integer，
+overflow拒绝。RFC3161 `accuracy`必须存在且至少一个 component nonzero：`seconds`为 `gh700_uint64`，
 `millis/micros`若存在分别须 `1..999`；`accuracy_ns=seconds*10^9+millis*10^6+micros*10^3`使用 checked integer
-arithmetic，missing accuracy不得按 zero解释。manifest exact `maximum_tsa_accuracy_ns`须为 nonnegative safe integer，
+arithmetic，missing accuracy不得按 zero解释。manifest exact `maximum_tsa_accuracy_ns`须为 `gh700_uint64`，
 且每个 `accuracy_ns<=maximum_tsa_accuracy_ns`。
 
 token inclusive interval exact 为 `[gen_time_ns-accuracy_ns,gen_time_ns+accuracy_ns]`；wire second bounds分别取
@@ -128,9 +129,40 @@ minimum_audit_delay_seconds,cutover_trusted_time_proof_digest}`；仅当 cutover
 `>= incident_open upper + minimum_audit_delay_seconds`接受。incident receipt、cutover subject/core、offline approval与
 emergency record的 anchor/frontiers必须 byte-equal；任一 pre-state drift必须新建 incident，不得复用 proof。
 
+## Durable pre-bootstrap trusted-time ceremony
+
+主 database/anchor 尚不存在时，唯一入口是 ledger control API 的 `prepare_bootstrap_trusted_time`。proof-free
+`bootstrap_time_manifest_projection` exact 为 `{publication_store_path,volume_identity,trusted_time_subject,
+trusted_time_service,quorum_policy_digest}`；subject须为上述 bootstrap branch，service及 digest须 byte-equal history
+contract的 `trusted_time_quorum_policy_preimage`重算值。`projection_digest=jcs_sha256({v:
+"GH700:bootstrap-time-manifest-projection:v1",projection:bootstrap_time_manifest_projection})`，
+`prebootstrap_time_ceremony_id=jcs_sha256({v:"GH700:prebootstrap-time-ceremony:v1",authority_id,repo_node_id,
+projection_digest,prebootstrap_time_approval_digest,release_identity_attestation_digest})`。
+
+journal backend exact `prebootstrap_time_journal_sqlite_v1`，path exact 为 canonical absolute
+`publication_store_path + ".prebootstrap-time-v1.sqlite3"`，与目标 DB同 durable volume/process lock；以 create-only file、
+SQLite WAL/`synchronous=FULL`、parent-directory fsync启动，DB/anchor任一已存在时禁止新建。append-only event exact 为
+`{schema_version:"GH700:prebootstrap-time-journal-event:v1",ceremony_id,journal_sequence,event_kind,
+prior_event_digest_or_null,payload}`，digest为 JCS SHA-256；kind单调闭集为 `authorized→nonce_frozen→request_frozen→
+source_token_frozen*→proof_frozen→consumed`，sequence用 `gh700_uint64_nonzero`且无 gap，首 prior literal null。
+UNIQUE `(authority_id,repo_node_id,projection_digest)`；authorized payload绑定首个 control operation及 projection/approval/
+release-identity digests，same projection换 operation永久冲突。nonce payload冻结 replay identity、nonce bytes+digest；
+request payload冻结 proof request/imprint及按 source_id排序的 exact DER request bytes；每个 source token payload绑定唯一
+source、request bytes digest、DER token+digest及重算 interval；proof payload绑定 exact initial bundle+digest；consumed payload
+绑定 bootstrap manifest/approval/receipt digests。release-identity签名/root/identity先验签，但其 time validity只可在 quorum
+形成后以 `trusted_lower_bound>=valid_from`且 `trusted_upper_bound<=valid_until`判断；失败不写 proof，host time不得代替。
+每次 event commit+WAL+file+directory FULL fsync后才允许下一副作用。
+
+same ceremony/projection retry只 fold该 journal：已 frozen token的 source不再调用；request已 frozen但该 source无 token时
+只可 retransmit其 byte-identical DER bytes并冻结首个 valid response；proof-frozen/response ack-loss返回同一 bundle；
+consumed返回原 bootstrap receipt。different projection/approval、第二 nonce/logical request、token替换、truncate/recreate或
+缺口/fork一律 blocked。bootstrap成功后 journal永久保留并由 backup/anchor inventory覆盖，不得把其 pre-bootstrap
+replay状态迁成另一 identity。
+
 ## Bootstrap genesis and anchor evidence
 
-`initial_time_proof_bundle`只能由同一 `bootstrap_initial_time` subject/replay identity下 frozen proof capsules构造。
+ledger-owned exact `initial_time_proof_bundle`只能从同 ceremony journal的 `proof_frozen` event构造；其 ceremony/projection/
+subject/replay/nonce/request/proof字段须 byte-equal journal与同一 `bootstrap_initial_time` profile。
 bundle的 repo/quorum、每项 endpoint/policy/nonce/request/imprint/token digest与重算 proof必须 byte-equal，bundle
 lower/upper须 byte-equal上述 interval intersection，`initial_time_high_water`须 byte-equal upper；
 `initial_time_proof_bundle_digest=SHA256(JCS(bundle))`。随后 deployment core的两个 initial-time输出必须分别
@@ -152,7 +184,7 @@ SQLite commit evidence exact 为
 `bootstrap_database_commit_receipt={v:"GH700:bootstrap-database-commit:v1",control_operation_id,
 database_identity_digest,bootstrap_genesis_state_digest,transaction_kind:"bootstrap_genesis",store_generation:0,
 sqlite_transaction_sequence,wal_frame_end,commit_state:"committed",database_file_fsync:true,wal_fsync:true,
-parent_directory_fsync:true}`；两个 sequence是 unsigned 64-bit JSON integer。
+parent_directory_fsync:true}`；两个 sequence是 `gh700_uint64`。
 `bootstrap_database_commit_digest=jcs_sha256(bootstrap_database_commit_receipt)`；commit或任一 fsync未完成不得 backup/
 sign/anchor。
 

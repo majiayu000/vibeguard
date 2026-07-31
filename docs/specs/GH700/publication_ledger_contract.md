@@ -1,22 +1,12 @@
 # GH700 Publication Authority API, Delegated Values And Blocked-Attempt Contract
 
-本文件是 [publication_history_contract.md](publication_history_contract.md) 与
-[publication_authority_protocol_contract.md](publication_authority_protocol_contract.md) 的规范性组成部分，唯一拥有
-`client_api`/`control_api` wire schema、history显式委托的 value sets与 B-029 blocked-attempt ledger。product/tech/tasks只可链接或引用这里的
-machine-facing identifier，不得复制、改名或局部覆盖字段集、canonical bytes、retention或 fail-closed语义。
+本文件与 [history](publication_history_contract.md)、[authority protocol](publication_authority_protocol_contract.md) 共同构成规范，唯一拥有 `client_api`/`control_api` wire、history委托 value sets及 B-029 ledger；其它文件只可引用，不得复制/覆盖字段、canonical bytes、retention或 fail-closed语义。
 
 ## Closed client API
 
-`client_api.method` exact closed union为
-`{get_publication_head,claim_publication_owner,renew_publication_owner,takeover_publication_owner,
-append_publication_transition,plan_release_mutation,deliver_release_mutation,recover_release_mutation,
-plan_generated_pr,deliver_generated_pr,recover_generated_pr,append_blocked_attempt,bind_blocked_attempt,
-list_blocked_attempts,commit_reconciliation_watermark,get_blocked_attempt_frontier}`。
+`client_api.method` exact closed union为 `{get_publication_head,claim_publication_owner,renew_publication_owner,takeover_publication_owner,append_publication_transition,plan_release_mutation,deliver_release_mutation,recover_release_mutation,plan_generated_pr,deliver_generated_pr,recover_generated_pr,append_blocked_attempt,bind_blocked_attempt,list_blocked_attempts,commit_reconciliation_watermark,get_blocked_attempt_frontier,read_secret_capsule}`。
 
-request envelope exact 为
-`{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,repo_node_id,
-request_nonce,expected_publication_frontier_or_null,expected_blocked_attempt_frontier_or_null,
-operation_request_digest,body}`；`operation_request_digest` 是删除自身后整个 envelope 的 JCS SHA-256。
+request envelope exact `{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,repo_node_id,request_nonce,expected_publication_frontier_or_null,expected_blocked_attempt_frontier_or_null,operation_request_digest,body}`；digest是删除自身后 envelope的 JCS SHA-256。
 
 | method | exact request `body` | exact success `result` |
 | --- | --- | --- |
@@ -36,12 +26,10 @@ operation_request_digest,body}`；`operation_request_digest` 是删除自身后�
 | `list_blocked_attempts` | `{source_identity_key,candidate_identity_or_null,run_id_or_null,run_attempt_or_null,attempt_record_kind_or_null,attempt_subject_key_or_null,page_cursor_or_null,page_size}` | `{attempt_records,next_page_cursor_or_null,enumeration_snapshot_receipt}` |
 | `commit_reconciliation_watermark` | `{reconciliation_watermark,terminal_listing_proof,ledger_append_authorization}` | `{watermark_receipt,blocked_attempt_frontier_receipt}` |
 | `get_blocked_attempt_frontier` | `{}` | `{blocked_attempt_frontier_receipt}` |
+| `read_secret_capsule` | `{capsule_source,read_challenge,secret_channel_binding}` | `{capsule_receipt,capsule_read_confirmation}` |
 
 `time_bound_intent` exact 为 `{record_kind,execution_identity,client_payload_core,predecessor_frontier}`；
-`execution_identity` exact 为 `{run_id,run_attempt,transition_slot}`：`run_id`须是
-`1..9007199254740991`、`run_attempt`须是 `1..4294967295`、`transition_slot`须是
-`0..9007199254740991` 的 canonical JSON integer。负数、float、`-0`、越界值、decimal string、alias或额外字段
-均拒绝；上游 u64 identity超过 safe-integer上限时 publication为 `unavailable`，不得 lossy转换或进入 digest。method与
+`execution_identity={run_id,run_attempt,transition_slot}`三者分别为 history-owned `gh700_uint64_nonzero`、`gh700_uint32_nonzero`、`gh700_uint64`；unsafe u64必须 decimal string，safe值必须 number，负数/float/exponent/`-0`/错位类型/越界/alias/extra均拒绝。method与
 `record_kind`只允许 `{claim_publication_owner:owner_claimed,renew_publication_owner:owner_heartbeat,
 takeover_publication_owner:publication_owner_taken_over}`。client计算
 `time_bound_request_id=SHA256(JCS({v:"GH700:time-bound-request:v1",repo_node_id,method,
@@ -49,21 +37,15 @@ time_bound_intent}))`，authority须在任何 nonce issuance前从 wire bytes重
 `expected_publication_frontier_or_null`必须 non-null且 byte-equal
 `time_bound_intent.predecessor_frontier`；任一 null/mismatch报 `invalid_request`。
 
-`secret_channel_binding` exact 为
-`{schema_version:"GH700:secret-channel-binding:v1",channel_kind:"authority_mtls_exporter_v1",authority_id,
-repo_node_id,method,secret_channel_request_core_digest,peer_identity_digest,server_identity_digest,
-tls_exporter_context_digest,tls_exporter_keying_material_digest,secret_slot_ids}`。先从 request envelope删除
-`operation_request_digest`，并从 body删除 `secret_channel_binding`，得到 exact
-`secret_channel_request_core`；core不得保留占位 null，digest exact 为
-`SHA256(JCS({v:"GH700:secret-channel-request-core:v1",request:secret_channel_request_core}))`。
-TLS exporter label exact `EXPORTER-GH700-secret-channel-v1`，context bytes是
-`JCS({v:"GH700:secret-channel-exporter-context:v1",authority_id,repo_node_id,method,
-secret_channel_request_core_digest,peer_identity_digest,server_identity_digest})`，两个 exporter digest分别是
-context bytes与 exact 32-byte exporter output的 SHA-256。peer/server identity须从当前 verified mTLS session与 manifest
-重算，不能信任 wire。claim的 `secret_slot_ids` exact 为 `["draft_claim_nonce"]`，plan Release mutation exact 为
-`["mutation_nonce"]`；其它 method禁止该字段。binding只授权同一 session返回对应 opaque capsule，不含 raw secret；
+`secret_channel_binding` exact `{schema_version:"GH700:secret-channel-binding:v1",channel_kind:"authority_mtls_exporter_v1",authority_id,repo_node_id,method,secret_channel_request_core_digest,peer_identity_digest,server_identity_digest,tls_exporter_context_digest,tls_exporter_keying_material_digest,secret_slot_ids}`。request envelope删除 operation digest且 body删除 binding得无 null placeholder的 core；digest exact `SHA256(JCS({v:"GH700:secret-channel-request-core:v1",request:core}))`。
+exporter label exact `EXPORTER-GH700-secret-channel-v1`，context是 `JCS({v:"GH700:secret-channel-exporter-context:v1",authority_id,repo_node_id,method,secret_channel_request_core_digest,peer_identity_digest,server_identity_digest})`；两个 digest分别取 context与 exact 32-byte exporter output。peer/server identity从当前 verified mTLS session/manifest重算，不信 wire。
+claim/plan/read的 `secret_slot_ids`分别 exact `["draft_claim_nonce"]`/`["mutation_nonce"]`/`[capsule_source.secret_slot_id]`；其它 method禁该字段。binding只授权当前 verified session返回 opaque capsule，不含 raw secret；
 same binding/same request幂等恢复，跨 method/request/session/peer/server重放或 non-mTLS/empty exporter在 nonce
 issuance前报 `unauthenticated`。最终 `operation_request_digest`才覆盖含完整 binding的 envelope。
+
+`capsule_source` exact union `{source_method:"claim_publication_owner",source_request_id:time_bound_request_id,secret_slot_id:"draft_claim_nonce"}`或 `{source_method:"plan_release_mutation",source_request_id:source_operation_request_digest,secret_slot_id:"mutation_nonce"}`。首次 issuance永久 UNIQUE该 tuple并保存 exact `capsule_receipt={capsule_id,capsule_ciphertext_digest,kms_key_id,kms_key_version,issuance_receipt_digest,issuance_secret_channel_binding_digest}`；ack丢失后 read只能取它，绝不生成/包封第二份。
+`read_challenge`是 fresh 32-byte base64url；`capsule_receipt_digest=SHA256(JCS(capsule_receipt))`、`read_challenge_digest=SHA256(JCS({v:"GH700:capsule-read-challenge:v1",read_challenge}))`、`read_secret_channel_binding_digest=SHA256(JCS(secret_channel_binding))`。server以新 live exporter重算 binding并验证同 repo/policy/peer/actor/current owner-slot，original exporter仅作 audit且无需与新 session相等。`capsule_read_confirmation={capsule_source,capsule_receipt_digest,read_challenge_digest,read_secret_channel_binding_digest,read_audit_sequence}`，sequence为 `gh700_uint64_nonzero`，FULL-fsync后返回。
+same read返同 confirmation；fresh challenge可新增 audit但 capsule receipt须 byte-identical。source未提交则 `not_found`且只可重试原 idempotent source；未重新认证、source/stale owner/slot substitution、missing capsule或 ciphertext/KMS/issuance drift均拒绝，因此恢复不依赖原 TLS session。
 
 `publication_lease_authorization` exact 为
 `{lease_scope,lease_token_digest,publication_fence,authenticated_actor_digest,authorization_policy_digest,
@@ -227,10 +209,10 @@ canonical unpadded base64url，禁止 CR/LF/NUL、ambient header及重复 name�
 `authorization_context` exact为
 `{v:"GH700:release-authorization-context:v1",credential_kind:"github_app_installation_token_v1",
 issuer_identity_digest,app_node_id,installation_id,repository_node_id,permission_scopes,token_key_id,
-issued_at_unix_seconds,expires_at_unix_seconds}`；permissions按 UTF-8 bytes升序去重，两个 times是 nonnegative
-u64且 issued<expires，App/installation/repo/scope须 byte-equal plan，
+issued_at_unix_seconds,expires_at_unix_seconds}`；permissions按 UTF-8 bytes升序去重，两个 times是
+`gh700_uint64`且 issued<expires，App/installation/repo/scope须 byte-equal plan，
 `authorization_context_digest=SHA256(JCS(authorization_context))`。raw Authorization不得持久化。
-`body_bytes_digest=SHA256(exact body bytes)`，`body_length`是这些 bytes的 nonnegative u64 count；
+`body_bytes_digest=SHA256(exact body bytes)`，`body_length`是这些 bytes的 `gh700_uint64` count；
 JCS body须 exact RFC8785 bytes，raw asset须 hash等于 template `asset_bytes_digest`，empty须 zero bytes。
 TLS/HTTP2/HPACK bytes不作稳定 preimage；broker禁止 redirect、transparent retry/compression或任何
 会改变 method/URL/header/body的自动重编码。protected broker须从 retained capsule/request material重算；
@@ -256,7 +238,7 @@ checkpoint/anchor不等或任一 cycle未确认均 `internal_durability_failure`
 
 ## Closed control API
 
-`control_api.method` exact closed union为 `{bootstrap,migrate,recover,ready}`。request envelope exact 为
+`control_api.method` exact closed union为 `{prepare_bootstrap_trusted_time,bootstrap,migrate,recover,ready}`。request envelope exact 为
 `{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,request_nonce,
 requested_peer_role,operation_request_digest,body}`；`operation_request_digest`是删除自身字段后完整 envelope
 的 JCS SHA-256并编码 lowercase `sha256:<64hex>`。request nonce须为 fresh 32-byte CSPRNG value的
@@ -264,10 +246,23 @@ canonical unpadded base64url；response nonce同格式且由 authority独立生�
 
 | method | exact request `body` | exact success `result` |
 | --- | --- | --- |
-| `bootstrap` | `{control_operation_id,deployment_manifest,bootstrap_approval,release_identity_attestation,initial_time_proof_bundle}` | `{control_operation_receipt,bootstrap_receipt,ready_receipt}` |
+| `prepare_bootstrap_trusted_time` | `{control_operation_id,bootstrap_time_manifest_projection,prebootstrap_time_approval,release_identity_attestation}` | `{prebootstrap_time_ceremony_receipt,initial_time_proof_bundle}` |
+| `bootstrap` | `{control_operation_id,deployment_manifest,bootstrap_approval,release_identity_attestation,prebootstrap_time_ceremony_id,prebootstrap_time_ceremony_receipt_digest}` | `{control_operation_receipt,bootstrap_receipt,ready_receipt}` |
 | `migrate` | `{control_operation_id,target_deployment_manifest,migration_plan,migration_approval,expected_schema_version,expected_publication_frontier,expected_blocked_attempt_frontier}` | `{control_operation_receipt,migration_receipt,ready_receipt}` |
 | `recover` | exact `recovery_request` tagged union | `{control_operation_receipt,recovery_receipt,ready_receipt}` |
 | `ready` | `{minimum_schema_version,expected_policy_epoch_or_null}` | `{ready_result}` |
+
+prepare method仅在 main DB/anchor均不存在时运行；envelope `policy_epoch`须 byte-equal projection subject，
+`policy_bundle_digest`须 byte-equal其 `projection_digest`。`prebootstrap_time_approval` exact 为
+`{schema_version:"GH700:prebootstrap-time-approval:v1",projection_digest,release_identity_root_digest,issuer_key_id,
+issuer_key_version,signature_b64u}`，release-identity root签 `SHA256(JCS({v:"GH700:prebootstrap-time-approval-signature:v1",
+authority_id,repo_node_id,projection_digest}))`；object digest exact `prebootstrap_time_approval_digest=SHA256(JCS(
+prebootstrap_time_approval))`，root/issuer/version须 byte-equal attestation/pinned root。
+`prebootstrap_time_ceremony_receipt` exact 为 `{control_operation_id,prebootstrap_time_ceremony_id,projection_digest,
+prebootstrap_time_approval_digest,release_identity_attestation_digest,journal_head_digest,trusted_time_replay_identity,
+trusted_time_proof_request_id,initial_time_proof_bundle_digest}`。prepare anti-replay/durability与 response-loss recovery只 fold
+protocol-owned journal；`prebootstrap_time_ceremony_receipt_digest=SHA256(JCS(prebootstrap_time_ceremony_receipt))`，它不伪造尚不存在的 anchor/control-operation receipt。bootstrap从 journal加载 exact bundle，要求 body
+ceremony/receipt、manifest proof outputs及随后 threshold `bootstrap_approval`全部 cross-bind，成功才 append consumed event。
 
 `deployment_manifest`/`target_deployment_manifest`与 `bootstrap_approval` exact复用 history contract的 closed
 deployment/bootstrap objects，不存在 `bootstrap_manifest_approval` alias。
@@ -275,22 +270,23 @@ deployment/bootstrap objects，不存在 `bootstrap_manifest_approval` alias。
 `bootstrap_manifest_core_digest`；target manifest同式重算。
 manifest `control_api.response_signing_key` exact为
 `{signature_profile:"ed25519_sha256_jcs_v1",key_id,key_version,public_key_spki_der_b64u,
-public_key_spki_sha256}`；version是 nonzero u64，SPKI是 canonical unpadded base64url的 RFC5280 Ed25519
+public_key_spki_sha256}`；version是 `gh700_uint64_nonzero`，SPKI是 canonical unpadded base64url的 RFC5280 Ed25519
 DER且 decoded SHA-256须 byte-equal digest。`response_signing_key_digest=SHA256(JCS(response_signing_key))`。
 `release_identity_attestation` exact为
 `{schema_version:"GH700:release-identity-attestation:v1",release_identity_root_digest,authority_id,
 authority_identity_digest,server_process_identity_digest,response_signing_key_digest,
 valid_from_unix_seconds,valid_until_unix_seconds,issuer_key_id,issuer_key_version,signature_b64u}`；
 签名 profile exact `ed25519_sha256_jcs_v1`，签删除 `signature_b64u`后的 object之
-`SHA256(JCS({v:"GH700:release-identity-attestation-signature:v1",attestation_core}))`，两 times为 u64且
+`SHA256(JCS({v:"GH700:release-identity-attestation-signature:v1",attestation_core}))`，两 times为 `gh700_uint64`且
 from<until；root/authority/process/response key须 byte-equal manifest。
 `release_identity_attestation_digest=SHA256(JCS(release_identity_attestation))`。
 `initial_time_proof_bundle` exact为
-`{schema_version:"GH700:initial-time-proof-bundle:v1",repo_node_id,quorum_policy_digest,proofs,
-trusted_lower_bound_unix_seconds,trusted_upper_bound_unix_seconds,initial_time_high_water}`；proofs按
-`(tsa_endpoint_identity_digest,token_digest)` UTF-8 bytes升序、distinct quorum且每项 exact
-`{purpose:"bootstrap_initial_time",trusted_time_replay_identity,trusted_time_proof_request_id,
-message_imprint_sha256,tsa_endpoint_identity_digest,policy_oid,request_nonce_digest,token_der_b64u,token_digest,
+`{schema_version:"GH700:initial-time-proof-bundle:v1",prebootstrap_time_ceremony_id,projection_digest,
+repo_node_id,subject_digest,trusted_time_replay_identity,trusted_time_nonce_digest,quorum_policy_digest,proofs,
+trusted_lower_bound_unix_seconds,trusted_upper_bound_unix_seconds,trusted_time_proof_digest,initial_time_high_water}`；proofs按
+manifest `source_id` ASCII升序、distinct quorum且每项 exact `{source_id,purpose:"bootstrap_initial_time",
+trusted_time_replay_identity,trusted_time_proof_request_id,message_imprint_sha256,tsa_endpoint_identity_digest,policy_oid,
+trusted_time_nonce_digest,token_der_b64u,token_digest,
 lower_bound_unix_seconds,upper_bound_unix_seconds}`，token digest须等于 DER bytes SHA-256且所有 purpose/subject/
 nonce/request/imprint/interval/quorum/high-water须按
 [authority protocol](publication_authority_protocol_contract.md#trusted-time-proof-profiles)重算。
@@ -307,7 +303,7 @@ manifest `control_approval_policy` exact为
 恰好覆盖 `{migration,anchored_snapshot_restore,break_glass_restore}`，entry exact为
 `{approval_kind,signer_class,roster_digest,threshold,signers}`，signer exact为
 `{key_id,key_version,public_key_spki_der_b64u,public_key_spki_sha256,management_domain_digest}`并按
-`(key_id,key_version)`排序 distinct；threshold为 nonzero u64且不大于 signer count。signer class分别 exact
+`(key_id,key_version)`排序 distinct；threshold为 `gh700_uint64_nonzero`且不大于 signer count。signer class分别 exact
 `{migration_maintainer,restore_maintainer,cold_break_glass_recovery}`；三个 roster/key/management-domain set
 互不重叠，break-glass entry的 roster/threshold/key IDs须 byte-equal history `break_glass_governance`。
 `control_approval_policy_digest=SHA256(JCS(control_approval_policy))`并由 bootstrap approval随 manifest签入。
@@ -344,7 +340,7 @@ approved core digest等于含 incident字段的 recovery-manifest digest；unkno
 `control_operation_receipt` exact为
 `{authority_id,method,control_operation_id,operation_request_digest,body_core_digest,
 pre_state_digest,post_state_digest,method_result_core_digest,durable_sequence,fsync_receipt_digest,
-anchor_receipt_digest}`；sequence是 nonnegative u64且 anchor digest必须 non-null canonical digest。
+anchor_receipt_digest}`；sequence是 `gh700_uint64`且 anchor digest必须 non-null canonical digest。
 method result core是 success result删除 `control_operation_receipt`后的 exact object，其 digest为 JCS SHA-256，
 从而无自引用。`bootstrap_receipt` outer wire exact为
 `{bootstrap_manifest_core_digest,bootstrap_approval_digest,release_identity_attestation_digest,
@@ -746,7 +742,7 @@ schema version exact `GH700:reconciliation-watermark:v1`；
 `covered_record_set_digest=SHA256(JCS(covered_record_digests))`；
 `watermark_digest=SHA256(JCS(reconciliation_watermark))`。两个 digest 都编码为 lowercase
 `sha256:<64hex>`。max tuple是按 unsigned numeric
-`(run_id,run_attempt)`排序后的最后一项；空 terminal listing禁止 commit watermark。
+`(run_id,run_attempt)`按解码后的 unsigned logical values排序后的最后一项；空 terminal listing禁止 commit watermark。
 
 authority提交 watermark前必须：
 

@@ -363,7 +363,7 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     禁止拿它做 cross-platform equality gate。所有 corpus/evidence/decision/failure
     digest 必须声明同一个 versioned canonical-byte profile：UTF-8 RFC 8785 JCS、拒绝
     duplicate keys、JSON number 只允许 IEEE-754 safe integer
-    `[-9007199254740991, 9007199254740991]`（更大 identity 使用 canonical decimal string；
+    `[-9007199254740991, 9007199254740991]`（任何更大 integer 使用 canonical decimal string；
     比例以 numerator/denominator + display string 表示）、不包含尾随换行，然后对精确
     bytes 做 SHA-256；Rust/Python/shell 消费者必须共享含上下界 ±1 的 golden/reject
     vectors，未识别 profile 或任一 byte/digest 不一致均 fail closed。
