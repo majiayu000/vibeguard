@@ -211,16 +211,13 @@ acceptance snapshot rules 与 collector trust identity：
         "cursor_cli_with_equivalent_native_proof": "cursor_cli"
       },
       "required_selection_fields": [
-        "host_release",
-        "host_distribution_provenance",
-        "protocol_snapshot_sha256",
-        "native_blocking_event",
-        "security_provider_kind",
-        "security_provider_version",
-        "containment_policy_sha256",
-        "executable_memory_policy_sha256",
-        "relocation_manifest_sha256",
-        "relocation_signing_identity"
+        "host_release", "host_distribution_provenance",
+        "protocol_snapshot_sha256", "native_blocking_event",
+        "security_provider_kind", "security_provider_version",
+        "containment_policy_sha256", "executable_memory_policy_sha256",
+        "mutation_exclusion_provider_kind", "mutation_exclusion_provider_version",
+        "mutation_exclusion_policy_sha256",
+        "relocation_manifest_sha256", "relocation_signing_identity"
       ]
     },
     "H-002": {
@@ -443,12 +440,13 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
 versioned crash recovery 仍以 journal lease/version CAS 判定 rollback；普通 file digest
 不能替代 storage capability。`verified_file_setup_v1` 必须完整实现 normative appendix
 §3：`base_presence: present|absent`、held identities、continuous watcher、mandatory mutation
-exclusion 与 closed planned→activating→publishing→completed→consumed state machine。present/absent
-base 用用户执行的 exact-target deletion，并验证稳定 absence + host-native unregistration。
+exclusion 与 closed planned→activating→publishing→completed→consumed state machine。present base
+由用户恢复 exact original bytes/semantics；只有 absent base 删除 target 并验证 stable absence/unregistration。
 byte-identical inode/parent swap、write attempt/gap、late write/recreate 或 identity/digest
 drift 全部 `needs_human`。manual evidence exact-bind pointer/intent/completion/release tuple；
-atomic success/abort release respectively persists completed state or tombstone and unlocks；
-schema/tests 拒绝 `active`、direct/early consume、missing ancestry/release 或 permanent lock。
+H-001 exact-bind exclusion provider/policy；atomic success/abort release persists completed/tombstone。
+每次 host use 在 tuple read 前另取 exclusion，持有至 exact loaded-byte acquisition+post-load barrier，
+再 atomic use-release ack 解锁；schema/tests 拒绝 `active`、early consume、gap 或 permanent lock。
 
 ### 5. Deterministic README claim evidence
 
@@ -631,7 +629,7 @@ config/payload/log content。
 | B-022 | v2 top-level hosts/per-hook mappings/non-host entries | `bash tests/test_manifest_contract.sh`；`bash scripts/ci/validate-hooks-manifest.sh` 的 key-set、non-host、contradiction negative fixtures |
 | B-023 | v1 compatibility/deprecation | `bash tests/test_manifest_contract.sh`：v1 read+warning、v1 third-host reject、v2-only writer 与 v1/v2 Claude/Codex golden parity |
 | B-024 | complete unknown matrix | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml` 分别固定 contract/discovery/protocol/runtime outcomes |
-| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 atomic success publishing→completed pointer/receipt/release、all-path abort_release_and_record、owner-death/expiry unlock、completed→consumed ancestry；partial/permanent-lock/active/direct/early/replay 均 blocked；appendix §3 |
+| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 present restore/absent delete、H-001-bound exclusion、atomic publish/abort/use release、exact host acquisition+post-load barrier、owner-death unlock、completed→consumed ancestry；gap/lazy-load/permanent-lock/direct/replay 均 blocked；appendix §3 |
 | B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
 | B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 H-001 provider/policy + relocation signer/digest binding、normalized page equality；self/implementer-signed manifest、inbound/outbound write、private-COW exec、bad relocation、patch-restore、RWX、trace gap/load-unload 均 nonzero；appendix §2 |
@@ -739,8 +737,8 @@ config/payload/log content。
   oversize primary closed fallback、
   malformed/privacy 与 encode failure。
 - [ ] Lifecycle tests：全 phase、lock/deadlock、versioned CAS/lease 与 crash rollback；
-  verified-file 覆盖 atomic success/abort release、owner-death/expiry unlock、completed→consumed
-  ancestry，及各 crash/write/gap/stale/orphan/partial/permanent-lock/active/direct/replay negatives。
+  verified-file 覆盖 present restore/absent delete、H-001-bound exclusion、atomic publish/abort/use
+  release、exact host acquisition/post-load barrier、owner-death unlock 与 consume ancestry negatives。
 - [ ] Evidence tests：README-claim schema/gate 的 protected producer attestation、
   GH-699 exact producer SHA/argv，以及 GH-700 committed Release summary/report/
   publish-intent binding 与 standalone rerun/draft/unsigned/wrong-workflow matrices；

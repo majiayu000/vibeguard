@@ -195,6 +195,11 @@ identity drift, or policy loss invalidates the generation. Under the exclusion t
 verifier drains the final pre-CAS barrier, requires zero mutation/loss, performs the
 held-handle/no-follow observation, and fsyncs an immutable `publish_intent` binding those
 results and the evidence payload.
+The exclusion provider is authorization-conferring: the H-001 closed selection must
+approve its kind, version, and raw policy digest in addition to the execution provider.
+The lifecycle gate exact-matches those fields and binds the decision-record digest into
+the provider record, intent, completion, and every success/abort/use release record.
+Self-selected, missing, substituted, or drifted provider/policy fields are unsupported.
 The writer may then CAS the current pointer from the expected generation+digest to the
 exact intent with state `publishing` and fsync the directory. This pointer is durable
 pending state, never completed evidence; every consumer must reject it.
@@ -226,13 +231,30 @@ abort fails, VibeGuard remains fail-closed while the provider completes that tra
 by the deadline, so the host target cannot remain locked indefinitely.
 Consumers cannot take the target lock until a success or abort release receipt exists.
 
-Pointer presence alone never authorizes use. While holding the same target lock, every
-consumer first exact-matches a literal completed pointer/receipt/intent/marker/release tuple, drains its new
-watcher epoch past a barrier taken after that read,
-revalidates held parent/target identity and bytes, and re-reads the unchanged pointer.
-Any mutation, gap, target drift, or pointer/marker change rejects the generation before
-host use/proof. Because every consumer takes the same lock, publishing state is never
-acceptable evidence. The bundles remain durable for the lifetime of completed evidence.
+Pointer presence alone never authorizes use. Any consumer that will cause a host to load
+or use the target—including runtime and proof—takes the target lock, starts a new watcher,
+and acquires a fresh H-001-approved mandatory exclusion before its first completed-tuple
+read. It exact-matches the literal completed pointer/receipt/intent/marker/publication-
+release tuple, drains a barrier, revalidates held parent/target identity and bytes, and
+re-reads the unchanged pointer while exclusion remains enforced. Inspection-only check
+or doctor may report this state but cannot authorize later host use.
+
+The host must then fully acquire and parse an immutable exact-byte snapshot while the
+lock, watcher, and exclusion remain held. A trusted provider returns a durable
+`host_acquisition_ack` binding the host process measurement, acquisition event/nonce,
+sealed handle or snapshot identity, exact loaded bytes/digest, completed tuple digest,
+and watcher/provider roots. Deferred or lazy target reads are unsupported. After that
+ack, the consumer drains a post-acquisition barrier, revalidates identities/bytes, and
+CAS re-reads the same completed pointer. Only a clean result may atomically
+`use_release_and_record`: persist the acquisition/release receipt and remove the consumer
+exclusion. The adapter may release host dispatch/side effects only after that commit;
+failure discards the snapshot. Any denied attempt, event, gap, drift, stale CAS, missing/mismatched ack, crash,
+or timeout instead runs the same durable abort-release protocol and emits no accepted
+host-use/proof evidence; owner-death/expiry preserves host liveness. The use receipt does
+not change the lifecycle state to `consumed`. Because publication and every host use have
+separate gap-free exclusion epochs, release-to-acquisition TOCTOU cannot authorize altered
+bytes. Publishing remains unacceptable evidence, and bundles remain durable for the
+lifetime of completed evidence.
 
 Recovery takes the target lock and reconciles immutable bundles, pointer, completion,
 abort/tombstone, exclusion status, and success/abort release records.
@@ -297,6 +319,10 @@ mutation+restore after pointer fsync, orphan completion/release, candidate/recei
 temporary same-inode write-and-restore, byte-identical target replacement, parent
 swap, symlink/hard-link/mount change, watcher overflow, partial reverse/delete, target
 recreation, delayed old-FD write, and stale evidence used by runtime/proof.
+Host-use fixtures require the H-001-approved exclusion, exact immutable acquisition ack,
+post-acquisition barrier, CAS pointer re-read, and atomic use-release receipt; they reject
+provider/policy drift, a write or restore between tuple read and host acquisition, lazy
+reads, missing/mismatched loaded-byte evidence, use-release crash, and permanent lock.
 Consume fixtures accept only completed→consumed with exact clean/successor ancestry and
 reject every direct, early, replayed, or mismatched transition.
 

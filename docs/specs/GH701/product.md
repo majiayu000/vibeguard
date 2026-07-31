@@ -235,7 +235,10 @@ GH-701 已完成。
     fsync activating bundle；final pre-CAS barrier 起先取得不可旁路 OS mutation exclusion，
     continuous watcher 下发布 publishing intent/completion。任何 write attempt/gap 都 invalidate。
     provider atomic release-and-record 必须同时 CAS/persist literal completed pointer+receipt、
-    release receipt 和 exclusion removal；consumer 只接受该 tuple。所有失败/崩溃/orphan
+    release receipt 和 exclusion removal；consumer 只接受该 tuple。每次 runtime/proof use
+    在读 tuple 前必须另取 H-001-approved exclusion，持有到 host 已完整 acquisition exact
+    loaded bytes、post-load watcher barrier 与 pointer CAS re-read，再 atomic use-release ack。
+    ack commit 前不得 host dispatch/side effect；lazy/unattested load 禁止。所有失败/崩溃/orphan
     必须 atomic abort-release-record 后解锁；owner-death/有界 expiry 保证 fail-closed 但不永久锁 host。
     completed→consumed 只允许 verified clean 或 exact completed successor ancestry。
     present-base reverse 必须由用户恢复并按同一 identity/bytes/metadata 验证；
@@ -296,7 +299,9 @@ GH-701 已完成。
     head、event/nonce/process/distribution digests 与 redaction inventory digest
     绑定为 attested subjects，缺任一绑定都阻断。
     H-001 closed selection 还必须批准 security provider kind/version、containment/
-    executable-memory policy digests，以及 relocation manifest digest/signing identity；
+    executable-memory policy digests、mutation-exclusion provider kind/version/policy digest，
+    以及 relocation manifest digest/signing identity；lifecycle gate 必须 exact-match exclusion
+    selection 并把 decision-record digest 绑定所有 publish/abort/use records；
     gate 必须把 signer trust chain/provenance exact-match approved distribution。
     native binary 须完整实现 appendix §§1–2：在不可逃逸 execution
     containment 内拒绝 `LD_PRELOAD`、library-path、危险 `DYLD_*`、debugger/plugin/
@@ -420,6 +425,9 @@ GH-701 已完成。
   不得伪造空 base，clean 必须由用户删除 exact target 并经两次 bounded absence、
   watcher continuity 与 host-native unregistration 验证；任一第三方 drift 都不覆盖并
   保持 needs-human。
+- [ ] 每次 verified-file host use 在 completed tuple read 前取得 H-001-bound exclusion，
+  exact loaded-byte acquisition ack 后 drain post-load barrier 并 CAS re-read pointer，再 atomic
+  use-release；provider drift、tuple-read 后 write-restore、lazy/missing ack、crash 均零 proof。
 - [ ] GH-699/GH-700 README claims 与第三 host proof 各由固定 gate 消费；缺失、
   tampered、stale、wrong-head/event/digest/witness、candidate 可见 credential、
   signing job 执行 candidate、subject blob/认证 manifest 缺失替换或重哈希不符、
