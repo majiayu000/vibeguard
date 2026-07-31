@@ -141,8 +141,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    自行补默认值。project opt-in 的 project identity 必须只来自当前 hook payload 的
    canonical cwd，字段优先级闭集固定为 `cwd > params.cwd > workspace.cwd >
    workspace.current_dir`；ambient process cwd、env cwd、相邻 project 或外部 config
-   都不能启用。payload cwd 缺失、非目录、无法 canonicalize/求 git root 时必须在首个
-   provider/cache/metrics 动作前返回可见 `unavailable/error`。
+   都不能启用。被选字段必须是非空 absolute directory；relative（包括 `.`/`..`）、
+   payload cwd 缺失、非目录、无法 canonicalize/求 git root 时必须在首个 provider/
+   cache/metrics 动作前返回可见 `unavailable/error`，不得相对 ambient cwd 解析。
 2. B-002: flag 为 off 时不得加载模型、启动 sidecar/service、建立网络、读取超出 L1
    所需的 source/dependency 数据或写 L2 cache/metrics；现有 L1 decision、输出和
    latency gate 仍按原合同运行。
@@ -237,12 +238,20 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     双重 escalation 或跨 agent 污染。
 27. B-027: runtime event append、precision projection 或 audit write 失败及其间任一
     process crash 必须 fail visible；canonical event 必须先以 durable `pending`
-    状态落盘。reconciliation 只能通过 project-scoped durable pending index，按 oldest
-    first 在 H-006/H-007 批准且 policy-bound 的正整数 `reconcile_batch_max` 与
-    `reconcile_deadline_ms` 双重上限内重放；禁止在同步 hook 前扫描完整 journal、其它
-    project 或 HOME。缺少合法上限、index 损坏、consumer 不可用或 batch 后仍有 backlog
-    时必须显示 `reconciliation_backlog/unavailable`、pending count 与 oldest age，停止
-    provider 并停止追加新的 GH-704 L2 pending event，直到后续 bounded pass 排空；
+    状态落盘。project lock 下的 write-ahead recovery intent 必须先完整记录 bounded
+    pending body/digest 与 expected journal offset 并 fsync/commit，之后才允许 append +
+    fsync project journal，再以 durable `journaled` transition 完成；每个边界 crash 后
+    都必须通过 expected offset + digest 在有界 I/O 内判断“补 append”或“只补 marker”，
+    不得留下未索引 pending 或重复 event。reconciliation 只能通过 fixed-header、
+    cursor/length-bounded 的 project queue/WAL，按 oldest first 在 H-006/H-007 批准且
+    policy-bound 的正整数 `reconcile_batch_max`、`reconcile_deadline_ms` 与
+    `reconcile_io_max_bytes` 三重上限内重放；上限覆盖 open/stat、index parse、journal
+    offset read、consumer 与 receipt write，禁止在同步 hook 前加载完整 index、扫描完整
+    journal、其它 project 或 HOME。缺少合法上限、index/WAL 损坏、consumer 不可用或
+    batch 后仍有 backlog 时必须显示 `needs_repair/reconciliation_backlog/unavailable`、
+    pending count 与 oldest age（损坏时不可证明的字段为空），停止 provider 并停止追加
+    新的 GH-704 L2 pending event，直到后续 bounded pass 排空或 H-016 批准的显式人工
+    repair 完成；禁止自动删除、猜测或无界 rebuild。
     L1 仍运行且既有 L1 block 保留。各 consumer 按 event/signal ID 幂等，全部成功并
     持久化 receipt 后才可声称 GH-704 L2/新增 W-rule 的 tracked precision、Learn
     candidate 或 block eligibility；日志失败不得删除用户数据或无界扫描恢复。
@@ -290,8 +299,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       时不创建 implementation tasks。
 - [ ] feature flag off 的 fresh fixture 证明零模型/sidecar/network/L2 state，且现有
       L1 behavior 与 latency gates 不回归。
-- [ ] process cwd 与 hook payload cwd 指向不同 project、payload cwd 缺失/非法的 fixtures
-      证明只有 payload canonical project 可以请求 opt-in，错误路径零 provider/cache/metrics。
+- [ ] process cwd 与 absolute hook payload cwd 指向不同 project、process cwd + payload `.`
+      以及 payload cwd 缺失/relative/非法的 fixtures 证明只有 absolute payload-precedence
+      project 可以请求 opt-in，错误路径零 provider/cache/metrics。
 - [ ] invented API 与 semantic test weakening 均通过真实 Core production path 的
       positive、matched negative、unknown、malformed 和 failure fixtures；没有
       benchmark-only detector。

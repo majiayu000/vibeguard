@@ -102,21 +102,25 @@ H-001 Recommended project opt-in（仍未批准）的唯一 enable surface 是�
 global kill switch 只能把 true 降为 off。现有 `VIBEGUARD_PROJECT_CONFIG` path override
 仍可服务通用 config validation/test，但不得成为 semantic enable source：semantic join
 必须先解析 current hook payload，并按闭集优先级 `cwd > params.cwd > workspace.cwd >
-workspace.current_dir` 选择 cwd；用 existing `git_root_for(payload_cwd)` 从 canonicalized
-payload directory 求 git root，再只接受该 root 下 exact `.vibeguard.json` 的 typed
-value。`hook_orchestrator` 必须在 `RuntimeContext::collect()` 和 semantic config join
+workspace.current_dir` 选择 cwd。被选值必须是 non-empty absolute path；在调用
+`canonicalize`/`git_root_for` 前先用 `Path::is_absolute` 拒绝 `.`、`..` 与其它 relative
+值，禁止它们相对 ambient process cwd 解析。随后用 existing
+`git_root_for(absolute_payload_cwd)` 从 canonicalized payload directory 求 git root，再
+只接受该 root 下 exact `.vibeguard.json` 的 typed value。`hook_orchestrator` 必须在
+`RuntimeContext::collect()` 和 semantic config join
 之前解析 payload，并把这个 typed project root 传给 `evaluate_core`；ambient process
 cwd、env cwd 与后续重新读取 current directory 都不能参与 enable 判定。payload cwd
-缺失、非目录、无法 canonicalize 或无法求 git root 时返回可见 `unavailable/error`，
-且 provider/cache/metrics activity 为零；override 指向 sibling/external opt-in file 时
-保持 off。任何
+缺失、空、relative、非目录、无法 canonicalize 或无法求 git root 时返回可见
+`unavailable/error`，且 provider/cache/metrics activity 为零；override 指向 sibling/
+external opt-in file 时保持 off。任何
 `VIBEGUARD_SEMANTIC_DEFENSE*` enable env 同样无效且不能作为隐式默认。
 `schemas/vibeguard-project.schema.json`、`project_config.rs` 的 typed field/closed allowlist
 与 semantic config join 必须同源；unknown/type mismatch 在 provider 启动前 fail visible。
-同一 HOME 下 opt-in project 与无 key project 的双 fixture，以及 process cwd 与 payload
-cwd 指向不同 project、missing/invalid payload cwd、external path/env enable negative
-fixtures，必须证明只有 payload project 可请求 eligibility，其余路径零 provider/cache/
-metric activity。
+同一 HOME 下 opt-in project 与无 key project 的双 fixture，以及 process cwd A +
+payload absolute cwd B、process cwd A + payload `.`、四个 payload 字段 absolute A/B
+precedence、missing/invalid payload cwd、external path/env enable negative fixtures，
+必须证明只有 absolute payload-precedence project 可请求 eligibility，其余路径零
+provider/cache/metric activity。
 
 ### 2. Recommended Core module boundary
 
@@ -268,9 +272,21 @@ GH-686 paired thresholds、GH-700 headline、model confidence、aggregate pack p
 ### 8. Metrics、Learn 与 global view 的唯一权威投影
 
 GH-704 semantic records 的唯一权威源是 current payload project 下的 typed journal。
-canonical Rust append 先在该 journal fsync 一个带 stable event/signal ID 的 typed
-`rule_signal` pending event，并在同一 project state root 的 durable pending index
-登记它，再由唯一 projector 投影到：
+同一 project journal lock 下的 append protocol 固定为：
+
+1. 读取 journal tail offset，构造 bounded typed pending body/digest；
+2. 向 project `reconciliation.wal` 追加 `prepared` recovery intent，其中包含 event/signal
+   ID、完整 bounded body、digest、expected journal offset 与 schema version；fsync WAL，
+   再提交新的 checksummed queue-metadata generation；
+3. 只在 expected offset 追加 typed `rule_signal` pending event 并 fsync project journal；
+4. 向 WAL 追加 `journaled` transition 并 fsync/提交 queue metadata，然后才投影 consumer。
+
+crash 在 step 2 commit 前只会留下可截断的 uncommitted WAL tail，不存在 canonical event；
+step 2 commit 后/step 3 前由 recovery intent 补 append；step 3 后/step 4 前只读取 expected
+offset 的 bounded record 并比较 event ID + digest，匹配则补 marker，不匹配则
+`needs_repair`，禁止盲目追加。这样 journal 一旦出现 pending 就总有先行 recovery intent，
+同时 WAL 只负责 recovery、不成为可查询的第二 semantic authority。随后唯一 projector
+投影到：
 
 - session metrics：closed signal aggregates，而不是 `Vec<String>`；
 - precision：exact identity 的 outcome/evidence record；
@@ -278,16 +294,25 @@ canonical Rust append 先在该 journal fsync 一个带 stable event/signal ID �
 
 每个 consumer 必须以 event/signal ID 幂等，并持久化自身 applied receipt；三个 consumer
 均成功后 projector 才向 project journal 追加 finalized receipt，其中绑定 pending event
-ID、consumer schema/version 与 applied receipt digests，并从 pending index 原子移除该
-event。startup 与每次 hook 在启动新 provider 前只读取这个 project index，按 oldest-first
-处理至 policy 中 H-006/H-007 已批准的正整数 `reconcile_batch_max` 或
-`reconcile_deadline_ms` 任一先到；不得扫描完整 journal、其它 project 或 HOME。缺少合法
-limits、index corrupt、consumer unavailable 或 batch 后仍有 pending 时，本次状态为
-`reconciliation_backlog/unavailable`，输出 pending count 与 oldest age，保留 durable
-index/L1 decision，且不启动 provider、不追加新的 GH-704 pending event。后续 hook 仍先
-尝试 bounded batch，使 backlog 可排空而不让同步路径无界增长。重放不得重复计数、
-candidate 或 escalation；crash 可发生在 index/pending fsync 后、任一 consumer write
-前后或 finalized receipt fsync 前，恢复后都必须收敛到同一结果。
+ID、consumer schema/version 与 applied receipt digests，并以 WAL `done` transition 推进
+head cursor。queue metadata 使用两个 checksummed generations，只保存 committed
+head/tail cursor、pending count 与 oldest timestamp；每条 WAL record 有 closed maximum
+length。startup 与每次 hook 在启动新 provider前只读取 fixed-size metadata header，再从
+head cursor oldest-first 处理，直到 policy 中 H-006/H-007 已批准的正整数
+`reconcile_batch_max`、`reconcile_deadline_ms` 或 `reconcile_io_max_bytes` 任一先到；
+deadline/byte counter 从 open/stat/header/WAL parse 与 expected-offset journal read 就开始，
+不得先反序列化完整 index，也不得扫描完整 journal、其它 project 或 HOME。缺少合法
+limits、两个 metadata generation 均 corrupt、record length/offset/digest 非法、consumer
+unavailable 或 batch 后仍有 pending 时，本次状态为 `needs_repair/
+reconciliation_backlog/unavailable`；可证明时输出 pending count 与 oldest age，损坏时
+对应值为空并标明原因。所有这些状态都保留 durable WAL/L1 decision，且不启动 provider、
+不追加新的 GH-704 pending event。后续 hook 仍先尝试 bounded batch，使正常 backlog 可
+排空而不让同步路径无界增长；corrupt 状态不得自动删除、猜测或 full-scan rebuild，只能由
+`setup.sh doctor`/`--check` 指出项目、损坏 generation/reason 与 H-016 批准的显式人工
+repair 要求，在该决定批准前保持 L2 disabled。重放不得重复计数、candidate 或 escalation；
+crash 可发生在 WAL prepare/metadata commit/journal append/journaled marker、任一 consumer
+write 或 finalized/done transition 前后，恢复后都必须在 bounded I/O 内收敛或明确
+`needs_repair`。
 
 既有 L1 project/global dual logging 行为不属于 GH-704 migration，保持原合同。GH-704
 typed pending/applied/finalized record 禁止独立 dual append；project finalized record
@@ -534,8 +559,8 @@ Complete-path cross-check：
 | New product root | `semantic-sidecar/`; `docs/directory-map.md` | directory-map/doc-path validators plus semantic sidecar cargo checks |
 | Canonical L2 core latency | `vibeguard-runtime/src/lib.rs`; planned **vibeguard-runtime/benches/semantic_defense_core_us.rs**; planned **tests/bench_semantic_core.sh**; `tests/test_hook_perf_contract.sh`; `docs/internal/benchmarks/benchmark-design.md`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | `main.rs` and in-process runner import the same public production entrypoint；runner executes cold/warm `core_us` fixtures exactly once；every initial/confirmation cold sample resets and proves empty cache/provider state outside timing, every warm sample prewarms and proves exact-identity hit；contract test rejects duplicate/path-loaded core implementations and fixes IDs/timing boundary/identity/cache/budget/confirmation/result/CI wiring and compile-only smoke |
 | Canonical L2 installed latency | `tests/bench_hook_latency.sh`; `tests/test_hook_perf_contract.sh`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | canonical runner executes four path-specific direct/wrapper × cold/warm `hook_e2e_ms` installed-hook fixtures exactly once；every cold sample independently resets cache/provider-start state and every warm sample proves prewarm outside timing；contract test fixes IDs/path/budget/cache/confirmation/CI/result wiring |
-| Project-scoped opt-in | `schemas/vibeguard-project.schema.json`; `vibeguard-runtime/src/project_config.rs`; `vibeguard-runtime/tests/project_config_cli.rs`; planned **vibeguard-runtime/src/semantic_defense/config.rs**; `vibeguard-runtime/src/hook_orchestrator.rs`; `vibeguard-runtime/src/hook_orchestrator_context.rs`; `tests/hooks/test_runtime_policy_json.sh`; planned **tests/hooks/test_semantic_defense.sh** | schema/parser allowlists match；payload cwd closed precedence and canonical git-root resolution happen before ambient context collection；missing/invalid payload cwd、process/payload cwd mismatch、same-HOME two-project matrix、`VIBEGUARD_PROJECT_CONFIG` external opt-in path 与 semantic enable env negatives prove only payload project config true requests eligibility，while global config/env can only disable |
-| Canonical project journal + bounded reconciliation | `vibeguard-runtime/src/event_schema.rs`; `vibeguard-runtime/src/hook_orchestrator.rs`; planned **vibeguard-runtime/src/semantic_defense/runtime_signal.rs**; `schemas/event-log.schema.json`; planned **tests/hooks/test_runtime_rule_signals.sh**; `tests/test_observability_schemas.sh` | durable project pending index、policy-bound batch/deadline、oldest-first replay and backlog stop-new-L2 contract prohibit full journal/HOME scans；project finalized record is authoritative and global view is an idempotent derived projection with lag/dedupe/failure-injection proof |
+| Project-scoped opt-in | `schemas/vibeguard-project.schema.json`; `vibeguard-runtime/src/project_config.rs`; `vibeguard-runtime/tests/project_config_cli.rs`; planned **vibeguard-runtime/src/semantic_defense/config.rs**; `vibeguard-runtime/src/hook_orchestrator.rs`; `vibeguard-runtime/src/hook_orchestrator_context.rs`; `tests/hooks/test_runtime_policy_json.sh`; planned **tests/hooks/test_semantic_defense.sh** | schema/parser allowlists match；payload cwd must be non-empty absolute before canonicalization，closed precedence and canonical git-root resolution happen before ambient context collection；missing/relative/invalid payload cwd、process/payload absolute cwd mismatch、four-field precedence、same-HOME two-project matrix、external opt-in/env negatives prove only payload project config true requests eligibility |
+| Canonical project journal + bounded reconciliation | `vibeguard-runtime/src/event_schema.rs`; `vibeguard-runtime/src/hook_orchestrator.rs`; planned **vibeguard-runtime/src/semantic_defense/runtime_signal.rs**; `schemas/event-log.schema.json`; planned **tests/hooks/test_runtime_rule_signals.sh**; `tests/test_observability_schemas.sh` | write-ahead recovery intent closes every WAL/journal crash boundary；fixed metadata + cursor/record length and policy-bound batch/deadline/I/O byte caps bound open/parse/replay without full index/journal/HOME scans；corruption is explicit `needs_repair`；project finalized record is authoritative and global view is idempotent derived projection |
 | Install/config doctor | `setup.sh`; `scripts/setup/check.sh`; `scripts/setup/runtime_config_health.sh`; `scripts/lib/status_report.sh`; `tests/test_setup_check.sh`; `tests/test_setup.sh` | doctor/`--check` human/JSON/exit/no-data identity matrix and installed payload route |
 | Per-run status | `vibeguard-runtime/src/hook_status.rs`; `hook_status_render.rs`; `hook_status_tests.rs`; `schemas/hook-status.schema.json`; `tests/test_hook_status.sh` | human/JSON/schema carry exact semantic state and identities from one canonical event |
 | Observability schema migration | `schemas/event-log.schema.json`; `schemas/session-metrics.schema.json`; `docs/command-schemas.md`; `tests/test_observability_schemas.sh`; `tests/fixtures/observability-schemas/` | docs declare the new schema/version and typed signal/receipt fields；legacy/current positives plus missing/unknown/malformed negatives prove compatibility and fail-visible parsing |
@@ -554,7 +579,7 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
-| B-001 approval gate | payload project identity + config/policy join | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::config::tests::approval_gate_matrix -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml --test project_config_cli project_config_validate_accepts_semantic_defense_opt_in -- --exact`、`bash tests/hooks/test_semantic_defense.sh project_scoped_opt_in`、`bash tests/hooks/test_semantic_defense.sh payload_cwd_is_authoritative` 与 `bash tests/hooks/test_semantic_defense.sh project_scoped_opt_in_env_rejection`，并由 `bash tests/hooks/test_runtime_policy_json.sh` 固定 adapter payload cwd precedence；missing/false/unknown/type mismatch、missing/non-directory/unresolvable payload cwd、process cwd 与 payload cwd 指向两个不同 project、同 HOME 两 project、user-global enable、`VIBEGUARD_PROJECT_CONFIG` 指向 sibling/external true config、任意 semantic enable env、stale H-001–H-020 全部断言只有 payload canonical project 可请求 eligibility，其余路径零 provider/cache/metrics activity |
+| B-001 approval gate | payload project identity + config/policy join | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::config::tests::approval_gate_matrix -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml --test project_config_cli project_config_validate_accepts_semantic_defense_opt_in -- --exact`、`bash tests/hooks/test_semantic_defense.sh project_scoped_opt_in`、`bash tests/hooks/test_semantic_defense.sh payload_cwd_is_authoritative` 与 `bash tests/hooks/test_semantic_defense.sh project_scoped_opt_in_env_rejection`，并由 `bash tests/hooks/test_runtime_policy_json.sh` 固定 adapter payload cwd precedence；missing/false/unknown/type mismatch、missing/empty/relative/non-directory/unresolvable payload cwd、process cwd A + payload `.`、process cwd A + absolute payload B、四个字段指向 absolute A/B 的 precedence、同 HOME 两 project、user-global enable、external config/env、stale H-001–H-020 全部断言只有 absolute payload-precedence project 可请求 eligibility，其余路径零 provider/cache/metrics activity |
 | B-002 flag-off parity | hook orchestration | `bash tests/hooks/test_semantic_defense.sh flag_off_parity`；覆盖 project key missing/false 和 kill switch，再跑 `bash tests/test_hook_perf_contract.sh`，child/network/cache canary 均为空 |
 | B-003 L1/L2 precedence | policy reducer | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::tests::l1_l2_precedence_total_function -- --exact` |
 | B-004 closed inputs | config/protocol schemas | `bash tests/hooks/test_semantic_defense.sh closed_schema_inputs` 与 `bash tests/test_runtime_config_schema.sh` |
@@ -580,7 +605,7 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 | B-024 W-12 attribution | W-12 reducer | `bash tests/hooks/test_runtime_rule_signals.sh w12_signal_attribution`；三种 signal kind 与去重 precedence |
 | B-025 corrupt history | history reader | `bash tests/hooks/test_runtime_rule_signals.sh corrupt_and_cross_scope_history` |
 | B-026 W state machine | runtime signal module | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::runtime_signal::tests::transition_replay_concurrency_matrix -- --exact` |
-| B-027 fail-visible writes | project event writer + bounded reconciler | `bash tests/hooks/test_runtime_rule_signals.sh projection_write_failures_preserve_l1` 与 `bash tests/hooks/test_runtime_rule_signals.sh bounded_reconciliation_backlog`；分别在 pending-index/event fsync 后、每个 consumer write 前后、finalized receipt fsync 前注入 write error/process crash，并用超大 backlog、batch cap、deadline expiration、persistent consumer failure、corrupt index 和 missing limits 证明每次工作有界、oldest-first、backlog 可见、停止新 provider/L2 append、后续重放无缺失/重复且 L1 block 保留；对完整 journal/其它 project/HOME 的 scan canary 必须为零 |
+| B-027 fail-visible writes | project WAL/event writer + bounded reconciler | `bash tests/hooks/test_runtime_rule_signals.sh projection_write_failures_preserve_l1` 与 `bash tests/hooks/test_runtime_rule_signals.sh bounded_reconciliation_backlog`；在 WAL prepare append、queue metadata commit、journal append fsync、journaled marker、每个 consumer write、finalized/done transition 的前后逐边界注入 write error/process crash，断言 prepared-only 会补 journal、journal-without-marker 由 expected offset + digest 只补 marker、无未索引/重复 event；用超大 WAL、oversize/corrupt record、双 metadata corruption、batch cap、deadline、I/O byte cap、persistent consumer failure 和 missing limits 证明 open/header/parse/replay 全程有界、oldest-first、backlog/`needs_repair` 可见、停止新 provider/L2 append、正常后续重放收敛且 L1 block 保留；对完整 index/journal、其它 project/HOME 的 read/scan canary 必须为零 |
 | B-028 single authority + derived global projection | canonical project journal + global projector | `bash tests/hooks/test_runtime_rule_signals.sh one_canonical_projection` 与 `bash tests/hooks/test_runtime_rule_signals.sh derived_global_projection_recovery`；比较 project pending、三个 consumer applied 与 finalized receipt 的 event/signal identity，证明 legacy/L1 dual log 不成为 GH-704 authority；分别在 project finalized fsync 后/global append 前、global append 后/projection receipt 前注入失败，断言 `projection_lag`、source finalized digest binding、replay dedupe 和最终 global convergence，且 global mirror 不能授权 eligibility |
 | B-029 candidate identity | Learn schema/analyzer | `bash tests/test_workflow_contracts.sh` 与 `bash tests/test_learn_adoption.sh semantic_candidate_identity`；semantic-defense signal/typed source 的 valid fixture 与 invalid classification/action/path 全部固定，multi-session replay 后 ID/count/window/privacy 精确相等 |
 | B-030 deterministic Learn core | Learn analyzer/model adapter | `bash tests/test_learn_adoption.sh semantic_candidate_without_model`；provider disabled/crash 时 identity/count/state 不变 |
@@ -605,7 +630,9 @@ hook event + project/session/change
   → closed semantic result
   → deterministic detector/W-rule reducer
   → candidate hook decision
-  → project durable typed pending event + pending index (fsync)
+  → project WAL prepared intent + queue-metadata commit (fsync)
+  → project durable typed pending event at expected offset (fsync)
+  → WAL journaled transition (fsync)
   → bounded idempotent reconciliation by event/signal ID
        ├─ latency/outcome metrics + applied receipt
        ├─ exact-identity precision evidence + applied receipt
