@@ -41,6 +41,40 @@ canonical SQLite file且必须位于该 volume，禁止默认/相对/temp路径�
 reconciler/workflow GitHub token始终 read-only，target write credential只存在于 authority sole broker的
 environment secret provider，client绝不接收、转发或记录它。
 
+`client_api` method discriminator 是 closed union
+`{get_publication_head,claim_publication_owner,renew_publication_owner,takeover_publication_owner,
+append_publication_transition,plan_release_mutation,deliver_release_mutation,recover_release_mutation,
+plan_generated_pr,deliver_generated_pr,recover_generated_pr,append_blocked_attempt,bind_blocked_attempt,
+list_blocked_attempts,commit_reconciliation_watermark,get_blocked_attempt_frontier}`。每个 request exact envelope 为
+`{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,repo_node_id,
+request_nonce,expected_publication_frontier_or_null,expected_blocked_attempt_frontier_or_null,
+operation_request_digest,body}`，`operation_request_digest` 是删除自身后整个 envelope 的 JCS SHA-256。
+publication method 的 exact body/success receipt 如下（blocked-attempt 五个 method 的 body/receipt 取下文 ledger closed schemas）：
+
+| method | exact request `body` | exact success `result` |
+| --- | --- | --- |
+| `get_publication_head` | `{}` | `{current_head_receipt}` |
+| `claim_publication_owner` | `{intent,publication_lease_authorization,secret_channel_binding}` | `{transition_receipt,nonce_capsule_receipt}` |
+| `renew_publication_owner` | `{intent,publication_lease_authorization,trusted_time_proof_request}` | `{transition_receipt}` |
+| `takeover_publication_owner` | `{intent,publication_lease_authorization,trusted_time_proof_request}` | `{transition_receipt}` |
+| `append_publication_transition` | `{intent,append_authorization}` | `{transition_receipt}` |
+| `plan_release_mutation` | `{intent,append_authorization,secret_channel_binding}` | `{planned_transition_receipt,mutation_capsule_receipt}` |
+| `deliver_release_mutation` | `{planned_operation_id,broker_delivery_id,delivery_authorization}` | `{delivery_state,transition_receipt_or_null,send_once_audit_digest}` |
+| `recover_release_mutation` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipt}` |
+| `plan_generated_pr` | `{intent,append_authorization}` | `{planned_transition_receipt}` |
+| `deliver_generated_pr` | `{planned_operation_id,generated_pr_delivery_id,delivery_authorization}` | `{delivery_state,transition_receipt_or_null,send_once_audit_digest}` |
+| `recover_generated_pr` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipt}` |
+
+response 是 closed union：success exact
+`{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,request_digest,
+response_nonce,result}`；error exact 为相同公共字段加
+`{error:{code,retry_class,evidence_digest_or_null}}`而且无 `result`。`code` exact 为
+`{invalid_request,unauthenticated,unauthorized,wrong_authority,policy_drift,method_not_allowed,stale_frontier,
+stale_fence,lease_expired,operation_conflict,dependency_unavailable,outcome_uncertain,authority_non_ready,
+internal_durability_failure}`，`retry_class` exact 为 `{never,after_fresh_read,after_new_authorization,
+same_request_read_confirm_only}`。`outcome_uncertain` 只能配 `same_request_read_confirm_only`；unknown method/code/
+field、method/body/result 错配、null-not-declared 或 error 与 result 并存均拒绝，不得 fallback 到另一 method。
+
 service启动先取得同 manifest钉住的 process lock，验证 volume支持 kernel lock与 durable
 `fsync`，再以 SQLite WAL、`journal_mode=WAL`、`synchronous=FULL`、foreign keys及
 `BEGIN IMMEDIATE`运行。history head/leaf、operation/rotation/slot unique indexes、owner/fence、
