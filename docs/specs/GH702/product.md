@@ -201,11 +201,12 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     result 与 commit/rollback status。receipt 与 active identity 只能从 verified staged
     状态经成功 audit 组成一个 immutable committed-state generation；该 generation 必须
     命名 plan 解析出的全部 pack/dependency receipts、ownership 与 active identities，并由
-    一个 installation-scope pointer 的一次原子 switch 共同生效，禁止逐 pack pointer
-    依次切换。该 switch 本身就是 durable commit boundary，runtime 只消费完整、
+    一个 installation-scope pointer 的一次 durable switch 共同生效，禁止逐 pack pointer
+    依次切换。rename 后必须重开/校验并 fsync replacement pointer，再 fsync containing directory；
+    两者完成才是 durable commit boundary，runtime 只消费完整、
     digest-valid 的 dependency-set generation，禁止 partial active。pointer 必须携带 monotonic
     installation generation；已 fsync 的 transaction journal 先记录目标 pointer/state，再推进
-    独立 durable generation floor，最后 switch。policy/installation floor 与 trusted-time
+    独立 durable generation floor，最后执行上述 rename+双 fsync。policy/installation floor 与 trusted-time
     high-water/epoch/sequence 都必须绑定 B-027 定义的独立 authenticated monotonic root；同一
     user-state tree 内的 JSON 只可作 mirror，不能作为 anti-rollback authority。runtime 拒绝低于 floor 的旧 pointer replay；
     floor fsync 是 roll-forward-only prepared boundary：此前失败可 rollback；此后必须保留
@@ -310,8 +311,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     同时显示 publication、committed evaluation 与 authoritative active evaluation policy
     identities。每次 policy activation 还必须在 Core-owned policy lock 下先写入并 fsync closed
     pending intent，绑定目标 policy digest、validity evidence 及前后 generation，再原子推进并
-    fsync durable monotonic `policy_generation_floor`，最后切换 authoritative pointer；崩溃恢复
-    只能验证该 intent 后幂等完成 switch，不能凭新 floor 猜目标 policy。
+    fsync durable monotonic `policy_generation_floor`，最后 rename authoritative pointer、重开校验并
+    fsync pointer 与 parent directory；只有两次 fsync 成功才可标 journal complete/清理。其间崩溃
+    必须从 intent 确定性重放同一 pointer+fsync roll-forward，不能凭新 floor 猜目标 policy。
     runtime 同时验证 pointer generation 不低于该 floor。floor mirror 必须绑定 Core installation、
     user principal、anchor schema 与 policy leaf identity，并与独立 `core_monotonic_anchor_v1`
     backend 当前 counter/root/leaf digest exact 相等；旧 user-state snapshot 即使 coherent 也因

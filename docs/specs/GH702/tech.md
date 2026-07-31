@@ -253,10 +253,10 @@ locator，也不得使用缺省 publisher、空字符串或可能与 official na
 receipt/override schema 保存 source kind、canonical identity 与 storage key，读取时重算并
 拒绝 mismatch。
 
-上述 active policy entry 只保存已获批 policy digest、monotonic generation 与 validity
-evidence。activation 在 policy lock 下先原子写入并 fsync closed journal，绑定目标 pointer、
-validity evidence、previous/target generation；再 CAS+fsync floor、atomic switch pointer，最后
-标记完成。crash recovery 只按 digest-valid journal 幂等完成；缺失/损坏 intent 不得猜目标，
+上述 active policy entry 只保存已获批 policy digest、monotonic generation 与 validity evidence；activation 在 policy lock 下先原子写入并 fsync closed journal，绑定目标 pointer、
+validity evidence、previous/target generation；再 CAS+fsync external floor，rename pointer 后重开
+校验/fsync replacement 与 parent directory，才标 complete/清 journal。crash recovery 在任一 fsync
+前中断都按 digest-valid intent 确定性重复同一 rename+fsync；缺失/损坏 intent 不得猜目标，
 保持 fail closed。runtime 验证 pointer generation `>= floor`，旧 replay 即使 digest 匹配也
 无效。pack/environment/CLI/publication artifact 均不能改写。每个 active generation 有独立
 closed、Core-owned runtime-state entry，
@@ -294,7 +294,7 @@ lock-B → recover/revalidate base → build immutable plan+digests → unlock
 lock-C → recover + CAS/fence revalidate generation/ownership/evidence/evaluation/plan
        → reserve/snapshot-owned-state → apply → audit
        → build+fsync generation/journal → final policy CAS/fence → floor fsync (= prepared)
-       → one atomic set-pointer switch (= commit)
+       → rename set pointer → fsync pointer + parent directory (= durable commit)
           ├─ failure before floor → rollback
           └─ failure after floor → retain evidence + retry/recover switch; never rollback
 ```
@@ -323,14 +323,14 @@ identities、shared ownership refs、publication policy 与 committed evaluation
 `(digest, authoritative_generation, validity_evidence_digest)`、provenance/
 compatibility/precision evidence、source-applicable revocation binding、eligibility
 digests、`decision_valid_until`、expiry fallback/reason 和 commit marker，并在 journal 记录
-目标 monotonic installation generation、pointer/state digests；再推进并 fsync 独立
-installation-generation floor，最后以一次 installation-scope atomic pointer replacement
-暴露整个 dependency-set generation；不得
-为每个 pack 依次切换 pointer。该 replacement 本身就是 durable commit boundary。runtime
-必须先解析 set pointer，
-再验证 target/profile、commit marker 与 generation digest，绝不读取 orphan receipt、
-staged state 或未提交 generation。pointer switch 后只允许 journal finalization/临时清理，
-这些失败不撤销已提交语义，而由下次 recovery 幂等完成。floor fsync 是 roll-forward-only
+目标 monotonic installation generation、pointer/state digests；再推进并 fsync external
+installation-generation anchor/floor，最后 rename installation-scope pointer，重开并校验 exact
+replacement bytes/digest、fsync pointer handle，再 fsync containing directory；不得逐 pack switch。
+两次 fsync 全部成功才是 durable commit boundary；此前 journal 必须保持 pending，不得 complete/
+truncate/delete。runtime 必须先解析 set pointer，再验证 target/profile、commit marker 与 generation digest，绝不读取 orphan receipt、
+staged state 或未提交 generation。durable pointer commit 后才允许 journal finalization/临时清理；
+这些失败不撤销已提交语义，由下次 recovery 幂等完成。任一 pointer/directory fsync 前 crash 都从
+保留的 target digest/bytes 确定性重复 rename+双 fsync。floor fsync 是 roll-forward-only
 prepared boundary：之后旧 pointer 低于 floor 并 fail closed；必须保留 journal/generation/state
 并重试或恢复目标 switch，禁止 rollback 或降低 floor，长期失败进入 `needs_repair`。
 interrupt 后下次 mutation 先按 canonical order 取得 ownership/target/policy/runtime-state locks。
@@ -628,9 +628,9 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-012 online/offline failure semantics | Locator/cache/revocation policy | timeout/malformed/redirect/fresh-absence/expired-absence/cached-revoked/expired-known-revoke/identity-mismatch matrix asserts exact current/revoked/unknown status |
 | B-013 target compatibility | Capability/host resolver | unknown host, incompatible protocol, unsupported capability, missing Core and valid Claude/Codex fixtures produce distinct closed statuses and cannot be promoted by override |
 | B-014 runtime privacy/capability | Sealed capability registry + sandbox boundary | network/credential/path/log access sentinels and child-env capture prove undeclared access never runs or persists |
-| B-015 transaction state machine | Transaction journal + authenticated generation anchor | pre-floor failures rollback；post-floor failures preserve evidence and roll forward exact switch；coherent local replay mismatches external root |
+| B-015 transaction state machine | Journal + authenticated anchor + durable pointer | post-floor retry repeats exact rename, pointer fsync and parent-dir fsync before complete；coherent replay mismatches root |
 | B-016 scoped rollback/repair | Transaction rollback/recovery | pre-floor restores before digests；post-floor every applied/host/config CAS match rolls forward；any drift preserves state/evidence and needs_repair |
-| B-017 interruption recovery | Journal recovery + confirmation epochs | crash fixtures mutate each applied entry, host/adapter and config root；none may switch pointer, publish receipt or start a new plan |
+| B-017 interruption recovery | Journal recovery + confirmation epochs | crash each rename/fsync/cleanup stage and mutate applied/host/config；recovery either repeats exact durable switch or needs_repair, never false receipt |
 | B-018 complete committed receipt | Receipt schema/writer + source storage key | official receipt requires event digest；local requires not_applicable + absent event；all block receipts bind committed policy and finite decision/override horizons/fallback；local round-trip needs no publisher sentinel |
 | B-019 ownership preservation | Planner + reservation + structured config adapters | update/remove succeeds only when current state matches receipt after digest；matching before but not after is drift；fresh conflict/cancel preserves canaries |
 | B-020 dependency graph | Dependency resolver + set generation | missing/cycle/range/undeclared recursion zero-apply；same publisher+pack+version/different digest conflicts，while same publisher+version/different pack names coexist；valid graph uses one pointer |
@@ -640,7 +640,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | Active-policy journal/pointer + authenticated policy anchor | final CAS/fence precedes installation floor；post-floor drift journal-rolls forward suspended；exact authority revalidates through execution |
+| B-027 policy-owned thresholds | Active-policy journal/pointer + authenticated policy anchor | policy rename+pointer/dir fsync precede journal completion；post-floor drift rolls forward suspended；authority revalidates through execution |
 | B-028 insufficient evidence degrades | Anchored generation-scoped runtime guard | every trusted time advances externally anchored high-water；expiry/policy drift latches audit_required；clock/local-tree rollback cannot restore block |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
