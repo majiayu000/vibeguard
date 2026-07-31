@@ -289,7 +289,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     比较其 digest 与 committed generation，mismatch、pointer 缺失或 malformed 时立即使用
     warn/off fallback 并标记 `audit_required`，不能等旧 `decision_valid_until` 到期。status
     同时显示 publication、committed evaluation 与 authoritative active evaluation policy
-    identities。
+    identities。每次 policy activation 还必须在 Core-owned policy lock 下先原子推进并 fsync
+    durable monotonic `policy_generation_floor`，再切换带 generation 的 authoritative pointer；
+    runtime 同时验证 pointer generation 不低于该 floor。旧 pointer replay 即使 digest 再次
+    匹配 committed generation 也必须 fallback + `audit_required`，floor 缺失/损坏则 fail closed。
 28. B-028: 某 rule 的 evidence 缺失、invalid、样本不足、过期或 precision 低于获批 floor
     时，其 official effective default 必须是 warn，绝不能 block；无数据必须显示空
     precision + closed reason，不能写 `0%` 或沿用旧证据。用户显式关闭属于 B-030 的
@@ -298,8 +301,14 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     每次 enforcement 都检查该 horizon，并通过 Core-owned、per-installation durable trusted
     time high-water 检测回退：任意 `runtime_time < last_trusted_runtime_time`，即使仍位于
     evaluation/expiry interval 内，也必须立即忽略旧 block、使用 fallback 并显示
-    `clock_rollback + audit_required`。high-water 缺失、损坏、身份不匹配或无法原子推进时同样
-    fail closed，不能等待用户手动运行管理命令，也不能因进程重启静默降低 high-water。
+    `clock_rollback + audit_required`。high-water state 必须按 active generation 隔离并由同一
+    installation-scope pointer 选择；新 state 在 pointer switch 前不可影响旧 generation。
+    high-water 缺失、损坏、身份不匹配或 bounded retry 后仍无法锁定/原子推进时必须拒绝本次
+    操作并非零返回，不能降为 warn/off 后放行，也不能因进程重启静默降低 high-water。
+    rollback 后普通 fresh audit 不能降低同一 clock epoch 的 high-water；恢复必须走显式
+    trusted-clock reconciliation，在 locks 下验证 Core-approved time evidence、重新 audit，
+    递增 `clock_epoch` 并把 reconciliation evidence 与新 generation/runtime state 通过同一
+    atomic pointer commit。失败时旧 active/state 保持不变且 protection 不恢复。
 29. B-029: evidence 达标只授予 `block_eligible`，不会自动 block。只有 manifest 明确请求
     block、capability/host 支持、trust verified 且所有 policy gates 同时满足时才可成为
     official default block；任一前提失败时重新降为 warn/off，并列出全部 reason。
@@ -313,7 +322,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     `revocation_status = revoked`、unknown/incompatible host、unsupported capability 与
     missing Core 都是不可提升的终态 ceiling。evidence-only promotion 必须由 current
     evaluation policy 给出有限 `max_override_ttl`，并绑定独立的 confirmation issued/expires
-    evidence；`override_valid_until` 取 confirmation expiry、policy expiry 及所有仍适用的
+    evidence；只有 `confirmed_at <= evaluation_time < confirmation_expires_at` 才可接受，
+    future-dated、倒序或已过期 confirmation 必须拒绝。`override_valid_until` 取
+    `confirmed_at + max_override_ttl`、confirmation expiry、policy expiry 及所有仍适用的
     provenance/revocation/compatibility horizons 的最早值，不得要求缺失/过期 precision
     evidence 提供未来 horizon，也不得用 synthetic/unbounded 值补齐。缺少任一 required
     override horizon、到期或 policy identity drift 时必须 suspended/rejected，并降为
@@ -332,7 +343,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     继续静默 block。即使没有 add/update/audit，runtime 发现 authoritative local policy
     digest mismatch、到达 `decision_valid_until`/`override_valid_until`，或发现 trusted-time
     high-water rollback/drift，也必须先施加本地 fallback ceiling 并标记 `audit_required`；
-    只有 fresh management audit（promotion 另需 fresh explicit confirmation）才可恢复 block。
+    只有 fresh management audit（clock rollback 另需 B-028 trusted-clock reconciliation；
+    promotion 另需 fresh explicit confirmation）才可恢复 block。
 33. B-033: 默认不得自动上传 event logs、源代码、用户路径、HOME、fixture payload、
     secrets 或 local triage。任何 feedback export 必须显式触发、先显示字段清单并脱敏，
     生成本地 artifact；发送/发布是另一个需确认动作，取消后零网络。
@@ -368,7 +380,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     与 precision reason、`decision_valid_until`/expiry state/`audit_required`，以及
     publication/committed/authoritative active evaluation policy identities、
     source-applicable `override_valid_until`、trusted-time high-water/clock state，并以
-    nonzero 区分 `{invalid, incompatible, revoked, needs_repair}`；
+    nonzero 区分 `{invalid, incompatible, revoked, needs_repair, protection_suspended,
+    runtime_guard_unavailable}`；任何 `audit_required` 或 active protection 降级/暂停也必须
+    nonzero，不能让 automation 把失去保护误判为 healthy；
     空 pack 列表是成功且显示为空，不是错误或伪造内置 pack。
 42. B-042: registry/network 暂时不可用时，已安装、receipt-valid pack 的 runtime enforcement
     不得读取网络或删除用户状态；audit 必须诚实保留 provenance trust 并单独显示
