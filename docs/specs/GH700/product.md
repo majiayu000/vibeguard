@@ -312,9 +312,11 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     此前只有 non-valid/no publication；在 intent 前持久化绑定 history frontier 的
     zero-marker receipt，绑定 surface set及各 base blob，不制造 no-op PR）或
     `post_invalidation_zero`（每个 surface均零 marker，history证明最后一次 current-valid
-    publication 已由 terminal `invalidate_current` receipt失效；其后 suffix只允许 terminal
-    non-valid publications与本次 exact current prepared owner，不得有 current restoration或其它
-    owner。在 intent 前 append fresh `post_invalidation_zero_receipt`，绑定 current frontier、
+    publication 已由 terminal `invalidate_current` receipt失效；其后 suffix closed union只允许 terminal
+    non-valid publications、本次 exact current prepared owner及经独立 governance domain/fence/threshold
+    验证且不改变 publication owner/phase/liveness 的 phase-neutral
+    `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}`，不得有 current restoration或其它 owner。
+    在 intent 前 append fresh `post_invalidation_zero_receipt`，绑定 current frontier、
     invalidation-receipt digest、exact owner与所有 current surface blobs，且不制造 no-op
     de-current PR）。仅有历史 valid而无 exact terminal invalidation及 fresh zero receipt仍 blocked。
     任一 mixed

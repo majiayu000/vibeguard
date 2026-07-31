@@ -5,6 +5,43 @@
 owner-liveness 概念边界。引用方不得复制、改名或局部覆盖这里的字段、枚举、secret boundary
 或 fail-closed 语义；冲突时本文件的 exact machine-facing identifiers为唯一真源。
 
+## Concrete durable authority
+
+唯一 production backend 是 `publication_authority_sqlite_v1`，由计划中的
+`vibeguard-runtime/src/publication_authority/{mod.rs,store.rs,broker.rs,recovery.rs}` 与
+`vibeguard-runtime/src/main.rs` 的 `publication-authority serve|recover` 命令实现；publication
+client、workflow、benchmark code 均不得另建 store、直接打开数据库或以内存/mock/checkout/
+Actions artifact降级。environment-protected service以单 active replica运行在独立于 runner、
+checkout、Release artifact与 owner lifecycle 的 durable volume；signed deployment manifest的
+closed planned **schemas/publication_authority_deployment.schema.json** 固定
+`{authority_id,backend,publication_store_path,publication_store_lock_path,volume_identity,kms_key_id,
+retention_policy_digest,trust_bundle_digest}`；backend必须 exact 为 `publication_authority_sqlite_v1`，
+store path是唯一 absolute canonical SQLite file且必须位于该 volume，禁止默认路径、相对路径或
+临时目录。KMS key/ciphertext retention policy同样由 manifest钉住，credential只从 environment
+secret provider取得。
+
+service启动先取得同 manifest钉住的 process lock，验证 volume支持 kernel lock与 durable
+`fsync`，再以 SQLite WAL、`journal_mode=WAL`、`synchronous=FULL`、foreign keys及
+`BEGIN IMMEDIATE`运行。history head/leaf、operation/rotation/slot unique indexes、owner/fence、
+capsule ciphertext metadata、broker outbox/delivery/send-once audit与 completed receipt须在一个
+事务中验证和提交；任何 lock/busy timeout、WAL/fsync/checkpoint、disk-full或 KMS error都使
+authority non-ready并 fail closed，不得返回成功 receipt。首次 database/WAL/lock 创建与 migration
+commit后还须 fsync file及 parent directory；禁止 destructive migration、truncate或 silent rebuild。
+
+唯一 bootstrap owner 是 SP700-T3 的 publication-authority store/deployment single writer，经计划中的
+**.github/workflows/publication-authority-deploy.yml** 调用
+**scripts/ci/bootstrap_publication_authority.py**：只可在不存在 database时写入 independently signed
+length-zero genesis/trust bundle并签发 bootstrap receipt，已存在时必须 byte/digest-match或拒绝。
+唯一 crash/restore authority 是同一 protected service的 `recover` 命令，在 exclusive process lock下
+replay WAL、校验 `integrity_check`、全量重放 signed history/unique indexes/outbox/capsule metadata并
+重新签发 exact-head recovery receipt；snapshot+WAL restore还须 governance threshold批准、单调
+restore epoch及 KMS可解封证明。T10只消费认证 API，不拥有 backend或 recovery authority。
+
+端到端证明必须在真实 durable-volume fixture对每个 transaction boundary注入 kill/power-loss、并发
+claim/slot/delivery、WAL/checkpoint失败、disk-full、KMS unavailable、runner/checkout删除、owner
+terminal与 signed snapshot+WAL restore；重启后只允许 exact committed state或未提交状态，绝无
+双 owner、双 send、丢 leaf/index/capsule/outbox或 unsigned frontier。
+
 ## Ownership 与 lock order
 
 所有会公开 Release/README 的分支都先按唯一顺序取得
@@ -164,6 +201,12 @@ frontier防 ABA。record schema 是 versioned closed union，唯一 top-level di
 rollback_recovery_blocked,marker_recovery_blocked,nonvalid_row_recovery_blocked,
 invalidation_recovery_blocked,release_recovery_blocked}`、`recovered_publication`与 terminal；非法
 transition/fence/owner、缺失、截断、fork、过期 fence或 checkout anchor均 fail closed。
+`post_invalidation_zero` 的 invalidation suffix fold是 exact closed union：terminal non-valid
+publication、current prepared owner及已验签的 phase-neutral
+`{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}`。governance record必须经独立 governance
+domain/fence/threshold及上述 trust cutover验证，且 fold后 current publication仍 absent、publication
+owner/phase/liveness不变；任何其它 record、current restoration或其它 owner均拒绝。
+
 ## Owner liveness
 
 长时间等待人工 review 以 durable `owner_heartbeat` renewal record续活：immutable
