@@ -92,6 +92,10 @@ case "${1:-}" in
     if [[ "${2:-}" == "--runtime" ]]; then
       touch "${VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME}"
       rm -f -- "${VIBEGUARD_TEST_SYSTEMD_ENABLED}"
+      if [[ "${3:-}" == "--now" ]]; then
+        touch "${VIBEGUARD_TEST_SYSTEMD_ACTIVE}" \
+          "${VIBEGUARD_TEST_HASH_ACTIVATED}"
+      fi
       exit 0
     fi
     touch "${VIBEGUARD_TEST_SYSTEMD_ENABLED}"
@@ -349,6 +353,72 @@ assert_cmd "runtime-enabled refresh restores units and receipt byte-for-byte" ba
 assert_cmd "runtime-enabled refresh restores runtime enablement exactly" bash -c \
   'test -e "$1" && test ! -e "$2"' _ \
   "${runtime_refresh_enabled_runtime}" "${runtime_refresh_enabled}"
+
+runtime_success_home="${TMP_HOME}/standalone-systemd-runtime-success-home"
+runtime_success_active="${runtime_success_home}/.systemctl-vibeguard-gc-active"
+runtime_success_service_active="${runtime_success_home}/.systemctl-vibeguard-gc-service-active"
+runtime_success_enabled="${runtime_success_home}/.systemctl-vibeguard-gc-enabled"
+runtime_success_enabled_runtime="${runtime_success_home}/.systemctl-vibeguard-gc-enabled-runtime"
+runtime_success_activated="${runtime_success_home}/.systemctl-vibeguard-gc-activated"
+mkdir -p "${runtime_success_home}"
+env HOME="${runtime_success_home}" "${post_activation_hash_env[@]}" \
+  VIBEGUARD_TEST_SYSTEMD_ACTIVE="${runtime_success_active}" \
+  VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE="${runtime_success_service_active}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED="${runtime_success_enabled}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME="${runtime_success_enabled_runtime}" \
+  VIBEGUARD_TEST_HASH_ACTIVATED="${runtime_success_activated}" \
+  VIBEGUARD_TEST_HASH_FAIL_PATH="${runtime_success_home}/not-this-run" \
+  bash "${REPO_DIR}/scripts/install-systemd.sh" >/dev/null
+rm -f -- "${runtime_success_enabled}" "${runtime_success_activated}"
+touch "${runtime_success_enabled_runtime}"
+env HOME="${runtime_success_home}" "${post_activation_hash_env[@]}" \
+  VIBEGUARD_REPO_DIR="${standalone_alt_repo}" \
+  VIBEGUARD_TEST_SYSTEMD_ACTIVE="${runtime_success_active}" \
+  VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE="${runtime_success_service_active}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED="${runtime_success_enabled}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME="${runtime_success_enabled_runtime}" \
+  VIBEGUARD_TEST_HASH_ACTIVATED="${runtime_success_activated}" \
+  VIBEGUARD_TEST_HASH_FAIL_PATH="${runtime_success_home}/not-this-run" \
+  bash "${REPO_DIR}/scripts/install-systemd.sh" >/dev/null
+assert_cmd "successful runtime-enabled refresh stays runtime-only and active" bash -c \
+  'test -e "$1" && test ! -e "$2" && test -e "$3"' _ \
+  "${runtime_success_enabled_runtime}" "${runtime_success_enabled}" \
+  "${runtime_success_active}"
+
+fresh_unowned_home="${TMP_HOME}/standalone-systemd-fresh-unowned-home"
+fresh_unowned_service="${fresh_unowned_home}/.config/systemd/user/vibeguard-gc.service"
+fresh_unowned_timer="${fresh_unowned_home}/.config/systemd/user/vibeguard-gc.timer"
+fresh_unowned_receipt="${fresh_unowned_home}/.vibeguard/scheduler-ownership"
+fresh_unowned_active="${fresh_unowned_home}/.systemctl-vibeguard-gc-active"
+fresh_unowned_service_active="${fresh_unowned_home}/.systemctl-vibeguard-gc-service-active"
+fresh_unowned_enabled="${fresh_unowned_home}/.systemctl-vibeguard-gc-enabled"
+fresh_unowned_enabled_runtime="${fresh_unowned_home}/.systemctl-vibeguard-gc-enabled-runtime"
+fresh_unowned_activated="${fresh_unowned_home}/.systemctl-vibeguard-gc-activated"
+mkdir -p "${fresh_unowned_home}"
+touch "${fresh_unowned_active}" "${fresh_unowned_service_active}" \
+  "${fresh_unowned_enabled_runtime}"
+fresh_unowned_rc=0
+fresh_unowned_out="$(
+  env HOME="${fresh_unowned_home}" "${post_activation_hash_env[@]}" \
+    VIBEGUARD_TEST_SYSTEMD_ACTIVE="${fresh_unowned_active}" \
+    VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE="${fresh_unowned_service_active}" \
+    VIBEGUARD_TEST_SYSTEMD_ENABLED="${fresh_unowned_enabled}" \
+    VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME="${fresh_unowned_enabled_runtime}" \
+    VIBEGUARD_TEST_HASH_ACTIVATED="${fresh_unowned_activated}" \
+    VIBEGUARD_TEST_HASH_FAIL_PATH="${fresh_unowned_home}/not-this-run" \
+    bash "${REPO_DIR}/scripts/install-systemd.sh" 2>&1
+)" || fresh_unowned_rc=$?
+assert_cmd "fresh install rejects active or enabled same-named unowned state" \
+  test "${fresh_unowned_rc}" -ne 0
+assert_contains "${fresh_unowned_out}" \
+  "active or enabled without a VibeGuard ownership receipt" \
+  "fresh unowned rejection explains the ownership boundary"
+assert_cmd "fresh unowned rejection preserves state and creates no local ownership" bash -c \
+  'test -e "$1" && test -e "$2" && test -e "$3" \
+    && test ! -e "$4" && test ! -e "$5" && test ! -e "$6"' _ \
+  "${fresh_unowned_active}" "${fresh_unowned_service_active}" \
+  "${fresh_unowned_enabled_runtime}" "${fresh_unowned_service}" \
+  "${fresh_unowned_timer}" "${fresh_unowned_receipt}"
 
 successful_service_home="${TMP_HOME}/standalone-systemd-successful-service-refresh-home"
 successful_service_active="${successful_service_home}/.systemctl-vibeguard-gc-active"

@@ -382,6 +382,26 @@ elif [[ -e "${SERVICE_DEST}" || -L "${SERVICE_DEST}" \
   exit 1
 fi
 
+if [[ -z "${SCHEDULER_RECEIPT_PARSED}" ]]; then
+  FRESH_TIMER_ACTIVE=0
+  FRESH_SERVICE_ACTIVE=0
+  FRESH_TIMER_ENABLED_MODE=disabled
+  if ! scheduler_capture_active_state \
+      vibeguard-gc.timer FRESH_TIMER_ACTIVE \
+    || ! scheduler_capture_active_state \
+      vibeguard-gc.service FRESH_SERVICE_ACTIVE \
+    || ! scheduler_capture_enabled_state \
+      vibeguard-gc.timer FRESH_TIMER_ENABLED_MODE; then
+    exit 1
+  fi
+  if [[ "${FRESH_TIMER_ACTIVE}" == "1" \
+    || "${FRESH_SERVICE_ACTIVE}" == "1" \
+    || "${FRESH_TIMER_ENABLED_MODE}" != "disabled" ]]; then
+    red "ERROR: same-named systemd scheduler is active or enabled without a VibeGuard ownership receipt; preserving unowned state."
+    exit 1
+  fi
+fi
+
 echo "Installing VibeGuard systemd user units..."
 
 if [[ ! -f "${SERVICE_SRC}" ]] || [[ ! -f "${TIMER_SRC}" ]]; then
@@ -500,7 +520,16 @@ else
   green "  Unit files written to ${UNIT_DIR}/"
 fi
 
-if ! systemctl --user enable --now vibeguard-gc.timer 2>/dev/null; then
+scheduler_activate_installed_timer() {
+  if [[ "${INSTALL_REFRESH}" == "1" \
+    && "${PRIOR_TIMER_ENABLED_MODE}" == "runtime" ]]; then
+    systemctl --user enable --runtime --now vibeguard-gc.timer 2>/dev/null
+  else
+    systemctl --user enable --now vibeguard-gc.timer 2>/dev/null
+  fi
+}
+
+if ! scheduler_activate_installed_timer; then
   if ! scheduler_restore_install_transaction; then
     red "ERROR: timer activation failed and rollback was incomplete; inspect ${INSTALL_WORK_DIR}."
     exit 1
