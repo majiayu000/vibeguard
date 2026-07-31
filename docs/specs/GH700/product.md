@@ -248,13 +248,26 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `repo_node_id`、candidate/run/attempt、fence、draft/summary/policy、base digest、
     deadline/heartbeat 与闭集 marker plan。短 lease 可在等待 review 时释放，durable active
     owner 仍阻断其它 candidate；恢复时按同一顺序重取 lease并提升 fence。
+    canonical frontier 是 `(repo_node_id, history_length, history_root,
+    full_prefix_digest)`。维护者批准的 length-zero genesis 只能在 store 尚无 head 的首次
+    初始化使用；此后上一 release frontier 仅作下界，reader 必须取得 store 签名的最新单调
+    current-head receipt、重放 prefix并证明精确结束于该 head。store 对
+    `(expected_length, expected_root, expected_full_prefix_digest, current_fence)` 原子 CAS，
+    复算并签发 successor frontier。record schema 是 versioned closed discriminated union，
+    canonical digest 使用 `jcs-rfc8785-v1`，覆盖
+    prepared、receipt、intent、commit、takeover、四类 recovery-blocked、
+    `recovered_publication` 与 terminal；每项绑定 owner key、prior phase/frontier、
+    expected/new fence、payload digest 与受信 issuer/workflow/subject，deterministic fold
+    唯一导出 active owner/phase，非法 transition/fence/owner 直接拒绝。缺失、尾部截断、
+    fork、过期 fence 或 checkout 自报 anchor 均 fail closed。
     valid plan 只能是：`rollover_one`（CAS 证明恰有一个 eligible current valid row，合并
     human-reviewed de-current PR并在 intent 前持久化 merge SHA/前后 blob digest receipt）或
     `genesis_zero`（CAS 证明零 marker、`publication_history` 没有历史 eligible valid
     publication，且除本次 exact current prepared owner
-    `(repo_node_id, candidate, run_id, run_attempt, fence)` 外没有 active owner；ledger 证明此前
-    只有 non-valid/no publication；在 intent 前持久化绑定 history frontier 的 zero-marker
-    receipt，不制造 no-op PR）。
+    `(repo_node_id, candidate, run_id, run_attempt, fence)` 外没有 active owner；history 证明
+    此前只有 non-valid/no publication；在 intent 前持久化绑定 history frontier 的
+    zero-marker receipt，不制造 no-op PR）。corpus ledger 只证明 artifact identities，
+    不参与 publication 判定。
     其它 zero-marker 状态都 fail closed。不可逆 `publish_intent` 必须绑定对应 receipt及
     发布前已 human-approved 的 exact new-current patch/review/base digest；base/CAS 改变即
     重审。ownership 以 fenced CAS 推进 `valid_zero_marker → intent_written →
@@ -268,11 +281,13 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     publication。只有 exact rollback 完成并删除 draft，或 exact new-current merge 后，
     ownership 才 terminal；所有 receipt、fenced transition 与 terminal record 均保留在
     `publication_history`，不能因 owner terminal 而删除。
-    `publish_nonvalid` 也必须从 prepared owner 推进至
-    `release_committed_nonvalid_row_pending`；它不改 current marker，只能合并同 summary 的
+    `publish_nonvalid` 也必须从 prepared owner 先 CAS 至 `intent_written`，且只有该状态可
+    推进 `release_committed_nonvalid_row_pending`；它不改 current marker，只能合并同 summary 的
     human-reviewed unmarked row。其 PR 的 reject/close/timeout/crash 使用同一 higher-fence
     replacement/review 机制；无获批 replacement 为 `nonvalid_row_recovery_blocked`，不能
     留下无 row 的 public Release 后放行下一 candidate。exact unmarked row merge 后才 terminal。
+    intent 后 exact draft 缺失/不匹配且没有 matching public Release 时只能 attest
+    `release_recovery_blocked`，active owner 保持，不得改发 block record 或放行其它 candidate。
 18. B-018: release 报告无效、缺平台或 pipeline 中断时必须按获批的闭集
     `release_policy` 唯一分支，且不得保留前一 release 数字但换成新版本标签：
     - `block_release`：按 B-029 保存永久失败证据后阻断；不创建 GitHub Release、
@@ -295,15 +310,15 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `publish_intent` 完成/验证同一 draft，或按 durable owner 创建/supersede exact
     rollback、new-current、nonvalid-row recovery PR 并等待 human review/merge；
     不得直接写 default branch，也不得创建或改写其他 tag/release。任何新 mutation 前必须
-    审计 publish sentinels；已发生的 exact intent/Release 只能幂等验证/完成，不能依赖已终止
-    job 继续执行。
+    审计 publish sentinels；post-intent 严格按 B-029 三分支真值表恢复，不能依赖已终止 job。
     发布路径必须使用 attempt-scoped draft two-phase commit：所有 assets/checksums/summary
     先上传到非公开 draft并完整重验；然后按 B-017 唯一锁顺序和 CAS 写
     `publication_ownership_record(prepared)`。valid 选择并证明 `genesis_zero` 或
     `rollover_one` receipt 后再写不可变 `publish_intent`；`publish_nonvalid` 的 intent
     绑定 exact unmarked-row plan。最后以唯一 draft→published 作为 commit point。prepared
     且无可见动作的取消可删 draft并 terminal；de-current 后 intent 前取消进入可接管的
-    reviewed rollback；intent 后幂等完成/验证同一 Release；commit 后由同一 durable owner
+    reviewed rollback；intent 后严格按 B-029 matching Release/matching draft/neither 三分支；
+    commit 后由同一 durable owner
     完成 valid marker 或 nonvalid row。不存在 public partial assets、无 owner 的 zero marker、
     无 owner 的 public Release 或 unrecovered README PR 合法状态。
 19. B-019: 官方 report schema 与 corpus schema 的不兼容变更必须提升各自 schema
@@ -468,11 +483,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     此分支不能降格成单一 target record。
 
     对于 hard-cancel、runner loss 或 workflow timeout，独立 completion reconciler 必须先
-    复验 durable owner、intent 与 public sentinels。已有 intent/Release 的 attempt 必须幂等
-    完成 publication/README transition，并在 `publication_history` append 独立闭集
-    `recovered_publication` outcome；不得为它写 B-029 `block_release`/
-    `pipeline_interrupted` permanent failure record。只有无 intent 且恢复最终证明不发布
-    （包括 exact rollback+draft delete）时，才创建 schema 的 `pipeline_interrupted` 分支：包含同一
+    复验 durable owner、intent 与 public sentinels。post-intent 真值表唯一为：matching
+    public Release 则验证并完成 README；否则 matching intent-bound private draft 则发布并
+    完成 README；两者都 append `recovered_publication`。若二者皆无则 attest
+    `release_recovery_blocked`、保留 owner，不能写 recovered/interruption。只有无 intent
+    且恢复最终证明不发布时（无可见 transition 直接删 draft；已 de-current 则 exact
+    rollback+draft delete），才创建 schema 的 `pipeline_interrupted` 分支：包含同一
     candidate/run/attempt、staged provenance、selected/effective policy、interruption
     conclusion/stage、publish-sentinel audit，以及闭集 `missing_evidence`；此分支明确将
     report/evidence/checksum identity 置空而不伪造。reconciler 用相同 canonical profile
@@ -560,17 +576,21 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
       bundle/signed manifest + 单一 digested production-asset registry 授权的 no-follow
       只读身份通道，baseline/interpreters/transitive executables 缺项、用户 config、
       registry 外读取和全部写入均被拒；sentinel secrets 不出现在任何输出。
-- [ ] release CI 用准确 staged artifacts 重新生成不可变报告；可恢复阻断在退出前、hard
-      cancel/runner loss 由 environment-protected completion reconciler，把 target 或
-      release-scoped attempt manifest 永久内嵌到不可覆盖 attestation/ledger；它的
+- [ ] release CI 用准确 staged artifacts 重新生成不可变报告；可恢复阻断在退出前写证据，
+      hard cancel/runner loss 由 environment-protected completion reconciler 按 publication
+      phase 分流：无 intent 最终不发布时才把 target 或 release-scoped failure manifest
+      永久内嵌到不可覆盖 attestation/ledger；post-intent matching Release/draft 完成 exact
+      publication并只写 `recovered_publication`，neither 则 `release_recovery_blocked`。它的
       Release 写权限仅能删除无可见 transition 的 prepared private draft、按验签 intent
       完成同一 draft，或按 durable owner 创建/supersede human-reviewed rollback、
       new-current、nonvalid-row PR；不能直接写 default branch或改写其他 release；
       `repo_node_id` identity、candidate/source → ledger → publication 的唯一 lease 顺序、
       fenced CAS + merged watermark 阻止 prior attempt 或并发 candidate 后的 rerun/publish；
-      genesis zero-marker、rollover rollback、post-commit marker 与 nonvalid row 都必须有
+      genesis zero-marker、rollover rollback、post-intent Release、post-commit marker 与
+      nonvalid row 都必须有
       pre-transition durable owner、intent 前 receipt、retained authenticated publication
-      history并恢复到 terminal；reconciler 仅用显式
+      history并恢复到 terminal；draft/Release 不匹配则 `release_recovery_blocked`。
+      reconciler 仅用显式
       `actions: read`/`contents: write`/`pull-requests: write`。
 - [ ] unavailable/inconclusive/interrupted/legacy-schema 及 process-tree/report/schema/
       cleanup terminal errors 均非零退出、blank headline，且不会把历史数字冒充当前 release。
