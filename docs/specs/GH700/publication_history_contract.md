@@ -128,7 +128,7 @@ restore中读 exact versions并调用 pinned KMS decrypt，authority routine rol
 每个 committed successor先生成 exact `backup_set_core={backup_id,resource_identity,snapshot_object_key,
 snapshot_version_id,snapshot_ciphertext_digest,manifest_object_key,manifest_version_id,
 manifest_ciphertext_digest,wal_object_key,wal_version_id,wal_ciphertext_digest,kms_key_arn,kms_key_version,
-wrapped_data_key_digest,aead_contract_digest,retention_until,legal_hold_status}` 及
+wrapped_data_key_set_digest,aead_contract_digest,retention_until,legal_hold_status}`，其中 `wrapped_data_key_set_digest=SHA256(JCS([{object_kind:"snapshot",wrapped_data_key_digest},{object_kind:"recovery_manifest",wrapped_data_key_digest},{object_kind:"wal",wrapped_data_key_digest}]))` 且数组顺序固定、每个 digest 取对应 immutable object header 中 exact wrapped-key bytes 的 SHA256；及
 `backup_set_core_digest=SHA256(JCS(backup_set_core))`。detached `backup_confirmation` exact 为
 `{backup_set_core_digest,snapshot_get_receipt_digest,manifest_get_receipt_digest,wal_get_receipt_digest,
 retention_receipt_digest,legal_hold_receipt_digest}`，`backup_confirmation_digest=SHA256(JCS(backup_confirmation))`，
@@ -479,7 +479,7 @@ PR metadata。create/bind response loss须完整分页枚举 draft/open/closed/m
 ref并核对完整 tuple：唯一 active match在重读 latest signed frontier/fence/ruleset后 CAS bound；
 唯一 merged match按 kind进入 receipt/rollback/marker/row恢复；closed match先 revoke再
 replacement。ordinary/stale zero保留 owner且不得重发 non-idempotent create；仅同一线性化快照
-覆盖 PR+ref的 authenticated exhaustive negative receipt可证明不存在。多匹配、tuple/creator
+覆盖 PR+ref的 authenticated exhaustive negative receipt及 broker quiescence可证明不存在，此时 append `generated_pr_revoked` 的 unbound branch后才可 new slot。多匹配、tuple/creator
 不符、分页/权限不全、rate-limit/5xx/timeout或无强一致 absence API，按 kind进入对应 recovery
 blocked variant。旧 fence late bind、reopen/ref ABA、stale check/review与 ruleset bypass均由
 latest-frontier merge gate拒绝。
@@ -655,7 +655,7 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | `record_kind` | exact `payload` fields |
 | --- | --- |
 | `owner_claimed` | `{owner_generation,run_id,run_attempt,candidate_tag_identity_digest,frozen_plan_digest,liveness_policy_digest,draft_claim_nonce_digest,nonce_capsule_id,capsule_ciphertext_digest,kms_key_version,trusted_time_proof_digest,prior_time_high_water,new_time_high_water,claim_accepted_at,lease_expires_at}` |
-| `owner_heartbeat` | `{owner_generation,heartbeat_sequence,prior_heartbeat_operation_id,liveness_policy_digest,trusted_time_proof_digest,prior_time_high_water,new_time_high_water,accepted_at,lease_expires_at}` |
+| `owner_heartbeat` | `{owner_generation,heartbeat_sequence,prior_liveness_operation_id,liveness_policy_digest,trusted_time_proof_digest,prior_time_high_water,new_time_high_water,accepted_at,lease_expires_at}` |
 | `publication_owner_taken_over` | `{candidate_tag_identity_digest,prior_owner_generation,new_owner_generation,prior_owner_terminal_or_expiry_evidence_digest,slot_chain_digest,trusted_time_proof_digest,prior_time_high_water,new_time_high_water,accepted_at,lease_expires_at}` |
 | `draft_bound` | `{owner_generation,release_node_id,tag_identity_digest,target_commit_oid,draft_claim_nonce_digest,release_mutation_operation_id}` |
 | `prepared` | `{owner_generation,draft_bound_operation_id,asset_manifest_digest,checksums_digest,summary_digest,closed_slot_set_digest}` |
@@ -678,7 +678,7 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | `compensated` | `{owner_generation,compensation_planned_operation_id,compensation_mutation_bound_operation_id,restored_pre_state_digest,no_extra_resource_receipt_digest}` |
 | `generated_pr_planned` | `{owner_generation,pr_kind,transition_slot,base_ref_oid,head_repo_node_id,head_ref,head_ref_nonce_digest,reviewed_commit_oid,expected_tree_digest,patch_digest,merge_method,ruleset_digest,trusted_app_identity_digest,trusted_installation_identity_digest,replacement_chain_digest_or_null}` |
 | `generated_pr_bound` | `{owner_generation,pr_kind,planned_operation_id,pr_node_id,head_ref,head_oid,base_oid,queue_identity_digest,review_digest}` |
-| `generated_pr_revoked` | `{owner_generation,pr_kind,bound_operation_id,pr_node_id,queue_absent_receipt_digest,head_absent_receipt_digest,default_unchanged_receipt_digest}` |
+| `generated_pr_revoked` | `{owner_generation,pr_kind,planned_operation_id,bound_operation_id_or_null,pr_node_id_or_null,queue_absent_receipt_digest,head_absent_receipt_digest,default_unchanged_receipt_digest,exhaustive_negative_discovery_digest,broker_quiescence_receipt_digest}` |
 | `generated_pr_merged` | `{owner_generation,pr_kind,bound_operation_id,pr_node_id,actual_merge_oid,default_before_oid,default_after_oid,actual_tree_digest,surface_blobs_digest}` |
 | `release_mutation_recovery_blocked` | `{owner_generation,mutation_kind,mutation_slot_id,plan_digest,blocked_reason_code,evidence_digest,retain_owner}` |
 | `draft_recovery_blocked` | `{owner_generation,draft_claim_nonce_digest,draft_create_mutation_slot_id,blocked_reason_code,evidence_digest,retain_owner}` |
@@ -701,7 +701,7 @@ closed enums exact 为 `intent_kind={publish_valid,publish_nonvalid}`、
 valid intent还须在 `zero_marker_receipt_operation_id_or_null`与`rollover_receipt_operation_id_or_null`中恰一 non-null；nonvalid两者均 null，rollover只能引用同 owner/prepared/frontier的 committed `generated_pr_merged(pr_kind=decurrent)` receipt。
 `release_mutation_recovery_blocked.mutation_kind`只允许
 `{draft_update,draft_delete,asset_upload,asset_delete,publish}`，`draft_create`只允许
-`draft_recovery_blocked`。broker audit、capsule、KMS refs、external anchor、time proof、PR/Release discovery与
+`draft_recovery_blocked`。`blocked_reason_code` 是下列逐 kind 闭集：`draft_recovery_blocked` 仅 `{permission_denied,pagination_incomplete,broker_audit_unavailable,rate_limited,remote_5xx,remote_timeout,ambiguous_remote_effect,tag_identity_drift,source_drift,ruleset_drift,bypass_drift,capsule_unavailable,capsule_integrity_failed,kms_unavailable}`；`release_mutation_recovery_blocked` 仅前集合去掉三个 capsule/KMS code；`{decurrent_pr_recovery_blocked,rollback_recovery_blocked,marker_recovery_blocked,nonvalid_row_recovery_blocked,invalidation_recovery_blocked}` 仅 `{permission_denied,pagination_incomplete,rate_limited,remote_5xx,remote_timeout,ambiguous_remote_effect,multiple_matches,identity_mismatch,ruleset_drift,bypass_drift}`；`release_recovery_blocked` 仅 `{permission_denied,pagination_incomplete,rate_limited,remote_5xx,remote_timeout,release_truth_ambiguous,multiple_matches,identity_mismatch}`，表外 code 一律 schema-invalid。broker audit、capsule、KMS refs、external anchor、time proof、PR/Release discovery与
 generated patch是由 payload digest引用的 durable typed objects，不是额外 record kinds。非法 transition/
 fence/owner、缺失/截断/fork、过期 fence、checkout anchor或表外 kind均 fail closed。
 `publication_terminal_no_publication.payload.draft_cleanup_evidence`是以 `cleanup_kind`判别的 exact
@@ -719,13 +719,13 @@ compensation字段；`draft_deleted`不得缺任一 deletion branch字段。外�
 全量发现，不能由 nested evidence替代。
 允许的 phase grammar对 folded publication phase 闭合：在任一尚有 non-terminal current owner 的
 frontier，`owner_heartbeat` 与 `publication_owner_taken_over` 都是 phase-neutral liveness edge。heartbeat
-只可由当前 generation 在 expiry 前追加；takeover 只可在 expiry 后以 new generation 追加；两者均保留
+只可由当前 generation 在 expiry 前追加；`heartbeat_sequence=1` 的 `prior_liveness_operation_id` 必须是建立该 generation 的 `owner_claimed` 或 `publication_owner_taken_over`，后续 sequence 必须引用同 generation 紧邻的 sequence-1 heartbeat；takeover 只可在 expiry 后以 new generation 追加；两者均保留
 candidate、publication phase、slot/pending/blocked state，其 successor 继续按该被保留 phase 的 edge 校验。
 terminal/no-owner frontier 不允许二者。除这两种 liveness edge 及下述 phase-neutral governance edge 外，
 `owner_claimed` 后只可 mutation plan 链或 `draft_bound`；`draft_bound`后闭合 upload/update slots才可 `prepared`。
 prepared valid只有两条互斥 pre-intent路径：`genesis_zero_receipt|post_invalidation_zero_receipt`→`intent_written(intent_kind=publish_valid,zero receipt non-null)`，或 rollover-one的
 `generated_pr_planned(pr_kind=decurrent)`→`generated_pr_bound`→`generated_pr_merged`→`intent_written(intent_kind=publish_valid,rollover receipt non-null)`；后者仅在 exact receipt提交且 fresh fold证明旧 current被原子移除后可写。
-planned/bound失败只可 revoke后以 new slot/head/nonce fresh-reviewed replacement或 `decurrent_pr_recovery_blocked`；merged取消只走 `valid_rollback_pending`，且最多一个未撤销 gate。prepared non-valid直接接 `intent_written(intent_kind=publish_nonvalid)`；intent后 publish slot bound才可相应 committed-pending，再经 generated PR链到 `record_kind=publication_terminal`。pre-intent cleanup
+planned/bound失败只可 revoke后以 new slot/head/nonce fresh-reviewed replacement或 `decurrent_pr_recovery_blocked`；`generated_pr_revoked` 的 bound branch要求 `bound_operation_id_or_null`/`pr_node_id_or_null`均 non-null，unbound no-effect branch要求二者均 null且 negative-discovery 与 broker-quiescence receipts证明 planned create无 remote effect，混合 branch非法；merged取消只走 `valid_rollback_pending`，且最多一个未撤销 gate。prepared non-valid直接接 `intent_written(intent_kind=publish_nonvalid)`；intent后 publish slot bound才可相应 committed-pending，再经 generated PR链到 `record_kind=publication_terminal`。pre-intent cleanup
 只以 `publication_terminal_no_publication` 结束；invalidation只以 planned→bound→merged→
 `invalidate_current_merged_receipt`→`record_kind=publication_terminal, terminal_kind=invalidation_completed`结束。
 recovery pending只可到 bound/not-applied/compensation/对应 blocked；八 blocked kinds均保留 owner且非 terminal。
