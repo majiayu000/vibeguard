@@ -53,7 +53,7 @@ producer invalidates the run even when the process boundary later becomes empty.
 At timeout the runtime first closes candidate stdout/stderr ingestion, marks the
 result fail-closed, and asks the provider to kill the entire boundary. Linux uses
 `cgroup.kill`, waits for `cgroup.events populated=0`, and reaps through namespace
-PID 1; Windows closes/terminates the Job and waits for zero active processes; the
+PID 1; Windows closes/terminates the Job and waits for zero live processes; the
 macOS provider destroys the helper boundary and proves zero live lineage. Encoding
 is forbidden until the ordered event ledger has no unaccounted process, no open
 candidate output pipe, no event loss, and all reaping is complete.
@@ -162,6 +162,12 @@ apply operation, failure-reverse operation, clean operation, preserved entries, 
 all operation digests. Raw bytes and diffs remain local and never enter logs or proof
 artifacts.
 
+The state enum is closed. The only forward path is
+`planned → activating → publishing → completed → consumed`; retry creates a new
+generation rather than skipping a state. The literal state `active`, a direct
+`activating → completed` transition, and evidence that omits publishing/completion
+records are schema errors rejected by setup, check, doctor, runtime, proof, and recovery.
+
 Every install, verify, recovery, clean, and runtime evidence consumer takes the same
 kernel-held exclusive per-target state lock before reading generation state. The lock
 inode is stable in the 0700 state directory and cannot be replaced; crash releases it.
@@ -172,47 +178,66 @@ cannot consume either receipt. Atomic replacement without this comparison is inv
 
 An existing completed receipt cannot be overwritten by a planned update. Probe success
 creates and fsyncs an immutable `activating` bundle containing the receipt, probe result,
-and watcher epoch so far. With the watcher still running, the verifier drains a barrier,
-requires zero mutation/loss, performs the final held-handle/no-follow observation, and
-fsyncs an immutable `publish_intent` binding those results and the evidence payload.
+and watcher epoch so far. With the watcher still running, the verifier acquires a
+declared kernel-enforced `target_mutation_exclusion_v1` against the held parent/target
+identities. It denies write/truncate, writable mmap, rename/link/unlink, mount replacement,
+and metadata mutation by every process, including pre-existing descriptors/handles;
+advisory locks, ordinary POSIX leases, ACL-only checks, or watcher-only detection are
+insufficient. Linux requires an LSM/fanotify-permission or equivalent mandatory inode
+policy, Windows requires a minifilter/mandatory handle policy, and macOS requires an
+equivalent kernel provider. A platform unable to deny every route is unsupported.
+
+The loss-detecting watcher stays continuous across exclusion acquisition and the whole
+publication epoch. The provider record binds kind/version, policy digest, held identities,
+start epoch, pre-existing-writer closure, denied-attempt ledger, loss counters, and an
+atomic durable release receipt. Any write attempt—even when denied—watcher/provider gap,
+identity drift, or policy loss invalidates the generation. Under the exclusion the
+verifier drains the final pre-CAS barrier, requires zero mutation/loss, performs the
+held-handle/no-follow observation, and fsyncs an immutable `publish_intent` binding those
+results and the evidence payload.
 The writer may then CAS the current pointer from the expected generation+digest to the
 exact intent with state `publishing` and fsync the directory. This pointer is durable
-pending state, never active evidence; every consumer must reject it.
+pending state, never completed evidence; every consumer must reject it.
 
-Still under the target lock, the publisher drains a post-CAS watcher barrier and repeats
+Still under both locks, the publisher drains a post-CAS watcher barrier and repeats
 the held-handle read. On any event, gap, or drift it CASes the exact publishing pointer
 to a durable invalid tombstone and fsyncs before lock release. Only a clean result may
 create and fsync an immutable `publish_completion` binding the publishing pointer/intent
 digest, both barrier roots, final reads, target identities, and evidence digest. The
-completion file plus directory are fsynced before success is reported. This exact
-completion marker—not the pointer CAS—is the activation linearization point. A
-generation is logically `completed` and consumer-visible only when pointer, intent, and
-completion marker all exact-match; no marker, partial marker, or orphan marker is active.
+completion file plus directory are fsynced while exclusion remains enforced. The
+provider then performs one atomic `release_and_record` operation that removes the
+mandatory policy and durably persists a release receipt binding the completion digest,
+final watcher/provider sequence, zero denied attempts/gaps, and exact identities. The
+generation stays `publishing` until this operation succeeds. Only an exact pointer,
+intent, completion marker, and release receipt makes it `completed`; no missing, partial,
+or orphan record is completed. Consumers cannot take the per-target lock until the
+publisher finishes release-and-record and releases that lock.
 
 Pointer presence alone never authorizes use. While holding the same target lock, every
-consumer first exact-matches a completed pointer/intent/marker triple, drains its new
+consumer first exact-matches a completed pointer/intent/marker/release tuple, drains its new
 watcher epoch past a barrier taken after that read,
 revalidates held parent/target identity and bytes, and re-reads the unchanged pointer.
 Any mutation, gap, target drift, or pointer/marker change rejects the generation before
 host use/proof. Because every consumer takes the same lock, publishing state is never
-acceptable evidence. The bundles remain durable for the lifetime of accepted evidence.
+acceptable evidence. The bundles remain durable for the lifetime of completed evidence.
 
 Recovery takes the target lock and enumerates immutable bundles, pointer, completion,
 and tombstone records.
-An unpointed `activating` bundle is never assumed active or consumed: retry must open
+An unpointed `activating` bundle is never assumed completed or consumed: retry must open
 new held identities, run a fresh zero-mutation watcher epoch and native probe, and
 either create/commit a new generation or retain the orphan with `needs_human` and the
-exact user reverse. Only an exact completed pointer/intent/marker triple may enter the
+exact user reverse. Only an exact completed pointer/intent/marker/release tuple may enter the
 normal consumer revalidation path. A pointer naming an activating/intent record without
 completion follows the incomplete-publication path below. Missing, torn, duplicate,
 or conflicting records/CAS expectations are `needs_human`; no evidence is published and
 the prior receipt is not consumed. Any `publishing` pointer lacking an exact durable
-completion marker—including crash after pointer fsync, during the barrier, or before an
-invalid tombstone fsync—is non-active. Recovery must first CAS it to a durable invalid
+completion marker and release receipt—including crash after pointer fsync, during the
+barrier/completion fsync, or before release-and-record—is non-completed. Recovery must
+first CAS it to a durable invalid
 tombstone, then open fresh identities and run a new zero-mutation watcher epoch and
 native probe in a new generation; restored bytes cannot complete the old probe. An
-orphan completion marker is also rejected. Supersession consumes the old receipt only
-after the new completion marker is durable and exact; every earlier crash leaves it
+orphan completion/release record is also rejected. Supersession consumes the old receipt only
+after the new completion tuple is durable and exact; every earlier crash leaves it
 unconsumed.
 
 For a present base, failure-reverse restores the exact base bytes/semantics; clean
@@ -234,20 +259,21 @@ the receipt specifies. Only then does it invalidate candidate evidence, mark the
 receipt consumed, and report `restored` or `not_installed`.
 
 A superseding plan carries two ancestries: immediate rollback base for failed update,
-and original unmanaged clean base/presence for later clean. The old active receipt is
+and original unmanaged clean base/presence for later clean. The old completed receipt is
 consumed only after the new receipt durably carries both ancestries, its native probe
-passes, and evidence atomically points to the new active digest. Failure leaves the
-old active receipt intact. Consumed receipts may then be deleted; planned/active or
-drifted receipts must remain available with only path+digest shown to the user.
+passes, and the new completion tuple is exact. Failure leaves the old completed receipt
+intact. Consumed receipts may then be deleted; planned/activating/publishing/completed
+or drifted receipts must remain available with only path+digest shown to the user.
 
 ### 3.3 Required fixtures
 
 Positive fixtures cover present-base install/failure reverse/clean, absent-base fresh
-install/failure deletion/clean deletion, active receipt retention, and safe update
+install/failure deletion/clean deletion, completed receipt retention, and safe update
 supersession, plus crash recovery around intent/pointer/barrier/completion/tombstone
 fsync. Negative fixtures cover concurrent installers/recovery/clean, stale expected
 generation/digest, early receipt deletion, missing/torn/duplicate pointer or generation,
-publishing reuse or mutation+restore after pointer fsync, orphan completion, candidate/receipt drift,
+publishing reuse, exclusion bypass/write attempt/gap, crash before release receipt,
+mutation+restore after pointer fsync, orphan completion/release, candidate/receipt drift,
 temporary same-inode write-and-restore, byte-identical target replacement, parent
 swap, symlink/hard-link/mount change, watcher overflow, partial reverse/delete, target
 recreation, delayed old-FD write, and stale evidence used by runtime/proof.

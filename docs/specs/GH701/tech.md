@@ -442,13 +442,12 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
 
 versioned crash recovery 仍以 journal lease/version CAS 判定 rollback；普通 file digest
 不能替代 storage capability。`verified_file_setup_v1` 必须完整实现 normative appendix
-§3：`base_presence: present|absent`、held no-follow parent/target identities、zero-mutation
-watcher 与 planned→activating→active→consumed bundle/pointer。present base 用 exact reverse；absent
+§3：`base_presence: present|absent`、held identities、continuous watcher、mandatory mutation
+exclusion 与 closed planned→activating→publishing→completed→consumed state machine。present/absent
 base 用用户执行的 exact-target deletion，并验证稳定 absence + host-native unregistration。
-byte-identical inode swap、parent swap、watcher gap、late write/recreate 或 identity/digest
-drift 全部 `needs_human`。VibeGuard 对 host target 零 mutation；active evidence exact-bind
-active receipt，旧 receipt 仅在 verified removal 或 ancestry-preserving supersession 后消费。
-`active` 只来自 committed versioned transaction 或 fresh manual evidence+active receipt。
+byte-identical inode/parent swap、write attempt/gap、late write/recreate 或 identity/digest
+drift 全部 `needs_human`。manual evidence exact-bind pointer/intent/completion/release tuple；
+schema/tests 拒绝 `active` state、direct transition 或缺 publishing/completion record。
 
 ### 5. Deterministic README claim evidence
 
@@ -631,7 +630,7 @@ config/payload/log content。
 | B-022 | v2 top-level hosts/per-hook mappings/non-host entries | `bash tests/test_manifest_contract.sh`；`bash scripts/ci/validate-hooks-manifest.sh` 的 key-set、non-host、contradiction negative fixtures |
 | B-023 | v1 compatibility/deprecation | `bash tests/test_manifest_contract.sh`：v1 read+warning、v1 third-host reject、v2-only writer 与 v1/v2 Claude/Codex golden parity |
 | B-024 | complete unknown matrix | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml` 分别固定 contract/discovery/protocol/runtime outcomes |
-| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 held identities、per-target CAS、publishing pointer + post-CAS barrier + durable completion marker；crash/mutation-restore 在 pointer/barrier/completion/tombstone 各窗口、stale CAS、orphan marker、inode/parent swap 均 blocked；appendix §3 |
+| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 mandatory mutation exclusion+continuous watcher、publishing/completion/release tuple；write/bypass/gap、各 crash 窗口、mutation-restore、stale/orphan、`active`/direct transition、inode/parent swap 均 blocked；appendix §3 |
 | B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
 | B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 H-001 provider/policy + relocation signer/digest binding、normalized page equality；self/implementer-signed manifest、inbound/outbound write、private-COW exec、bad relocation、patch-restore、RWX、trace gap/load-unload 均 nonzero；appendix §2 |
@@ -655,7 +654,7 @@ config/payload/log content。
    CI allowed 后 lifecycle 才读取 selection/manifest v2，只读 discover 并生成绑定 base digest 的 exact plan。
 3. plan 按 registry 选择 versioned CAS+lease transaction 或零 mutation 的 verified-file
    exact diff；后者仅在用户应用、probe 前后 bytes/metadata、held target+parent identities
-   与 watcher continuity 均匹配才 active，drift 均 partial。
+   与 completed tuple/exclusion receipt 均匹配才产出 proof evidence，drift 均 partial。
 4. host 发送 native event；decoder 校验 host/protocol/version，产生带 batch/request
    correlation 的 ordered canonical request Vec。
 5. core 按 index 独立判定每个 request 并逐项写 sanitized log；执行失败先变成
@@ -739,8 +738,8 @@ config/payload/log content。
   oversize primary closed fallback、
   malformed/privacy 与 encode failure。
 - [ ] Lifecycle tests：全 phase、lock/deadlock、versioned CAS/lease 与 crash rollback；
-  verified-file 覆盖 per-target CAS、publishing→post-CAS barrier→durable completion recovery，
-  以及各 fsync crash、mutation-restore、stale writer、orphan marker、inode/parent swap/gap negatives。
+  verified-file 覆盖 exclusion→publishing→completion→atomic release receipt，及 write/bypass/gap、
+  各 crash、mutation-restore、stale/orphan、`active`/direct transition、inode/parent swap negatives。
 - [ ] Evidence tests：README-claim schema/gate 的 protected producer attestation、
   GH-699 exact producer SHA/argv，以及 GH-700 committed Release summary/report/
   publish-intent binding 与 standalone rerun/draft/unsigned/wrong-workflow matrices；

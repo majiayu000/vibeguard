@@ -232,11 +232,11 @@ GH-701 已完成。
     或 old-FD late write 都保持 `partial/needs_human`。0600 manual receipt 有
     planned/activating/publishing/completed/consumed generation。所有 writer/consumer 以同一 per-target
     state lock 串行；publish 必须 CAS exact expected pointer generation+digest。probe 后先
-    fsync activating bundle 和 publish_intent；首次 CAS pointer 仅成为 non-active
-    publishing。post-CAS barrier/read 零 mutation 后 fsync 的 publish_completion 才是
-    completion point；consumer 只接受 exact pointer/intent/completion triple，再做新 watcher
-    barrier、target revalidation 与 pointer re-read。crash 后缺 completion 的 publishing
-    必须 durable invalidate + fresh probe；mutation-restore 不能完成旧 generation。
+    fsync activating bundle；final pre-CAS barrier 起先取得不可旁路 OS mutation exclusion，
+    continuous watcher 下发布 publishing intent/completion。任何 write attempt/gap 都 invalidate。
+    provider atomic release-and-record 后 exact pointer/intent/completion/release tuple 才是 completed；
+    consumer 再做新 watcher barrier、target revalidation 与 pointer re-read。crash 缺 release
+    receipt 必须 durable invalidate + fresh probe；mutation-restore 不能完成旧 generation。
     present-base reverse 必须由用户恢复并按同一 identity/bytes/metadata 验证；
     absent-base reverse/clean 必须由用户删除 exact target，并以 watcher 连续性、两次
     bounded absence observation 与 host-native unregistration 验证。VibeGuard 不得写或
@@ -409,12 +409,12 @@ GH-701 已完成。
   普通文件自动路径与 delayed old-FD fixtures 必须零写入；verified-file fixture
   只有用户应用 exact diff、probe 前后 candidate bytes/metadata、同一 target inode/file
   identity 与 parent-directory identity 均匹配，watcher epoch 零 mutation 且 native probe
-  成功才 active/proof；temporary write-restore、byte-identical replacement、parent swap、
+  成功才产出 proof evidence；temporary write-restore、byte-identical replacement、parent swap、
   额外编辑或 late write 都保持 partial。
 - [ ] verified-file failed-probe 与 clean/disable fixtures 仅在 current candidate /
   receipt 精确匹配时提供用户应用的 reverse diff；present base 的 identity/bytes/
-  metadata 重验通过后才 restored/not-installed；per-target CAS、publishing pointer、post-CAS
-  watcher barrier、durable completion/tombstone 各 crash 窗口必须确定性；只有 verified
+  metadata 重验通过后才 restored/not-installed；per-target CAS、mutation exclusion/watcher、
+  publishing/completion/release/tombstone 各 crash 窗口必须确定性；只有 verified
   removal 或保留原 clean ancestry 的 superseding receipt 生效后才消费；absent base
   不得伪造空 base，clean 必须由用户删除 exact target 并经两次 bounded absence、
   watcher continuity 与 host-native unregistration 验证；任一第三方 drift 都不覆盖并
