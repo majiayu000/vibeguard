@@ -1,8 +1,9 @@
 # GH700 Publication Conformance Vectors
 
-本文件是 [publication_history_contract.md](publication_history_contract.md) 与
-[publication_ledger_contract.md](publication_ledger_contract.md) 的规范性组成部分，唯一拥有两个互不重叠的
-closed registries：下列十四项 hand-authored named vectors，以及本节定义的 43 项 schema-complete generated
+本文件是 [publication_history_contract.md](publication_history_contract.md)、
+[publication_ledger_contract.md](publication_ledger_contract.md) 与
+[publication_authority_protocol_contract.md](publication_authority_protocol_contract.md) 的规范性组成部分，唯一拥有两个互不重叠的
+closed registries：下列十五项 hand-authored named vectors，以及本节定义的 43 项 schema-complete generated
 corpus（39 history kinds + 4 blocked-attempt kinds各恰一项）。fixture path是实现阶段必须创建的 canonical
 path；本 Draft冻结生成规则/object/bytes/digest/oracle，不宣称文件或 runner已实现。调用方不得维护第三份
 kind list、fixture object、mutation list、alias或 digest；新增、删除、改名或改变任一 bytes必须更新本
@@ -96,6 +97,17 @@ checked-in bytes、逐文件 SHA-256、reject-set/cases digest及两端输出。
 - Exact fixture object/JCS bytes: `{"full_prefix_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","history_length":7,"history_root":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","repo_node_id":"R_kgDOGH700"}`
 - SHA-256: `e52c3472ae93b565704e4f26a97f02260e7c9d2c724b8add3350a7f7317edf73`
 - Oracle: accept exact frontier；分别加入 discriminator/frontier/mutation alias、missing/extra/null field时 reject。
+
+## Backup KMS context
+
+### `backup_kms_context_v1`
+
+- Planned canonical path: **tests/fixtures/public_benchmark/publication/backup_kms_context_v1.json**
+- Exact fixture object/JCS bytes: `{"case_id":"backup_kms_context_v1","expected":"accept","input":{"kms_context":{"authority_id":"authority-gh700","backup_id":"backup-0001","object_kind":"snapshot","prior_anchor_digest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","repo_node_id":"R_kgDOGH700","schema_version":"GH700:backup-data-key-context:v1","successor_frontiers_digest":"sha256:e4b3a58ab2aaca9acbd7421819eccbc9dfe3154f1b2b52485348f748d1a8bb5c"},"successor_frontiers_preimage":{"frontiers":[{"frontier":{"full_prefix_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","history_length":7,"history_root":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","repo_node_id":"R_kgDOGH700"},"frontier_kind":"publication_history"},{"frontier":{"full_prefix_digest":"sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","ledger_length":5,"ledger_root":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","repo_node_id":"R_kgDOGH700"},"frontier_kind":"blocked_attempt_ledger"}],"v":"GH700:successor-frontiers:v1"}},"oracle":{"reject":["frontier_order_swap","frontier_kind_alias","missing_frontier_field","extra_frontier_field","successor_frontiers_digest_mismatch","raw_frontiers_in_kms_context","missing_kms_context_field","extra_kms_context_field","unknown_object_kind"]},"schema_version":"GH700:publication-conformance-vector:v1"}`
+- SHA-256: `c5ca93ad26cc5c863c2bceeb1b585e36f9c44e416ed1bf3ab718f8a80cce8480`
+- Oracle: ordered preimage的两种 exact frontier、其 JCS digest与 exact KMS context accept；九项 order/kind/
+  field/digest/context/object-kind mutation逐项 reject。fixture的 frontier preimage digest必须 exact
+  `sha256:e4b3a58ab2aaca9acbd7421819eccbc9dfe3154f1b2b52485348f748d1a8bb5c`。
 
 ## History recovery-blocked union
 

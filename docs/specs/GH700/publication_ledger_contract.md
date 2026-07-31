@@ -1,6 +1,7 @@
 # GH700 Publication Authority API, Delegated Values And Blocked-Attempt Contract
 
-本文件是 [publication_history_contract.md](publication_history_contract.md) 的规范性组成部分，唯一拥有
+本文件是 [publication_history_contract.md](publication_history_contract.md) 与
+[publication_authority_protocol_contract.md](publication_authority_protocol_contract.md) 的规范性组成部分，唯一拥有
 `client_api`/`control_api` wire schema、history显式委托的 value sets与 B-029 blocked-attempt ledger。product/tech/tasks只可链接或引用这里的
 machine-facing identifier，不得复制、改名或局部覆盖字段集、canonical bytes、retention或 fail-closed语义。
 
@@ -36,13 +37,26 @@ operation_request_digest,body}`；`operation_request_digest` 是删除自身后�
 | `commit_reconciliation_watermark` | `{reconciliation_watermark,terminal_listing_proof,ledger_append_authorization}` | `{watermark_receipt,blocked_attempt_frontier_receipt}` |
 | `get_blocked_attempt_frontier` | `{}` | `{blocked_attempt_frontier_receipt}` |
 
-`time_bound_intent` exact 为 `{record_kind,client_payload_core,predecessor_frontier}`；method与
+`time_bound_intent` exact 为 `{record_kind,execution_identity,client_payload_core,predecessor_frontier}`；
+`execution_identity` exact 为 `{run_id,run_attempt,transition_slot}`，三字段分别是 canonical unsigned
+64/32/64-bit JSON integer且 `run_id/run_attempt>=1`；alias、string或额外字段拒绝。method与
 `record_kind`只允许 `{claim_publication_owner:owner_claimed,renew_publication_owner:owner_heartbeat,
 takeover_publication_owner:publication_owner_taken_over}`。client计算
 `time_bound_request_id=SHA256(JCS({v:"GH700:time-bound-request:v1",repo_node_id,method,
 time_bound_intent}))`，authority须在任何 nonce issuance前从 wire bytes重算。request envelope的
 `expected_publication_frontier_or_null`必须 non-null且 byte-equal
 `time_bound_intent.predecessor_frontier`；任一 null/mismatch报 `invalid_request`。
+
+`publication_lease_authorization` exact 为
+`{lease_scope,lease_token_digest,publication_fence,authenticated_actor_digest,authorization_policy_digest,
+authorized_method,authorized_time_bound_request_id,execution_identity}`；`lease_scope`必须 exact
+`repository_publication_owner_v1`，其 detached digest exact 为
+`SHA256(JCS({v:"GH700:publication-lease-authorization:v1",repo_node_id,publication_lease_authorization}))`。
+`authorized_method`、`authorized_time_bound_request_id`与 `execution_identity`必须分别 byte-equal wire method、
+authority重算的 request ID与 `time_bound_intent.execution_identity`；missing/extra/alias、scope/fence/actor/policy
+不符都在 nonce/TSA/append前拒绝。claim/takeover core中的同名 run tuple/slot必须 byte-equal该 identity；heartbeat
+的 run tuple由 identity唯一提供。三种 time-dependent operation ID、preparation、nonce/proof request与 final intent
+只能从该 identity派生，禁止从 mutable authorization envelope、ambient run或 payload alias另取值。
 
 `client_payload_core`是 method-tagged closed union：claim exact
 `{owner_generation,run_id,run_attempt,transition_slot,candidate_tag_identity_digest,frozen_plan_digest,
@@ -86,7 +100,8 @@ same request重试先查 request/operation：
 anchor-confirmed返原 receipt；committed恢复同一 anchor；proof-frozen续同一 append；prepared续同一 proof request；
 claim-capsule-frozen续同一 trusted preparation；claim-reserved续同一 capsule issuance；只有尚未提交且
 predecessor被其它 operation推进才 deterministic stale-frontier。不得签发第二 capsule/nonce/request/operation/
-proof/final payload。
+proof/final payload。preparation中的 `run_id/run_attempt/transition_slot`必须 byte-equal `execution_identity`；
+authority不得在 fold、authorization refresh或 retry时改写它们。
 authority须永久 UNIQUE `(repo_node_id,method,time_bound_request_id)`并保存
 `trusted_time_reauthorization_index(operation_request_digest→time_bound_request_id)`。fresh lease/fence
 authorization先重算同一 time-bound ID：same ID/same intent只把新 authorization envelope digest映射到原 preparation，
@@ -135,7 +150,11 @@ state/receipt/audit且不得第二次 send；`recovery_pending`只允许 read-co
 `not_applied→release_mutation_not_applied`、`compensated→compensated`；`blocked`在原
 `mutation_kind=draft_create`时只可 `draft_recovery_blocked`，其它五 kind只可
 `release_mutation_recovery_blocked`。compensation中断只能恢复原 operation chain；成功只返回最终
-`compensated` receipt并由 operation-ID refs证明链。unknown state、wrong/null/extra receipt或交叉 kind均拒绝。
+`compensated` receipt并由 operation-ID refs证明链。bound只接受唯一 exact post-state，not-applied只接受
+exact pre-state+exhaustive-negative+broker-quiescence；pending/in-flight不得伪装 not-applied，
+partial/multiple/conflicting state不得伪装 bound。unknown state、wrong/null/extra receipt或交叉 kind均拒绝。
+
+### Release effective-request digest
 
 `release_request_template` exact object为
 `{v:"GH700:release-request-template:v1",endpoint,method,header_template,body_encoding,body_template,
@@ -197,10 +216,16 @@ exact一张 `{generated_pr_bound}`、`{generated_pr_not_applied}`、`{correspond
 `merged_existing`要求 exact两张 `[generated_pr_bound,generated_pr_merged]` receipts：authority在一个
 recovery orchestration中串行执行两个完整 successor cycles：先 append/backup/anchor/read-confirm
 `generated_pr_bound`，再以其 confirmed successor与 operation ID为 predecessor/`bound_operation_id`
-append/backup/anchor/read-confirm `generated_pr_merged`；两张 receipt都确认后才返回。两 cycle间崩溃时按
-永久 plan→delivery index及已确认 bound receipt恢复，只补第二 successor，不重新发送或重写第一条。
-response loss按 `planned_operation_id`返回原 ordered receipts；single merged receipt、跳过 bound、顺序/
-PR identity不一致或任一 cycle未确认均 `internal_durability_failure`且不释放 owner。
+append/backup/anchor/read-confirm `generated_pr_merged`；两张 receipt都确认后才返回。永久 checkpoint exact 为
+`{planned_operation_id,generated_pr_delivery_id,checkpoint_state,bound_operation_id_or_null,
+bound_anchor_receipt_digest_or_null,merged_operation_id_or_null,merged_anchor_receipt_digest_or_null}`，state closed
+union为 `{planned,bound_anchor_confirmed,merged_anchor_confirmed}`且只可按该顺序 transaction+FULL fsync推进；任一
+`*_confirmed`只可在对应 EPOCH+HEAD strong-read确认后写入。global `anchor_commit_gate`保证任一时刻最多一个 pending
+cycle：bound DB commit/backup/CAS任一点 crash或 ack丢失都恢复同一 pending anchor，确认后才写 bound checkpoint；
+其后 crash只从该 anchored successor构造 merged cycle。merged DB commit/backup/CAS任一点 crash或 ack丢失同理只恢复
+同一 merged anchor；确认后写 final checkpoint。response loss按 `planned_operation_id`返回 checkpoint绑定的原 ordered
+receipts，不重新发送、重写第一条或签新 anchor；single merged receipt、跳过 bound、顺序/PR identity不一致、
+checkpoint/anchor不等或任一 cycle未确认均 `internal_durability_failure`且不释放 owner。
 
 ## Closed control API
 
