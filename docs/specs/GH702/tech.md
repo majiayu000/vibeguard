@@ -551,8 +551,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "schemas/guard-pack-feedback.schema.json",
     "schemas/guard-pack-anchor-intent.schema.json", "schemas/guard-pack-anchor-commit.schema.json",
     "schemas/guard-pack-anchor-mirror.schema.json", "schemas/guard-pack-anchor-ipc.schema.json",
-    "packs/safe-bash/pack.yaml",
-    "packs/safe-bash/README.md",
+    "packs/safe-bash/pack.yaml", "packs/safe-bash/README.md",
     "scripts/lib/guard_packs.py",
     "scripts/lib/guard_pack_manifest.py",
     "scripts/lib/guard_pack_publish.py",
@@ -571,8 +570,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "tests/test_guard_pack_supply_chain.sh",
     "tests/test_guard_pack_transactions.sh",
     "tests/test_guard_pack_precision_policy.sh",
-    "tests/test_guard_pack_anchor.sh", "tests/perf_guard_pack_anchor.sh",
-    "tests/fixtures/guard_packs/", "tests/fixtures/guard_pack_anchor/",
+    "tests/test_guard_pack_anchor.sh", "tests/perf_guard_pack_anchor.sh", "tests/bench_hook_latency.sh", "tests/test_hook_perf_contract.sh",
+    "tests/fixtures/guard_packs/", "tests/fixtures/guard_pack_anchor/", "docs/reference/hook-latency-contract.md",
     "tests/test_payload.sh",
     "tests/test_release_workflow.sh",
     "tests/test_manifest_contract.sh",
@@ -587,8 +586,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
   ],
   "spec_refs": [
     "docs/specs/GH702/product.md",
-    "docs/specs/GH702/tech.md",
-    "docs/specs/GH702/monotonic-anchor-contract.md",
+    "docs/specs/GH702/tech.md", "docs/specs/GH702/monotonic-anchor-contract.md",
     "docs/specs/GH702/tasks.md"
   ]
 }
@@ -602,7 +600,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | Capability/host | planned **guard_pack/capability.rs**; consume approved GH-701 registry when available | Claude/Codex/unknown/incompatible/unsupported fixture matrix |
 | Transaction/receipt | planned **guard_pack/transaction.rs**, receipt/transaction schemas | crash-at-every-stage, concurrent lock, drift, rollback, recovery and canary tests |
 | Precision/runtime policy | planned **guard_pack/precision.rs**, **runtime_guard**, precision/policy/override/runtime-state schemas, `scripts/precision-tracker.py` | exhaustive eligibility truth table + binding/freshness/override/policy-rotation/clock-rollback negatives |
-| Monotonic anchor | planned **guard_pack/anchor/** + four anchor schemas；exact IPC/backend/service/provision/mirror/recovery owners in supporting contract | H-010 platform availability, IPC trust, lifecycle/rotation/reinstall, every-barrier crash and every-hook CAS latency suites |
+| Monotonic anchor | planned **guard_pack/anchor/** + four anchor schemas；exact IPC/backend/service/provision/mirror/recovery owners in supporting contract | immutable-mirror/phase-digest crash suite；H-010 platform/IPC/lifecycle gates；canonical installed Claude/Codex CAS latency contract |
 | Author publish | planned **scripts/lib/guard_pack_manifest.py**, **guard_pack_publish.py**, **scripts/ci/validate-guard-pack-publish.py** | two-build digest equality; half-publish/index-CAS/revoke/yank fixtures |
 | Legacy migration | `scripts/lib/guard_packs.py`, `scripts/lib/guard_pack_receipts.py`, `packs/safe-bash/` | existing 623-case shell surface remains green plus migration ownership sentinels |
 | Release distribution | `scripts/release/payload-manifest.txt`, `scripts/setup/guard-packs.sh`, `setup.sh`, `tests/test_payload.sh`, `tests/test_release_workflow.sh` | GH-699 actual no-clone launcher invokes Rust client; payload tamper fails closed |
@@ -626,7 +624,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-012 online/offline failure semantics | Locator/cache/revocation policy | timeout/malformed/redirect/fresh-absence/expired-absence/cached-revoked/expired-known-revoke/identity-mismatch matrix asserts exact current/revoked/unknown status |
 | B-013 target compatibility | Capability/host resolver | unknown host, incompatible protocol, unsupported capability, missing Core and valid Claude/Codex fixtures produce distinct closed statuses and cannot be promoted by override |
 | B-014 runtime privacy/capability | Sealed capability registry + sandbox boundary | network/credential/path/log access sentinels and child-env capture prove undeclared access never runs or persists |
-| B-015 transaction state machine | Transaction + anchor supporting contract | durable intent/two mirrors survive lost CAS response；exact target rolls forward through barrier, other root needs_repair；pointer dual-fsync precedes complete |
+| B-015 transaction state machine | Transaction + anchor supporting contract | immutable mirrors + intent-bound phase digest chain survive lost CAS response；exact target reconstructs equal phases and rolls forward，other root needs_repair |
 | B-016 scoped rollback/repair | Transaction rollback/recovery | pre-floor restores before digests；post-floor every applied/host/config CAS match rolls forward；any drift preserves state/evidence and needs_repair |
 | B-017 interruption recovery | Transaction + anchor recovery | crash every local/external/barrier stage and mutate applied/host/config；exact target resumes, mismatch needs_repair, never false receipt or permanent proven-target unavailable |
 | B-018 complete committed receipt | Receipt schema/writer + source storage key | official receipt requires event digest；local requires not_applicable + absent event；all block receipts bind committed policy and finite decision/override horizons/fallback；local round-trip needs no publisher sentinel |
@@ -653,7 +651,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds under the same publication policy match digest；evaluation-policy rotation does not rebuild；publish failures never create resolvable partial entry |
 | B-041 truthful list/status/audit | Shared status + anchor renderer | golden output enumerates authority identities/floors/time plus backend/root/leaf/counter/barrier/availability/repair；degradation exits nonzero without key material |
-| B-042 offline runtime stability | Committed eligibility + local anchor IPC | block network but require authenticated local service；every-hook latency budget and IPC/backend failure fixtures degrade/deny without stale mirror fallback |
+| B-042 offline runtime stability | Committed eligibility + local anchor IPC | authenticated local service；canonical `bench_hook_latency.sh` exercises anchor-enabled installed Claude/Codex wrappers under H-010 latency/IPC/CAS/queue/contention budgets；failure denies without stale fallback |
 
 ## 数据流
 
@@ -774,7 +772,8 @@ bash tests/test_guard_pack_supply_chain.sh
 bash tests/test_guard_pack_transactions.sh
 bash tests/test_guard_pack_precision_policy.sh
 bash tests/test_guard_pack_anchor.sh
-bash tests/perf_guard_pack_anchor.sh
+bash tests/test_hook_perf_contract.sh
+bash tests/bench_hook_latency.sh --runs=3 --confirmation-runs=3 --fail-on-regression
 ```
 
 - [ ] Documentation:

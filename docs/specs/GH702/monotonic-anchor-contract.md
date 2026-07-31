@@ -45,10 +45,28 @@ anchor/
     generations/<mirror_generation_id>.json
 ```
 
-mirror generation 保存 exact external attestation identity、leaf payload、own digest、previous
-generation/digest 和状态 `prepared | external_advanced | selected | barrier_complete`。每个 leaf
-至少保留 current 与 immediately previous 两个 digest-valid generations；target barrier 完成前
-不得删除 previous，下一成功 successor barrier 前也不得删除 target 的 recovery predecessor。
+mirror generation 只保存 exact external attestation identity、leaf payload、own digest 与 previous
+generation/digest；文件一旦 file+directory fsync 就 byte-immutable，不含 phase、receipt、selected
+flag 或 barrier flag，也不得原地改写。每个 leaf 至少保留 current 与 immediately previous 两个
+digest-valid generations；target barrier 完成前不得删除 previous，下一成功 successor barrier 前
+也不得删除 target 的 recovery predecessor。
+
+phase 只存在于 durable intent 预先绑定的合法 digest、commit journal 的 predecessor-linked record，
+以及 selected pointer 所引用的 `selected_phase_digest`。intent 在 CAS 前用 closed canonical encoding
+预计算并绑定以下唯一链；这些 digest 都只使用 CAS 前已知的 exact identity，不吸收 backend 的随机
+receipt bytes、wall clock、filename 或进程内状态：
+
+```text
+prepared_phase_digest = H(domain, operation, mirror_digest, from_external, target_external)
+external_advanced_phase_digest = H(domain, prepared_phase_digest, target_external)
+selected_phase_digest = H(domain, external_advanced_phase_digest, mirror_generation_id, mirror_digest)
+barrier_complete_phase_digest = H(domain, selected_phase_digest, target_external, barrier_id)
+```
+
+backend receipt 是 `target_external` 的认证证据而不是 digest 输入；journal record 保存 receipt digest、
+phase name、该 phase digest 与 predecessor phase digest。`current.json` 保存 target generation/digest 和
+`selected_phase_digest`。任一 phase 名、digest、predecessor 或 immutable identity 不 exact 时不得构造
+后继 phase；因此 crash recovery 可以重算同一个 digest，而不是猜测“最新”状态。
 
 ## Ordered write protocol
 
@@ -57,20 +75,24 @@ generation/digest 和状态 `prepared | external_advanced | selected | barrier_c
 以及 current mirror 与 attestation 全等的 base。
 
 1. 生成 closed pre-CAS intent，绑定上述全部 identity、target mirror bytes/digest、expected
-   successor、commit-journal path 和 barrier ID；写入临时文件并 fsync，rename 后 fsync intent
-   file 与 parent directory。intent durable 前禁止 external CAS。
+   successor、commit-journal path、barrier ID 与四个合法 phase digest；写入临时文件并 fsync，
+   rename 后 fsync intent file 与 parent directory。intent durable 前禁止 external CAS。
 2. 将 target 写入 inactive mirror generation；fsync file 与 generations directory。不得覆盖
    current/previous generation，current pointer 保持旧值。
 3. 调用 external compare-and-swap，比较 exact `from_external` 并推进到 exact
    `target_external`。CAS response 必须是 backend-authenticated receipt，且其 operation/root/leaf/
    previous/target identities 与 intent exact 相等。
-4. 将 receipt 和状态 `external_advanced` 写入 commit journal，fsync journal file 与 parent
-   directory。若进程在 CAS response 后、此 fsync 前崩溃，durable intent + backend current
-   attestation 仍足以证明 target 是否已提交；不得要求内存 response 才能恢复。
-5. 把 target mirror 更新为 `external_advanced`，校验/fsync generation；atomic rename
-   `current.json` 到 target generation，重开校验并 fsync pointer 与 parent directory。
-6. barrier verifier 重新读取 backend current attestation、intent、commit journal、target mirror
-   与 current pointer；五者 exact 相等后 append/replace `barrier_complete`，fsync journal 与目录。
+4. 将 receipt 与 exact `external_advanced_phase_digest` append/replace 到 commit journal，record
+   predecessor 必须是 intent 的 `prepared_phase_digest`；fsync journal file 与 parent directory。
+   若进程在 CAS response 后、此 fsync 前崩溃，durable intent + backend current attestation 仍足以
+   重构同一个 external-advanced record；不得要求内存 response 才能恢复。
+5. target mirror 保持 byte-immutable；重验其 bytes/digest 后，atomic rename `current.json` 到绑定
+   target generation/digest 与 exact `selected_phase_digest` 的新 pointer，重开校验并 fsync pointer
+   与 parent directory；再把同一 selected phase append/replace 到 journal 并 fsync。
+6. barrier verifier 重新读取 backend current attestation、intent、commit journal、immutable target
+   mirror 与 current pointer；外部 target、四个预绑定 phase digest、journal predecessor chain、pointer
+   selected phase 和 mirror bytes/digest 全部 exact 相等后，append/replace exact
+   `barrier_complete_phase_digest`，fsync journal 与目录。
    只有此 barrier 后 leaf mutation 可向调用者报告 committed，policy/install pointer transaction
    才能继续其 own durable boundary，runtime time observation 才能使用新 high-water。
 7. barrier 完成后 intent 可标 complete；清理 intent、过旧第三代 mirror 或临时文件是幂等
@@ -88,8 +110,8 @@ recovery 必须先取得同一 locks/fence，验证 backend/root/leaf identity�
 | --- | --- |
 | intent 不 durable | external CAS 不得发生；清理 private temp，不改变 current |
 | intent durable，backend exact `from_external` | CAS 未发生；可删除 prepared target 或重试同一 CAS，不得选 target mirror |
-| backend exact `target_external`，journal 缺 receipt | 验证 intent 与 prepared target digest，向 journal 补写 backend current attestation 并 roll forward |
-| backend exact target，journal 已 external_advanced，pointer 仍 previous | 重验 target generation 后重复 current-pointer rename + file/dir fsync |
+| backend exact `target_external`，journal 缺 receipt | 验证 intent 与 immutable prepared target digest，重算 intent-bound external-advanced phase，向 journal 补写 backend current attestation 并 roll forward |
+| backend exact target，journal 已 external_advanced，pointer 仍 previous | 重验 immutable target generation，重算 exact selected phase 后重复 current-pointer rename + file/dir fsync |
 | pointer 已 target，barrier 未完成 | 重读五方 identity；全等则补写/fsync barrier，否则按下述 mismatch 失败 |
 | barrier complete，intent/旧 mirror 未清 | 保持 committed，幂等清理；不得重做 CAS |
 | backend 既非 exact from 也非 exact target | `needs_repair`；保留两代 mirror、intent、journal，不猜测或覆盖 external root |
@@ -134,21 +156,25 @@ platform/backend/service model 并在 approved artifact 固定该目录 inventor
 
 | Gate | Required fresh evidence |
 | --- | --- |
-| Schema parity | Rust/Python readers share positive/negative corpus for intent/commit/mirror/IPC；unknown, duplicate, empty and cross-record identity mismatch fail visibly |
-| Barrier crash matrix | deterministic fault after every temp fsync, rename, directory fsync, external CAS response, commit-journal write, mirror selection, barrier and cleanup；exact from rolls back/prepares, exact target rolls forward, other enters needs_repair |
+| Schema parity | Rust/Python readers share positive/negative corpus for intent/commit/mirror/IPC；unknown, duplicate, empty, mutable mirror phase and cross-record identity mismatch fail visibly |
+| Phase construction | golden vectors independently recompute all four intent-bound phase digests；mutated mirror bytes, phase name/order/predecessor, receipt identity or pointer digest cannot construct the next phase |
+| Barrier crash matrix | deterministic fault after every temp fsync, rename, directory fsync, external CAS response, commit-journal phase write, pointer selection, barrier and cleanup；exact from rolls back/prepares, exact target reconstructs the same digest chain and rolls forward, other enters needs_repair |
 | Lost-response recovery | external CAS advances but response/journal write is lost；durable intent + target mirror + backend current attestation complete barrier after restart without permanent unavailable |
 | Cross-platform availability | every H-010 claimed release OS/architecture provisions real selected backend/service, restarts and completes CAS；unclaimed platform reports explicit unsupported and cannot block |
 | IPC trust | wrong executable/user/principal, stale session, replayed response, protocol downgrade, endpoint substitution, malformed attestation and service restart all fail closed |
 | Identity/lifecycle | fresh provision, idempotent reattach, key/backend rotation, same-device reinstall, Core reinstall, backup restore and device replacement follow each exact H-010 choice；identity ambiguity never auto-resets |
 | Failure/repair | backend locked/full/unavailable, IPC timeout, partial provision, forked intents, target mirror corruption and reset interruption preserve evidence and expose the approved repair authority |
-| Every-hook performance | real hook path performs required external read/CAS/barrier; benchmark p50/p95/p99 and timeout/queue contention on every claimed platform against the H-010 approved budget，not a mocked or management-only path |
+| Every-hook performance | canonical [`docs/reference/hook-latency-contract.md`](../../reference/hook-latency-contract.md) `hook_e2e_ms` gate runs every anchor-enabled Claude `~/.vibeguard/run-hook.sh` and Codex `~/.vibeguard/run-hook-codex.sh` installed-snapshot path through real IPC/read/CAS/barrier；reports p50/p95/p99/max plus timeout/queue contention against exact H-010 budgets，not a direct repo hook, mock anchor or management-only path |
 | Concurrency | parallel hooks plus policy/install mutation prove unique external successors, canonical lock order, no forked mirrors and bounded nonzero failure |
 | Packaging | verified payload contains client/service/backend/provision modules, schemas and selected platform service assets；fresh no-checkout install proves peer identity and service target |
 
-planned **tests/test_guard_pack_anchor.sh** owns schema/IPC/lifecycle/crash/concurrency fixtures；
-planned **tests/perf_guard_pack_anchor.sh** owns every-hook latency distribution and budget gate。CI 必须在每个
-H-010 claimed platform 运行真实 backend conformance 或明确、获批且 fail-closed 的 hardware/service
-fixture；单一 Linux mock 不能证明 cross-platform availability。
+planned **tests/test_guard_pack_anchor.sh** owns schema/IPC/lifecycle/crash/concurrency fixtures；planned
+**tests/perf_guard_pack_anchor.sh** 可保留 anchor fault attribution 专项，但不得自建发布 SLA gate。
+canonical distribution/budget evidence 必须接入 `tests/bench_hook_latency.sh`，并由
+`tests/test_hook_perf_contract.sh` 固定每个 anchor-enabled Claude/Codex installed fixture ID、H-010 budget
+wiring、confirmation/result/CI contract。CI 必须在每个 H-010 claimed platform 运行真实 backend
+conformance 或明确、获批且 fail-closed 的 hardware/service fixture；单一 Linux mock 不能证明
+cross-platform availability。
 
 本文不规定 backend 实现、平台支持集合、provision/reinstall/device-replacement policy、IPC peer
 authentication 或 latency budget；这些必须由 product spec 的未批准 H-010 决定，并由

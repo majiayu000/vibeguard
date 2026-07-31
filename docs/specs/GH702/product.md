@@ -123,7 +123,12 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     server/client peer authentication/ACL/protocol/anti-replay、key/backend identity rotation、同设备
     reinstall 是 reattach 还是新 root、device replacement/backup restore 是否禁止或走显式迁移、
     backend/IPC unavailable 与 partial-CAS 的 repair authority/UX，以及 intentional reset 的确认、
-    evidence retention 和旧 receipts 处置。任何字段未选、平台无通过 conformance 的 backend、
+    evidence retention 和旧 receipts 处置。每个 claimed platform 与每个 anchor-enabled Claude/Codex
+    installed hook 还必须填写带单位的 `hook_e2e_p50_ms`、`hook_e2e_p95_ms`、
+    `hook_e2e_p99_ms`、`hook_e2e_max_ms`，并填写 `cas_timeout_ms`、`ipc_timeout_ms`、
+    `queue_wait_budget_ms`、`contention_total_budget_ms` 与 `contention_retry_limit_count`；不得留空、
+    使用无单位“fast/bounded”或用专项 microbenchmark 替代 installed-path end-to-end budget。任何字段
+    未选、平台无通过 conformance 的 backend、
     reinstall/device identity 不确定或 IPC peer 无法认证时，不得 provision/reset/迁移 root，也不得
     执行 official committed block；实现不能把 `tpm2_nv_v1` 或任何平台方案当作本 Draft 已批准。
 
