@@ -162,10 +162,13 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    只是 requested state，runtime-owned registry 中绑定 config digest/epoch 的记录才是
    effective state。每个跨项目 projector/receipt worker 与 source coordinator marker writer
    取 shared delivery lease 后必须 no-follow 重读 config；digest drift 时零写入释放 shared，
-   再用 writer-fair exclusive delivery lease → project lock 提交 acknowledged off/eligibility epoch。
-   exclusive 等待后禁止新 shared admission；未确认前显示 `opt_out_pending`。生效后
-   不得写 source slot/marker，旧 epoch 只能由 source coordinator bounded rebind 或 approved
-   maintenance drain。
+   再用 writer-fair exclusive delivery lease → project lock 提交 durable `off_preparing`，
+   立即禁止新 L2/shared admission。它在 bounded 多 pass 中冻结/回收 source registry，
+   完成或中止 claim-prepared，并把所有 matching reservation/outbox 完成为 fsynced
+   keyed receipt slot 后回收 global live capacity；此阶段不写 project journal/marker。
+   只有 matching live registry/reservation/outbox 均为零才提交 effective off；否则保持
+   `opt_out_pending/error` + counts/oldest age，禁止伪称 off。生效后不得写 source
+   slot/marker 且不占 shared live capacity；旧 epoch 只能 bounded rebind/drain。
 3. B-003: L1 与 L2 必须保留独立的 decision、reason、latency、error 与 evidence identity；
    最终组合 decision 只能来自获批的闭集 precedence table。L2 缺失、错误或超时不得
    被记录成 L2 pass，也不得覆盖 L1 block。
@@ -249,8 +252,19 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     semantic event 不得生成 report 或写 precision，禁止 substring-classify 后静默漏计。
     closed observe output 迁移必须是 schema-version discriminator 的 compatibility union：
     v1 branch 原样保留现有 closed payload，v2 branch 必须携带 closed
-    `semantic_projection {state, finalized, barrier_digest}`。current writer 只发 v2；legacy v1
-    reader 映射为 `legacy_untracked` + 空 semantic data，不得猜测 synced/pass/lag。
+    `semantic_projection {state,finalized,barrier_refs,barrier_set_digest,projection_watermark,
+    lag_refs}`。每个 bounded/sorted barrier ref 绑定 source-project digest、event、barrier、
+    projection receipt 与 global offset；set digest 覆盖 query identity + ordered barrier/lag refs +
+    registry/allocator/outbox committed generations + allocator tail，watermark 携带同一组
+    generations/tail。reader 在 bounded scan 前后必须重读并证明全部 generation
+    不变；drift 只能 bounded retry，仍 drift 则 fail visible + 空数据。任一 in-scope lag 使整个 semantic aggregate
+    `projection_lag` + 空数据，并进 lag refs，禁止 partial count。refs/lag refs 超过
+    closed output maximum 或 proof 无法完整编码时返回 `proof_truncated/unavailable` +
+    空 semantic data，不得截断 proof 却保留 aggregate。current writer 只发 v2；
+    legacy v1 reader 映射 `legacy_untracked` + 空 semantic data，不得猜 synced/pass/lag。
+    所有 enforcement history reader 也必须用 bounded project index 对 semantic kinds join
+    barrier；pending/aborted row 不得进 churn/warn/W-14/W-15/build-history 或改变后续
+    guard decision；malformed/missing join 必须 fail visible 为 history unavailable，不得静默当零。
 21. B-021: GH-704 只把 H-010 批准的具名 W-rule delta 计入“新增”。每条必须列出现有
     baseline、exact new signal、输入证据、window/state transition、severity 和
     verification corpus；已有 advisory/block 或仅改 reason 文案不计数。
@@ -320,8 +334,11 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     global source registry 的 unique slot durable 注册 inert route/body/barrier/eligibility；publication
     由 deadline-bounded lease + checksummed generations 跨 project 串行，worker 只在 exact barrier
     durable 后执行。orphan 由同一 source coordinator 完成 barrier/abort，再用 digest receipt CAS
-    ready/tombstone/reclaim；生效 off transition 在 exclusive delivery 下冻结 source state，释放
-    project lock 后再取 registry lease，将旧 epoch pre-barrier 或 barrier-ready-unclaimed orphan CAS 为 checksummed
+    ready/tombstone/reclaim；ready worker 必须先在 registry CAS 持久化 claim ID/body/
+    reservation digest，释放 registry 后才创建 sequencer reservation，禁止 reserve-before-claim；
+    crash/off 对 claim 与 exact reservation 做 absent-abort 或 matching completion。requested off 在
+    exclusive delivery 下进入 off-preparing，释放 project lock 后再取 registry lease，
+    将旧 epoch pre-barrier 或 barrier-ready-unclaimed orphan CAS 为 checksummed
     `off_frozen` administrative tombstone 并回收 live slot，不删 canonical backlog。禁止
     global→project lock inversion、覆盖或以 off project 永占 capacity。barrier + registration 后才写 `projection_queued` 并允许
     semantic `done`，因此 dormant source 不需被扫描/重启也可发现 work。global worker 必须使用跨 project/key/shard 的唯一 deadline-bounded
@@ -336,7 +353,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     `receipt_applied`/reclaim；它不得写 project journal。只有 source coordinator/approved maintenance
     route 按 shared delivery lease → project lock 持有至 fsync 才可写 `projection_done`。恢复只按 earliest reservation 或 receipt
     intent 的 exact key/offset/digest 判断，禁止扫描 project/HOME/global log、跳洞、丢 receipt
-    或释放 reservation 后由 per-key writer 乱序 append。
+    或释放 reservation 后由 per-key writer 乱序 append。off-preparing 必须先用同一
+    keyed-slot durability 完成 matching live outbox 并 reclaim，才能提交 effective off；
+    因此 off project 不能占用 shared live outbox 阻塞其他 project。
     derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
     反向推断 eligibility、重写 project journal 或伪称 global view 已同步。
 29. B-029: cross-session learning 只能把合格 correction 聚合成 project-scoped、
@@ -368,12 +387,16 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     当前 hook response 的权威源，标记 `persistence_unavailable`、`finalized=false`、
     empty decision/event ID；后续 status 不得伪造历史，只显示 durable no-data + current
     storage health。两类 failure 都不能进入 precision/Learn。global/aggregate view 若尚未投影同一 barrier digest，必须显示
-    `projection_lag` 和空数据，不能沿用旧 mirror 结果。closed observe schema
-    必须携带该 projection/finalized/barrier identity；health report 遇 lag 必须显示
+    `projection_lag` 和空数据，不能沿用旧 mirror 结果。closed observe v2
+    必须为每个 included event 携带 bounded ordered barrier ref，并携带 query-bound
+    barrier-set digest + projection watermark；混合 barrier/mixed lag 时整个 semantic aggregate 为空。
+    omitted/reordered lag ref、ready-registry/outbox lag 或 scan-generation drift 必须使 proof 失败。
+    health report 遇 lag 必须显示
     degraded/lag 与空 semantic data，不得报 `ok` 或 `NO DATA`。legacy v1 只能显示
     `legacy_untracked` + 空 semantic data，不得破坏旧 payload 或伪装 v2。Codex status、
-    quality grader 与 constraint-frequency reader 也必须对 semantic kinds join exact barrier；
-    pre-barrier/aborted/global-lag row 不得被当成 latest success、grade 证据或 rule hit。
+    quality grader、constraint-frequency reader 与 Rust hook/log history readers 也必须对 semantic
+    kinds join exact barrier；pre-barrier/aborted/global-lag row 不得被当成 latest success、
+    grade 证据、rule hit 或后续 enforcement history。
 36. B-036: 正常、失败、timeout 与 interruption 都必须清理 GH-704 自建的 bounded
     temporary state；取消后停止新 inference，保留最小 structured audit，返回与 H-007
     一致的非伪造状态。rollback/kill switch 后纯 L1 路径与其原有验证必须恢复。
@@ -418,8 +441,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       record，slow/hung I/O 的 cancellation teardown 也进 floor 且无返回后续写，concurrent global registration 串行且 orphan 可 completion/tombstone/reclaim，
       prepare/queue/sequencer 不丢 payload、不重用 offset 且 serialized append 无洞；applied reservation 在释放前原子转入 exact-route keyed receipt
       outbox，同 project 多 intent 不共享 offset，dormant source project 也可无扫描补 receipt；
-      effective off 可回收旧 epoch pre-barrier 与 ready-unclaimed live slot，direct opt-out 必须 acknowledged 且不与在途写并发；
-      false-positive report/triage 只接受 finalized typed identity，observe v1/v2 兼容 fixture 与 health/Codex-status/quality-grader/constraint-frequency readers 对 lag/unfinalized 统一显示 degraded/empty 或零计数；free-text/global mirror 不再是权威路径。
+      ready 先 claim 后 reserve，off-preparing 完成/中止 claim 并 drain matching outbox 后才 effective，不占 shared live capacity；
+      false-positive report/triage 只接受 finalized typed identity，observe v1/v2 兼容且 aggregate digest 承诺 query + 全量 ordered barrier/lag refs + registry/allocator/outbox 稳定 generations/watermark，health/Codex-status/quality-grader/constraint-frequency 与 Rust enforcement-history readers 对 lag/unfinalized 统一 degraded/empty/零计数；free-text/global mirror 不再是权威路径。
 - [ ] trusted session 不能由 inherited env/payload 选择；session spoof/conflict/rotation 均在
       cache/provider/state 前失败或失效。实际 sidecar artifact identity 的任一字段变化同时
       使 approval/eligibility、cache、precision 与 status evidence 失效。
