@@ -258,8 +258,8 @@ validity evidence、previous/target generation；再 CAS+fsync external floor，
 保持 fail closed。runtime 验证 pointer generation `>= floor`，旧 replay 即使 digest 匹配也
 无效。pack/environment/CLI/publication artifact 均不能改写。每个 active generation 有独立
 closed、Core-owned runtime-state entry，
-绑定 installation generation、committed policy exact identity、`clock_epoch`、单调 sequence、
-`last_trusted_runtime_time` 与不可逆 `audit_required` latch，并绑定上述 time leaf attestation。runtime 总先取得
+绑定 installation generation、committed policy exact identity、`clock_epoch`、sequence、high-water、latch 与 deterministic time-leaf state body/digest；
+fresh attestation 只独立认证 state，proof bytes/digest refresh 不得使 entry/mirror 失效。runtime 总先取得
 `policy.lock`/等价 fence，证明 policy/install authorities 与 pointer/floors exact current，并持有到 decision。
 current warn/off/no-data 跳过 runtime-state/time leaf；只有 block candidate 再取得 bounded runtime-state lock，
 对可信 observation 先推进 high-water，fallback 同时锁存 reason。取锁前缓存不得执行；candidate 的
