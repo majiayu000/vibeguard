@@ -8,6 +8,12 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[path = "setup_managed_tree_test_support.rs"]
+mod test_support;
+use test_support::{
+    inject_collision, inject_failure, inject_postverify, inject_public_replacement,
+};
+
 const USAGE: &str = "Usage: vibeguard-runtime setup-state-quarantine-managed-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";
 const RELEASE_USAGE: &str = "Usage: vibeguard-runtime setup-state-release-quarantined-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";
 const TRANSACTION_VERSION: u64 = 1;
@@ -91,8 +97,8 @@ pub fn run(args: &[String]) -> SetupResult<()> {
     )?;
 
     verify_exact(&states, &quarantine, &args[3], &dest)?;
-    inject_postverify_for_test(&quarantine)?;
-    inject_public_replacement_for_test(&dest)?;
+    inject_postverify(&quarantine)?;
+    inject_public_replacement(&dest)?;
     verify_exact(&states, &quarantine, &args[3], &dest).map_err(|_| {
         format!(
             "quarantined tree changed after ownership verification; data retained at {}",
@@ -134,7 +140,7 @@ pub fn release(args: &[String]) -> SetupResult<()> {
         .and_then(|value| value.to_str())
         .filter(|value| !value.is_empty())
         .ok_or("managed tree name must be non-empty UTF-8")?;
-    let Some(record) = active_record(current_state, &dest)? else {
+    let Some(record) = active_record(&states, &dest)? else {
         println!("ABSENT");
         return Ok(());
     };
@@ -180,7 +186,11 @@ pub fn release(args: &[String]) -> SetupResult<()> {
         "VIBEGUARD_TEST_RELEASE_AFTER_TRANSACTION",
         "injected failure after quarantine release transaction",
     )?;
-    remove_record(current_state, &dest)?;
+    let current_removed = remove_record(current_state, &dest, &record)?;
+    let previous_removed = remove_record(previous_state, &dest, &record)?;
+    if !current_removed && !previous_removed {
+        return Err("active quarantine record changed before release".into());
+    }
     println!("RELEASED");
     Ok(())
 }
@@ -193,7 +203,7 @@ fn recover_or_find_committed(
     name: &str,
     source_prefix: &str,
 ) -> SetupResult<Option<PathBuf>> {
-    let active_record = active_record(current_state, dest)?;
+    let active_record = active_record(states, dest)?;
     let mut committed = None;
     for transaction_path in transaction_paths(parent, name)? {
         let mut transaction = read_transaction(&transaction_path)?;
@@ -288,7 +298,7 @@ fn reserve_transaction(
         let nonce = format!("{}-{}-{attempt}", std::process::id(), now_nanos());
         let quarantine = parent.join(format!(".{name}.vibeguard-quarantine.{nonce}"));
         let transaction = parent.join(format!(".{name}.vibeguard-transaction.{nonce}.json"));
-        inject_collision_for_test(&quarantine)?;
+        inject_collision(&quarantine)?;
         if fs::symlink_metadata(&quarantine).is_ok() || fs::symlink_metadata(&transaction).is_ok() {
             continue;
         }
@@ -361,18 +371,28 @@ fn verify_exact(
     Ok(())
 }
 
-fn active_record(current_state: &Path, dest: &Path) -> SetupResult<Option<Value>> {
-    if !current_state.exists() {
-        return Ok(None);
-    }
-    let state = read_state(current_state)?;
-    validate_state_metadata(&state)?;
+fn active_record(states: &[&Path; 2], dest: &Path) -> SetupResult<Option<Value>> {
+    let mut record = None;
     let dest_text = path_text(dest);
-    Ok(state
-        .get("disabled_skill_quarantines")
-        .and_then(Value::as_object)
-        .and_then(|records| records.get(&dest_text))
-        .cloned())
+    for state_path in states {
+        if !state_path.exists() {
+            continue;
+        }
+        let state = read_state(state_path)?;
+        validate_state_metadata(&state)?;
+        let candidate = state
+            .get("disabled_skill_quarantines")
+            .and_then(Value::as_object)
+            .and_then(|records| records.get(&dest_text))
+            .cloned();
+        if let Some(candidate) = candidate {
+            if record.as_ref().is_some_and(|value| value != &candidate) {
+                return Err("install-state generations disagree on quarantine locator".into());
+            }
+            record = Some(candidate);
+        }
+    }
+    Ok(record)
 }
 
 fn publish_record(state_path: &Path, transaction: &Transaction) -> SetupResult<()> {
@@ -397,24 +417,35 @@ fn publish_record(state_path: &Path, transaction: &Transaction) -> SetupResult<(
     sync_parent(state_path)
 }
 
-fn remove_record(state_path: &Path, dest: &Path) -> SetupResult<()> {
+fn remove_record(state_path: &Path, dest: &Path, expected: &Value) -> SetupResult<bool> {
+    if !state_path.exists() {
+        return Ok(false);
+    }
     let mut state = read_state(state_path)?;
     validate_state_metadata(&state)?;
     let state_object = state
         .as_object_mut()
         .ok_or("install-state root must be an object")?;
-    let records = state_object
+    let Some(records) = state_object
         .get_mut("disabled_skill_quarantines")
         .and_then(Value::as_object_mut)
-        .ok_or("active quarantine record is missing from install state")?;
-    if records.remove(&path_text(dest)).is_none() {
+    else {
+        return Ok(false);
+    };
+    let dest_text = path_text(dest);
+    let Some(actual) = records.get(&dest_text) else {
+        return Ok(false);
+    };
+    if actual != expected {
         return Err("active quarantine record changed before release".into());
     }
+    records.remove(&dest_text);
     if records.is_empty() {
         state_object.remove("disabled_skill_quarantines");
     }
     write_json_atomic(state_path, &state)?;
-    sync_parent(state_path)
+    sync_parent(state_path)?;
+    Ok(true)
 }
 
 fn record_value(transaction: &Transaction) -> Value {
@@ -755,38 +786,4 @@ fn now_nanos() -> u128 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos()
-}
-
-fn inject_collision_for_test(candidate: &Path) -> SetupResult<()> {
-    if std::env::var_os("VIBEGUARD_TEST_REMOVE_COLLIDE_ALL").is_some() {
-        fs::create_dir(candidate)?;
-        fs::write(candidate.join("collision-sentinel"), "collision\n")?;
-    }
-    Ok(())
-}
-
-fn inject_postverify_for_test(quarantine: &Path) -> SetupResult<()> {
-    if let Some(name) = std::env::var_os("VIBEGUARD_TEST_REMOVE_POSTVERIFY_INJECT") {
-        let name = PathBuf::from(name);
-        if name.components().count() != 1 || name.as_os_str().is_empty() {
-            return Err("test injection name must be one non-empty path component".into());
-        }
-        fs::write(quarantine.join(name), "user-data\n")?;
-    }
-    Ok(())
-}
-
-fn inject_public_replacement_for_test(dest: &Path) -> SetupResult<()> {
-    if let Some(value) = std::env::var_os("VIBEGUARD_TEST_REMOVE_PUBLIC_REPLACEMENT") {
-        fs::create_dir(dest)?;
-        fs::write(dest.join("custom.txt"), value.to_string_lossy().as_bytes())?;
-    }
-    Ok(())
-}
-
-fn inject_failure(variable: &str, message: &str) -> SetupResult<()> {
-    if std::env::var_os(variable).is_some() {
-        return Err(message.into());
-    }
-    Ok(())
 }
