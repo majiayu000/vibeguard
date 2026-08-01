@@ -1,4 +1,18 @@
 header "setup scripts syntax"
+assert_cmd "executable payload templates declare deterministic LF checkout" bash -c '
+  set -euo pipefail
+  repo_dir="$1"
+  shift
+  for relative_path in "$@"; do
+    test "$(git -C "${repo_dir}" check-attr eol -- "${relative_path}")" \
+      = "${relative_path}: eol: lf"
+    ! LC_ALL=C grep -q $'\''\r'\'' "${repo_dir}/${relative_path}"
+  done
+' _ "${REPO_DIR}" \
+  scripts/setup/bootstrap_birth_token.jxa \
+  scripts/systemd/vibeguard-gc.service \
+  scripts/systemd/vibeguard-gc.timer \
+  scripts/release/payload-manifest.txt
 assert_cmd "setup.sh syntax is correct" bash -n "${REPO_DIR}/setup.sh"
 assert_cmd "scripts/setup/install.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/install.sh"
 assert_cmd "source runtime build does not call cargo metadata" assert_prepare_runtime_from_source_no_cargo_metadata
