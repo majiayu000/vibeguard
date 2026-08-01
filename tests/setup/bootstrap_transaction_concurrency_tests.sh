@@ -111,6 +111,160 @@ assert_cmd "interactive bootstrap keeps isolated setup in the terminal foregroun
 assert_contains "$(cat "${interactive_out}")" "INTERACTIVE_SETUP_SUCCEEDED" \
   "interactive setup reads and validates terminal input"
 
+interactive_ignore_release="${TMP_HOME}/bootstrap-release-interactive-ignore"
+make_hostile_bootstrap_release "${interactive_ignore_release}" interactive-signal-ignore
+for interactive_ignore_case in default_ready system_ready system_early system_stop; do
+case "${interactive_ignore_case}" in
+  default_ready)
+    interactive_ignore_bash="$(command -v bash)"
+    interactive_ignore_cancel_mode=ready
+    interactive_ignore_expected=130
+    ;;
+  system_ready)
+    interactive_ignore_bash="/bin/bash"
+    interactive_ignore_cancel_mode=ready
+    interactive_ignore_expected=130
+    ;;
+  system_early)
+    interactive_ignore_bash="/bin/bash"
+    interactive_ignore_cancel_mode=early
+    interactive_ignore_expected=130
+    ;;
+  system_stop)
+    interactive_ignore_bash="/bin/bash"
+    interactive_ignore_cancel_mode=stop
+    interactive_ignore_expected=148
+    ;;
+esac
+interactive_ignore_home="${TMP_HOME}/bootstrap-interactive-ignore-${interactive_ignore_case}-home"
+interactive_ignore_out="${TMP_HOME}/bootstrap-interactive-ignore-${interactive_ignore_case}.out"
+mkdir -p "${interactive_ignore_home}"
+interactive_ignore_rc=0
+env "${bootstrap_base_env[@]}" HOME="${interactive_ignore_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${interactive_ignore_release}" \
+  VIBEGUARD_TEST_BOOTSTRAP_BASH="${interactive_ignore_bash}" \
+  VIBEGUARD_TEST_CANCEL_MODE="${interactive_ignore_cancel_mode}" \
+  python3 - "${BOOTSTRAP}" "${BOOTSTRAP_VERSION}" "${interactive_ignore_out}" <<'PY' \
+  || interactive_ignore_rc=$?
+import errno
+import os
+import pty
+import re
+import select
+import signal
+import sys
+import time
+
+bootstrap, version, output_path = sys.argv[1:]
+pid, fd = pty.fork()
+if pid == 0:
+    shell = os.environ["VIBEGUARD_TEST_BOOTSTRAP_BASH"]
+    os.execve(shell, [shell, bootstrap, "--version", version, "--", "--yes"], os.environ)
+data = bytearray()
+sent = False
+status = None
+cancel_pgid = 0
+cancel_mode = os.environ["VIBEGUARD_TEST_CANCEL_MODE"]
+deadline = time.monotonic() + (20 if cancel_mode == "stop" else 10)
+try:
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.05)
+        if ready:
+            try:
+                chunk = os.read(fd, 4096)
+            except OSError as exc:
+                if exc.errno != errno.EIO:
+                    raise
+                chunk = b""
+            data.extend(chunk)
+            try:
+                foreground_pgid = os.tcgetpgrp(fd)
+            except OSError:
+                foreground_pgid = 0
+            if (not sent and cancel_mode == "early" and foreground_pgid > 0
+                    and foreground_pgid != pid):
+                cancel_pgid = foreground_pgid
+                os.write(fd, b"\x03")
+                sent = True
+            elif (not sent and cancel_mode in ("ready", "stop")
+                    and b"INTERACTIVE_IGNORE_READY" in data):
+                cancel_pgid = foreground_pgid
+                os.write(fd, b"\x1a" if cancel_mode == "stop" else b"\x03")
+                sent = True
+        waited, candidate = os.waitpid(pid, os.WNOHANG)
+        if waited == pid:
+            status = candidate
+            break
+finally:
+    match = re.search(rb"INTERACTIVE_IGNORE_READY pid=(\d+) pgid=(\d+) tpgid=(\d+)", data)
+    if match is not None:
+        setup_pid = int(match.group(1))
+        setup_pgid = int(match.group(2))
+        try:
+            if os.getpgid(setup_pid) == setup_pgid:
+                os.killpg(setup_pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if status is None:
+        try:
+            foreground_pgid = os.tcgetpgrp(fd)
+        except OSError:
+            foreground_pgid = 0
+        if foreground_pgid > 0:
+            try:
+                os.killpg(foreground_pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        if match is not None:
+            try:
+                os.killpg(int(match.group(2)), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        _, status = os.waitpid(pid, 0)
+    os.close(fd)
+    with open(output_path, "wb") as output:
+        output.write(data)
+match = re.search(rb"INTERACTIVE_IGNORE_READY pid=(\d+) pgid=(\d+) tpgid=(\d+)", data)
+if match is not None:
+    recorded_pid = match.group(1).decode()
+    recorded_pgid = match.group(2).decode()
+elif cancel_pgid > 0:
+    recorded_pid = "99999998"
+    recorded_pgid = str(cancel_pgid)
+else:
+    recorded_pid = "99999998"
+    recorded_pgid = "99999999"
+with open(output_path + ".pids", "w", encoding="ascii") as output:
+    output.write(f"{recorded_pid} {recorded_pgid}\n")
+if (not sent or not os.WIFEXITED(status)
+        or (cancel_mode != "early" and match is None)):
+    raise SystemExit(1)
+raise SystemExit(os.WEXITSTATUS(status))
+PY
+assert_cmd "${interactive_ignore_case} Bash TTY control signal remains supervised" \
+  test "${interactive_ignore_rc}" -eq "${interactive_ignore_expected}"
+assert_contains "$(cat "${interactive_ignore_out}")" "escalating to KILL" \
+  "${interactive_ignore_case} Bash TTY control uses bounded group-wide KILL escalation"
+interactive_ignore_pid=99999998 interactive_ignore_pgid=99999999
+if [[ -f "${interactive_ignore_out}.pids" ]]; then
+  read -r interactive_ignore_pid interactive_ignore_pgid \
+    < "${interactive_ignore_out}.pids"
+fi
+assert_cmd "TTY cancellation reaps the ignored setup group and releases ownership" bash -c '
+  ! kill -0 "$1" 2>/dev/null
+  ! "$2" -A -o pgid= -o stat= | awk -v expected="$3" \
+    '\''$1 == expected && $2 !~ /^Z/ { live = 1 } END { exit live }'\''
+  test ! -e "$4"
+  test -z "$(find "$5" -maxdepth 1 -name ".bootstrap.lock.lease.*" -print -quit)"
+' _ "${interactive_ignore_pid}" "$(command -v ps)" "${interactive_ignore_pgid}" \
+  "${interactive_ignore_home}/.vibeguard/dist/.bootstrap.lock" \
+  "${interactive_ignore_home}/.vibeguard/dist"
+done
+
 signal_release="${TMP_HOME}/bootstrap-release-signal-wait"
 make_hostile_bootstrap_release "${signal_release}" signal-wait
 for cancel_signal in INT TERM HUP; do

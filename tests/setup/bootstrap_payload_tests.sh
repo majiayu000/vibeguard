@@ -463,10 +463,19 @@ elif kind == "interactive":
 set -euo pipefail
 read -r pid pgid tpgid < <(LC_ALL=C ps -p $$ -o pid= -o pgid= -o tpgid=)
 printf 'INTERACTIVE_READY pid=%s pgid=%s tpgid=%s\\n' "${pid}" "${pgid}" "${tpgid}"
-[[ "${pid}" == "${pgid}" && "${pgid}" == "${tpgid}" ]]
+[[ "${pgid}" == "${tpgid}" ]]
 IFS= read -r answer
 [[ "${answer}" == "confirmed" ]]
 printf 'INTERACTIVE_SETUP_SUCCEEDED\\n'
+"""
+elif kind == "interactive-signal-ignore":
+    setup = b"""#!/usr/bin/env bash
+set -euo pipefail
+trap '' INT
+read -r pid pgid tpgid < <(LC_ALL=C ps -p $$ -o pid= -o pgid= -o tpgid=)
+printf 'INTERACTIVE_IGNORE_READY pid=%s pgid=%s tpgid=%s\\n' "${pid}" "${pgid}" "${tpgid}"
+[[ "${pgid}" == "${tpgid}" ]]
+while :; do sleep 1; done
 """
 elif kind == "signal-wait":
     setup = b"""#!/usr/bin/env bash

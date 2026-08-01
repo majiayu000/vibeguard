@@ -203,49 +203,39 @@ assert_cmd "failed post-claim revalidation preserves canonical and immutable rec
   'test -f "$1" && test -n "$(find "$2" -maxdepth 1 -type f -name ".bootstrap.lock.lease.revalidation.evidence.*" -print -quit)" && test -f "${1}.claim"' _ \
   "${lease_revalidation_file}" "${lease_revalidation_root}"
 
-group_state_bin="${TMP_HOME}/bootstrap-group-state-bin"
-group_state_real_ps="$(command -v ps)"
-mkdir -p "${group_state_bin}"
-cat > "${group_state_bin}/ps" <<SH
-#!/usr/bin/env bash
-case "\${VIBEGUARD_TEST_GROUP_STATE:-}" in
-  pgid-zero) printf '%s\n' '1 0 Ss' '4242 4242 S+' ;;
-  zombies) printf '%s\n' '1 0 Ss' '4242 4242 Z' '4243 4242 Z+' ;;
-  mixed) printf '%s\n' '4242 4242 Z' '4243 4242 S' ;;
-  malformed) printf '%s\n' '1 0 Ss' 'broken row' ;;
-  *) exec "${group_state_real_ps}" "\$@" ;;
-esac
-SH
-chmod +x "${group_state_bin}/ps"
 assert_cmd "unrelated zero PGID does not hide a live setup group" \
-  env REPO_DIR="${REPO_DIR}" PATH="${group_state_bin}:${PATH}" \
+  env REPO_DIR="${REPO_DIR}" \
     VIBEGUARD_TEST_GROUP_STATE=pgid-zero bash -c '
       set -euo pipefail; source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
       source "${REPO_DIR}/scripts/setup/bootstrap_state.sh"
+      bootstrap_process_group_table() { printf "%s\n" "1 0 Ss" "4242 4242 S+"; }
       bootstrap_process_group_liveness 4242
       test "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" = active
     '
 assert_cmd "zombie-only setup group is safely classified dead" \
-  env REPO_DIR="${REPO_DIR}" PATH="${group_state_bin}:${PATH}" \
+  env REPO_DIR="${REPO_DIR}" \
     VIBEGUARD_TEST_GROUP_STATE=zombies bash -c '
       set -euo pipefail; source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
       source "${REPO_DIR}/scripts/setup/bootstrap_state.sh"
+      bootstrap_process_group_table() { printf "%s\n" "1 0 Ss" "4242 4242 Z" "4243 4242 Z+"; }
       bootstrap_process_group_liveness 4242
       test "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" = dead
     '
 assert_cmd "live member keeps a mixed zombie setup group active" \
-  env REPO_DIR="${REPO_DIR}" PATH="${group_state_bin}:${PATH}" \
+  env REPO_DIR="${REPO_DIR}" \
     VIBEGUARD_TEST_GROUP_STATE=mixed bash -c '
       set -euo pipefail; source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
       source "${REPO_DIR}/scripts/setup/bootstrap_state.sh"
+      bootstrap_process_group_table() { printf "%s\n" "4242 4242 Z" "4243 4242 S"; }
       bootstrap_process_group_liveness 4242
       test "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" = active
     '
 assert_cmd "malformed process-group evidence remains ambiguous" \
-  env REPO_DIR="${REPO_DIR}" PATH="${group_state_bin}:${PATH}" \
+  env REPO_DIR="${REPO_DIR}" \
     VIBEGUARD_TEST_GROUP_STATE=malformed bash -c '
       set -euo pipefail; source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
       source "${REPO_DIR}/scripts/setup/bootstrap_state.sh"
+      bootstrap_process_group_table() { printf "%s\n" "1 0 Ss" "broken row"; }
       bootstrap_process_group_liveness 4242
       test "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" = ambiguous
     '
@@ -254,8 +244,20 @@ assert_cmd "zero expected process group is rejected as ambiguous" \
     set -euo pipefail; source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
     source "${REPO_DIR}/scripts/setup/bootstrap_state.sh"
     bootstrap_process_group_liveness 0
-    test "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" = ambiguous
+      test "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" = ambiguous
   '
+
+group_proc_root="${TMP_HOME}/bootstrap-group-proc"
+mkdir -p "${group_proc_root}/1" "${group_proc_root}/4242" "${group_proc_root}/4243"
+printf '%s\n' '1 (init) S 0 0 0 0' > "${group_proc_root}/1/stat"
+printf '%s\n' '4242 (setup supervisor) S 1 4242 0 0' > "${group_proc_root}/4242/stat"
+printf '%s\n' '4243 (setup ) child) Z 4242 4242 0 0' > "${group_proc_root}/4243/stat"
+assert_cmd "Linux proc snapshots provide portable group state without procps flags" \
+  env REPO_DIR="${REPO_DIR}" bash -c '
+    set -euo pipefail; source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    table="$(bootstrap_process_group_table_from_proc "$1")"
+    test "${table}" = $'"'"'1 0 S\n4242 4242 S\n4243 4242 Z'"'"'
+  ' _ "${group_proc_root}"
 
 dead_lock_home="${TMP_HOME}/bootstrap-dead-lock-home"
 dead_lock_dir="${dead_lock_home}/.vibeguard/dist/.bootstrap.lock"
