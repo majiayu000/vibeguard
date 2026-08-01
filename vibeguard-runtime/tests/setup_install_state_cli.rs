@@ -34,7 +34,7 @@ fn setup_state_commands_reject_invalid_arity_with_exact_usage() {
         ),
         (
             "setup-lock-publish-owner",
-            "Usage: vibeguard-runtime setup-lock-publish-owner <lock-dir> <pid> <nonce>",
+            "Usage: vibeguard-runtime setup-lock-publish-owner <lock-dir> <pid> <nonce> [reclaiming]",
         ),
         (
             "setup-state-record-file",

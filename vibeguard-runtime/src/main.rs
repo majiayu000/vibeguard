@@ -449,7 +449,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-lock-publish-owner",
-        usage: "<lock-dir> <pid> <nonce>  — durably publish setup lock ownership",
+        usage: "<lock-dir> <pid> <nonce> [reclaiming]  — durably publish setup lock ownership",
         handler: setup_install_state::publish_lock_owner,
     },
     Command {
