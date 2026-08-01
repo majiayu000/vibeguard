@@ -26,9 +26,9 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 | ID | 待批准选择 | Draft recommendation | 互斥备选 | 状态 |
 | --- | --- | --- | --- | --- |
 | H-001 | 默认与 consent 模式 | `install_confirmed_default_on`：受支持平台的完整安装计划明确列出本地周任务；用户确认整体安装后默认注册，并提供同层级 `--no-weekly-value` opt-out | `first_run_prompt`；维持 `opt_in_only` | 未批准 |
-| H-002 | 平台与 scheduler | `macos_launchd_linux_systemd`；同一 owned value scheduler 同时承载本地 coverage-authority heartbeat，Draft cadence/expiry 为 5/15 分钟；批准时须固定正整数 cadence/jitter/expiry、`maximum_active_journal_entries`/`maximum_active_journal_bytes`，满足 `expiry > cadence + max_jitter`，并固定可信 suspend/resume/boot provider；Windows 明确 `unsupported`，不得回退 cron 或伪报成功 | Linux 继续 `cron`；仅 macOS；不同 heartbeat/active-journal/provider values | 未批准 |
+| H-002 | 平台与 scheduler | `macos_launchd_linux_systemd`；同一 owned value scheduler 同时承载本地 coverage-authority heartbeat，Draft cadence/expiry 为 5/15 分钟；批准时须固定正整数 cadence/jitter/expiry、`maximum_active_journal_entries`/`maximum_active_journal_bytes`/`maximum_active_journal_segments`，满足 `expiry > cadence + max_jitter`，并固定可信 suspend/resume/boot provider；Windows 明确 `unsupported`，不得回退 cron 或伪报成功 | Linux 继续 `cron`；仅 macOS；不同 heartbeat/active-journal/provider values | 未批准 |
 | H-003 | 价值 taxonomy 与 decision 集 | `versioned_local_taxonomy`：独立、闭集、版本化；headline 只统计已批准的真实 rule `block`，与 GH-700 名称对齐但不等待其实现 | 与 GH-700 共用同一 taxonomy 并形成硬依赖；统计 `block+correction` | 未批准 |
-| H-004 | window、scope、catch-up 与 snapshot budgets | `previous_local_calendar_week_global`：用户本地时区、上一个完整周、global scope；首次不足整周标 `partial_coverage`，missed run 最多补一次；空 headline 的 `empty_counts_representation` Draft recommendation 为 `json_null`（备选 `field_absent`）；批准时还必须固定该选择及正整数 `maximum_query_window_duration_seconds`、`maximum_catch_up_duration_seconds`、`max_source_files`、`max_uncompressed_bytes`、`max_snapshot_elapsed_ms`，本 Draft 不替维护者填写数值 | rolling 7 days；per-project 周报；UTC calendar week；`field_absent`；不同 bounded duration/budget values | 未批准 |
+| H-004 | window、scope、catch-up 与 snapshot budgets | `previous_local_calendar_week_global`：用户本地时区、上一个完整周、global scope；首次不足整周标 `partial_coverage`，missed run 最多补一次；空 headline 的 `empty_counts_representation` Draft recommendation 为 `json_null`（备选 `field_absent`）；批准时还必须固定该选择及正整数 `maximum_query_window_duration_seconds`、`maximum_catch_up_duration_seconds`、`max_source_files`、`max_uncompressed_bytes`、`max_snapshot_elapsed_ms`、`max_retained_archives`、`max_integrity_preflight_elapsed_ms`，本 Draft 不替维护者填写数值 | rolling 7 days；per-project 周报；UTC calendar week；`field_absent`；不同 bounded duration/budget values | 未批准 |
 | H-005 | privacy 与 export | `allowlisted_local_export`：默认仅本地；分享文件只含闭集计数、窗口、coverage、`data_status`、`status_reason`、taxonomy version、`generated_at` 和摘要 digest；分享必须由用户显式导出，无网络/剪贴板副作用 | 不分享 `generated_at`；含 rule IDs 的扩展分享；显式上传集成 | 未批准 |
 | H-006 | 用户 surface | `separate_value_summary`：简洁 value summary 与完整 maintainer health report 分离，均支持 Markdown/JSON | 在完整 health report 顶部增加可分享 section；仅 Markdown | 未批准 |
 | H-007 | install/upgrade/disable/clean/retention 生命周期 | `transactional_owned_job`：只管理 VibeGuard-owned job 与独立 coverage-authority state，失败不报告安装完成，opt-out 跨升级保留，clean 移除 job 但默认保留报告；批准时还须固定正整数 `retention_horizon_seconds`、`hard_history_cap_entries`、`hard_history_cap_bytes` 及 `no_auto_delete|capability_attested` backend policy，本 Draft 不代填 | scheduler/authority 失败只降级为 warning；clean 默认删除报告；不同 retention/cap/backend policy | 未批准 |
@@ -77,8 +77,8 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 5. B-005 获批平台之外必须显示 `unsupported_platform` 和可执行的人工运行方式；不得创建
    其他 scheduler、不得把平台识别失败回退为 cron、不得报告 weekly summary active。
    人工方式必须使用独立、显式启动的 `manual_authority` lifecycle/epoch，不依赖
-   scheduler `state=enabled`；只有被该 epoch 连续覆盖的 window 才能证明 complete，立即查询
-   更早 window 必须显式 `partial_coverage`，不能凭一次手工运行补造历史 coverage。
+   scheduler `state=enabled`；只有被该 epoch 连续覆盖的 window 才能证明 complete。start 前与 seal 后
+   结束的 window 分别显式 `manual_pre_start|manual_post_seal` partial，跨两边界固定以前者优先。
 6. B-006 每个用户只能有一个 VibeGuard-owned value-summary job identity。重复
    install/enable 必须更新同一 owned job，不能重复注册或改变第三方 job 的内容、
    顺序、权限或执行周期。
@@ -98,8 +98,9 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     0 次危险操作、0 次虚构 API 或“本周安全”。
 11. B-011 事件、retained archive、taxonomy、install state 或既有摘要损坏、schema 不合法、
     字段类型错误或读取失败时，生成必须 nonzero 且不发布新的 current/shareable artifact；
-    `archive_corrupt` 与无法排除未扫描 corruption 的 `budget_exceeded` 只能作为 closed terminal
-    diagnostic/state reason，不能成为可发布的 `partial_coverage` summary。旧 valid artifact保留但标 stale。
+    query budget 前必须对所有 bounded retained archive完成 root/header/digest integrity preflight；
+    `archive_corrupt|integrity_preflight_incomplete` 只能作为 closed terminal diagnostic/state reason。preflight
+    成功后的 content `budget_exceeded` 才可发布无 headline partial；旧 valid artifact保留但标 stale。
 12. B-012 每个 value summary 必须携带 closed `taxonomy_version` 和 closed
     category set。未知 category、缺版本或 taxonomy 与 producer 不匹配时不得生成
     headline。
@@ -121,7 +122,8 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 18. B-018 同一 source、window、scope 和 taxonomy 输入的 JSON、Markdown、本地
     current artifact 与 shareable projection 必须给出完全相同的计数和
     `summary_digest`；任何一个 renderer 不得自行重算分类。JSON 与 Markdown 必须先写入同一
-    immutable generation，再用一个 create-only、append-only generation pointer commit 同时变为 current；
+    immutable generation，再用 JCS digest-linked closed pointer union `current_generation|no_current` 同时变为
+    current/no-current；variant required/forbidden fields、genesis/predecessor、lifecycle/terminal必须 exact，
     consumer 不得分别解析两个可独立漂移的 current pointers。
 19. B-019 shareable projection 只能包含 H-005 批准的 allowlist 字段。字段缺失与
     空值必须保持可区分；`data_status` 与 closed `status_reason` 必须显式输出，使
@@ -148,7 +150,8 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     标准 Linux/macOS 用户可写路径没有 atomic compare-by-identity unlink，默认不得 auto-delete。
     只有 H-007 明确批准且 runtime attestation 通过 B-042 完整 capability contract 的 backend 才能
     auto-retire；否则保留 candidate、fail visible，并在下一次写入将触及任一 hard cap 前停止新增
-    history，不能以“不删除”为由无界增长。不删除 event logs、手工 export 或用户文件。
+    history。receipt必须以 prepared durable record + atomic no-replace + dirfsync + commit marker + dirfsync
+    逐条提交；reader忽略 torn/uncommitted，lost response exact replay不得重复。不删除 event logs、export或用户文件。
 25. B-025 升级遇到 GH-556 已存在的 opt-in health scheduler 时，必须识别其
     surface、参数和 owner；不得静默把它替换成 value scheduler、创建重复 job，
     或把旧 opt-in 当成 H-001 的 consent evidence。
@@ -193,7 +196,9 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     `partial_coverage`/error，不能发布 complete headline。证明必须来自独立、版本化、durable
     的 writer/GC coverage ledger、writer side-channel spool，以及与两者分离的单写者 local
     coverage authority：authority必须先提交空/现有 source root与 sequence-0 genesis，再以 H-002 获批的有界
-    cadence/expiry持久化连续 heartbeat；active journal须按获批 entry/byte limits增量折叠 terminal prefix，
+    cadence/expiry持久化连续 heartbeat；seq0时间必须 exact等于 epoch start且 predecessor为 null，后续才用
+    deadline公式。active journal须保留 4ad 的 terminal-prefix reserved capacity，并按获批 entry/byte/segment
+    limits在 cadence内 early seal/new segment，且 retained总量有硬界，
     并在每次 canonical writer attempt 的任何 event 工作之前 durable 分配严格递增的
     `attempt_sequence`。只枚举当前仍存在的文件或只看“没有 event”不能证明没有 writer attempt。
     ledger 与 spool 同时失败时，authority 中尚未被 matching row/ledger commit 消解的 reservation
@@ -205,16 +210,16 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     sleep/reboot 自动记为 gap。fence 缺失、边界不确定或存在 open slot 时仍是 gap。只有 heartbeat 链完整
     覆盖整个 window、全部 attempt sequence 已闭合且 source snapshot 有效时，空 event set 才可成为
     `no_data`；任一 gap 相交都必须为 `partial_coverage`。仅 active value authority 注册的 resident host
-    parent 才能启动需要记录的 canonical caller：parent必须先生成 `invocation_id`，authority在 caller
-    启动前 fsync matching reservation并 ack；Codex fan-out loop的每个 inner caller各用一个 ID/slot，不得复用。
+    parent 才能启动需要记录的 canonical caller：Codex fan-out每个 inner caller必须由
+    `{outer_request_id,canonical_hook_id,fanout_index}` exact派生独立 ID/slot，duplicate拒绝；child crash不得关闭 sibling。
     pre-slot failure 不得启动 canonical caller 或产生不可见 attempt；launcher 必须按 host hook failure
     contract fail visible，pre-hook 保持既有 fail-closed、post-hook 保持既有 visible non-success 语义，且缺少
     parent quiescence ack 会阻止旧 epoch 续租。opt-out 不启动 authority、不创建 slot，也不产生逐事件
     coverage failure；unsupported 默认同样如此，但用户可显式启动 B-005 的独立 manual authority epoch，
     `stop` durable seal后 `generate` 必须只读绑定 terminal root/stop/quiescence proof 的 exact sealed epoch；active
     epoch不得直接生成，且 sealed evidence不得冒充 scheduler active epoch。后续显式 enable 必须开启新 epoch，
-    `enabled_at` 之前及首个完整覆盖 window 前均为 `partial_coverage`。authority journal 必须按最大
-    retention/catch-up/query-window horizon 做有界、可验证 checkpoint/compaction，不能丢失未闭合 sequence 或 gap 证明。
+    `enabled_at` 之前及首个完整覆盖 window 前均为 `partial_coverage`。query budget前必须完成所有 retained
+    archive integrity preflight；失败 terminal no-publish，budget只约束随后 content scan。journal不得丢 gap proof。
     caller 已启动后的 reservation/spool/authority failure 不得改变其 guard decision、blocking 语义或
     退出码，但必须 visible。
 36. B-036 进入 value taxonomy 的事件必须在 canonical event 创建边界持久化 closed、
@@ -269,7 +274,8 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     都不构成 compare-by-identity delete capability，用户可写路径默认 `no_auto_delete`。只有 attested backend
     同时提供 atomic expected-identity claim、同 identity delete/retire、crash recovery 与 replacement-race
     evidence 时才可 auto-retire；retention必须先 pin append-only pointer chain当前 target，永不选择它。
-    receipt已提交但 pointer未提交的 orphan同样不得凭 receipt/path删除：无 capability时保留并计入 entries/bytes
+    只有 matching commit marker 的 receipt 才算已提交；record已写但 marker或 pointer未提交的 orphan
+    不得凭 receipt/path删除：无 capability时保留并计入 entries/bytes
     hard caps，有 capability也须 atomic compare-by-identity claim/retire。capability缺失或失效即停止删除，并在
     下一历史写将触及 cap前 fail visible、保留 current/candidate/orphan。ledger损坏同样停止删除和新增 history。
 
