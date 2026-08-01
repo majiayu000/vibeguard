@@ -116,8 +116,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
    **Recommended proposal（未批准）**：默认零上传、运行时零网络；precision 反馈只能
    由用户显式导出脱敏 bundle 后另行提交，安装/运行失败不得静默启用 telemetry。
 10. **H-010 — Monotonic anchor backend 与生命周期**：哪些平台可用、谁 provision/认证/恢复。
-    **Decision frame（未批准，无默认选项）**：维护者必须为每个受支持 OS/architecture 选择
-    closed backend kind 与 conformance profile，或明确该平台不允许 official block；不得从
+    **Decision frame（未批准，无默认选项）**：维护者必须为每个受支持 OS/architecture 选择 closed
+    `anchor_block_v1` backend/conformance profile，或选择 `authenticated_no_block_v1` 明确
+    no conforming backend / no official block；不得从
     recommendation、探测到的 TPM/Keychain/service 或环境变量自动选择。批准 artifact 必须分别
     决定 backend/service owner、independent authenticated per-leaf authority conformance、initial
     provision 权限与 user/Core/device identity、IPC endpoint 的
@@ -134,9 +135,11 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     decision；P50/P95/P99/max、CAS、IPC、queue、contention time/retry 任一项都不能被 P95-only
     verdict 隐藏。result 必须 exact 绑定获批 H-010/decision artifact digest 与 authoritative
     evaluation-policy digest/generation/validity evidence；任一 policy/budget rotation 或 mismatch 必须
-    nonzero 并全量重跑，不能沿用旧 result。任何字段未选、平台无通过 conformance 的 backend、
-    reinstall/device identity 不确定或 IPC peer 无法认证时，不得 provision/reset/迁移 root，也不得
-    执行 official committed block；实现不能把 `tpm2_nv_v1` 或任何平台方案当作本 Draft 已批准。
+    nonzero 并全量重跑，不能沿用旧 result。no-block branch 必须由 signed H-010 artifact 提供
+    release-pinned、predecessor-linked generation identity 与 `maximum_effective_decision=warn`；
+    replayed HOME、缺失 backend 或旧 profile 不能授权 block，也不能把合法 warn/off 升级为 denial。
+    未选 branch、block backend 不 conform、identity/IPC 无法认证时不得执行 committed/promoted block；
+    实现不能把 `tpm2_nv_v1` 或任何平台方案当作本 Draft 已批准。
 
 ## Behavior Invariants
 
@@ -330,25 +333,27 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     必须来自 current approved `evaluation_policy_digest`，而不是 pack author、环境变量、
     README、install command 或 artifact-embedded publication policy 临时覆盖。policy
     更新必须在不改写 bundle/index identity 的前提下重算 eligibility；Core-owned
-    authoritative local evaluation-policy pointer 一旦切换，runtime 必须在每次 enforcement 接受任何
-    本地 committed decision 前先在 policy lock/fence 下以 external per-leaf authorities 验证 policy
-    pointer/floor 与 active installation pointer/floor 是 current，并持有到 decision；再比较 policy exact `(digest, generation,
+    runtime 先验证 release-pinned signed H-010 platform branch。`anchor_block_v1` 在每次 enforcement
+    接受 committed decision 前以 external per-leaf authorities 证明 policy/install pointer/floors current；
+    `authenticated_no_block_v1` 则重算 predecessor-linked no-block generation identity，合法 warn/off
+    不要求 external authority。两者再比较 policy exact `(digest, generation,
     validity_evidence_digest)` 与 committed generation；任一
     identity drift 即使 digest 后来相同，也立即使用 warn/off fallback、durably latch
     `policy_changed + audit_required`；pointer/floor
-    任一 generation authority/pointer/floor 缺失、malformed、不可验证或低于 floor 时，current committed
-    decision 尚未建立，必须拒绝本次操作并非零返回，不能先信任 replayed warn/off。current generation
-    验证成功后，committed warn/off 不进入 trusted-time leaf，其 failure 不得升级为 denial。
+    anchor-block generation authority/pointer/floor 缺失、malformed、不可验证或低于 floor 时，block
+    candidate 必须拒绝并 nonzero；valid no-block branch 的 backend 缺失是 `not_applicable`，不得把
+    warn/off/no-data 升级为 denial，且任何 block claim 仍 nonzero fail closed。
     两者都不能等旧 horizon 到期。status
     同时显示 publication、committed evaluation 与 authoritative active evaluation policy
-    identities。每次 policy activation 还必须在 Core-owned policy lock 下先写入并 fsync closed
+    identities。anchor-block 的每次 policy activation 还必须在 Core-owned policy lock 下先写入并 fsync closed
     pending intent，绑定目标 policy digest、validity evidence 及前后 generation，再原子推进并
     fsync durable monotonic `policy_generation_floor`，最后 rename authoritative pointer、重开校验并
     fsync pointer 与 parent directory；只有两次 fsync 成功才可标 journal complete/清理。其间崩溃
     必须从 intent 确定性重放同一 pointer+fsync roll-forward，不能凭新 floor 猜目标 policy。
     runtime 同时验证 pointer generation 不低于该 floor。floor mirror 必须绑定 Core installation、
     user principal、anchor schema、root identity 与独立 policy `per_leaf_authority_id`，并与
-    `core_monotonic_anchor_v1` backend 当前 leaf counter/digest/attestation exact 相等；同 root 的
+    `core_monotonic_anchor_v1` backend 当前 stable leaf counter/value identity 相等，并独立验证可刷新
+    proof 对该 state 的 binding；同 root 的
     unrelated leaf 推进不得使 policy recovery 失败，但旧 policy leaf snapshot 必因该 leaf authority
     不回退而失配。旧 pointer replay 即使 digest 再次
     匹配 committed generation 也必须按 unavailable 拒绝，floor 缺失/损坏同样 fail closed。
@@ -386,7 +391,7 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     操作并非零返回，不能降为 warn/off 后放行，也不能因进程重启静默降低 high-water。
     high-water/`clock_epoch`/sequence 每次推进都须以 external root 内独立 authenticated time leaf
     CAS 为 authority，本地 runtime-state 只是 mirror；其他 leaf 合法推进不影响本 leaf equality，
-    但 backend 缺失/不可验证或 restore 后本 leaf counter/digest/attestation 不等必须
+    但 backend 缺失/不可验证或 restore 后本 leaf stable state 不等必须
     `runtime_guard_unavailable`，不得执行旧 block。每个 CAS target 必须由 Core service 从 authenticated
     operation 重构、逐 leaf 验证并以 H-010 approved authorizer 签名；客户端 hash 不具有授权效力。
     rollback 后普通 fresh audit 不能降低同一 clock epoch 的 high-water；恢复必须走显式
