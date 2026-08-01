@@ -13,43 +13,39 @@ GH-614: https://github.com/majiayu000/vibeguard/issues/614
 | Area | Files | Current behavior | Why relevant |
 | --- | --- | --- | --- |
 | 主 CI matrix | `.github/workflows/ci.yml:21` | `validate-and-test` 生成稳定的 Ubuntu/macOS required check | 必须保持 job id、名称表达式和 OS matrix |
-| 总作业上限 | `.github/workflows/ci.yml:24` | Ubuntu/macOS 共用 `timeout-minutes: 45` | Ubuntu 已在 45 分钟被取消 |
-| setup 覆盖 | `.github/workflows/ci.yml:239` | `bash tests/test_setup.sh` 是普通阻塞步骤 | 不能删除、跳过、弱化或改成 advisory |
-| 后续回归 | `.github/workflows/ci.yml:251` | setup 后仍有 GC、hook、stats、precision、performance 与 benchmark 检查 | 总作业取消会使后续证据全部缺失 |
-| benchmark 依赖 | `.github/workflows/ci.yml:435` | `Benchmark Report` 依赖完整 `validate-and-test` | 必须保持依赖和现有 check 拓扑 |
-| workflow contract | `tests/test_workflow_contracts.sh:588` | 已检查 performance 三步命令及阻塞语义，但不检查总超时与 setup 覆盖 | 需要增加针对 GH614 的确定性回归 |
-| spec 索引 | `docs/specs/README.md:5` | 维护 active/draft spec 入口 | GH614 在 Spec PR 中登记为 Draft |
+| 总作业上限 | `.github/workflows/ci.yml:24` | Ubuntu/macOS 共用 `timeout-minutes: 45` | macOS 已在 45 分 19 秒被取消 |
+| setup 覆盖 | `.github/workflows/ci.yml:282` | `bash tests/test_setup.sh` 是普通阻塞步骤 | 不能删除、跳过、弱化或改成 advisory |
+| 后续回归 | `.github/workflows/ci.yml:294` | setup 后仍有 GC、hook、stats、precision、performance 与 benchmark 检查 | 总作业取消会使后续证据全部缺失 |
+| benchmark 依赖 | `.github/workflows/ci.yml:485` | `Benchmark Report` 依赖完整 `validate-and-test` | 必须保持依赖和现有 check 拓扑 |
+| workflow contract | `tests/test_workflow_contracts.sh:621` | 精确固定 45 分钟、稳定名称、matrix 与 setup 阻塞语义 | 本次必须先改为 60 并在旧 workflow 上记录 RED |
+| spec 索引 | `docs/specs/README.md:5` | 维护 active/draft spec 入口 | 重开纠正期间恢复为 Draft |
 
-远端事实快照（2026-07-16）：main 分支保护要求
-`CI (ubuntu-latest)`、`CI (macos-latest)`、`CI (windows-latest)`；PR #613
-run `29484565228` 的 macOS 首次尝试在 setup 步骤于 30 分 21 秒取消，同一 SHA
-重跑在 26 分 04 秒通过。实现不得通过改名 required context 规避该事实。
-
-Follow-up 事实快照（2026-08-01）：PR #732 run `30695718681` 的 Ubuntu leg
-`91358141777` 从 `10:26:46Z` 运行到 `11:11:59Z`，在
-`Setup regression tests` 仍执行时被 45 分钟 job timeout 取消；同一 head 的
-macOS leg 完整通过。当前修复保持原 check 拓扑，只把有限上限从 45 调到 60。
+远端事实快照（2026-08-01）：PR #727 head
+`3947abd7583ac90a93516ee8476d807c3856dfca` 的 run `30651857110`、
+macOS job `91226778977` 从 `2026-07-31T19:44:43Z` 到 `20:30:02Z`，结论为
+`cancelled`。步骤 1–63 均成功（不适用的 Windows 步骤除外），约 34 分钟的
+`Setup regression tests` 已通过；第 64 步 `Guard unit tests` 被取消，后续
+precision、performance 与 benchmark 被跳过。实现不得通过改名 required context、
+跳过步骤或弱化阻塞语义规避该事实。
 
 ## 设计方案
 
 1. 在 `.github/workflows/ci.yml` 中仅把 `validate-and-test.timeout-minutes`
-   从 `30` 调整为 `45`。
+   从 `45` 调整为 `60`。
 2. 保持 `validate-and-test` job id、`CI (${{ matrix.os }})` 名称、
    `os: [ubuntu-latest, macos-latest]`、全部步骤顺序及
    `benchmark-report.needs: validate-and-test` 不变。
-3. 45 分钟相对已观测的 30 分 21 秒取消点提供 14 分 39 秒余量，也比旧上限
-   增加 50%。它仍是 fail-closed 的有限上限；正常运行的计费时长不变，只有
-   异常挂起时每个 matrix leg 的最坏上限增加 15 runner-minutes。
-4. 在 `tests/test_workflow_contracts.sh` 新增 `ci setup timeout headroom` contract：
+3. 60 分钟相对已观测的 45 分 19 秒取消点提供 14 分 41 秒余量。它仍是
+   fail-closed 的有限上限；正常运行的计费时长不变，只有异常挂起时每个 matrix
+   leg 的最坏上限增加 15 runner-minutes。
+4. 更新 `tests/test_workflow_contracts.sh` 的 `ci setup timeout headroom` contract：
    - 定位 `validate-and-test` job block；
-   - 要求稳定名称、Ubuntu/macOS matrix 与 `timeout-minutes: 45`；
+   - 要求稳定名称、Ubuntu/macOS matrix 与 `timeout-minutes: 60`；
    - 定位 `Setup regression tests` step，要求精确命令
      `bash tests/test_setup.sh` 且不存在 `continue-on-error`；
    - 不把 GitHub 历史运行时长写成脆弱的动态测试输入。
-5. contract 必须先在旧值 `30` 上红，再进行 workflow 一行实现，确保测试真正
+5. contract 必须先在旧值 `45` 上红，再进行 workflow 一行实现，确保测试真正
    证明缺失行为而不是事后装饰。
-6. 2026-08-01 follow-up 将已证明不足的 `45` 调整为 `60`，同步更新同一
-   contract；不修改 job id、matrix、步骤、命令、required context 或依赖。
 
 ## Product-to-Test Mapping
 
@@ -71,8 +67,8 @@ leg 成功后才触发 `Benchmark Report`。没有新增持久化、外部写入
 
 ## 备选方案
 
-- 只重跑超时 job：已证明同一 SHA 可能在 30 分 21 秒失败、26 分 04 秒通过，
-  重跑不能消除错误状态与人工等待，因此拒绝。
+- 只重跑超时 job：45 分 19 秒的真实取消已证明当前边界不足；重跑不能消除错误
+  状态与人工等待，因此拒绝。
 - 拆分独立 macOS setup job：能隔离长步骤，但会引入新的 check 名、branch
   protection 迁移、依赖聚合和额外 runner 启动；对当前 P0 修复风险过高，后续可在
   有独立成本/拓扑 spec 时评估。
@@ -99,10 +95,11 @@ leg 成功后才触发 `Benchmark Report`。没有新增持久化、外部写入
       `bash scripts/ci/validate-doc-paths.sh`、
       `bash scripts/ci/validate-doc-command-paths.sh`、`git diff --check`。
 - [ ] Manual verification: 读取实现 PR 当前 head 的 GitHub CI rollup，要求全部 check
-      completed/success 且无 unresolved review thread。
+      completed/success、无 unresolved review thread，并运行 SpecRail required PR gate。
 
 ## 回滚方案
 
-若 60 分钟上限造成不可接受的异常成本，应先拆分 required job 或缩短测试关键路径；
-不得直接恢复已被 Ubuntu 实证取消的 45 分钟上限。禁止只删除 contract、保留未证明
-的配置。
+若 60 分钟上限造成不可接受的异常成本，整体回滚本次 workflow、contract 与 spec
+提交以恢复 45 分钟，并保持 GH614 打开或建立明确的替代 Issue，因为 45 分钟已被
+真实运行越过。禁止只删除 contract、保留未证明的配置；任何替代方案仍须保留全部
+阻塞步骤、required check 名称和 benchmark 依赖。
