@@ -237,11 +237,11 @@ Recommended H-004 layout（未批准）：
   overrides/<source_storage_key>/<target>/<profile>.json
 ```
 
-anchor-block 先由 Core 外、pre-launch、旧 binary 不可绕过的 nonrollback authority 验证 closed
-`platform_launch_floor_attestation`；低于 Core/adapter floor 时不启动 hook。通过后，三个 mirror 才由
-user-state tree 外独立单调 backend leaf 授权；supporting contract 独占 launch/intent/mirror/journal/barrier/
-crash 与 mode-specific perf 语义。no-block 来自 cross-release global registry，release pin 只绑 compatibility；
-无 launch TCB 的平台永久 no-block且禁止 migration/official block。backend/platform 仍未批准。
+anchor-block 先由 Core 外、pre-launch、旧 binary 不可绕过的 nonrollback authority，按 H-010 signed closed
+profile/policy 的 key-material digest/algorithm/quorum，验证 challenge-bound current-state attestation；nonce/session、
+measured binaries、backend counter/predecessor/floors 任一 stale/mismatch 时不启动 hook。通过后，三个 mirror 才由
+external leaves 授权；supporting contract 独占 launch/intent/recovery/mode-specific perf。no-block 来自 global
+registry且无 TCB 时永久 no-block/禁止 migration/official block。backend/platform 仍未批准。
 
 `source_storage_key` 是 closed union：official 为
 `official/<normalized_publisher>/<normalized_pack>`；local 为
@@ -259,10 +259,10 @@ validity evidence、previous/target generation；再 CAS+fsync external floor，
 无效。pack/environment/CLI/publication artifact 均不能改写。每个 active generation 有独立
 closed、Core-owned runtime-state entry，
 绑定 installation generation、committed policy exact identity、`clock_epoch`、sequence、high-water、latch 与 deterministic time-leaf state；
-fresh proof 只认证 state且 refresh 不改变 equality。anchor platform 的 host adapter 在任何 Core hook 前
-验证 attestation body/digest/signature/quorum/backend identity、generation 与 monotonic Core/adapter floors；
-失败/旧版本 launch nonzero且不产生 decision。runtime 再验证 registry + release-pinned H-010：anchor 验证
-stable proof；no-block 验证 global family/release/install binding，mismatch stale/audit、warn-only、零 backend。
+fresh proof 只认证 state且 refresh 不改变 equality。anchor host adapter 每次 pre-hook 生成唯一 CSPRNG
+nonce/session，向 external backend 直接读取 signed current counter/predecessor/floors 与 measured Core/adapter；
+profile/policy/key/quorum、challenge、current state 或 version 任一失败即 launch nonzero/no decision。runtime 再验证
+registry + release H-010：anchor 验证 stable proof；no-block 验证 global binding且 mismatch warn-only/零 backend。
 合法 warn/off/no-data 跳过 time leaf；block candidate 才锁 runtime-state 推进 high-water并锁存 fallback。
 新进程继承 durable high-water，不得以启动时间
 重置。同 epoch 的 audit 不得降低它；显式 trusted-clock reconciliation 必须验证 Core-approved
@@ -538,7 +538,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "vibeguard-runtime/src/guard_pack/transaction.rs",
     "vibeguard-runtime/src/guard_pack/runtime_guard.rs",
     "vibeguard-runtime/src/guard_pack/render.rs",
-    "vibeguard-runtime/src/guard_pack/anchor/",
+    "vibeguard-runtime/src/guard_pack/anchor/", "vibeguard-runtime/src/guard_pack/anchor/global_registry.rs", "vibeguard-runtime/src/guard_pack/anchor/launch_adapter.rs",
     "schemas/guard-pack.schema.json", "schemas/guard-pack-index.schema.json",
     "schemas/guard-pack-registry-event.schema.json", "schemas/guard-pack-capability.schema.json",
     "schemas/guard-pack-precision.schema.json", "schemas/guard-pack-policy.schema.json",
@@ -546,7 +546,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "schemas/guard-pack-override.schema.json", "schemas/guard-pack-runtime-state.schema.json",
     "schemas/guard-pack-feedback.schema.json",
     "schemas/guard-pack-anchor-intent.schema.json", "schemas/guard-pack-anchor-commit.schema.json", "schemas/guard-pack-anchor-mirror.schema.json", "schemas/guard-pack-anchor-ipc.schema.json", "schemas/guard-pack-anchor-authorization.schema.json",
-    "schemas/guard-pack-h010-decision.schema.json", "schemas/guard-pack-platform-launch-floor-attestation.schema.json", "schemas/guard-pack-anchor-perf-budget.schema.json", "schemas/guard-pack-anchor-perf-batch.schema.json", "schemas/guard-pack-anchor-perf-result.schema.json", "schemas/guard-pack-no-block-perf-budget.schema.json", "schemas/guard-pack-no-block-perf-batch.schema.json", "schemas/guard-pack-no-block-perf-result.schema.json",
+    "schemas/guard-pack-global-platform-registry.schema.json", "schemas/guard-pack-launch-authority-profile.schema.json", "schemas/guard-pack-launch-policy.schema.json", "schemas/guard-pack-h010-decision.schema.json", "schemas/guard-pack-platform-launch-floor-attestation.schema.json", "schemas/guard-pack-anchor-perf-budget.schema.json", "schemas/guard-pack-anchor-perf-batch.schema.json", "schemas/guard-pack-anchor-perf-result.schema.json", "schemas/guard-pack-no-block-perf-budget.schema.json", "schemas/guard-pack-no-block-perf-batch.schema.json", "schemas/guard-pack-no-block-perf-result.schema.json",
     "packs/safe-bash/pack.yaml", "packs/safe-bash/README.md",
     "scripts/lib/guard_packs.py",
     "scripts/lib/guard_pack_manifest.py",
@@ -560,7 +560,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "setup.sh",
     "data/guard-pack-policy.json",
     "data/guard-pack-index.json",
-    "data/guard-pack-registry-events.json",
+    "data/guard-pack-registry-events.json", "data/guard-pack-global-platform-registry.json",
     "data/guard-pack-capabilities.json",
     "tests/test_guard_packs.sh",
     "tests/test_guard_pack_supply_chain.sh",
@@ -596,7 +596,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | Capability/host | planned **guard_pack/capability.rs**; consume approved GH-701 registry when available | Claude/Codex/unknown/incompatible/unsupported fixture matrix |
 | Transaction/receipt | planned **guard_pack/transaction.rs**, receipt/transaction schemas | crash-at-every-stage, concurrent lock, drift, rollback, recovery and canary tests |
 | Precision/runtime policy | planned **guard_pack/precision.rs**, **runtime_guard**, precision/policy/override/runtime-state schemas, `scripts/precision-tracker.py` | exhaustive eligibility truth table + binding/freshness/override/policy-rotation/clock-rollback negatives |
-| Monotonic anchor | planned **guard_pack/anchor/** + external launch adapter + global registry/H-010/mode-specific perf schemas | pre-Core floor/rollback、terminal no-block、independent result/CI、per-leaf/JCS gates |
+| Monotonic anchor | planned **anchor/global_registry.rs**, **launch_adapter.rs** + shipped global registry artifact/profile/H-010/perf schemas | mode-first selection、pre-Core floor/replay、terminal no-block、independent result/CI、per-leaf/JCS gates |
 | Author publish | planned **scripts/lib/guard_pack_manifest.py**, **guard_pack_publish.py**, **scripts/ci/validate-guard-pack-publish.py** | two-build digest equality; half-publish/index-CAS/revoke/yank fixtures |
 | Legacy migration | `scripts/lib/guard_packs.py`, `scripts/lib/guard_pack_receipts.py`, `packs/safe-bash/` | existing 623-case shell surface remains green plus migration ownership sentinels |
 | Release distribution | `scripts/release/payload-manifest.txt`, `scripts/setup/guard-packs.sh`, `setup.sh`, `tests/test_payload.sh`, `tests/test_release_workflow.sh` | GH-699 actual no-clone launcher invokes Rust client; payload tamper fails closed |
@@ -632,7 +632,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | External launch adapter + policy/global registry | old Core/adapter rejected pre-hook on block platform；no TCB means permanent no-block/no migration |
+| B-027 policy-owned thresholds | External launch adapter + policy/global registry | challenge-bound current backend proof rejects old Core/adapter and still-valid replay；no TCB means permanent no-block/no migration |
 | B-028 insufficient evidence degrades | Generation-scoped runtime guard | no-block hook-only result and expiry/pin fallback；anchor launch/state failure denies；block fallback latches time |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
@@ -647,7 +647,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds under the same publication policy match digest；evaluation-policy rotation does not rebuild；publish failures never create resolvable partial entry |
 | B-041 truthful list/status/audit | Shared renderer | no-block renders global binding/ceiling/stale + hook-only result/CI + not_applicable anchors；anchor renders launch floor/backend/budgets |
-| B-042 offline runtime stability | Launch/runtime/registry gates | whole-release old binary prelaunch reject、floor/duplicate/transition fixtures + mode-specific schemas/CI |
+| B-042 offline runtime stability | Launch/runtime/registry gates | whole-release old binary + still-valid attestation replay prelaunch reject、floor/transition fixtures + mode-specific schemas/CI |
 
 ## 数据流
 

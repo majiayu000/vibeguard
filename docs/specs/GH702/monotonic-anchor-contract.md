@@ -247,17 +247,17 @@ identity/per-leaf authority 一律 `needs_repair`。recovery 按 counter 顺序�
 
 ## Runtime behavior
 
-Core 启动前，位于 Core binary/user-state 之外且旧 binary 无法绕过的 host adapter 必须按
-`before_any_core_hook_v1` 验证 signed `platform_launch_floor_attestation`；验证失败、adapter/Core
-version 低于 floor、platform generation mismatch 或 launch authority 不可用时，必须在 launch
-阶段 nonzero fail closed，Core hook 不得启动或产生任何 decision。runtime 随后验证 signed global
-platform registry entry，再用 current Core release-pinned H-010 profile 选择 exact mode；release pin
-只绑定 compatibility，不能定义或解除 global terminality。`anchor_block_v1` 只有在该 external
+Core launch selector 先验证 shipped signed global registry artifact 并按 exact `platform_id` 选择 mode。
+`authenticated_no_block_v1` 不要求 launch attestation/TCB，直接进入后续 release/profile binding；registry
+invalid/missing/conflict 仍 fail-visible，不能 alias 为 anchor。只有 `anchor_block_v1` 才由 Core binary/
+user-state 之外且旧 binary 无法绕过的 host adapter，按 `before_any_core_hook_v1` 验证 challenge-bound
+`platform_launch_floor_attestation`；验证失败、adapter/Core version 低于 floor、generation mismatch 或 authority
+不可用时 launch nonzero，Core hook 不得启动或产生 decision。release pin 只绑定 compatibility。anchor 只有在 external
 nonrollback launch/version-floor authority 已成立且 attestation current 时才可进入 policy lock/fence，
 再证明 policy/install per-leaf authority 与 pointer/floor current；任一失败都 nonzero fail closed。证明 current 后，warn/off/no-data
 跳过 trusted-time leaf，只有 committed/promoted block candidate 推进 time leaf；其 backend/CAS/IPC
 失败仍 conservative deny。`authenticated_no_block_v1` family 是跨全部过去/未来 Core releases 的
-permanent backend-free warn/off ceiling；同一 platform/family 永不允许 anchor-block。它不要求
+permanent backend-free warn/off ceiling；同一 `platform_id` 永不允许 family rename 或 anchor-block。它不要求
 不存在的 external authority，合法 warn/off 不得因 backend unavailable 升级成 denial；任何 local
 record/override 声称 block 都违反 global ceiling，必须 nonzero fail closed。expiry/release mismatch 只让
 status stale/`audit_required`，不能让旧 no-block binary deny 或授权新 identity。block-basis
@@ -297,7 +297,7 @@ Platform service assets 只能为 anchor-block 进入 manifest 已预留的 setu
 | Lost-response recovery | leaf CAS advances but response/journal write is lost while unrelated leaves advance；durable pre-CAS state plus fresh authenticated proof reconstructs post-CAS journal；`refreshed_proof_same_state` changes nonce/signature/digest and still retries/rolls forward |
 | Cross-platform availability | anchor-block OS/architecture proves external pre-Core launch-floor enforcement, provisions selected backend/service, restarts and completes CAS；no-block performs none and needs no hardware/service fixture |
 | IPC trust | wrong executable/user/principal, stale session, replayed response, protocol downgrade, endpoint substitution, malformed attestation and service restart all fail closed |
-| Identity/lifecycle | `forbidden_cross_release_mode_transition` rejects any no-block platform/family becoming block or migration target；anchor identity is valid only when an external nonrollback launch floor already prevents old Core/adapter execution |
+| Identity/lifecycle | `forbidden_cross_release_mode_transition` rejects any no-block platform becoming block、family rename or migration target；anchor identity is valid only when an external nonrollback launch floor already prevents old Core/adapter execution |
 | Failure/repair | anchor backend/IPC/provision/CAS failures preserve evidence；no-block expiry/pin/new-identity mismatch keeps warn/off ceiling while status is stale/nonzero，never backend fallback |
 | Every-hook performance | canonical hook gate runs every claimed installed snapshot；anchor-block uses anchor budget/batch/result with real IPC/read/CAS/barrier，no-block uses independent zero-backend budget/batch/result with hook-only p50/p95/p99/max |
 | Concurrency | parallel hooks on different leaf authorities advance independently despite aggregate-root changes；same-leaf operations remain recovery-first serialized with unique successors, no forked mirrors and bounded nonzero failure |
@@ -327,18 +327,41 @@ global_platform_registry_envelope = {
 global_platform_registry_entry_digest =
   H("vibeguard.gh702.global-platform-registry-entry.v1", 1, exact entries[i])
 global_platform_registry_digest = sha256(JCS({digest_domain, schema_version, registry_body}))
+launch_authority_profile_body = {
+  schema_version: 1, launch_authority_profile_id,
+  launch_authority_backend_identity: {
+    backend_kind, backend_instance_id, device_key_digest, protocol_version
+  },
+  trusted_signers: [{signer_key_id, signature_algorithm, verification_key_digest}],
+  signature_quorum, max_attestation_validity_ms,
+  freshness_protocol: "challenge_current_backend_state_v1"
+}
+launch_authority_profile_digest =
+  H("vibeguard.gh702.launch-authority-profile.v1", 1, launch_authority_profile_body)
+launch_policy_body = {
+  schema_version: 1, launch_authority_profile_digest, platform_id,
+  platform_profile_family_id, global_platform_registry_entry_digest,
+  enforcement_stage: "before_any_core_hook_v1"
+}
+launch_policy_digest = H("vibeguard.gh702.launch-policy.v1", 1, launch_policy_body)
+platform_launch_current_state_body = {
+  schema_version: 1, launch_authority_backend_identity,
+  current_platform_generation, backend_state_counter,
+  previous_attestation_digest|null, monotonic_launch_floor,
+  allowed_core_min_version, allowed_host_adapter_min_version
+}
+platform_launch_current_state_digest =
+  H("vibeguard.gh702.platform-launch-current-state.v1", 1,
+    platform_launch_current_state_body)
 platform_launch_floor_attestation_envelope = {
   digest_domain: "vibeguard.gh702.platform-launch-floor-attestation.v1",
   schema_version: 1,
   platform_launch_floor_attestation_body: {
-    launch_authority_backend_identity: {
-      backend_kind, backend_instance_id, device_key_digest, protocol_version
-    },
-    launch_authority_profile_id, platform_id, platform_profile_family_id,
-    current_platform_generation, monotonic_launch_floor,
-    allowed_core_min_version, allowed_host_adapter_min_version,
-    launch_policy_digest, global_platform_registry_entry_digest,
-    attestation_sequence, issued_at, expires_at
+    launch_authority_profile_digest, launch_policy_digest,
+    platform_launch_current_state_body, platform_launch_current_state_digest,
+    launch_session_id, challenge_nonce, measured_core_binary_digest,
+    measured_host_adapter_binary_digest, requested_core_version,
+    requested_host_adapter_version, issued_at, expires_at
   },
   platform_launch_floor_attestation_digest,
   signatures: [{signer_key_id, signature_algorithm, signature}]
@@ -358,8 +381,8 @@ h010_decision_envelope = {
       global_platform_registry_entry_digest,
       authority_mode: anchor_block_v1|authenticated_no_block_v1,
       anchor_profile: {backend_profile_id, service_profile_id,
-        launch_authority_profile_id, launch_policy_digest,
-        platform_launch_floor_attestation_digest,
+        launch_authority_profile_body, launch_authority_profile_digest,
+        launch_policy_body, launch_policy_digest,
         per_leaf_authority_mode: "independent_authenticated_leaf_v1",
         target_authorizer_profile_id, authorizer_key_id,
         provision_ipc_lifecycle_decisions,
@@ -382,24 +405,31 @@ h010_decision_envelope = {
 }
 ```
 
-`platform_launch_floor_attestation` 是 closed、JCS-canonical、由 Core 之外的 nonrollback launch
-authority 签发并持久化的 TCB 证据。backend identity 必须与 H-010
-`launch_authority_profile_id` exact 匹配且 Core/HOME 无写权限；successor 的
-`attestation_sequence`、`current_platform_generation`、`monotonic_launch_floor`、
-`allowed_core_min_version` 与 `allowed_host_adapter_min_version` 均不得降低。signatures 按
-`signer_key_id` 严格排序且唯一，algorithm/signer set/quorum 必须 exact 匹配 H-010 launch-authority
-profile；缺签、少于 quorum、自签、wrong backend/platform/generation/H-010/registry binding、expired
-或任一 floor rollback 都在启动 Core 前 nonzero。host adapter 自身必须由该 Core 外 authority
-enforce adapter floor，旧 adapter 不能跳过检查；验证成功的 attestation digest 进入 launch receipt、
-status 与 anchor perf authority，Core 不能用 maintainer prose、release pin 或本地文件替代它。
+`launch_authority_profile_body` 是 H-010 内唯一 signer trust source：`trusted_signers` 按 ID 严格排序且唯一，
+quorum 必须在 `1..=unique_signers`，max validity 必须为正；signer ID、algorithm、quorum 与
+provisioned public-key material 的 canonical digest 全部签入 H-010；adapter 必须把实际 verification key
+重算后 exact 匹配，不能只信 key ID。`launch_policy_body` exact 绑定该 profile、platform/family、registry
+entry 与 pre-hook stage；profile/policy body 与 digest 任一 mismatch 都不得请求或接受 attestation。
+每次 launch，adapter 必须生成 never-reused CSPRNG `challenge_nonce` 与唯一 `launch_session_id`，把自身
+测得的 Core/adapter binary digest + version 送给 Core 外 nonrollback backend，并取得直接针对该 challenge
+签发的 current-state response；缓存 response、调用者自报 binary identity 或无 challenge read 均不算 current。
+backend current read 返回 closed state/digest，counter、platform generation、launch floor、Core/adapter
+minimum 与 predecessor 只能单调前进。response 的 challenge/session、measured binary、requested version、
+profile/policy 与 current state 全部在 attestation signature preimage 内；validity interval 必须非空且不超过
+profile 的 `max_attestation_validity_ms`。signatures 按 signer ID 严格排序且唯一，并按 profile 的 exact key
+material/algorithm/quorum 验证。wrong nonce/session、replayed still-unexpired predecessor、non-current state、
+missing quorum、自签、expired 或任一 floor rollback 都必须在 Core 前 nonzero；host adapter 自身由同一
+外部 authority enforce adapter floor。accepted digest/current-state counter 进入 launch receipt、status 与
+anchor perf authority，Core/HOME/local file 不能替代。
 
-`global_platform_registry_invariant` 是跨所有 Core releases 的 append-only canonical contract：entries 按
-`(platform_id, platform_profile_family_id)` byte order 严格递增且 pair 唯一；successor registry 必须保留
-全部旧 entry 和 mode，generation 只能递增。某 pair 一旦声明
+`global_platform_registry_invariant` 是跨所有 Core releases 的 append-only canonical contract；signatures
+按 ID 严格排序且唯一，并 exact 匹配 repository maintainer trust keys/algorithms/quorum。entries 按
+`platform_id` byte order 严格递增且 `platform_id` 全历史唯一；successor 必须保留该 platform 的 exact
+family 与 mode，只有 generation 可递增。某 platform 一旦声明
 `permanent_backend_free_no_block_v1`，任何过去/未来 release 都不得删除、复用、迁移或改成
 anchor-block。缺少 Core 外、pre-launch、不可由旧 binary/adapter 绕过的 nonrollback launch authority
 的平台必须永久选择该 branch，禁止 maintainer migration 或 official block。
-`duplicate_platform_across_releases`、同 family conflicting mode、registry predecessor/history drift 在 H-010
+`duplicate_platform_across_releases`、family rename/conflicting mode、registry predecessor/history drift 在 H-010
 selection 前拒绝；runtime/release validator 不得 first/last-wins。release pin 不参与该 invariant。
 
 `anchor_profile` 与 `no_block_profile` 是 closed mutually-exclusive branches。`authenticated_no_block_v1`
@@ -452,7 +482,7 @@ canonical outer key；`approved_h010_schema_version` 只是在 authority/result 
 不含 sibling `h010_decision_artifact_digest` 或 `signatures`。`approved_by` 与 `signatures` 均按 ID
 排序且 ID 唯一；signer/quorum/algorithm 必须匹配 repository maintainer trust configuration。维护者签名
 验证和 validity window 成功后才是 exact approved H-010；anchor branch 还必须验证 H-010 引用的
-launch-floor attestation current 且 exact binding，Recommended prose、环境探测或 result 自报均不能替代。
+profile/policy 下 challenge-bound launch-floor attestation current 且 exact binding，Recommended prose、环境探测或 result 自报均不能替代。
 只有 global registry 已标 terminal no-block 的 embedded profile 到期时，runtime 才派生
 `expired_profile_no_block_ceiling_v1`：继续 warn/off/no-data，status stale/`audit_required`/nonzero；expired
 anchor profile 绝不能变成 no-block。expiry、pin mismatch 或 no-block profile mismatch 都不授予 block，
@@ -472,7 +502,7 @@ authority_base_body = {
   approved_h010_schema_version, h010_decision_artifact_digest,
   evaluation_policy_digest, authoritative_policy_generation,
   policy_validity_evidence_digest, platform_launch_floor_attestation_digest,
-  current_platform_generation, monotonic_launch_floor,
+  platform_launch_current_state_digest, current_platform_generation, backend_state_counter, monotonic_launch_floor,
   allowed_core_min_version, allowed_host_adapter_min_version
 }
 authority_base_digest = H("vibeguard.gh702.anchor-perf-authority.v1", schema_version,
@@ -640,56 +670,107 @@ field name/path；consumer 不得将 alias 归一化成 canonical field。fixtur
 consumer nonzero；新增 identity field 却未进入 registry 本身也是 contract failure。result body 的真实字段
 只叫 `decision`；任何替代名称都是 unknown alias，必须拒绝：
 
+Registry entries are unique RFC 6901 schema JSON Pointers；array element schemas use the literal
+`items` node, never an instance index or wildcard. Duplicate strings are invalid, and every pointer must resolve to
+one closed leaf—not an object/array parent:
+
 ```text
-anchor_identity_fields = {
-  backend_kind, backend_instance_id, device_key_digest, protocol_version,
-  root_id, root_schema_version, principal_id, core_installation_id,
-  per_leaf_authority_body.schema_version,
-  per_leaf_authority_body.root_identity.root_id,
-  per_leaf_authority_body.root_identity.root_schema_version,
-  per_leaf_authority_body.root_identity.principal_id,
-  per_leaf_authority_body.root_identity.core_installation_id,
-  per_leaf_authority_body.leaf_identity.leaf_kind,
-  per_leaf_authority_body.leaf_identity.installation_scope_id,
-  per_leaf_authority_id,
-  from_leaf_state.per_leaf_authority_id, from_leaf_state.leaf_counter,
-  from_leaf_state.leaf_value_digest, from_leaf_proof_digest,
-  target_leaf_body.schema_version, target_leaf_body.target_leaf_counter,
-  target_leaf_body.target_leaf_value_digest,
-  target_leaf_digest, post_cas_backend_attestation_digest,
-  anchor_operation_id, authorized_operation_digest,
-  target_authorization_digest, authorizer_key_id, authorization_nonce,
-  authorization_expires_at, lock_fence_identity, mirror_generation_id,
-  mirror_file_digest, previous_mirror_generation_id, previous_mirror_file_digest,
-  prepared_phase_digest, external_advanced_phase_digest, selected_phase_digest,
-  barrier_complete_phase_digest, barrier_id
-}
-h010_identity_fields = {
-  product_spec_digest, tech_spec_digest, anchor_contract_digest,
-  approved_h010_schema_version, h010_decision_artifact_digest,
-  approved_by, approved_at, expires_at, signer_key_id, signature_algorithm,
-  global_platform_registry_digest, global_platform_registry_entry_digest,
-  platform_profile_family_id, global_profile_generation,
-  launch_authority_backend_identity, launch_authority_profile_id, launch_policy_digest,
-  platform_launch_floor_attestation_digest, current_platform_generation,
-  monotonic_launch_floor, allowed_core_min_version, allowed_host_adapter_min_version,
-  attestation_sequence, issued_at, expires_at,
-  evaluation_policy_digest, authoritative_policy_generation,
-  policy_validity_evidence_digest, authority_base_digest, fixture_id,
-  platform_id, authority_mode, anchor_profile, no_block_profile,
-  backend_profile_id, service_profile_id,
-  per_leaf_authority_mode, target_authorizer_profile_id, authorizer_key_id,
-  provision_ipc_lifecycle_decisions, core_release_digest, release_pin_digest,
-  maximum_effective_decision, transition_policy, no_block_release_profile_digest,
-  no_block_installation_binding_digest, fixture_budgets,
-  no_block_authority_base_digest, no_block_budget_digest,
-  no_block_decision_artifact_digest, no_block_batch_digest,
-  no_block_result_body_digest, confirmation_applicability,
-  host_kind, installed_wrapper_path, anchor_enabled, surface,
-  workload_schedule_digest, successor_baseline, runs,
-  budget_digest, decision_artifact_digest, initial_digest, initial_breaches,
-  confirmation_digest, confirmation_breaches, decision, result_body_digest
-}
+anchor_identity_schema_pointers = [
+  "/anchor/backend_identity/backend_kind", "/anchor/backend_identity/backend_instance_id",
+  "/anchor/backend_identity/device_key_digest", "/anchor/backend_identity/protocol_version",
+  "/anchor/root_identity/root_id", "/anchor/root_identity/root_schema_version",
+  "/anchor/root_identity/principal_id", "/anchor/root_identity/core_installation_id",
+  "/anchor/per_leaf_authority_body/schema_version", "/anchor/per_leaf_authority_body/root_identity/root_id",
+  "/anchor/per_leaf_authority_body/root_identity/root_schema_version", "/anchor/per_leaf_authority_body/root_identity/principal_id",
+  "/anchor/per_leaf_authority_body/root_identity/core_installation_id", "/anchor/per_leaf_authority_body/leaf_identity/leaf_kind",
+  "/anchor/per_leaf_authority_body/leaf_identity/installation_scope_id", "/anchor/per_leaf_authority_id",
+  "/anchor/from_leaf_state/per_leaf_authority_id", "/anchor/from_leaf_state/leaf_counter",
+  "/anchor/from_leaf_state/leaf_value_digest", "/anchor/from_leaf_proof_digest",
+  "/anchor/target_leaf_body/schema_version", "/anchor/target_leaf_body/target_leaf_counter",
+  "/anchor/target_leaf_body/target_leaf_value_digest", "/anchor/target_leaf_digest",
+  "/anchor/post_cas_backend_attestation_digest", "/anchor/anchor_operation_id",
+  "/anchor/authorized_operation_digest", "/anchor/target_authorization_digest",
+  "/anchor/authorizer_key_id", "/anchor/authorization_nonce", "/anchor/authorization_expires_at",
+  "/anchor/lock_fence_identity", "/anchor/mirror_generation_id", "/anchor/mirror_file_digest",
+  "/anchor/previous_mirror_generation_id", "/anchor/previous_mirror_file_digest",
+  "/anchor/prepared_phase_digest", "/anchor/external_advanced_phase_digest",
+  "/anchor/selected_phase_digest", "/anchor/barrier_complete_phase_digest", "/anchor/barrier_id"
+]
+h010_identity_schema_pointers = [
+  "/global_platform_registry_envelope/digest_domain", "/global_platform_registry_envelope/schema_version", "/global_platform_registry_envelope/global_platform_registry_digest",
+  "/global_platform_registry_envelope/registry_body/registry_generation", "/global_platform_registry_envelope/registry_body/previous_registry_digest",
+  "/global_platform_registry_envelope/registry_body/entries/items/platform_id", "/global_platform_registry_envelope/registry_body/entries/items/platform_profile_family_id",
+  "/global_platform_registry_envelope/registry_body/entries/items/global_profile_generation", "/global_platform_registry_envelope/registry_body/entries/items/authority_mode",
+  "/global_platform_registry_envelope/registry_body/entries/items/transition_policy", "/global_platform_registry_envelope/signatures/items/signer_key_id",
+  "/global_platform_registry_envelope/signatures/items/signature_algorithm", "/global_platform_registry_envelope/signatures/items/signature",
+  "/launch_authority_profile_body/schema_version", "/launch_authority_profile_digest", "/launch_authority_profile_body/launch_authority_profile_id", "/launch_authority_profile_body/launch_authority_backend_identity/backend_kind",
+  "/launch_authority_profile_body/launch_authority_backend_identity/backend_instance_id", "/launch_authority_profile_body/launch_authority_backend_identity/device_key_digest",
+  "/launch_authority_profile_body/launch_authority_backend_identity/protocol_version", "/launch_authority_profile_body/trusted_signers/items/signer_key_id",
+  "/launch_authority_profile_body/trusted_signers/items/signature_algorithm", "/launch_authority_profile_body/trusted_signers/items/verification_key_digest",
+  "/launch_authority_profile_body/signature_quorum", "/launch_authority_profile_body/max_attestation_validity_ms",
+  "/launch_authority_profile_body/freshness_protocol", "/launch_policy_body/schema_version", "/launch_policy_digest", "/launch_policy_body/platform_id",
+  "/launch_policy_body/platform_profile_family_id", "/launch_policy_body/global_platform_registry_entry_digest",
+  "/launch_policy_body/launch_authority_profile_digest", "/launch_policy_body/enforcement_stage",
+  "/platform_launch_floor_attestation_envelope/digest_domain", "/platform_launch_floor_attestation_envelope/schema_version", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_digest", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launch_authority_profile_digest",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launch_policy_digest",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/schema_version", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/launch_authority_backend_identity/backend_kind",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/launch_authority_backend_identity/backend_instance_id",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/launch_authority_backend_identity/device_key_digest",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/launch_authority_backend_identity/protocol_version",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/current_platform_generation",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/backend_state_counter",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/previous_attestation_digest",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/monotonic_launch_floor",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/allowed_core_min_version",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/allowed_host_adapter_min_version",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_digest",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launch_session_id",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/challenge_nonce",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/measured_core_binary_digest",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/measured_host_adapter_binary_digest",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/requested_core_version",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/requested_host_adapter_version",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/issued_at",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/expires_at",
+  "/platform_launch_floor_attestation_envelope/signatures/items/signer_key_id",
+  "/platform_launch_floor_attestation_envelope/signatures/items/signature_algorithm",
+  "/platform_launch_floor_attestation_envelope/signatures/items/signature",
+  "/h010_decision_envelope/digest_domain", "/h010_decision_envelope/schema_version", "/h010_decision_envelope/h010_decision_artifact_digest", "/h010_decision_envelope/h010_decision_body/product_spec_digest", "/h010_decision_envelope/h010_decision_body/tech_spec_digest",
+  "/h010_decision_envelope/h010_decision_body/anchor_contract_digest", "/h010_decision_envelope/h010_decision_body/approved_by/items",
+  "/h010_decision_envelope/h010_decision_body/approved_at", "/h010_decision_envelope/h010_decision_body/expires_at",
+  "/h010_decision_envelope/h010_decision_body/global_platform_registry_digest", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/platform_id",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/platform_profile_family_id", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/global_profile_generation",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/global_platform_registry_entry_digest", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/authority_mode",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/backend_profile_id", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/service_profile_id",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/launch_authority_profile_digest", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/launch_policy_digest",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/per_leaf_authority_mode", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/target_authorizer_profile_id",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/authorizer_key_id", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/provision_ipc_lifecycle_decisions",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/core_release_digest", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/release_pin_digest",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/maximum_effective_decision", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/transition_policy",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/fixture_budgets/items/fixture_id", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/fixture_budgets/items/host_kind",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/fixture_budgets/items/installed_wrapper_path", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/fixture_budgets/items/workload_schedule_digest",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/fixture_budgets/items/runs", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/fixture_budgets/items/hook_e2e_p50_ms",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/fixture_budgets/items/hook_e2e_p95_ms", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/fixture_budgets/items/hook_e2e_p99_ms",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/fixture_budgets/items/hook_e2e_max_ms", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/fixture_budgets/items/cas_timeout_ms",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/fixture_budgets/items/ipc_timeout_ms", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/fixture_budgets/items/queue_wait_budget_ms",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/fixture_budgets/items/contention_total_budget_ms", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile/fixture_budgets/items/contention_retry_limit_count",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/fixture_budgets/items/fixture_id", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/fixture_budgets/items/host_kind",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/fixture_budgets/items/installed_wrapper_path", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/fixture_budgets/items/workload_schedule_digest",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/fixture_budgets/items/runs", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/fixture_budgets/items/hook_e2e_p50_ms",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/fixture_budgets/items/hook_e2e_p95_ms", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/fixture_budgets/items/hook_e2e_p99_ms",
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/fixture_budgets/items/hook_e2e_max_ms", "/h010_decision_envelope/signatures/items/signer_key_id",
+  "/h010_decision_envelope/signatures/items/signature_algorithm", "/h010_decision_envelope/signatures/items/signature",
+  "/perf/authority_base/evaluation_policy_digest", "/perf/authority_base/authoritative_policy_generation",
+  "/perf/authority_base/policy_validity_evidence_digest", "/perf/authority_base/authority_base_digest",
+  "/perf/anchor/platform_launch_floor_attestation_digest", "/perf/anchor/platform_launch_current_state_digest",
+  "/perf/anchor/current_platform_generation", "/perf/anchor/backend_state_counter", "/perf/anchor/monotonic_launch_floor",
+  "/perf/no_block/no_block_release_profile_digest", "/perf/no_block/no_block_installation_binding_digest",
+  "/perf/no_block/no_block_authority_base_digest", "/perf/no_block/no_block_budget_digest",
+  "/perf/no_block/no_block_decision_artifact_digest", "/perf/no_block/no_block_batch_digest",
+  "/perf/no_block/no_block_result_body_digest", "/perf/no_block/confirmation_applicability",
+  "/perf/result/initial_digest", "/perf/result/initial_breaches", "/perf/result/confirmation_digest",
+  "/perf/result/confirmation_breaches", "/perf/result/decision", "/perf/result/result_body_digest"
+]
 ```
 
 negative corpus 还必须逐项 mutate 每个 budget value、batch phase/runs/metric/timeout/error/breach path、
@@ -698,8 +779,9 @@ literal domain、outer schema version、signature/key 与 from/target leaf pairi
 或 nested `ordered_breaches` 并 nonzero；`nonempty_confirmation_breaches_with_null_confirmation` 也必须
 nonzero。另覆盖 `refreshed_proof_same_state`、valid `unrelated_leaf_advance`、same-leaf unexpected successor
 （`needs_repair`）、`forbidden_cross_release_mode_transition`、`duplicate_platform_across_releases`、
-`two_release_whole_rollback`、`old_binary_prelaunch_rejected` 与 launch-floor body/signature/quorum/floor
-mutations。fixture 必须证明 no-block family 永远 warn/off 且禁止 migration；active block platform rollback
+`two_release_whole_rollback`、`old_binary_prelaunch_rejected`、`still_unexpired_attestation_replay_after_floor_advance`
+与 launch profile/policy/key/quorum/challenge/session/predecessor/current-state mutations。fixture 必须证明 replay
+的旧 nonce/session 或 lower backend counter/floor 即使 signature/expiry 仍有效也在 pre-hook 拒绝；no-block family 永远 warn/off且禁止 migration；active block platform rollback
 到旧 Core/adapter 时在任何 hook 前 nonzero，不能执行 warn/off 或产生 decision。另须拒绝
 duplicate/unsorted current profiles、pin mismatch、outer schema alias；
 `no_block_status_without_backend` 断言 backend/root/leaf=`not_applicable`、global generation/install binding/

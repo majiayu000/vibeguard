@@ -121,7 +121,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     no conforming backend / no official block；不得从
     recommendation、探测到的 TPM/Keychain/service 或环境变量自动选择。批准 artifact 必须分别
     决定 Core 外、pre-launch、旧 binary/adapter 不可绕过的 nonrollback launch/version-floor authority、
-    closed `platform_launch_floor_attestation` 的 backend identity/signature/quorum/floors、
+    closed launch-authority profile/policy 的 backend identity、trusted signer key ID + public-key
+    material digest、algorithm、quorum、maximum validity 与 pre-hook binding，以及
+    `platform_launch_floor_attestation` 的 challenge/session、measured binary、current backend
+    state/counter/predecessor/floors、signature 与 bounded validity、
     backend/service owner、independent authenticated per-leaf authority conformance、initial
     provision 权限与 user/Core/device identity、IPC endpoint 的
     server/client peer authentication/ACL/protocol/anti-replay、key/backend identity rotation、同设备
@@ -129,7 +132,7 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     target authorizer profile/key/trust root 与每种 leaf 的 authorized-operation transition rules、
     backend/IPC unavailable 与 partial-CAS 的 repair authority/UX，以及 intentional reset 的确认、
     evidence retention 和旧 receipts 处置。global platform registry 跨全部 Core releases append-only；
-    同一 platform/profile family 一旦 no-block 就永远不得改 mode，duplicate/conflict 跨 release 拒绝。
+    `platform_id` 全历史唯一且 family/mode 不可改；一旦 no-block 就永久拒绝 family rename/block transition。
     每个 claimed installed hook 必须填写 `hook_e2e_p50/p95/p99/max_ms`；只有 anchor-block 再填写
     `cas_timeout_ms`、`ipc_timeout_ms`、`queue_wait_budget_ms`、`contention_total_budget_ms` 与
     `contention_retry_limit_count`，no-block 禁止 backend/CAS budget；不得留空、
@@ -343,10 +346,12 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 27. B-027: precision floor、minimum samples、freshness、no-FP window 与 evidence issuer
     必须来自 current approved `evaluation_policy_digest`，而不是 pack author、环境变量、
     README、install command 或 artifact-embedded publication policy 临时覆盖。policy
-    更新必须在不改写 bundle/index identity 的前提下重算 eligibility；Core 外 host adapter 必须在
-    任何 Core hook 前验证 current `platform_launch_floor_attestation`，其 closed
-    body/digest/signature/quorum/backend identity/platform generation/monotonic floor/Core+adapter minimum
-    version 任一无效或当前 binary/adapter 低于 floor 时，launch nonzero 且不得产生 decision。通过后 runtime
+    更新必须在不改写 bundle/index identity 的前提下重算 eligibility；launch selector 先验证 shipped signed
+    global registry 并选择 exact mode；no-block 不要求 attestation，只有 anchor host adapter 才在 Core hook 前验证 current attestation，其 closed
+    body/digest/signature/quorum/backend identity/platform generation/current backend counter/monotonic floor/
+    Core+adapter minimum version 任一无效或当前 binary/adapter 低于 floor 时，launch nonzero 且不得产生
+    decision。每次 launch 必须用 never-reused nonce + session 直接挑战 external backend；cached、predecessor
+    或仍未过期但非 current response 一律拒绝。通过后 runtime
     才验证 global registry entry 与 release-pinned H-010 compatibility；terminal no-block
     expiry/pin mismatch 只保留 warn ceiling + stale/audit status。`anchor_block_v1` 在每次 enforcement
     接受 committed decision 前以 external per-leaf authorities 证明 policy/install pointer/floors current；
@@ -526,7 +531,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 - [ ] 默认无 telemetry；feedback export 与发送是分离、显式确认的动作。
 - [ ] H-001–H-010 均有 maintainer 选择与 security review evidence，未选择时 official
       publish/install/default-block gate 明确阻断。
-- [ ] `two_release_whole_rollback`、`old_binary_prelaunch_rejected`、launch-floor mutation、
+- [ ] `two_release_whole_rollback`、`old_binary_prelaunch_rejected`、仍未过期旧 attestation 在 floor advance 后
+      replay、launch profile/policy/key/quorum/challenge/current-state mutation、
       `duplicate_platform_across_releases` 与 `forbidden_cross_release_mode_transition` fixtures 证明 old Core
       在 active block platform 上于 hook 前 nonzero；`no_block_status_without_backend` 证明独立
       hook-only budget/batch/result、mode-specific lifecycle/status 与 no-hardware/service CI branch。
