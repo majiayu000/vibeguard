@@ -1,5 +1,8 @@
 # Task Plan
 
+> 历史说明：下方 30→45 分钟与 SpecRail handoff 记录作为旧实施历史保留，
+> 不是 2026-08-01 follow-up 的当前执行门禁；当前 follow-up 不使用 SpecRail。
+
 ## Linked Issue
 
 GH-614: https://github.com/majiayu000/vibeguard/issues/614
@@ -66,3 +69,11 @@ handoff:
 
 关键决策：使用 45 分钟有限总上限，不拆 job、不改 required context、不弱化测试；
 实现必须从 Spec PR 合并后的最新 `origin/main` 创建独立 worktree 与 Impl PR。
+
+## 2026-08-01 Follow-up
+
+- [x] 将 `validate-and-test.timeout-minutes` 从已实证不足的 45 调到 60。
+- [x] 同步 workflow contract 与 GH614 当前设计，保留原 30→45 历史。
+- [x] 运行 workflow contract、workflow validator、语法与 diff 校验。
+- [ ] 当前 PR head 的 Ubuntu/macOS/Windows/Self-Application CI 全绿，且 active
+      review threads 为 0。

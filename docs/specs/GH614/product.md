@@ -13,6 +13,10 @@ VibeGuard 的必需 macOS CI 与 Ubuntu 共用一个 30 分钟的 `validate-and-
 距离上限只剩 16 秒。这会把 runner 时长波动误报为产品回归，并阻止 setup
 之后的必需检查产生证据。
 
+2026-08-01 follow-up：PR #732 的 Ubuntu job `30695718681/91358141777`
+在 setup 回归仍运行时，于 45 分钟总上限被平台取消；同一 head 的 macOS leg
+用约 43 分钟完成全部步骤。45 分钟因此也已成为可重复的假红边界。
+
 ## 目标
 
 - 为健康的 macOS 全量回归保留明确且有界的执行余量。
@@ -46,8 +50,8 @@ VibeGuard 的必需 macOS CI 与 Ubuntu 共用一个 30 分钟的 `validate-and-
 
 ## 验收标准
 
-- [ ] `validate-and-test` 使用 45 分钟的有限上限，为已记录的 30 分 21 秒取消点
-      提供 14 分 39 秒余量。
+- [ ] `validate-and-test` 使用 60 分钟的有限上限，为已记录的 45 分钟取消点
+      提供约 15 分钟余量。
 - [ ] `bash tests/test_setup.sh` 仍是 `validate-and-test` 中的精确阻塞命令。
 - [ ] Ubuntu/macOS matrix、Windows job、Self-Application job 与
       `Benchmark Report` 依赖关系保持不变。
