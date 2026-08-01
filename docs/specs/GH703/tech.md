@@ -128,7 +128,8 @@ writer_coverage_unavailable|archive_missing|archive_tombstoned|
 event_identity_conflict|incompatible_host|unknown_host|
 unclassified_event|legacy_evidence|snapshot_changed|budget_exceeded`，禁止 free text 或扩展值。
 `archive_corrupt` 是 generator/state 的 closed terminal diagnostic，不是 summary schema
-可发布 `status_reason`；命中时必须 nonzero、保留旧 current 并标 stale。
+可发布 `status_reason`；命中时必须 nonzero、保留旧 current 并标 stale。`event_identity_missing` 同样只作为
+schema-v2 required identity 缺失时的 closed terminal diagnostic，不在可发布 `status_reason` enum 中。
 producer 必须先完成 candidate fact collection，再从所有适用的 partial reasons 按固定高到低顺序
 `ledger_corrupt > writer_coverage_unavailable > ledger_gap > source_missing >
 archive_missing > archive_tombstoned > event_identity_conflict > incompatible_host > unknown_host >
@@ -137,8 +138,8 @@ unclassified_event > legacy_evidence > snapshot_changed > budget_exceeded`
 `complete_nonempty` 只在 candidate set 没有任何 partial reason 且 coverage complete 时选择。
 映射固定为 unknown host → `unknown_host`、known host/incompatible contract → `incompatible_host`、
 schema-valid v2 `unclassified` → `unclassified_event`、同一 `event_id`对应不同 canonical tuple →
-`event_identity_conflict`。声称 schema v2却缺 required `event_id`或 required typed identity是 malformed input，
-按 B-011 terminal nonzero/no-publish；只有缺 v2 identity的真实 v1 row才是 `legacy_evidence`。
+`event_identity_conflict`。声称 schema v2 却缺 required `event_id` 或任一 required typed identity 时产生 terminal
+`event_identity_missing` 并按 B-011 nonzero/no-publish；只有真实 v1 row 缺 identity 才是 `legacy_evidence`。
 `no_data` 只允许 `coverage_status=complete`、`status_reason=complete_empty` 且 event set 为空；
 任何 coverage 缺口优先产生 `partial_coverage`，即使 event set 同样为空。`counts` 在
 `no_data` 或 `partial_coverage` 时必须严格使用 H-004 获批的
@@ -186,8 +187,10 @@ vibeguard-runtime/src/observe/weekly_value.rs：
    无法成为 complete。typed field/CSPRNG/append 失败必须进入第 2 步 durable gap protocol。
 4. `event_id` 在 writer 边界由 OS CSPRNG 生成，形状为 `VG-EVT-` 加 32 位大写
    hex；同一已持久化 row 在 GC、gzip archive 与 compaction 中 byte-stable 保留。
-   重读/复制按 `event_id` 去重，真实新 attempt 即使内容相同也生成新 ID。legacy v1、
-   缺 ID 或冲突 ID 都不得用 path/archive/offset/content 补造；窗口 coverage 降级。
+   重读/复制按 `event_id` 去重，真实新 attempt 即使内容相同也生成新 ID。真实 v1 row 缺 ID 不得补造并以
+   `legacy_evidence` partial；schema-v2 row 缺任一 required identity 是 terminal `event_identity_missing`；
+   present ID 对应不同 canonical tuples 才是 `event_identity_conflict` partial。三者均不得用
+   path/archive/offset/content 补造或互相回退。
 5. schema v2 只按 closed typed mapping 分类：protocol branch 在 writer 当场持久化
    `reason_code=protocol_invalid_json|protocol_missing_field|protocol_invalid_shape|protocol_other`
    等由 event schema 固定的 code，weekly producer 只有在 producer registry 同时 exact-match
@@ -605,11 +608,11 @@ JSON：
 | B-029 clean removes only owned control state | setup clean + installer remove | `bash tests/test_setup.sh` appends no-current tombstone、preserves pointer audit/history/exports与 third-party jobs，approved purge才处理 owned reports |
 | B-030 doctor/verify orthogonal state truth | setup check four-dimension evaluator | matrix covers lifecycle × freshness/data × retention health，including active+no_data+blocked-retention，plus target/digest/ownership drift |
 | B-031 checkout/payload parity | payload manifest and no-clone smoke | `bash tests/test_payload.sh` exact schema/taxonomy/count/digest parity, no Python/network/checkout |
-| B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` maps unknown/incompatible evidence to closed partial reasons；missing required v2 identity is terminal nonzero/no-publish |
+| B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` maps unknown/incompatible evidence to closed partial reasons；real v1 missing identity is `legacy_evidence` partial，schema-v2 missing required identity is terminal `event_identity_missing`/no-publish，present-ID conflicting tuples are `event_identity_conflict` partial |
 | B-033 artifact evidence binding | stable content digest verifier + doctor/export | generated/attempt metadata changes preserve digest；tampered coverage/data/status reason/evidence/window/taxonomy changes alter/reject digest |
 | B-034 interruption recovery | pending state + atomic publish/lifecycle recovery | kill-at-each-phase fixtures followed by retry leave one owned job/current artifact and no temp/pending success claim |
 | B-035 closed live+archive snapshot | coverage contract + installed launchers/authorized-discard + fenced authority + async reader | trusted sleep/boot fences distinguish unavailable time from gaps；all three parents prove slot-before-work；manual/scheduled epochs stay separate；large-archive+GC contention latency uses exact wrappers/IPC/fsync |
-| B-036 structured classification at creation | event schema v2 + producer registry + Rust/shell/Python writers | version+digest exact match and typed zero-match map `unclassified_event`；missing required v2 identity is terminal，v1 missing identity maps `legacy_evidence` |
+| B-036 structured classification at creation | event schema v2 + producer registry + Rust/shell/Python writers | version+digest exact match and typed zero-match map `unclassified_event`；fixtures enforce v1 missing → `legacy_evidence` partial，v2 required-identity missing → terminal/no-publish，present-ID conflict → `event_identity_conflict` partial |
 | B-037 byte-stable event identity | writer-generated event ID + GC byte preservation | append→rotate→gzip→read preserves ID; copy dedupes, retry differs；duplicate-ID tuple permutations keep one deterministic conflict digest |
 | B-038 headline publication gate | summary schema + all renderers | empty/partial fixtures只接受 H-004 选中的 null 或 absent 形状且跨 renderer 一致；invalid evidence不发布；complete nonempty 可含真实零 |
 | B-039 stable summary digest | canonical stable-content projection + fixed status precedence | simultaneous-fact and duplicate-ID/full-tuple permutations keep reason/digest；generated/attempt/renderer metadata changes preserve digest；exact coverage/data/status reason/producer version/event/taxonomy/window changes differ |

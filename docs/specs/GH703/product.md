@@ -173,8 +173,10 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     taxonomy、job ownership、opt-out、doctor/clean 和 summary 语义；payload 缺少
     任一运行依赖时 install 必须在注册 scheduler 前失败。
 32. B-032 host coverage 只由 H-008 和 canonical event contract 决定。未知、
-    incompatible、无法归一化或没有 canonical event identity 的 host evidence
-    必须排除并显示 coverage gap，不能归属到任一已支持 host。
+    incompatible 或无法归一化的 host evidence 必须排除并显示 coverage gap，不能归属到任一已支持 host。
+    真实 legacy/v1 row 缺 canonical event identity 时以 `legacy_evidence` partial；声称 schema v2 却缺任一
+    required identity 时 terminal nonzero/no-publish；present `event_id` 对应冲突 tuples 时以
+    `event_identity_conflict` partial。三者不得互相回退。
 33. B-033 每个 current/shareable artifact 必须绑定 window、scope、coverage status、
     data status、closed status reason、taxonomy version、producer version、source event-set digest 与自身
     `summary_digest`；该 digest 必须遵循 B-039 的稳定内容投影。tampered、stale、
@@ -288,8 +290,9 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
   只能证明自身 epoch 连续覆盖的 window，后续 enable 在首个完整 window 前保持 partial；
   caller 已启动后的 coverage failure 不改变其 guard decision/exit semantics，且 reservation 通过官方 hook P95 gates。
 - [ ] canonical writer 在 Rust、shell 与 Python authorized-discard 路径持久化 closed event/rule/reason identities；
-  unknown/incompatible host、unclassified v2、missing/conflicting event identity 各映射确定的 closed reason；
-  free-text-only 行为降级可见，且不要求 GH-704 先批准或实现。
+  unknown/incompatible host 与 unclassified v2 映射确定的 partial reason；真实 v1 missing identity 映射
+  `legacy_evidence` partial，present ID conflict 映射 `event_identity_conflict` partial，schema-v2 missing required
+  identity 则 terminal nonzero/no-publish；free-text-only 行为降级可见，且不要求 GH-704 先批准或实现。
 - [ ] 同一 window 的重试在 GC/compaction、archive enumeration、renderer 和生成时间变化后仍保持同一
   `summary_digest`；真实新 event 或 coverage/data/status-reason/producer-version 变化改变 digest。
 - [ ] shareable Markdown/JSON 逐字段符合 allowlist，`generated_at` 是否出现严格服从 H-005；
