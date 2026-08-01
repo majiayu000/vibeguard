@@ -297,6 +297,12 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 23. B-023: W-02 若被批准，必须绑定同一 project/session、同一 stable hypothesis
     identity、按序的真实 fix attempts 与 fresh failing verification。仅 edit count、
     elapsed time、旧 build failure 或不同 hypothesis 的失败不能触发新增 W-02 delta。
+    W-02 integrity/retention 的唯一 machine authority 是
+    [integrity_retention_model.json](integrity_retention_model.json)：每个 policy epoch 先封存有限、闭合且
+    digest-bound 的 source/project membership，再由 versioned templates 确定性、双射地展开 exact tuples；新增
+    任意有限 source/project inventory 只能产生新 epoch instance，不能要求修改 spec。每个 edge/tuple 必须绑定
+    exact selector/transition，并覆盖逐 boundary crash-before/crash-after 与全部非法 transition。L1 evidence
+    publication 必须逐边证明 prepared write→prepared fsync→row write→row fsync→manifest publish 的完整偏序。
 24. B-024: W-12 若被批准，必须把现有 test-infra block、deterministic assertion/skip
     detector 与新增 semantic weakening 分别归因。L2 不得弱化现有 block，也不得把
     assertion 存在本身当作测试仍有效的证据。
@@ -638,6 +644,11 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       reserve/fsync/publish/CAS/release 的 before/after crash 与 lost response；每个已封存
       partition 独立执行 capacity=1/2、retain all/partial/zero 与 `N >> capacity`，逐 tuple/维度守恒、root
       physical bound、L1 floor/adoption scratch 不借用、explicit-release-only credit 全部成立。
+- [ ] `python3 docs/specs/GH704/verify_integrity_retention_model.py --self-test` 使用 stdlib JSON Schema
+      instance validation 后，证明 W-02 policy-epoch inventory expansion 双射/有限完备、全部
+      edge×tuple×selector×transition fault/illegal relations，以及 L1 write→fsync→publish 偏序；新增
+      source/project 的 positive mutation 无需修改 spec，`tuples: string`、relation gap 与 publish 直接依赖
+      prepared 的 adversarial mutations 必须 nonzero。
 - [ ] U-22 证据分别证明 runtime 与 sidecar 各自至少 80% line coverage；final
       reducer/orchestration、inventory 及 adapter verdict、semantic test-weakening verdict、
       runtime W-rule state machine、metrics eligibility、project config/context/event identity、

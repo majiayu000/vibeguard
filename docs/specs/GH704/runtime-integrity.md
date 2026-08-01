@@ -123,6 +123,20 @@ file fsync、parent-directory fsync 与 materialized retirement receipt，才允
 row write/fsync、publish、mismatch 与 cleanup 的完整 branch/fault DAG 只由
 [`resource_ledger_model.json`](resource_ledger_model.json) 的 L1 selector 定义。
 
+### W-02 integrity/retention machine authority
+
+[`integrity_retention_model.json`](integrity_retention_model.json) 是 W-02 hypothesis、fix-attempt、fresh-failure、
+reset 与 retention-tombstone evidence 的唯一 machine authority；它不重定义 ResourceLedger capacity。
+每个 policy epoch 封存 finite、closed、digest-bound source/project membership，tuple templates 对 membership
+确定性展开，materialized exact tuple set 必须与重算结果双射且有限完备，所以新增任意有限 runtime inventory
+只生成新 epoch instance，不改 spec。每个 edge transition 都有关系化 binding，verifier 对每个 applicable
+tuple 展开 `(edge_id,tuple_id,selector_id,transition_id)`，并逐 step 证明 crash-before/crash-after、逐非法
+from-state 证明 no-write rejection；仅验证 ID 存在不算通过。W-02 L1 publication 的 exact partial order 是
+`prepared_write → prepared_fsync → row_write → row_fsync → manifest_publish`；publish 直接依赖 prepared 或绕过
+任一 write/fsync 必须拒绝。schema 与 stdlib validator 分别是
+[`integrity_retention_model.schema.json`](integrity_retention_model.schema.json) 与
+[`verify_integrity_retention_model.py`](verify_integrity_retention_model.py)，Markdown 不维护第二份 W-02 表。
+
 ### ResourceLedger：唯一容量与所有权状态机
 
 [`resource_ledger_model.json`](resource_ledger_model.json) 是 closed 13-kind inventory、finite exact tuples、

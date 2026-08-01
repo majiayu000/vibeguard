@@ -1,0 +1,97 @@
+{
+  "authority": "docs/specs/GH704/integrity_retention_model.json",
+  "version": 1,
+  "policy_epoch": {
+    "id": "gh704_w02_example_epoch_v1",
+    "inventory_version": 1,
+    "inventory_digest": "e5fb9303a27fa27471084798fc166a6fd53b8d7720e8f777551c5ded150c020d",
+    "source_ids": ["claude", "codex"],
+    "projects": [
+      {"project_id": "project_alpha", "source_ids": ["claude", "codex"]},
+      {"project_id": "project_beta", "source_ids": ["claude", "codex"]}
+    ]
+  },
+  "state_universe": ["absent", "reserved", "retained", "published", "retired", "needs_repair"],
+  "tuple_templates": [
+    {"id": "fix_attempt", "evidence_kind": "fix_attempt", "retention_class": "attempt_window"},
+    {"id": "fresh_failure", "evidence_kind": "fresh_failure", "retention_class": "attempt_window"},
+    {"id": "hypothesis_identity", "evidence_kind": "hypothesis_identity", "retention_class": "policy_epoch"},
+    {"id": "reset", "evidence_kind": "reset", "retention_class": "terminal_audit"},
+    {"id": "retention_tombstone", "evidence_kind": "retention_tombstone", "retention_class": "terminal_audit"}
+  ],
+  "tuples": [
+    {"id":"tuple_52520e37ca53b722d35c1cdf22bd8003e594193f3ccd72cf2be40e721aebdf35","template_id":"fix_attempt","evidence_kind":"fix_attempt","source_id":"claude","project_id":"project_alpha","retention_class":"attempt_window"},
+    {"id":"tuple_db5a3aac7573daf65dc659ca32b29e1c55a7b3c401d973998bd8268e638eb4ce","template_id":"fix_attempt","evidence_kind":"fix_attempt","source_id":"codex","project_id":"project_alpha","retention_class":"attempt_window"},
+    {"id":"tuple_4dd71331517ef6cde02e61ee60b2d02f70df0682c83d90335959348bb7cab1df","template_id":"fix_attempt","evidence_kind":"fix_attempt","source_id":"claude","project_id":"project_beta","retention_class":"attempt_window"},
+    {"id":"tuple_fb90b8ce7cbc07c3e1576af10fd39b459cee7d30ee1b28cfd2319c27b2178ab6","template_id":"fix_attempt","evidence_kind":"fix_attempt","source_id":"codex","project_id":"project_beta","retention_class":"attempt_window"},
+    {"id":"tuple_90397782f6a77722cea1e8a807e00a247bb26479f603ca4bccc6d0192a314e19","template_id":"fresh_failure","evidence_kind":"fresh_failure","source_id":"claude","project_id":"project_alpha","retention_class":"attempt_window"},
+    {"id":"tuple_dd194ebb33607768118674085d9b036f4c4396ef9b56689eb1bdfc2963d1ca1a","template_id":"fresh_failure","evidence_kind":"fresh_failure","source_id":"codex","project_id":"project_alpha","retention_class":"attempt_window"},
+    {"id":"tuple_20993ad05bb7a8f928fba7c614815c7a685e892962100a8efd6b5fa2f495c843","template_id":"fresh_failure","evidence_kind":"fresh_failure","source_id":"claude","project_id":"project_beta","retention_class":"attempt_window"},
+    {"id":"tuple_18a318b54ea9dbb652e766a9e90d89d5b3eef196e14b7960840aae1934681197","template_id":"fresh_failure","evidence_kind":"fresh_failure","source_id":"codex","project_id":"project_beta","retention_class":"attempt_window"},
+    {"id":"tuple_f0d0b7a7c3bbbf78df0eb8ca8fbe74d737ffa907d714d456e6a4a71a825659c7","template_id":"hypothesis_identity","evidence_kind":"hypothesis_identity","source_id":"claude","project_id":"project_alpha","retention_class":"policy_epoch"},
+    {"id":"tuple_d1e3c3c8c70ac17f1b5b2e4e35f8e7bb1f81ab709d877a3c96dcb445db30c079","template_id":"hypothesis_identity","evidence_kind":"hypothesis_identity","source_id":"codex","project_id":"project_alpha","retention_class":"policy_epoch"},
+    {"id":"tuple_437a264b6839be2933b6f92e3d868203d11e815461b066c5524414aab7a7c388","template_id":"hypothesis_identity","evidence_kind":"hypothesis_identity","source_id":"claude","project_id":"project_beta","retention_class":"policy_epoch"},
+    {"id":"tuple_99029898488ec1f2c8e67b25ab977e875b8c0c704db6a5922b78ce632f16e509","template_id":"hypothesis_identity","evidence_kind":"hypothesis_identity","source_id":"codex","project_id":"project_beta","retention_class":"policy_epoch"},
+    {"id":"tuple_2a672c357d72c5492f02969b920bb6b3547cb11b69b1247e32f17f9652d6b9b0","template_id":"reset","evidence_kind":"reset","source_id":"claude","project_id":"project_alpha","retention_class":"terminal_audit"},
+    {"id":"tuple_8ac6218408ba9e4b3c83e647d12426dc7439a83258bafff9fc59126427dca3da","template_id":"reset","evidence_kind":"reset","source_id":"codex","project_id":"project_alpha","retention_class":"terminal_audit"},
+    {"id":"tuple_b20ef4c28f1d79e716b8f37e3b40af25b5fe637e77038e0a7c99b09f1609d19b","template_id":"reset","evidence_kind":"reset","source_id":"claude","project_id":"project_beta","retention_class":"terminal_audit"},
+    {"id":"tuple_f7176313459561f536183abe60e3f5735e1ec97f24b7a23435735aa2446a6e6f","template_id":"reset","evidence_kind":"reset","source_id":"codex","project_id":"project_beta","retention_class":"terminal_audit"},
+    {"id":"tuple_d29504da8127917cb382fa6502aadbc86065048af4e89d5c84d91c9f93fe1f27","template_id":"retention_tombstone","evidence_kind":"retention_tombstone","source_id":"claude","project_id":"project_alpha","retention_class":"terminal_audit"},
+    {"id":"tuple_1aadec69f0efd8b92e86dd3f4c5c6a76d4880cff8ccdb1bcf94953b5a24a4e6e","template_id":"retention_tombstone","evidence_kind":"retention_tombstone","source_id":"codex","project_id":"project_alpha","retention_class":"terminal_audit"},
+    {"id":"tuple_d937dffb631f0731c79d0ce932910cb5b7d84608da2172c12e4981584b014982","template_id":"retention_tombstone","evidence_kind":"retention_tombstone","source_id":"claude","project_id":"project_beta","retention_class":"terminal_audit"},
+    {"id":"tuple_ef74c65fc0f87cde41d9c97e302079a55227d50c74c917df3f2a59980f2984ca","template_id":"retention_tombstone","evidence_kind":"retention_tombstone","source_id":"codex","project_id":"project_beta","retention_class":"terminal_audit"}
+  ],
+  "edges": [
+    {
+      "id": "hypothesis_observe",
+      "tuple_template_ids": ["hypothesis_identity"],
+      "transitions": [{"id":"retain_hypothesis","selector_id":"hypothesis_observe","from_states":["absent"],"to_state":"retained","illegal_from_states":["reserved","retained","published","retired","needs_repair"],"steps":[{"id":"reservation_write","depends_on":[],"crash_before":"absent","crash_after":"reservation_partial"},{"id":"reservation_fsync","depends_on":["reservation_write"],"crash_before":"reservation_partial","crash_after":"reserved"},{"id":"evidence_write","depends_on":["reservation_fsync"],"crash_before":"reserved","crash_after":"evidence_partial"},{"id":"evidence_fsync","depends_on":["evidence_write"],"crash_before":"evidence_partial","crash_after":"evidence_durable"},{"id":"retention_publish","depends_on":["evidence_fsync"],"crash_before":"evidence_durable","crash_after":"retained"}]}]
+    },
+    {
+      "id": "attempt_observe",
+      "tuple_template_ids": ["fix_attempt"],
+      "transitions": [{"id":"retain_attempt","selector_id":"attempt_observe","from_states":["absent"],"to_state":"retained","illegal_from_states":["reserved","retained","published","retired","needs_repair"],"steps":[{"id":"reservation_write","depends_on":[],"crash_before":"absent","crash_after":"reservation_partial"},{"id":"reservation_fsync","depends_on":["reservation_write"],"crash_before":"reservation_partial","crash_after":"reserved"},{"id":"evidence_write","depends_on":["reservation_fsync"],"crash_before":"reserved","crash_after":"evidence_partial"},{"id":"evidence_fsync","depends_on":["evidence_write"],"crash_before":"evidence_partial","crash_after":"evidence_durable"},{"id":"retention_publish","depends_on":["evidence_fsync"],"crash_before":"evidence_durable","crash_after":"retained"}]}]
+    },
+    {
+      "id": "failure_observe",
+      "tuple_template_ids": ["fresh_failure"],
+      "transitions": [{"id":"retain_failure","selector_id":"failure_observe","from_states":["absent"],"to_state":"retained","illegal_from_states":["reserved","retained","published","retired","needs_repair"],"steps":[{"id":"reservation_write","depends_on":[],"crash_before":"absent","crash_after":"reservation_partial"},{"id":"reservation_fsync","depends_on":["reservation_write"],"crash_before":"reservation_partial","crash_after":"reserved"},{"id":"evidence_write","depends_on":["reservation_fsync"],"crash_before":"reserved","crash_after":"evidence_partial"},{"id":"evidence_fsync","depends_on":["evidence_write"],"crash_before":"evidence_partial","crash_after":"evidence_durable"},{"id":"retention_publish","depends_on":["evidence_fsync"],"crash_before":"evidence_durable","crash_after":"retained"}]}]
+    },
+    {
+      "id": "reset_observe",
+      "tuple_template_ids": ["reset"],
+      "transitions": [{"id":"retain_reset","selector_id":"reset_observe","from_states":["absent"],"to_state":"retained","illegal_from_states":["reserved","retained","published","retired","needs_repair"],"steps":[{"id":"reservation_write","depends_on":[],"crash_before":"absent","crash_after":"reservation_partial"},{"id":"reservation_fsync","depends_on":["reservation_write"],"crash_before":"reservation_partial","crash_after":"reserved"},{"id":"evidence_write","depends_on":["reservation_fsync"],"crash_before":"reserved","crash_after":"evidence_partial"},{"id":"evidence_fsync","depends_on":["evidence_write"],"crash_before":"evidence_partial","crash_after":"evidence_durable"},{"id":"retention_publish","depends_on":["evidence_fsync"],"crash_before":"evidence_durable","crash_after":"retained"}]}]
+    },
+    {
+      "id": "retention_retire",
+      "tuple_template_ids": ["fix_attempt", "fresh_failure", "hypothesis_identity", "reset", "retention_tombstone"],
+      "transitions": [{"id":"retire_evidence","selector_id":"retention_retire","from_states":["retained","published"],"to_state":"retired","illegal_from_states":["absent","reserved","retired","needs_repair"],"steps":[{"id":"retirement_intent","depends_on":[],"crash_before":"retained","crash_after":"retirement_pending"},{"id":"tombstone_fsync","depends_on":["retirement_intent"],"crash_before":"retirement_pending","crash_after":"tombstone_durable"},{"id":"directory_fsync","depends_on":["tombstone_fsync"],"crash_before":"tombstone_durable","crash_after":"retirement_durable"},{"id":"retirement_publish","depends_on":["directory_fsync"],"crash_before":"retirement_durable","crash_after":"retired"}]}]
+    },
+    {
+      "id": "l1_evidence_publish",
+      "tuple_template_ids": ["fix_attempt", "fresh_failure", "hypothesis_identity", "reset", "retention_tombstone"],
+      "transitions": [{"id":"publish_l1_evidence","selector_id":"l1_evidence_publish","from_states":["retained"],"to_state":"published","illegal_from_states":["absent","reserved","published","retired","needs_repair"],"steps":[{"id":"prepared_write","depends_on":[],"crash_before":"retained","crash_after":"prepared_partial"},{"id":"prepared_fsync","depends_on":["prepared_write"],"crash_before":"prepared_partial","crash_after":"prepared_durable"},{"id":"row_write","depends_on":["prepared_fsync"],"crash_before":"prepared_durable","crash_after":"row_partial"},{"id":"row_fsync","depends_on":["row_write"],"crash_before":"row_partial","crash_after":"row_durable"},{"id":"manifest_publish","depends_on":["row_fsync"],"crash_before":"row_durable","crash_after":"published"}]}]
+    }
+  ],
+  "selectors": [
+    {"id":"hypothesis_observe","command":"bash tests/hooks/test_runtime_rule_signals.sh hypothesis_observe"},
+    {"id":"attempt_observe","command":"bash tests/hooks/test_runtime_rule_signals.sh attempt_observe"},
+    {"id":"failure_observe","command":"bash tests/hooks/test_runtime_rule_signals.sh failure_observe"},
+    {"id":"reset_observe","command":"bash tests/hooks/test_runtime_rule_signals.sh reset_observe"},
+    {"id":"retention_retire","command":"bash tests/hooks/test_runtime_rule_signals.sh retention_retire"},
+    {"id":"l1_evidence_publish","command":"bash tests/hooks/test_runtime_rule_signals.sh l1_evidence_publish"}
+  ],
+  "evidence_bindings": [
+    {"edge_id":"hypothesis_observe","transition_id":"retain_hypothesis","selector_id":"hypothesis_observe","tuple_template_ids":["hypothesis_identity"],"required_cases":["crash_before_each_step","crash_after_each_step","illegal_transition_each_state"]},
+    {"edge_id":"attempt_observe","transition_id":"retain_attempt","selector_id":"attempt_observe","tuple_template_ids":["fix_attempt"],"required_cases":["crash_before_each_step","crash_after_each_step","illegal_transition_each_state"]},
+    {"edge_id":"failure_observe","transition_id":"retain_failure","selector_id":"failure_observe","tuple_template_ids":["fresh_failure"],"required_cases":["crash_before_each_step","crash_after_each_step","illegal_transition_each_state"]},
+    {"edge_id":"reset_observe","transition_id":"retain_reset","selector_id":"reset_observe","tuple_template_ids":["reset"],"required_cases":["crash_before_each_step","crash_after_each_step","illegal_transition_each_state"]},
+    {"edge_id":"retention_retire","transition_id":"retire_evidence","selector_id":"retention_retire","tuple_template_ids":["fix_attempt","fresh_failure","hypothesis_identity","reset","retention_tombstone"],"required_cases":["crash_before_each_step","crash_after_each_step","illegal_transition_each_state"]},
+    {"edge_id":"l1_evidence_publish","transition_id":"publish_l1_evidence","selector_id":"l1_evidence_publish","tuple_template_ids":["fix_attempt","fresh_failure","hypothesis_identity","reset","retention_tombstone"],"required_cases":["crash_before_each_step","crash_after_each_step","illegal_transition_each_state"]}
+  ],
+  "l1_order_contract": {
+    "edge_id": "l1_evidence_publish",
+    "transition_id": "publish_l1_evidence",
+    "ordered_steps": ["prepared_write", "prepared_fsync", "row_write", "row_fsync", "manifest_publish"]
+  }
+}
