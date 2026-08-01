@@ -370,9 +370,12 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     或 shell free-text projection 作为第二权威源。既有 L1 dual logging 行为不变；
     GH-704 global event/status 只允许从 `all_activated` barrier 做 idempotent derived
     projection，绑定 source event ID/barrier digest 与 durable projection receipt。
-    所有容量必须由 [runtime-integrity.md](runtime-integrity.md) 的 closed `ResourceLedger` inventory 与
-    单一 token machine 管理；policy epoch 必须封存 finite exact `(resource_kind,scope_id,quota_partition_id)`
-    inventory及逐 tuple/entries/bytes/segments/segment-bytes/quota/physical-bytes maxima，token 全寿命不得改写
+    所有容量必须由 [runtime-integrity.md](runtime-integrity.md) 的单一 token machine 管理；closed inventory、
+    finite tuple expansion、root mapping、edges 与 selectors 的唯一 machine authority 是
+    [resource_ledger_model.json](resource_ledger_model.json)，schema 与 verifier 分别为
+    [resource_ledger_model.schema.json](resource_ledger_model.schema.json) 和
+    [verify_resource_ledger_model.py](verify_resource_ledger_model.py)。policy epoch 必须封存其 exact tuples
+    及逐 tuple/entries/bytes/segments/segment-bytes/quota/physical-bytes maxima，token 全寿命不得改写
     tuple或跨 partition 借用。每个 committed root 必须同时证明逐 tuple/维度守恒与 root physical aggregate
     bound；L1 floor、adoption scratch、live/admin 与相邻 source 都独立。每个 token 只能
     `free→reserved→live`、同-tuple receipt-bound transfer，或进入 retirement 后 release。standalone materialized
@@ -629,8 +632,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       regressed 仍需现有 Learn 人工门。
 - [ ] GH-700/GH-702 contract tests 证明只消费已合并 Core capability/mapping，未批准的
       Draft recommendation 不会成为默认行为。
-- [ ] `verification.md` 的 13 个 ResourceLedger exact selectors 按 machine-readable selector×edge×tuple
-      matrix 覆盖每个 reserve/fsync/publish/CAS/release 的 before/after crash 与 lost response；每个已封存
+- [ ] `python3 docs/specs/GH704/verify_resource_ledger_model.py` fresh 通过并确定性报告 closed 13 kinds/
+      13 selectors、finite exact tuple expansion、versioned boundary DAG、fault states 与同-root Cartesian
+      cases；`--self-test` 证明 reviewer invalid cases nonzero。selector×edge×tuple coverage 包含每个
+      reserve/fsync/publish/CAS/release 的 before/after crash 与 lost response；每个已封存
       partition 独立执行 capacity=1/2、retain all/partial/zero 与 `N >> capacity`，逐 tuple/维度守恒、root
       physical bound、L1 floor/adoption scratch 不借用、explicit-release-only credit 全部成立。
 - [ ] U-22 证据分别证明 runtime 与 sidecar 各自至少 80% line coverage；final

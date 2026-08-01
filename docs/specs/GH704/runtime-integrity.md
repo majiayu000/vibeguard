@@ -109,39 +109,31 @@ decision、ordered stage receipts 与 expected activation receipts。三个 cons
 
 canonical project journal 另有一个所有 writer 共用的 deadline-bounded append lease。semantic
 coordinator 的固定锁序是 project lock → canonical journal append lease，并从读取 authoritative
-journal tail、写/fsync recovery WAL `prepared` 与 queue metadata、append/fsync exact pending row，
-一直持有到 WAL `journaled` transition durable；`hook_checks_common.rs`、`log_append.rs` 与 shell
+journal tail、写/fsync recovery WAL `prepared` 与 queue metadata，一直持有到 WAL `journaled`
+transition durable；`hook_checks_common.rs`、`log_append.rs` 与 shell
 `log_write.sh` 的普通 L1 writer 也必须在任何 append 前取得同一 lease，但不得取得 project lock。
 因此 WAL 中的 expected offset 在事务中不会被 legacy event 占用；lease timeout 在任何 WAL/journal
 write 前 fail visible，任一 writer 不得绕过 lease 或使用平行 lock。
 
+任何 writer 在 materialize journal row **之前**必须 durable fsync
+`prepared_intent {resource_token_id,exact_offset,row_digest,max_bytes}`。recovery 只在 exact offset bytes
+与 digest/prefix proof 一致时 roll-forward manifest/root publish；partial 或 mismatch 必须保持 entitlement
+并进入 `needs_repair`，或仅在 runtime 持有 exact-offset cleanup capability 时 truncate/tombstone，随后
+file fsync、parent-directory fsync 与 materialized retirement receipt，才允许 release。prepared intent、
+row write/fsync、publish、mismatch 与 cleanup 的完整 branch/fault DAG 只由
+[`resource_ledger_model.json`](resource_ledger_model.json) 的 L1 selector 定义。
+
 ### ResourceLedger：唯一容量与所有权状态机
 
-以下 `resource_kind`/partition 是 Recommended path 的 **closed normative inventory**；policy epoch root
-必须先持久化 finite exact `(resource_kind,scope_id,quota_partition_id)` set，以及每个 tuple 在
-`entries/bytes/segments/segment_bytes/per_source_quota/physical_bytes` 六维上的 explicit maximum `M`（不适用维度为
-`0`）。`source:<id>`/`project:<id>` 是该 epoch 已 admission 的 finite exact IDs，不是运行时 wildcard：
-
-| `resource_kind` | closed `scope_id / quota_partition_id` | 唯一 owner / live authority | 最终释放证明 |
-| --- | --- | --- | --- |
-| `registry_live_slot` | `global / source:<id>` | global registry root / live registration | matching transfer/abort tombstone receipt |
-| `keyed_receipt_slot` | `source:<id> / receipt_live` | keyed-slot root / exact key+route | exact unlink/absence + directory-fsync receipt |
-| `completed_index` | `global / source:<id>` | completed-index root / `receipt_delivered` | ack 或 quarantine/admin transfer receipt |
-| `outbox` | `global / source:<id>` | outbox root / exact `receipt_prepared` intent | target-durable transfer receipt |
-| `quarantine_frozen_lag` | `global / source:<id>` | selected primary/alternate admin generation / frozen-quarantine ref | authoritative-root retired+dir-fsync receipt |
-| `success_history` | `global / source:<id>` | success-history root / acknowledged bucket | expired-bucket root-CAS receipt |
-| `global_admin` | `global / admin_live|adoption_scratch_a|adoption_scratch_b` | global admin root / stub or adoption manifest | stub/manifest retirement receipt |
-| `project_wal_live` | `project:<id> / wal_live` | project WAL root / selected segments+checkpoint | common-compaction receipt |
-| `project_wal_scratch` | `project:<id> / wal_scratch_a|wal_scratch_b` | project WAL root / staged generation | common-compaction receipt |
-| `derived_log_live` | `global / derived_live` | allocator root / selected segments+manifest | common-compaction receipt |
-| `derived_log_scratch` | `global / derived_scratch_a|derived_scratch_b` | allocator root / staged generation | common-compaction receipt |
-| `canonical_journal_live` | `project:<id> / l1_floor|semantic_live` | journal manifest root / canonical rows+segments | pin-safe GC receipt |
-| `canonical_journal_scratch` | `project:<id> / gc_scratch_a|gc_scratch_b` | journal manifest root / staged GC generation | common-compaction receipt |
-
-旧称 “allocator WAL” **不是额外 resource kind**：它必须实现为 fixed A/B、checksummed 的 global
-metadata root generations，不能成为可增长 append log；两份 closed-max metadata bytes 在 policy epoch
-建立时预分配并进入 allocator-root physical budget，因此无第三套 WAL GC、scratch 或 credit。若实现改成
-append WAL，必须先修改本 closed inventory、bounds、owner 与验证，不能沿用该 alias/N/A 证明。
+[`resource_ledger_model.json`](resource_ledger_model.json) 是 closed 13-kind inventory、finite exact tuples、
+tuple sets、root components/physical domains/maxima、edge registry、root Cartesian cases、13 selectors 与
+versioned boundary DAG 的唯一 machine authority；schema 与 verifier 分别是
+[`resource_ledger_model.schema.json`](resource_ledger_model.schema.json) 和
+[`verify_resource_ledger_model.py`](verify_resource_ledger_model.py)。本 Markdown 只解释不变量，不再维护
+第二份 kind/partition/edge 表。policy epoch 必须持久化 model 中的 exact tuple set 与六维 maxima；任何
+placeholder、wildcard、pipe alternative、pseudo-N/A、boolean maximum 或 symbolic-all 都在 root CAS 前拒绝。
+旧称 “allocator WAL” 仅是 model 中 fixed A/B checksummed metadata root components，不是 resource kind 或
+可增长 append log。
 
 每个 token 的 closed schema 至少是
 `{resource_token_id,resource_kind,scope_id,quota_partition_id,entries,bytes,segments,segment_bytes,
@@ -165,7 +157,7 @@ tuple `(resource_kind,scope_id,quota_partition_id)` 从 token 创建到 `release
 retirement、rebind、off 与 compaction 都不能改写或跨 tuple 借用。每个 committed root、tuple 与维度 `d`
 必须满足 `free[d]+reserved[d]+live[d]+transfer_or_retirement[d]=M[tuple,d]`，并同时满足
 `sum(all tuple physical_bytes + allocator fixed-A/B metadata bytes) <= root_physical_max_bytes`；root physical
-bound 不能因 partition 内守恒而省略。L1 `l1_floor` 与 `adoption_scratch_a|b` maxima 独立预留，任何 L2、live-admin、
+bound 不能因 partition 内守恒而省略。L1 `l1_floor` 与 adoption scratch A/B maxima 独立预留，任何 L2、live-admin、
 GC 或相邻 source 都不得借用。每次 admission 原子创建 `reservation_bundle {reservation_bundle_id,ordered_items,
 reservation_bundle_digest}`；ordered item 对 closed inventory 中每个已预留 kind 固定 exact token、owner、
 entries/bytes/segments/quota 与 terminal policy。任何 cancel、abort、ack、off、rebind、discard、expiry、GC
@@ -191,25 +183,17 @@ terminal completeness、idempotence；同时每个 capacity=1 合法 terminal ed
 同 predecessor 的 ordered units，逐维总和与 parent 完全相等；publish 后禁止再 split。final receipt 必须绑定
 ordered before/after units 的全部 tuple、六维 counts、old/new exact keys、target-durable 与逐 old-unit tombstone/
 directory-fsync proofs、split receipt、transaction nonce、root before/after digest 与 predecessor receipt。retain
-all/partial/zero 都必须可表达，retained after 六维必须逐项等于 target-durable 六维；zero-retain 只允许 explicit
-zero-dimension empty-root target。只有 after state 明确为
+all/partial/zero 都必须可表达；payload retained live units 在 zero-retain 时可以逐项为 `0`，但 fixed
+empty-root manifest/checkpoint 是 model 声明的 positive physical-byte metadata components，仍须在同一 root
+aggregate 中守恒。final composite receipt 必须分别覆盖 `payload_accounting` 与
+`root_metadata_accounting`，不得要求整个 after root 六维全零。只有 after state 明确为
 `released` 的 reclaimed units 和 scratch units 分别向原 live/scratch tuple 产生 credit；retarget、publish、proof 或
 partial cleanup 均不产生 credit，lost response 只重放同一 receipt。
 
-Review closure 必须落到下列 ledger row/edge，禁止再以局部 prose exception 绕开统一 reducer：
-
-| finding surface | required row / edge |
-| --- | --- |
-| project ack slot locator | `keyed_receipt_slot: live→retirement_pending→released(receipt)`；ack CAS 原子保留 complete locator |
-| off-receipt slot entitlement | 同一 keyed-slot edge；admin transfer 保留 exact token/key/digest/route locator |
-| derived-log full compaction | `derived_log_live + derived_log_scratch` common compaction final receipt |
-| project recovery WAL bounds/compaction | pre-provider semantic-attempt bundle + `project_wal_live/scratch` exchange receipt |
-| `gc-logs.sh` pins/rotation | `canonical_journal_live + canonical_journal_scratch` common compaction + pin set |
-| legacy Rust/shell journal writers | `canonical_journal_live` L1 floor exact entitlement + shared append lease；不得借用/越界 |
-| adopt-all manifest overflow | `global_admin/adoption_scratch` fixed A/B partition；capacity=1 full 时仍有 preflight receipt |
-| reservation cancel/abort | terminal totality；never-materialized reserved item 必须用 committed-root absence release edge |
-| success-history expiry GC | `success_history live→retirement_pending→released`，refs+entries+bytes+quota 同一 receipt CAS |
-| WAL no-early-credit + derived counterpart | publish 后双计费；final composite exchange retarget retained live、release reclaimed live + scratch，tuple 均不变 |
+Review closure 必须落到 model 已声明的 exact tuple set、edge 与 selector，禁止用局部 prose exception、
+新增 alias 或第二份 mapping table 绕开统一 reducer。verifier 必须展开并验证 project WAL、canonical
+journal、derived log、admin adoption、success history、reservation terminal-totality 与 L1 materialized
+recovery 的完整 coverage。
 
 全部 activation receipts 匹配后，coordinator 在仍持有 project lock 时取得 deadline-bounded
 global registration lease，先证明 live slot、per-source frozen-lag quota，以及 independently bounded

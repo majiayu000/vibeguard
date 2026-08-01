@@ -360,22 +360,18 @@ receipts 齐备后以 global lease/reserved slot/checksummed generation 串行�
 worker 验证 barrier。orphan 由 coordinator 恢复后，以 digest receipt CAS ready/tombstone；无
 global→project lock inversion。barrier + registration durable 才能 done。reconcile policy 必须先
 通过 byte floor 与 `deadline >= max_atomic_recovery_ms(schema,platform,storage) + guard`；time max 取 normal completion 与每个 fault-prefix + operation deadline + cancel/escalate/terminate/join/reap + durable-boundary/no-background-write verification 的最大值，remaining admission 也包含 teardown + guard。
-同一 `runtime_signal.rs` 必须定义 closed `ResourceLedger` enum/token/bundle transition reducer，global
-metadata root 与 project WAL root 只调用该 reducer，禁止各 plane 自建 release 语义。closed kinds 覆盖
-registry/live slot、keyed receipt、completed-index、outbox、quarantine/frozen-lag、success-history、
-global-admin、project-WAL live/scratch、derived-log live/scratch、canonical-journal live/scratch；每个 kind
-只有一个 root owner。legacy “allocator WAL” 实现为预分配 fixed A/B global metadata root alias，不是 append
-store/resource kind。policy epoch 封存 finite exact `(kind,scope,partition)` inventory、六维 maxima 与 root physical
-maximum；tuple 在 token 全寿命 immutable，逐 tuple/维度守恒且不得 cross-partition rewrite/borrow。L1
-`l1_floor`、`semantic_live`、live admin 与 fixed A/B `adoption_scratch` 独立；每个 partition 都须证明 capacity=1/2。
-唯一 graph 含 `free→reserved→live`、同-tuple transfer、receipt-bound retirement，以及 composite
-`compaction_exchange`。mixed old-live token 在 publish 前 exact split；target durable/publish 后 ordered old units
-逐项 tombstone+dir-fsync，final CAS 才 retarget retained live、release reclaimed live，并 release scratch 回原
-scratch partition。receipt 绑定 before/after 全 tuple/维度/keys/proofs/nonce/root/predecessor，retain
-all/partial/zero 与 lost response 幂等；只有 explicit `released` unit 产生 credit。never-materialized cancel 仍需
-committed-root absence proof；terminal totality 缺项、双 owner、early credit 或 unknown edge 都拒绝 root CAS。
-history GC 同 CAS 释放 ref/entry/byte/quota；13-selector machine-readable matrix 是唯一 crash/lost-response
-覆盖入口。该结构统一证明 conservation/single-owner/no-early-credit/terminal-completeness/idempotence/liveness。
+同一 `runtime_signal.rs` 必须实现 closed `ResourceLedger` token/bundle reducer，global metadata root 与
+project WAL root 只调用该 reducer，禁止各 plane 自建 release 语义。closed kinds、finite exact tuples/
+sets、六维 maxima、root components/domains/maxima、immutable edges、composite receipt、13 selectors 与
+versioned boundary DAG 只由 [resource_ledger_model.json](resource_ledger_model.json) 定义；
+[resource_ledger_model.schema.json](resource_ledger_model.schema.json) 关闭结构，
+[verify_resource_ledger_model.py](verify_resource_ledger_model.py) 展开并拒绝 unknown/boolean/symbolic input、
+tuple rewrite、cross-root undercount 与 incomplete fault state。实现必须保持 conservation/single-owner/
+no-early-credit/terminal-completeness/idempotence/liveness，并以 model 的同-root Cartesian cases 证明 live+
+scratch A/B、L1+semantic、admin+adoption 与 two-source full capacity。retain-zero 只允许 payload live units
+为零；fixed empty-root manifest/checkpoint 的 physical bytes 仍守恒，composite receipt 分开记录 payload 与
+root metadata。materialized L1 row 前必须 fsync token/offset/row-digest/max-bytes prepared intent；exact match
+roll-forward，partial/mismatch 只能 `needs_repair` 或 capability-scoped truncate/tombstone+fsync+retirement。
 projector 从 registry 即可发现 dormant work；唯一 append lease 覆盖 reservation 到 exact append/
 fsync、applied、tail 与 receipt outbox 原子 commit，earlier 未 applied 禁止 later append。worker
 须持 matching source effective epoch 的 shared delivery lease并核对 config digest。ready CAS offset-independent seed；sequencer 分配 offset并原子创建 full reservation + retained allocator claim-binding + completed/quarantine tokens；每个 quarantine token 初始预留 closed-max A/B generations/body。active absent 才重建，仅 matching off 可 freeze；frozen ref digest-bind timestamp/retention bucket/registry global-lag offset/query scope。pre-barrier route 永久不可达时先 fsync per-source bounded-body admin entry，再以只含 root/digest/query metadata 的 global stub 替换 live slot；closed permanent route 同样先 fsync quarantine 再发 stub；source corruption 不阻塞 global，rebind 从 body 恢复 exact registration/reservation并重取 completed capacity。
