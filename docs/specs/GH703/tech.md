@@ -67,7 +67,7 @@ H-002 还必须附 local coverage authority backend、platform availability prov
 heartbeat cadence/max jitter/expiry、`expiry > cadence + max_jitter` 约束与 owned job
 identity；H-003 必须附闭集 taxonomy snapshot；H-004 必须附 window/timezone/catch-up
 状态机、`empty_counts_representation=json_null|field_absent` 互斥选择、正整数
-`maximum_catch_up_duration_seconds` 与 `max_source_files`、`max_uncompressed_bytes`、
+`maximum_query_window_duration_seconds`、`maximum_catch_up_duration_seconds` 与 `max_source_files`、`max_uncompressed_bytes`、
 `max_snapshot_elapsed_ms`；H-005 必须附 share allowlist；H-007 必须附 scheduler/authority failure、recovery、
 clean policy、正整数 `retention_horizon_seconds`/`hard_history_cap_entries`/`hard_history_cap_bytes` 及
 retention backend policy；选择 `capability_attested` 还须固定 backend identity/version/attestation contract。
@@ -241,9 +241,10 @@ fail-visible 行为，不能只验证新 weekly producer。
   已验证 current object 生成 allowlisted projection，并以 user-only 权限写入
   用户指定的新本地文件；
 - generation temp directory 在同一受限 parent 创建，mode 0700；两个 renderer/manifest 均以
-  mode 0600写入并 flush/fsync、schema/digest verify，ownership receipt durable后才以 no-follow
-  `O_CREAT|O_EXCL`提交一个 prior-digest-linked pointer record；任何 collision/foreign target/失败都保留
-  上一个 logical pointer并记录 stale，禁止 rename/replace fallback；
+  mode 0600写入并 flush/fsync、schema/digest verify；ownership receipt durable后，在同 filesystem owned staging
+  directory完整 write+fsync pointer inode，再以 capability-tested `linkat` atomic no-replace hard link提交
+  prior-digest-linked final record并 fsync pointer directory。recovery只会看到 absent或完整 record并幂等 adopt exact
+  pending sequence；任何 collision/foreign/invalid target保留上一个 logical pointer并 stale，禁止跳号或 rename/replace fallback；
 - scheduler attempt/success 只写 closed state/time/digest，不写 raw stderr、
   path、event 或 reason。
 
@@ -331,8 +332,9 @@ clean 不删除该 fence。input-changing upgrade 在替换任何 input 前先�
 new snapshot digest；rollback 同样用 N+2（或更高）提交 restored snapshot，禁止复用旧 generation。
 
 scheduled/manual generator 在等待 lifecycle lock 前捕获 admission 时的 exact generation +
-installed snapshot digest token；取得 lock 后必须重开 fence：scheduled mode 验证 `state=enabled`，
-manual mode 验证 coverage contract 的显式 `manual_authority` active epoch；两者都须验证 matching
+installed snapshot digest token；取得 lock 后必须重开 fence：scheduled mode 验证 `state=enabled`；manual mode
+只接受 coverage contract 中已由 `stop` durable封闭的 exact `manual_authority` epoch，并验证 terminal root、
+stop boundary与全 parent quiescence proof，active或ambiguous epoch nonzero且不写。两者都须验证 matching
 generation/snapshot，publish 前再次复核，然后才能固定 source handles，并持锁完成 validate、
 history/current publish、ownership receipt 与 success state commit。disable/clean 先取得
 同一 lock，先推进 disabled/cleaned generation 使所有既有/queued token 失效，再停止/验证 scheduler
@@ -364,11 +366,11 @@ freshness。`verify-install` 在 H-001 recommendation 和支持
 不得伪装 active。
 
 unsupported 平台的 doctor 必须显示 coverage contract 的 exact manual command sequence：
-`manual-authority start` 创建独立 epoch，`status` 验证 provider/heartbeat，`generate` 接受任一通过
-CLI 语法、边界与 budget 校验的显式 window；该 epoch 完整覆盖的 window 才能返回 `complete`，start
-前、跨未覆盖区间或 stop 后结束的合法 window 返回无 headline 的 `partial_coverage`（terminal evidence
-仍 nonzero/no-publish）。`stop` quiesce 并封闭 epoch。它不安装 scheduler、不改 `scheduler_state`，
-也不得拒绝合法历史 window 或把 start 前的 interval 报 complete。
+`manual-authority start` 创建独立 epoch，`status` 验证 provider/heartbeat，`stop` quiesce并 durable封闭 epoch，
+`generate` 只读选择 exact sealed epoch并接受任一通过 CLI 语法、边界与 budget 校验的显式 window；该 epoch
+完整覆盖的 window 才能返回 `complete`，start前、跨未覆盖区间或 seal后结束的合法 window 返回无 headline 的
+`partial_coverage`（terminal evidence仍 nonzero/no-publish）。它不安装 scheduler、不改 `scheduler_state`，
+也不得拒绝合法历史 window、读取active epoch或把 start 前的 interval 报 complete。
 
 `scripts/setup/clean.sh` 先取得 generation/retention 共用的 lifecycle lock，推进并
 durable commit `cleaned` generation，再停止并 probe scheduler inactive；随后只卸载
@@ -581,7 +583,7 @@ JSON：
 | B-002 default install produces scheduled summary after one install confirmation | setup plan + value scheduler integration | `bash tests/test_setup.sh` fresh macOS/Linux fixtures assert summary + cadence/jitter/expiry/provider disclosure, one confirmation, active job and next-window artifact |
 | B-003 narrow GH-556 supersession | surface dispatch in wrapper/installer | `bash tests/test_health_report_scheduler.sh` asserts standalone health remains opt-in/default-health while setup invokes explicit value surface |
 | B-004 opt-out creates no job | setup option + weekly state | `bash tests/test_setup.sh` asserts `--no-weekly-value`, no manager/authority/slot, no per-event coverage diagnostic and `disabled_by_user`; later enable starts a new partial epoch |
-| B-005 unsupported platform fail-visible | platform resolver + manual authority | `bash tests/test_setup.sh` Windows/unknown fixture asserts no fallback job/scheduled authority、`unsupported_platform` and executable manual start/status/generate/stop；a valid earlier/uncovered window returns headline-free partial while only continuously covered windows may be complete |
+| B-005 unsupported platform fail-visible | platform resolver + manual authority | `bash tests/test_setup.sh` Windows/unknown fixture asserts no fallback job/scheduled authority、`unsupported_platform` and executable manual start/status/stop/sealed-generate；active generation fails zero-write，valid earlier/seal-crossing window returns headline-free partial while only continuously covered windows may be complete |
 | B-006 one owned identity and third-party preservation | installer upsert/remove | `bash tests/test_health_report_scheduler.sh` repeated install plus third-party launchd/systemd fixtures |
 | B-007 registration failure rollback | lifecycle snapshot/probe/rollback | `bash tests/test_setup.sh` launchd/systemd write/load/probe failure matrix; setup completion absent and owned before-state restored |
 | B-008 exact half-open window metadata | weekly-value CLI parser and wrapper window calculator | `cargo test --manifest-path vibeguard-runtime/Cargo.toml weekly_value_window`; shell fixtures cover timezone/DST boundary |
@@ -598,7 +600,7 @@ JSON：
 | B-019 share field allowlist | shareable schema projection | schema-valid key-set requires H-005-approved `generated_at` plus explicit `data_status` + closed `status_reason`, rejects missing/null/extra fields；digest verification binds stable status fields but excludes generated time |
 | B-020 sensitive fields absent | share privacy firewall | adversarial sentinel scan in `bash tests/test_observe.sh` and `bash tests/test_health_report_scheduler.sh` |
 | B-021 no automatic egress or clipboard | wrapper/runtime static and dynamic fixtures | `bash tests/test_payload.sh` PATH stubs fail on network/open/clipboard commands; explicit local writes still pass |
-| B-022 secure atomic local writes | immutable generation + append-only pointer chain | JSON/Markdown/manifest/receipt/pointer crash barriers、0600/0700、create-only collision与 symlink/non-owned-output fixtures never overwrite or expose partial/mixed generation |
+| B-022 secure atomic local writes | immutable generation + append-only pointer chain | JSON/Markdown/manifest/receipt及 pointer pre-link/post-link/pre-dir-fsync crash barriers、0600/0700、create-only collision与 symlink/non-owned-output fixtures never overwrite or expose truncated/mixed generation |
 | B-023 health/value surfaces independent | wrapper/installer closed surface dispatch | `bash tests/test_health_report_scheduler.sh` installs/disables each identity independently and compares outputs |
 | B-024 bounded owned retention | current pin + default no-delete + attested backend + pre-publish cap | Linux/macOS fixtures pin current并保留/count receipt-only orphan；attested backend proves atomic identity lifecycle；cap-minus-one/cap/exceed stop before limits |
 | B-025 existing health job migration safety | migration detector | legacy launchd/cron fixtures remain byte-identical while new value state does not claim legacy consent |
@@ -611,7 +613,7 @@ JSON：
 | B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` maps unknown/incompatible evidence to closed partial reasons；real v1 missing identity is `legacy_evidence` partial，schema-v2 missing required identity is terminal `event_identity_missing`/no-publish，present-ID conflicting tuples are `event_identity_conflict` partial |
 | B-033 artifact evidence binding | stable content digest verifier + doctor/export | generated/attempt metadata changes preserve digest；tampered coverage/data/status reason/evidence/window/taxonomy changes alter/reject digest |
 | B-034 interruption recovery | pending state + atomic publish/lifecycle recovery | kill-at-each-phase fixtures followed by retry leave one owned job/current artifact and no temp/pending success claim |
-| B-035 closed live+archive snapshot | coverage contract + installed launchers/authorized-discard + fenced authority + async reader | trusted sleep/boot fences distinguish unavailable time from gaps；all three parents prove slot-before-work；manual/scheduled epochs stay separate；large-archive+GC contention latency uses exact wrappers/IPC/fsync |
+| B-035 closed live+archive snapshot | coverage contract + installed launchers/authorized-discard + fenced authority + async reader | trusted sleep/boot fences distinguish unavailable time from gaps；all three parents prove slot-before-work且durable no-spawn无需row；manual sealed generation/scheduled epochs stay separate；journal bound含max query span；large-archive+GC contention latency uses exact wrappers/IPC/fsync |
 | B-036 structured classification at creation | event schema v2 + producer registry + Rust/shell/Python writers | version+digest exact match and typed zero-match map `unclassified_event`；fixtures enforce v1 missing → `legacy_evidence` partial，v2 required-identity missing → terminal/no-publish，present-ID conflict → `event_identity_conflict` partial |
 | B-037 byte-stable event identity | writer-generated event ID + GC byte preservation | append→rotate→gzip→read preserves ID; copy dedupes, retry differs；duplicate-ID tuple permutations keep one deterministic conflict digest |
 | B-038 headline publication gate | summary schema + all renderers | empty/partial fixtures只接受 H-004 选中的 null 或 absent 形状且跨 renderer 一致；invalid evidence不发布；complete nonempty 可含真实零 |
@@ -715,10 +717,10 @@ bootstrap 边界，不属于 summary producer。
   complete-empty continuous heartbeat、trusted suspend/resume/boot fence、parent-ID/durable-slot handoff、
   disabled/unsupported no scheduled authority、manual epoch/start-before-window boundary、later-enable partial epoch、
   dual ledger/spool loss unresolved sequence、closed host/classification/identity downgrade reasons、
-  authority expiry/unclean restart recovery gap、bounded checkpoint/compaction、hook-decision preservation、
+  authority expiry/unclean restart recovery gap、verified no-spawn complete-empty、query-span bounded checkpoint/compaction、hook-decision preservation、
   live+gzip immutable snapshot、async hash/GC race、duplicate-ID tuple permutation、contract version+digest mismatch、
   zero taxonomy match、legacy identity、mixed categories、GH-706 protocol split、unknown host、no-data/partial、
-  old/invalid taxonomy、append-only-pointer cross-render parity、v2 required-identity terminal failure和 sentinel。
+  old/invalid taxonomy、crash-atomic append-only-pointer cross-render parity、sealed manual generation、v2 required-identity terminal failure和 sentinel。
 - [ ] Launcher authority：Claude/Codex installed wrapper 与 standalone authorized-discard exact fixtures 覆盖
   invocation ID→durable fsync slot→spawn/work、pre-slot failure semantics、spawn/action crash、unused/expired slot、
   quiescence seal 与 opt-out bypass；禁止 mock IPC/fsync。
@@ -727,7 +729,7 @@ bootstrap 边界，不属于 summary producer。
   current-target pin、receipt-only orphan bounded accounting、same-path replacement、pre-clean/pre-upgrade queued generator fence、
   interrupt recovery。
 - [ ] Setup lifecycle：默认 plan disclosure、H-002 cadence/jitter/expiry inequality/provider、
-  `--no-weekly-value`、unsupported manual start/status/generate/stop、exact 4 × 26
+  `--no-weekly-value`、unsupported manual start/status/stop/sealed-generate、exact 4 × 26
   orthogonal-state doctor/verify matrix、clean/purge ownership。
 - [ ] Payload：无 Python/checkout/network 的 unpacked payload install → scheduled
   summary → doctor → clean；checkout/payload exact semantic parity。

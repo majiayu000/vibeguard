@@ -23,13 +23,13 @@ Authority mode closed 为 `scheduled|manual`：
   `authority_id`、epoch namespace、owner nonce 与 journal root；
 - `disabled_by_user` 和默认 `unsupported_platform` 不创建 authority、heartbeat、slot 或
   逐事件 coverage diagnostic；unsupported 平台必须展示 exact
-  `vibeguard-runtime observe weekly-value manual-authority start|status|generate|stop`
+  `vibeguard-runtime observe weekly-value manual-authority start|status|stop|generate`
   命令序列；`generate` 还必须携带第 3 节 CLI 的 exact window/timezone/scope/taxonomy 参数；
-- manual `generate` 接受任一通过第 3 节 CLI 语法、边界与 budget 校验的显式 half-open
-  window，但只有被该 manual epoch 连续覆盖的 window 才能返回 `complete`。早于
-  `manual_enabled_at`、跨越未覆盖区间或在 stop 后结束的合法 window 必须生成无 headline 的
-  `partial_coverage`；schema/corruption 等 terminal evidence 仍 nonzero/no-publish。命令不得拒绝合法的
-  历史 window，也不能由一次 on-demand scan 补造 complete 历史。
+- manual `stop` 必须先 quiesce parents 并 append+fsync terminal seal；`generate` 只读一个 exact sealed
+  manual epoch（active epoch 必须先 stop），接受任一通过第 3 节 CLI 语法、边界与 budget 校验的显式
+  half-open window。只有被该 epoch 连续覆盖的 window 才能返回 `complete`；早于 `manual_enabled_at`、
+  跨未覆盖区间或在 seal 后结束的合法 window 必须返回无 headline 的 `partial_coverage`；schema/corruption
+  等 terminal evidence 仍 nonzero/no-publish。命令不得拒绝合法历史 window或用 on-demand scan补造 complete。
 
 任一 mode 的 epoch 都绑定 exact installed snapshot digest、authority provider identity、
 批准的 cadence/jitter/expiry 和 lifecycle generation。mode、epoch 或 snapshot digest 不同的
@@ -66,10 +66,12 @@ canonical log、coverage ledger 或 spool 共故障域。
 - opt-out 或未启动 manual authority 的 unsupported 路径明确 bypass value reservation，保持既有
   guard/command 语义且不产生逐事件 coverage failure。
 
-slot state closed 为 `opened|spawned|committed|gap|aborted_before_spawn`。只有 durable
-no-spawn proof 才能写 `aborted_before_spawn`；crash、timeout 或不确定一律 gap。heartbeat renewal
-必须先封闭 launcher generation，取得所有 registered parents 的 quiescence ack、最高 sequence 与
-全部 slot terminal proof；缺任一证据禁止续租。
+slot state closed 为 `opened|spawned|committed|gap|aborted_before_spawn`。只有绑定 reservation、launcher
+generation、spawn syscall outcome 与 fsynced quiescence proof 的 durable no-spawn record 才能写
+`aborted_before_spawn`；它证明 caller 从未存在，所以是无需 event row、也不产生 partial reason 的 terminal
+accounting。crash、timeout、可能已 spawn 或任何不确定一律 gap。heartbeat renewal 必须先封闭 launcher
+generation，取得所有 registered parents 的 quiescence ack、最高 sequence 与全部 slot terminal proof；缺任一
+证据禁止续租。
 
 writer 把 reservation token 与 conservative half-open `coverage_interval` 写入 coverage ledger；
 主 ledger 不可写时写独立 spool。row append+fsync 后才能以 matching event identity/tail commit。
@@ -123,13 +125,16 @@ event-tail/root digest；含 pending/unacknowledged/gap 的 bucket 固化成覆�
 gap。新 generation fsync 后引用 prior root，再 atomic swap 并保留两代；current bucket 不 compact。
 hard bound 为
 `ceil((retention_horizon_seconds + maximum_catch_up_duration_seconds +
-heartbeat_expiry_seconds) / heartbeat_cadence_seconds) + 3`。超限必须 partial/error，禁止丢 proof。
+maximum_query_window_duration_seconds + heartbeat_expiry_seconds) /
+heartbeat_cadence_seconds) + 3`。H-004 必须批准正整数 maximum query-window duration，且任何可选择 window
+的实际 span 不得超过它；超限或无法证明最早 query start 仍在 journal 内必须 partial/error，禁止丢 proof。
 
 complete window 要求：所有 available intervals 有连续、未过期 heartbeat；所有 host-unavailable
 interval 有第 3 节 trusted fence；authority/attempt sequence 连续；每个与 query window相交的 reservation
-都有 matching committed row，且不存在任何相交的 open或 closed gap；source snapshot有效。closed gap只
-证明已知缺口的 terminal accounting，绝不证明 complete。连续 proof + 空 reservation/event set且零相交 gap
-才是 complete-empty；任何 query-overlap gap一律 `partial_coverage`。
+都有 matching committed row，或有第 2 节 exact `aborted_before_spawn` terminal proof，且不存在任何相交的
+open或 closed gap；source snapshot有效。closed gap只证明已知缺口的 terminal accounting，绝不证明
+complete。连续 proof + 仅含 verified no-spawn reservation 的空 event set且零相交 gap才是 complete-empty；
+任何 query-overlap gap一律 `partial_coverage`。
 
 ## 5. Immutable source generation 与 lock budget
 
@@ -185,13 +190,18 @@ current-pointers/<pointer-sequence>-<pointer-id>.json
 producer 从同一 verified object 渲染 JSON/Markdown；`generation.json` 绑定 window、generation ID、
 两个 renderer 的 restricted relative path、length/digest、`summary_digest` 与 ownership receipt identity。
 发布顺序固定为 temp generation directory → 写两种 renderer/manifest → flush/fsync files → schema/digest
-verify → fsync generation directory/parent → append+fsync ownership receipt → append pointer record → fsync
-pointer directory/parent → success state。pointer record exact绑定 strictly monotonic sequence、CSPRNG ID、prior
-pointer digest、generation/receipt/object identities与 record digest，只能在 mode 0700 owned directory以
-no-follow `O_CREAT|O_EXCL` create-new提交；既有、symlink或 non-owned target导致 nonzero/stale，禁止 pathname
-replace、truncate或覆盖。consumer只 fold gap-free、digest-linked、receipt-authorized pointer chain并选择最后
-一个 generation或 clean提交的 no-current tombstone；unknown/fork/gap/tamper均 fail visible，不得分别追踪
-`current.json`/`current.md`或读取 orphan/partial generation。
+verify → fsync generation directory/parent → append+fsync ownership receipt → prepare pointer record → atomic
+create-only publish → fsync pointer directory/parent → success state。pointer record exact绑定 strictly monotonic
+sequence、CSPRNG ID、prior pointer digest、generation/receipt/object identities与 record digest。producer先在同一
+filesystem、mode 0700 owned staging directory以 CSPRNG name和 no-follow `O_CREAT|O_EXCL`创建 mode 0600 inode，
+完整 write+fsync+verify 后用 `linkat` 等经 capability test 的 atomic no-replace hard-link primitive创建 final
+pointer pathname；既有、symlink、跨 filesystem或 non-owned target导致 nonzero/stale，禁止 rename/replace、
+truncate或覆盖。crash recovery只接受两种结果：final absent时旧 pointer仍 current；final存在时必须是完整、
+digest-valid且 exact匹配 pending receipt/prior head的 inode，recovery fsync directory并幂等 adopt同一 sequence，
+否则按 tamper fail visible，绝不跳号。staging link只在 final durable后按 exact inode清理。consumer只 fold
+gap-free、digest-linked、receipt-authorized pointer chain并选择最后一个 generation或 clean提交的 no-current
+tombstone；unknown/fork/gap/tamper均 fail visible，不得分别追踪 `current.json`/`current.md`或读取 orphan/partial
+generation。
 
 任一 renderer、manifest、receipt或 pointer commit失败都保留旧 logical pointer、nonzero/stale。receipt-durable
 但 pointer未提交的 orphan在 `capability_attested` backend上也只有 atomic expected-identity claim与同 identity
@@ -202,10 +212,11 @@ capability缺失/失败时保留 orphan；下一 write将触及 entries/bytes ca
 ## 8. Focused verification
 
 - suspend/resume、clean shutdown、unclean reboot、clock uncertainty、open-slot boundary 与普通 nightly sleep；
-- scheduled/manual authority namespace、unsupported manual start/status/generate/stop、历史 window partial；
+- scheduled/manual authority namespace、unsupported manual start/status/stop/sealed-generate、历史 window partial；
 - Claude/Codex launcher与 authorized-discard preflight 的 slot-before-work 顺序及 opt-out bypass；
 - large archive async hashing 与 GC/writer contention 下的 exact installed wrapper P95 gate；
 - archive corrupt terminal non-publish、missing/tombstone/snapshot-change partial 分支；
 - zero taxonomy match、version-match/digest-mismatch 与 duplicate-ID tuple permutation；
-- JSON-only、Markdown-only、manifest、receipt、append-only pointer与 orphan-cap barrier，consumer永不看到
-  mixed generation、retention永不 retire current pin或 receipt-only replacement。
+- JSON-only、Markdown-only、manifest、receipt、pre-link/post-link/pre-directory-fsync crash、append-only pointer与
+  orphan-cap barrier，consumer永不看到 truncated/mixed generation、retention永不 retire current pin或
+  receipt-only replacement。
