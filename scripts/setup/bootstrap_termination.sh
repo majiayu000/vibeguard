@@ -7,7 +7,7 @@ bootstrap_process_group_table_from_proc() {
   [[ -d "${proc_root}" ]] || return 1
   for stat_file in "${proc_root}"/[0-9]*/stat; do
     [[ -e "${stat_file}" ]] || continue
-    if ! IFS= read -r record < "${stat_file}"; then
+    if ! record="$(<"${stat_file}")"; then
       [[ -e "${stat_file}" ]] && return 1
       continue
     fi
@@ -102,7 +102,7 @@ bootstrap_setup_gate_wait() {
 bootstrap_linux_tty_is_foreground_from_proc_root() {
   local root="$1" pid="$2" record rest pgid tpgid had_noglob=0
   [[ "${pid}" =~ ^[1-9][0-9]*$ ]] || return 1
-  IFS= read -r record < "${root}/${pid}/stat" || return 1
+  record="$(<"${root}/${pid}/stat")" || return 1
   [[ "${record}" == "${pid} "* && "${record}" == *") "* ]] || return 1
   rest="${record##*) }"
   [[ $- == *f* ]] && had_noglob=1

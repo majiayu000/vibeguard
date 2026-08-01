@@ -316,7 +316,7 @@ done
 pid_proc_root="${TMP_HOME}/bootstrap-pid-proc"
 mkdir -p "${pid_proc_root}/77" "${pid_proc_root}/88" "${pid_proc_root}/89"
 printf '%s\n' '77 (active setup) S 1 77 0 0' > "${pid_proc_root}/77/stat"
-printf '%s\n' '88 (zombie ) setup) Z 1 88 0 0' > "${pid_proc_root}/88/stat"
+printf '88 (zombie )\nsetup) Z 1 88 0 0\n' > "${pid_proc_root}/88/stat"
 printf '%s\n' 'malformed' > "${pid_proc_root}/89/stat"
 assert_cmd "Linux proc PID classifier identifies active, zombie, absent, and malformed states" \
   env REPO_DIR="${REPO_DIR}" bash -c '

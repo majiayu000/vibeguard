@@ -251,7 +251,7 @@ group_proc_root="${TMP_HOME}/bootstrap-group-proc"
 mkdir -p "${group_proc_root}/1" "${group_proc_root}/4242" "${group_proc_root}/4243"
 printf '%s\n' '1 (init) S 0 0 0 0' > "${group_proc_root}/1/stat"
 printf '%s\n' '4242 (setup supervisor) S 1 4242 0 0' > "${group_proc_root}/4242/stat"
-printf '%s\n' '4243 (setup ) child) Z 4242 4242 0 0' > "${group_proc_root}/4243/stat"
+printf '4243 (setup )\nchild) Z 4242 4242 0 0\n' > "${group_proc_root}/4243/stat"
 assert_cmd "Linux proc snapshots provide portable group state without procps flags" \
   env REPO_DIR="${REPO_DIR}" bash -c '
     set -euo pipefail; source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
@@ -261,7 +261,7 @@ assert_cmd "Linux proc snapshots provide portable group state without procps fla
 
 tty_proc_root="${TMP_HOME}/bootstrap-tty-proc"
 mkdir -p "${tty_proc_root}/42" "${tty_proc_root}/43" "${tty_proc_root}/44"
-printf '%s\n' '42 (foreground shell) S 1 42 42 34816 42 0' > "${tty_proc_root}/42/stat"
+printf '42 (foreground\nshell) S 1 42 42 34816 42 0\n' > "${tty_proc_root}/42/stat"
 printf '%s\n' '43 (background ) shell) S 1 43 42 34816 42 0' > "${tty_proc_root}/43/stat"
 printf '%s\n' 'malformed' > "${tty_proc_root}/44/stat"
 assert_cmd "Linux proc TTY probe distinguishes foreground, background, and malformed records" \

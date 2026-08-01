@@ -317,7 +317,7 @@ bootstrap_linux_pid_liveness_from_proc_root() {
     BOOTSTRAP_LINUX_PID_LIVENESS="dead"
     return 0
   fi
-  if ! IFS= read -r record < "${proc_root}/${pid}/stat"; then
+  if ! record="$(<"${proc_root}/${pid}/stat")"; then
     [[ ! -e "${proc_root}/${pid}" ]] \
       && BOOTSTRAP_LINUX_PID_LIVENESS="dead"
     return 0
