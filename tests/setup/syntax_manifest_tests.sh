@@ -12,7 +12,9 @@ assert_cmd "executable payload templates declare deterministic LF checkout" bash
   scripts/setup/bootstrap_birth_token.jxa \
   scripts/systemd/vibeguard-gc.service \
   scripts/systemd/vibeguard-gc.timer \
-  scripts/release/payload-manifest.txt
+  scripts/release/payload-manifest.txt \
+  claude-md/CLAUDE.md \
+  templates/AGENTS.md
 assert_cmd "setup.sh syntax is correct" bash -n "${REPO_DIR}/setup.sh"
 assert_cmd "scripts/setup/install.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/install.sh"
 assert_cmd "source runtime build does not call cargo metadata" assert_prepare_runtime_from_source_no_cargo_metadata
