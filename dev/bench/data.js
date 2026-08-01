@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785606245885,
+  "lastUpdate": 1785617561746,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -56051,6 +56051,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e stop 5000 P99",
             "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 13,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c4c7b84e0e8ee0cc2ba645081ac8c997d7472e5",
+          "message": "fix(bootstrap): preserve orphaned setup lease after #726 (#732)\n\n* fix(bootstrap): preserve active setup lease after parent crash\n\n* fix(bootstrap): keep active setup lease canonical during recovery\n\n* fix(bootstrap): supervise isolated setup process group\n\n* fix(release): keep payload manifest bytes deterministic\n\n* fix(hooks): keep extensionless pre-push hook in LF\n\n* fix(systemd): refuse removal without ownership receipt\n\n* fix(setup): close lease revalidation races\n\n* fix(bootstrap): bound setup cancellation\n\n* fix(bootstrap): harden bounded cancellation ownership\n\n* style(tests): trim split fragment EOF blanks\n\n* fix(bootstrap): serialize lease retirement\n\n* fix(bootstrap): harden orphan lease recovery\n\n* fix(bootstrap): make terminal lease cleanup resumable\n\n* fix(bootstrap): reap crashed claim candidates\n\n* fix(repo): pin executable templates to LF\n\n* fix(repo): pin prompt templates to LF\n\n* fix(setup): keep interactive cancellation supervised\n\n* fix(setup): classify Linux pid state via proc\n\n* fix(setup): probe Linux foreground tty via proc\n\n* fix(setup): read complete Linux proc stat records\n\n* ci: raise bounded setup matrix timeout\n\n* test(setup): synchronize stale recovery portably\n\n* test(setup): inject process fixtures at helper boundaries\n\n* test(setup): inject stopped-group fixtures portably",
+          "timestamp": "2026-08-02T04:14:36+08:00",
+          "tree_id": "db8928f78cbbb4b150a3fa60c7220ecaaa422031",
+          "url": "https://github.com/majiayu000/vibeguard/commit/1c4c7b84e0e8ee0cc2ba645081ac8c997d7472e5"
+        },
+        "date": 1785617560574,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 82,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 84,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 84,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 80,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 82,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 82,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 86,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 87,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 87,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 80,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 82,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 82,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 84,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 85,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 85,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 70,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 70,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 70,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 31,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 31,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 31,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 31,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 84,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 94,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 94,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 82,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 82,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 82,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 13,
             "unit": "ms"
           },
           {
