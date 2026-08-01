@@ -339,10 +339,14 @@ installed snapshot digest token；取得 lock 后必须重开 fence：scheduled 
 stop boundary与全 parent quiescence proof，active或ambiguous epoch nonzero且不写。两者都须验证 matching
 generation/snapshot，publish 前再次复核，然后才能固定 source handles，并持锁完成 validate、
 history/current publish、ownership receipt 与 success state commit。disable/clean 先取得
-同一 lock，先推进 disabled/cleaned generation 使所有既有/queued token 失效，再停止/验证 scheduler
-inactive，最后删除 owned control state；在操作开始前已启动但仍等待 lock 的 process 取得 lock 后
-必须因旧 token 退出且零 source/artifact write。超时、取消不确定或 late-publish 无法排除时 nonzero
-且不得报告 lifecycle 成功。tests 用 barrier 固定“generator 已启动但尚未取得 lock”这一 race。
+同一 lock，先推进 generation fence 使所有既有/queued token 失效；clean 还必须对每个 active authority mode
+执行 coverage contract 的 admission close、parent quiescence、terminal seal、resident stop 与存活证明，
+再停止/验证 scheduler inactive，且只有全部 proof 通过后才可提交 terminal `disabled`/`cleaned` state、删除
+owned control state 和写 no-current。generation fence 是防 late-publish 的非成功中间证据；quiesce/seal/stop
+失败、取消不确定或 resident identity 无法重验时，保留该 fence 与可恢复 control state，禁止提交 terminal
+cleaned/no-current 或报告 lifecycle 成功。操作开始前已启动但仍等待 lock 的 process 取得 lock 后必须因旧
+token 退出且零 source/artifact write。超时或 late-publish 无法排除时 nonzero。tests 用 barrier 固定
+“generator 已启动但尚未取得 lock”这一 race。
 
 ### 6. Setup、upgrade、doctor 与 clean
 
@@ -374,8 +378,15 @@ unsupported 平台的 doctor 必须显示 coverage contract 的 exact manual com
 `partial_coverage`（terminal evidence仍 nonzero/no-publish）。它不安装 scheduler、不改 `scheduler_state`，
 也不得拒绝合法历史 window、读取active epoch或把 start 前的 interval 报 complete。
 
-`scripts/setup/clean.sh` 先取得 generation/retention 共用的 lifecycle lock，推进并
-durable commit `cleaned` generation，再停止并 probe scheduler inactive；随后只卸载
+`scripts/setup/clean.sh` 先取得 generation/retention 共用的 lifecycle lock，推进并 durable fsync generation
+fence（不宣称 terminal clean 成功），再对每个 active authority mode（包括 manual）执行 coverage contract
+规定的封闭 admission、parent quiescence、terminal seal、resident authority stop 与存活证明，然后停止并
+probe scheduler inactive；resident-process proof 必须绑定 authority epoch、owner nonce、launch receipt 与
+approved executable/snapshot digest，stop 后在释放 authority lock 前重新读取并校验该 identity；PID 或 pathname
+单独不构成 proof，identity replacement、竞态或无法重验均失败。scheduler probe 不能替代 manual authority 的终止屏障。
+只有全部 quiesce/seal/stop proof
+通过后才 durable commit `cleaned` generation。任一 proof 缺失、resident identity 无法重验或状态不确定时必须
+nonzero、保留该 generation fence 与 control state，禁止报告 clean 成功或提交 no-current tombstone。随后只卸载
 owned value job、删除 value state并向 pointer chain append no-current tombstone（保留 chain与 generation fence），
 然后走现有 install cleanup。默认保留 history/share；现有 `--purge-data` 只有在
 H-007 获批包含 value report data 后，才按 durable ownership receipt 删除受限 owned
@@ -494,7 +505,9 @@ JSON：
     "tests/hooks/test_pre_bash_guard.sh",
     "tests/hooks/test_pre_edit_guard.sh",
     "tests/hooks/test_precommit_nested_roots.sh",
+    "tests/hooks/test_precommit_authority.sh",
     "tests/hooks/test_run_hook_authority.sh",
+    "tests/setup/authority_clean_tests.sh",
     "tests/bench_hook_latency.sh",
     "tests/setup/install_flow_tests.sh",
     "tests/setup/syntax_manifest_tests.sh",
@@ -612,13 +625,13 @@ JSON：
 | B-026 disabled state survives upgrade | weekly-value state schema + setup migration | two-version install fixture keeps `disabled_by_user`; missing-field fixture follows approved visible migration |
 | B-027 legal transitions require probe | lifecycle transition gate | direct file injection/history-only/executable-only fixtures remain non-active; explicit enable + probe becomes active |
 | B-028 concurrent lifecycle/generation serialization | shared bounded lifecycle lock | install/upgrade/disable/clean racing generator/retention yields no late publish；upgrade success/rollback advances generation and stale actor visibly exits |
-| B-029 clean removes only owned control state | setup clean + installer remove | appends exact `no_current` terminal variant，forbids current fields，preserves audit/history/exports/third-party jobs |
+| B-029 clean removes only owned control state | setup clean + installer remove | dedicated authority-clean fixture runs both scheduled and manual active cases, proves quiesce/seal/stop 与 resident-process proof；之后才 append exact `no_current` terminal variant，forbids current fields，preserves audit/history/exports/third-party jobs |
 | B-030 doctor/verify orthogonal state truth | setup check four-dimension evaluator | matrix covers lifecycle × freshness/data × retention health，including active+no_data+blocked-retention，plus target/digest/ownership drift |
 | B-031 checkout/payload parity | payload manifest and no-clone smoke | `bash tests/test_payload.sh` exact schema/taxonomy/count/digest parity, no Python/network/checkout |
 | B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` maps unknown/incompatible evidence to closed partial reasons；real v1 missing identity is `legacy_evidence` partial，schema-v2 missing required identity is terminal `event_identity_missing`/no-publish，present-ID conflicting tuples are `event_identity_conflict` partial |
 | B-033 artifact evidence binding | stable content digest verifier + doctor/export | generated/attempt metadata changes preserve digest；tampered coverage/data/status reason/evidence/window/taxonomy changes alter/reject digest |
 | B-034 interruption recovery | pending state + atomic publish/lifecycle recovery | kill-at-each-phase fixtures followed by retry leave one owned job/current artifact and no temp/pending success claim |
-| B-035 closed live+archive snapshot | coverage contract + real launchers/authority/reader | preserves source bootstrap；exact seq0；outer/hook/index fan-out duplicate/sibling crash；prefix capacity + segment early seal；all-retained preflight before content budget |
+| B-035 closed live+archive snapshot | coverage contract + real launchers/authority/reader | preserves source bootstrap；exact seq0；installed Git pre-commit parent slot-before-exec and pre-slot failure fixture；outer/hook/index fan-out duplicate/sibling crash；prefix capacity + segment early seal；all-retained preflight before content budget |
 | B-036 structured classification at creation | event schema v2 + producer registry + Rust/shell/Python writers | version+digest exact match and typed zero-match map `unclassified_event`；fixtures enforce v1 missing → `legacy_evidence` partial，v2 required-identity missing → terminal/no-publish，present-ID conflict → `event_identity_conflict` partial |
 | B-037 byte-stable event identity | writer-generated event ID + GC byte preservation | append→rotate→gzip→read preserves ID; copy dedupes, retry differs；duplicate-ID tuple permutations keep one deterministic conflict digest |
 | B-038 headline publication gate | summary schema + all renderers | empty/partial fixtures只接受 H-004 选中的 null 或 absent 形状且跨 renderer 一致；invalid evidence不发布；complete nonempty 可含真实零 |
@@ -724,13 +737,14 @@ bootstrap 边界，不属于 summary producer。
   live+gzip immutable snapshot、async hash/GC race、duplicate-ID tuple permutation、contract version+digest mismatch、
   zero taxonomy match、legacy identity、mixed categories、GH-706 protocol split、unknown host、no-data/partial、
   old/invalid taxonomy、receipt record/marker+pointer crash parity、all-retained mutation/preflight terminal、content budget partial和 sentinel。
-- [ ] Launcher authority：Claude、Codex outer normalizer+inner fan-out与 standalone authorized-discard exact fixtures 覆盖
-  outer request+canonical hook+index→每 inner durable slot、duplicate拒绝、sibling crash隔离、pre-slot failure、
-  quiescence seal 与 opt-out bypass；禁止 mock IPC/fsync。
+- [ ] Launcher authority：installed Git pre-commit parent、Claude、Codex outer normalizer+inner fan-out与 standalone
+  authorized-discard exact fixtures 覆盖 wrapper→canonical parent→durable slot、outer request+canonical hook+index→
+  每 inner durable slot、duplicate拒绝、sibling crash隔离、pre-slot failure、quiescence seal 与 opt-out bypass；
+  禁止 mock IPC/fsync。
 - [ ] Scheduler lifecycle：launchd/systemd heartbeat+weekly-output plan/apply/probe/rollback、legacy health
   preservation、authority state ownership、repeat/concurrent install、missed run、generation-vs-disable/clean/upgrade race、
   current-target pin、receipt-only orphan bounded accounting、same-path replacement、pre-clean/pre-upgrade queued generator fence、
-  interrupt recovery。
+  scheduled/manual clean quiesce/seal/stop and resident-process proof fixture、interrupt recovery。
 - [ ] Setup lifecycle：默认 plan disclosure、H-002 cadence/jitter/expiry inequality/provider、
   `--no-weekly-value`、unsupported manual start/status/stop/sealed-generate、exact 4 × 26
   orthogonal-state doctor/verify matrix、clean/purge ownership。

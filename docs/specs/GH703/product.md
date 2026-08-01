@@ -202,7 +202,9 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     并在每次 canonical writer attempt 的任何 event 工作之前 durable 分配严格递增的
     `attempt_sequence`。只枚举当前仍存在的文件或只看“没有 event”不能证明没有 writer attempt。
     ledger 与 spool 同时失败时，authority 中尚未被 matching row/ledger commit 消解的 reservation
-    必须形成明确 gap；durable `aborted_before_spawn` 证明 caller 从未存在，因此无需 event row且不制造 partial，
+    必须形成明确 gap；durable `aborted_before_spawn` 证明 caller 从未存在，因此无需 event row且不制造 partial；
+    durable `reservation_rejected` 表示 pre-slot admission 被拒且 caller 未启动，不计入 event set、也不制造 gap，
+    但 reader 必须验证该 authority outcome 才能把对应 window 判为 complete；
     但任何可能已 spawn 或不确定的 slot 仍是 gap；authority heartbeat 过期、sequence 不连续或 authority 恢复为新 epoch 时，
     从最后可信 heartbeat 到 durable recovery checkpoint 的区间同样是 gap；但 H-002 获批 provider
     产生的可信 suspend/resume/boot fence 若同时证明该区间 host 上 canonical caller 不可能运行、边界
@@ -210,7 +212,8 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     sleep/reboot 自动记为 gap。fence 缺失、边界不确定或存在 open slot 时仍是 gap。只有 heartbeat 链完整
     覆盖整个 window、全部 attempt sequence 已闭合且 source snapshot 有效时，空 event set 才可成为
     `no_data`；任一 gap 相交都必须为 `partial_coverage`。仅 active value authority 注册的 resident host
-    parent 才能启动需要记录的 canonical caller：Codex fan-out每个 inner caller必须由
+    parent 才能启动需要记录的 canonical caller：installed Git pre-commit wrapper 必须先取得
+    `git_pre_commit` parent reservation；Codex fan-out每个 inner caller必须由
     `{outer_request_id,canonical_hook_id,fanout_index}` exact派生独立 ID/slot，duplicate拒绝；child crash不得关闭 sibling。
     pre-slot failure 不得启动 canonical caller 或产生不可见 attempt；launcher 必须按 host hook failure
     contract fail visible，pre-hook 保持既有 fail-closed、post-hook 保持既有 visible non-success 语义，且缺少
@@ -299,6 +302,8 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
   可信 suspend/boot fence 排除已证明的 host-unavailable 区间，缺 fence/open slot 才形成 recovery gap；
   opt-out/unsupported 默认没有 authority 或逐事件 diagnostic，unsupported 的显式 manual authority 在 stop seal
   后只读 generate，只能证明自身 sealed epoch 连续覆盖的 window，后续 enable 在首个完整 window 前保持 partial；
+  clean 在删除 state 或提交 no-current 前必须对 scheduled/manual authority 复用 quiesce、terminal seal、stop 与
+  resident-process proof，scheduler inactive 不能替代 manual authority barrier，任一 proof 缺失则 nonzero 且不报告成功；
   caller 已启动后的 coverage failure 不改变其 guard decision/exit semantics，且 reservation 通过官方 hook P95 gates。
 - [ ] canonical writer 在 Rust、shell 与 Python authorized-discard 路径持久化 closed event/rule/reason identities；
   unknown/incompatible host 与 unclassified v2 映射确定的 partial reason；真实 v1 missing identity 映射

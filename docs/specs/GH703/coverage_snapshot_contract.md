@@ -37,6 +37,12 @@ Authority mode closed 为 `scheduled|manual`：
 heartbeat/slot 不能拼接。manual stop 先封闭 admission、等待 quiescence、提交 terminal fence，
 再停止 resident authority；不确定状态形成 gap，而不是成功 stop。
 
+clean 也是 authority terminator，而不只是 scheduler probe：在删除 control state 或提交
+`no_current` 前，必须对每个 active authority mode（包括 manual）执行相同的封闭 admission、等待所有
+registered parents quiescence、append+fsync terminal seal、停止 resident authority 与存活证明；scheduler
+inactive 不能替代 manual authority 的 quiesce/seal/stop。任一 proof 缺失、不确定或 resident process 仍在，
+clean 必须 nonzero、保留 control state、不得提交 `no_current` 或报告成功。
+
 H-002 approval 必须固定正整数 seconds 的 `heartbeat_cadence_seconds`、
 `heartbeat_max_jitter_seconds`、`heartbeat_expiry_seconds`，并满足
 `heartbeat_expiry_seconds > heartbeat_cadence_seconds + heartbeat_max_jitter_seconds`；还必须固定正整数
@@ -66,6 +72,12 @@ canonical log、coverage ledger 或 spool 共故障域。
 `{authority_epoch, invocation_id, attempt_sequence, attempted_at}` reservation：
 
 - installed `hooks/run-hook.sh` 为每个 caller生成 CSPRNG ID，authority fsync reservation并 ack后才 spawn；
+- installed Git pre-commit parent（`scripts/setup/install.sh` 生成的
+  `~/.vibeguard/pre-commit` wrapper，再执行 `hooks/pre-commit-guard.sh`）也是 registered
+  canonical parent，必须以固定的 `canonical_hook_id=git_pre_commit` 在 guard 进程启动前取得并
+  fsync single-use reservation，再把不可伪造 token 交给 guard；guard 不得自行创建首个 slot。
+  专用 launcher fixture 必须覆盖 installed wrapper 的一次 reservation、pre-slot failure、guard 未启动
+  和唯一 terminal outcome；其 planned path 由 tech manifest 独占。
 - `hooks/run-hook-codex.sh` outer normalization只生成一次 CSPRNG `outer_request_id`，不得预留或复用 slot；
   `hooks/_lib/codex_runner.sh` fan-out loop才是每个 normalized inner caller的 parent。每个 iteration以 exact
   canonical resolved hook name作为 `canonical_hook_id`、从 0 严格递增 `fanout_index`，并以 epoch-keyed、
@@ -86,6 +98,12 @@ generation、spawn syscall outcome 与 fsynced quiescence proof 的 durable no-s
 accounting。crash、timeout、可能已 spawn 或任何不确定一律 gap。heartbeat renewal 必须先封闭 launcher
 generation，取得所有 registered parents 的 quiescence ack、最高 sequence 与全部 slot terminal proof；缺任一
 证据禁止续租。
+
+reservation request 在 slot open 之前被拒绝时不创建 slot，也不能伪装成
+`aborted_before_spawn`；authority 必须以 request identity append+fsync 独立的 closed admission outcome
+`reservation_rejected`，launcher 返回 nonzero 且不得启动 guard。`aborted_before_spawn` 只适用于已收到
+reservation ack、随后由 durable spawn outcome 证明 caller 从未启动的 slot。拒绝 outcome 本身无法 durable
+记录时，authority 必须 fail closed、保留不可证明状态并禁止 caller spawn；该 window 不得报告 complete。
 
 writer 把 reservation token 与 conservative half-open `coverage_interval` 写入 coverage ledger；
 主 ledger 不可写时写独立 spool。row append+fsync 后才能以 matching event identity/tail commit。
@@ -150,7 +168,8 @@ retained entries/bytes再分别乘以对应 per-segment cap，并加 fixed-size 
 
 complete window 要求：所有 available intervals 有连续、未过期 heartbeat；所有 host-unavailable
 interval 有第 3 节 trusted fence；authority/attempt sequence 连续；每个与 query window相交的 reservation
-都有 matching committed row，或有第 2 节 exact `aborted_before_spawn` terminal proof，且不存在任何相交的
+或 pre-slot admission request 都有 matching committed row、exact `aborted_before_spawn` terminal proof 或
+durable `reservation_rejected` outcome，且不存在任何相交的
 open或 closed gap；source snapshot有效。closed gap只证明已知缺口的 terminal accounting，绝不证明
 complete。连续 proof + 仅含 verified no-spawn reservation 的空 event set且零相交 gap才是 complete-empty；
 任何 query-overlap gap一律 `partial_coverage`。
@@ -246,7 +265,8 @@ capability缺失/失败时保留 orphan；下一 write将触及 entries/bytes ca
 
 - suspend/resume、clean shutdown、unclean reboot、clock uncertainty、open-slot boundary 与普通 nightly sleep；
 - scheduled/manual namespace、exact seq0/later deadline、manual pre-start/post-seal precedence；
-- Codex outer/hook/index fan-out identity、duplicate rejection、sibling crash isolation与 slot-before-work；
+- installed Git pre-commit wrapper 的 parent reservation、pre-slot rejection、guard zero-start 与 terminal
+  outcome；Codex outer/hook/index fan-out identity、duplicate rejection、sibling crash isolation与 slot-before-work；
 - large archive async hashing 与 GC/writer contention 下的 exact installed wrapper P95 gate；
 - segment cap/early seal/reserved capacity；all-retained preflight mutation/incomplete terminal与后续 budget partial；
 - zero taxonomy match、version-match/digest-mismatch 与 duplicate-ID tuple permutation；
