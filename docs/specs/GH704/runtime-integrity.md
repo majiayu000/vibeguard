@@ -128,7 +128,7 @@ recovery 与测试不得增加未声明的容量平面或把同一物理容量�
 | `outbox` | outbox root；entries+bytes | exact `receipt_prepared` intent | keyed-slot target-durable receipt 后的 transfer receipt |
 | `quarantine_frozen_lag` | global root token + selected primary/alternate admin generation；global/per-source entries+bytes | frozen/quarantine/admin ref | exact retired/tombstone proof + authoritative-root directory fsync receipt |
 | `success_history` | success-history root；global entries+bytes+per-source quota | `project_acknowledged` bucket ref | expired-bucket root CAS release receipt |
-| `global_admin` | global admin-index root；entries+bytes，含 adoption-manifest reservation | frozen/off/unreachable/quarantine stub 或 staged adoption manifest | stub/manifest retirement receipt |
+| `global_admin` | global admin-index root；live entries+bytes + independent preprovisioned fixed A/B adoption-scratch partition | frozen/off/unreachable/quarantine stub 或 staged adoption manifest | stub/manifest retirement receipt |
 | `project_wal_live` | project queue/WAL metadata root；entries+bytes+segments+segment bytes | root-selected WAL segments/checkpoint | common-compaction final receipt |
 | `project_wal_scratch` | 同一 project root 的独立 fixed A/B scratch maxima | staged compacted WAL generation | common-compaction transfer/release receipt |
 | `derived_log_live` | allocator root；entries+bytes+segments+segment bytes | root-selected derived segments/manifest | common-compaction final receipt |
@@ -148,11 +148,14 @@ reservation_bundle_digest,generation,state,transition_nonce,predecessor_receipt_
 count 是显式 `0`，不得缺字段或使用 wildcard。唯一合法 ownership graph 是
 `free → reserved → live`，以及从 `reserved|live` 开始的
 `transfer_prepared → target_durable(target_receipt_digest) → transferred`，或
-`retirement_pending → exact tombstone/unlink + directory fsync proof → released(release_receipt_digest)`。
-`transferred` 的同一 token 只能由 digest 指定的新 owner 继续；`released` 才产生一次可再 admission 的
-credit。publish/CAS、逻辑删除、retention expiry 或“稍后 cleanup”都不能提前 credit。每个非 terminal
-token 在任一 committed root 恰有一个 owner；旧 owner、新 owner、staged file 或 receipt 不能同时计 live，
-也不能无人负责。
+`retirement_pending → released(release_receipt_digest)`。`resource_kind` 从 token 创建到 release **不可变**；
+transfer 只能在同 kind 中改变 owner/object authority，禁止 scratch→live 或任何未声明 kind edge。
+materialized object 的 release receipt 必须绑定 exact tombstone/unlink + parent-directory fsync proof；从未
+materialize 的 cancel item 只能走显式 `reserved → retirement_pending {absent_object_proof,
+committed_root_snapshot_digest} → released`，其中 snapshot 同时证明 exact object key 从未进入 live/target-
+durable authority。两种 release edge 不可互换。`released` 才产生一次可再 admission 的 credit；publish/
+CAS、逻辑删除、retention expiry 或“稍后 cleanup”都不能提前 credit。每个非 terminal token 在任一
+committed root 恰有一个 owner；旧 owner、新 owner、staged file 或 receipt 不能同时计 live，也不能无人负责。
 
 每次 admission 原子创建 `reservation_bundle {reservation_bundle_id,ordered_items,
 reservation_bundle_digest}`；ordered item 对 closed inventory 中每个已预留 kind 固定 exact token、owner、
@@ -172,13 +175,13 @@ Review closure 必须落到下列 ledger row/edge，禁止再以局部 prose exc
 | project ack slot locator | `keyed_receipt_slot: live→retirement_pending→released(receipt)`；ack CAS 原子保留 complete locator |
 | off-receipt slot entitlement | 同一 keyed-slot edge；admin transfer 保留 exact token/key/digest/route locator |
 | derived-log full compaction | `derived_log_live + derived_log_scratch` common compaction final receipt |
-| project recovery WAL bounds/compaction | `project_wal_live + project_wal_scratch` common compaction final receipt |
+| project recovery WAL bounds/compaction | pre-provider semantic-attempt bundle + `project_wal_live/scratch` exchange receipt |
 | `gc-logs.sh` pins/rotation | `canonical_journal_live + canonical_journal_scratch` common compaction + pin set |
-| legacy Rust/shell journal writers | `canonical_journal_live` 唯一 owner + shared append lease；不得自建 capacity/offset owner |
-| adopt-all manifest overflow | `global_admin reserved→live/transferred`；immutable mode 前 full-manifest capacity receipt |
-| reservation cancel/abort | reservation bundle terminal totality；每个 reserved item exact release/transfer/retain |
+| legacy Rust/shell journal writers | `canonical_journal_live` L1 floor exact entitlement + shared append lease；不得借用/越界 |
+| adopt-all manifest overflow | `global_admin/adoption_scratch` fixed A/B partition；capacity=1 full 时仍有 preflight receipt |
+| reservation cancel/abort | terminal totality；never-materialized reserved item 必须用 committed-root absence release edge |
 | success-history expiry GC | `success_history live→retirement_pending→released`，refs+entries+bytes+quota 同一 receipt CAS |
-| WAL no-early-credit + derived counterpart | project/derived common compaction publish 后 old live + new scratch 双计费至 tombstone+dir-fsync final CAS |
+| WAL no-early-credit + derived counterpart | publish 后双计费；final `compaction_exchange` retarget old-live + release scratch，kind 均不变 |
 
 全部 activation receipts 匹配后，coordinator 在仍持有 project lock 时取得 deadline-bounded
 global registration lease，先证明 live slot、per-source frozen-lag quota，以及 independently bounded
@@ -315,9 +318,14 @@ queue metadata 只保留两个 checksummed fixed-size generations、committed cu
 与 oldest timestamp。project recovery WAL 自身必须是 checksummed segmented store，并由 closed
 positive `project_recovery_wal_max_entries`、`project_recovery_wal_max_bytes`、
 `project_recovery_wal_max_segments` 与 `project_recovery_wal_segment_max_bytes` 同时约束。每个新
-semantic group 在 provider/cache/journal 前原子预留足以容纳其最大 legal `prepared`、`journaled`
-与 recovery transitions 的 `project_wal_entitlement_id`；任一 bound full 时零 provider、零 WAL、
-零 journal append并 visible backpressure。terminal group 只有在 canonical row、全部 consumer/
+semantic attempt 必须在 cache lookup/provider/validator/reducer 前原子创建
+`semantic_attempt_bundle {attempt_id,input_envelope_digest,project_wal_entitlement_id,
+max_transition_bytes,reservation_bundle_digest}`，预留最大 legal `prepared`、`journaled` 与 recovery
+transitions；任一 bound full 时 cache/provider call count 均为零、零 WAL/journal append并 visible
+backpressure。cache hit/miss、provider error/timeout/cancel、validator/reducer reject 与 provider 后 crash
+都是 bundle edge：WAL object 尚未 materialize 时用 committed-root absence proof 进入
+`reserved→retirement_pending→released`；已经 materialize 时只能 durable abort/forward recovery，且每条
+terminal root 必须对 attempt bundle 全量 release/transfer/retain。terminal group 只有在 canonical row、全部 consumer/
 activation receipts、barrier、projection queue/marker 与仍可能引用 recovery record 的 reconcile cursor
 都已转移到独立 durable authority 后才 eligible；pending/staged/abort/rebind/repair、open cursor、reader
 snapshot 与 expected-offset proof 都必须 pin 原 segment。
@@ -330,9 +338,11 @@ project WAL、derived log 与 canonical journal GC/rotation 共用一个 compact
    reader authority 指向该 receipt，并进入 `retirement_pending`，不得释放 old live 或 scratch credit；
 3. 对 ordered old objects 写 exact tombstone/unlink，并取得各 parent directory fsync proof；任一 crash
    保持 `old live + new scratch` 双方计费，按 root-selected nonce roll-forward，不回退或覆盖；
-4. 只有全部 tombstone/dir-fsync proofs durable 后，final ledger CAS 才把 new scratch token 原子
-   `transferred → live`，释放 old live token与新 generation未使用的 scratch surplus，并保存唯一
-   `compaction_release_receipt`；lost response/replay 返回同一 receipt，不再次 credit。
+4. 只有全部 tombstone/dir-fsync proofs durable 后，final ledger CAS 才提交原子双 token
+   `compaction_exchange {old_live_token_id,new_object_key,new_generation,scratch_token_id,
+   ordered_tombstone_proof_digests}`：old live token 保持原 `resource_kind` 并 retarget 新 generation/object，
+   scratch token 保持 scratch kind 并进入 `released`；未使用 scratch surplus 同一 receipt 归还。唯一
+   `compaction_exchange_receipt` 绑定两项新 state；lost response/replay 返回同一 receipt，不再次 credit。
 
 project compaction 在 project lock 下按此协议使用独立 fixed A/B `project_wal_scratch`，其 staged body 是
 `project_wal_checkpoint {last_terminal_group_digest,journal_tail,queue_generation,
@@ -347,13 +357,16 @@ byte/time `floor - 1` rejection、exact floors 完成一条最大 transition、�
 slow/hung injected I/O 在 exact fault+teardown floor 内取消/终止/回收并只留 recoverable durable
 boundary，teardown `floor - 1` 零 edge 写入，以及 malformed length/offset/digest。
 
-canonical journal rotation/rewrite 也不是 free filesystem side effect：`gc-logs.sh` 必须在 shared append
-lease 下，由 journal manifest root 取得 fixed A/B `canonical_journal_scratch`，保留所有 project-WAL
-expected-offset、barrier/projection watermark 与 reader pins，并执行同一 stage/fsync → publish-with-old-charged
-→ exact old unlink+directory fsync → final transfer/release receipt。scratch full 时保持旧 canonical journal
-并 backpressure GH-704 admission，不能让 L1 writer失败或移动 pinned row；crash/replay 不得出现无 manifest
-segment、双 authority、early credit 或从 archive 扫描重建。policy epoch 还必须证明 journal live+scratch
-closed maxima 与 allocator fixed A/B root bytes 可同时落盘，否则在启用 L2 前 fail visible。
+canonical journal append/rotation 也不是 free filesystem side effect。每个普通 L1 writer 在 shared append
+lease 内、任何 append 前，必须从不可被 L2/GC 借用的 `canonical_journal_live` L1 floor/partition 取得 exact
+entry/byte/segment entitlement；append+fsync+manifest receipt 后才 `live`，never-materialized cancel 走 absent-
+object release edge。full 时只允许 deadline-bounded backpressure/compaction；仍无 entitlement 时保留已算出的
+L1 decision但返回 typed persistence unavailable，零 append且绝不越界。`gc-logs.sh` 由 journal manifest root
+取得 fixed A/B `canonical_journal_scratch`，保留所有 project-WAL expected-offset、barrier/projection watermark
+与 reader pins，并执行 common protocol + `compaction_exchange`。只在 I/O 最终成功且 pins 最终 unpin 的
+fair schedule 下承诺 finite progress；永久 pin、disk/scratch failure 必须 fail visible并保持 bounded old state，
+不得声称 liveness、移动 pinned row或超额 append。crash/replay 不得出现双 authority/early credit/scan rebuild。
+policy epoch 必须证明 L1 floor + journal live/scratch 与 allocator fixed A/B root bytes 可同时落盘。
 
 ## 4. Serialized global offset append
 
@@ -401,7 +414,7 @@ append/fsync 与 durable applied/tail commit 完成**：
    原子提交到同一 metadata generation，并把 reservation 的 exact `outbox_entitlement_id`
    原子转换为该 live intent；只有该 generation durable 后才释放 lease、回收 reservation body。
    conversion 前 entitlement 仍计 shared outbox capacity，rebind/admission 不得借用；crash recovery
-   只能完成 matching conversion，只有 reservation 被 durable cancellation/tombstone 时才原子释放；
+   只能完成 matching conversion，只有 reservation 进入带 committed-root absence/tombstone proof 的 durable cancellation 时才原子释放；
    cancellation/abort 必须提交该 `reservation_bundle_digest` 的 terminal totality map：slot 不存在时，
    同一 root transition 一次释放未消费的 receipt-slot、completed-index、outbox、quarantine/frozen-lag、
    success-history、global-admin 与 derived-log reservation token，并为每项保存 release receipt；已经
@@ -447,10 +460,12 @@ append/fsync 与 durable applied/tail commit 完成**：
    bounded rebind 全部 off-frozen/off-receipt canonical refs，完成前禁止新 L2；若是另一 off digest/identity，
    必须在任何 per-ref mutation 前提交 `off_supersede_pending {old_admin_set_digest,new_epoch,
    new_request_digest,selected_mode,mode_policy_digest,transaction_id,stage_cursor,
-   adoption_manifest_entitlement_id,adoption_manifest_capacity_receipt}`。选择 `adopt_all` 前必须在同一
-   global-admin root snapshot 枚举完整 ordered old set，证明其 entry/byte size 不超过 closed manifest
-   maximum，并原子预留足以容纳 exact full manifest 的 global-admin entitlement；capacity `floor - 1`、
-   set drift 或无法证明全量时不得持久化 mode，仍可重新选择合法 mode。只有 preflight receipt durable 后
+   adoption_manifest_entitlement_id,adoption_manifest_capacity_receipt}`。policy epoch 必须为同一 immutable
+   `global_admin` kind 预配不可被 live admin 借用的 `quota_partition_id=adoption_scratch` fixed A/B slots；
+   每个 slot 的 closed bytes 足以容纳全局可 admission 的最大 exact ordered old set，因此 live capacity=1
+   且已满时仍可 adoption。选择 `adopt_all` 前在同一 global-admin root snapshot 枚举完整 set，并从 inactive
+   scratch slot 原子 reserve token；capacity `floor - 1`、set drift 或无法证明全量时不得持久化 mode。
+   只有 preflight receipt durable 后
    `selected_mode` 才可写为 `adopt_all`；`terminal_discard_all` 也必须在首个 ref mutation 前写入。
    `selected_mode` 只能是这两者，进入 digest 后不可改变，每个 recovery pass/ref transition/completion
    record 都必须匹配，否则 `needs_repair`。`adopt_all` 使用 journaled atomic generation：bounded passes 只在
@@ -463,7 +478,8 @@ append/fsync 与 durable applied/tail commit 完成**：
    按 journal cursor roll-forward 重写/repoint per-source entries/stubs并保留 token/query scope/recovery locator/
    source-root deletion anchor；
    crash 只能继续同一 transaction，禁止 rollback 或换 mode。全部 root matching 后才提交
-   `admin_adoption_complete {transaction_id,old_admin_set_digest,adoption_manifest_digest}`；
+   `admin_adoption_complete {transaction_id,old_admin_set_digest,adoption_manifest_digest}`；随后 manifest
+   slot 才按 materialized retirement edge tombstone+dir-fsync并释放同 kind scratch-partition token；
    `terminal_discard_all` 则按已持久化 mode 为每项验证 source-bound terminal proof并最终证明旧
    ref/stub/token 为零。两模式不可串联，successful adoption 不再要求 terminal proof；任一项 missing/
    mismatch 或 config invalid/unreadable 都保持 pending/error；preflight 后出现 manifest overflow 属于
@@ -562,7 +578,7 @@ record bytes。reservation admission 必须在 offset/new tail 分配前为一�
 `derived_log_entitlement_id/derived_log_reserved_bytes/target_segment_id`；任一 bound 满时零 offset、零
 reservation、零 append，并 visible backpressure。reservation-before-append crash 保留 entitlement；matching
 append 消费 exact reservation bytes，append-before-applied/tail crash 仍由同一 entitlement 和 record digest
-幂等前进；只有 durable reservation cancellation 可在 record 不存在时释放，禁止让 earliest reservation
+幂等前进；只有带 committed-root exact-record absence proof 的 durable reservation cancellation 可释放，禁止让 earliest reservation
 因磁盘满永久卡住全部 later offsets。
 
 每个 sealed segment 记录 `{segment_id,first_offset,last_offset,entry_count,live_bytes,segment_digest}`；allocator
@@ -577,7 +593,8 @@ retained-proof manifest 与 metadata generation。live log 已达到任一 maxim
 scratch unavailable/full 时保持旧 manifest并只 backpressure 新 reservation，不得先释放 live capacity。
 derived compaction 严格执行上述 common protocol：publish CAS 只 repoint manifest/reader authority，old live
 capacity 与 new scratch 同时计费；old segment exact tombstone + directory fsync 全部 durable 后，final ledger
-CAS 才把 new scratch 转为 live、推进 watermark、释放 old+surplus并提交 receipt。CAS 前 crash 忽略未 publish
+CAS 才以 `compaction_exchange` retarget 原 derived-live token、释放 scratch/surplus、推进 watermark并提交
+双-token receipt。CAS 前 crash 忽略未 publish
 stage；publish 后只 roll-forward tombstone/final CAS，禁止回退、partial segment delete、age-delete lag proof
 或重用 bytes 两次。malformed/missing segment、proof pin、watermark regression、live-full + scratch-full、
 scratch `floor - 1` 与 compaction 每个 crash boundary

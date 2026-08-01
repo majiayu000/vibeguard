@@ -192,7 +192,10 @@ host hook event + canonical project/session identity
   ├─ existing L1 deterministic checks ───────────────┐
   └─ approved trigger                                │
        → minimal diff/inventory view                 │
-       → input digest + cache lookup                 │
+       → input-envelope digest                       │
+       → pre-provider project-WAL attempt bundle     │
+          + exact entitlement/root receipt           │
+       → cache lookup                                │
        → bounded local provider request              │
        → closed L2 result validator                  │
        → detector/W-rule deterministic reducer       │
@@ -208,6 +211,11 @@ approved precedence table → candidate hook decision
                                       → release barrier-joined hook decision
                                       → idempotent derived global projection
 ```
+
+attempt-bundle admission 必须早于 cache lookup/provider/validator/reducer；WAL full 时这四类 call count
+均为零。cache hit/miss、provider error/timeout/cancel、validator/reducer reject 与中间 crash 都由同一
+terminal-totality reducer 关闭：never-materialized WAL item 用 root-snapshot absence receipt release，
+materialized item 只可 durable abort 或 forward recovery，不能遗留 reserved token。
 
 L1 总是先独立得出结果。L2 只有在全 gate eligible 时运行；off/unavailable/error 不被
 归一为 pass。最终 decision reducer 是 exhaustive pure function，输入包括 L1 result、
@@ -316,7 +324,8 @@ lock；活跃 holder、deadline、malformed owner 或无法证明 stale 都返�
 `reconciliation_backlog/unavailable`，保留 L1 且不启动 provider/append，禁止无限等待或
 按 mtime/PID 猜测后删除。取得同一 project journal lock 后，再按固定 project lock →
 canonical journal append lease 锁序取得所有 Rust/shell writer 共用的 bounded lease；semantic transaction
-从 tail read 持有到 WAL `journaled` durable，普通 L1 writer 只取 append lease且不得反取 project lock。
+从 tail read 持有到 WAL `journaled` durable；普通 L1 writer 取 append lease后先 reserve exact journal-live
+entitlement，且不得反取 project lock。
 append protocol固定为：
 
 1. 读取 journal tail offset，构造 bounded typed pending body/digest；
@@ -357,11 +366,13 @@ registry/live slot、keyed receipt、completed-index、outbox、quarantine/froze
 global-admin、project-WAL live/scratch、derived-log live/scratch、canonical-journal live/scratch；每个 kind
 只有一个 root owner。legacy “allocator WAL” 实现为预分配 fixed A/B global metadata root alias，不是 append
 store/resource kind。token 绑定 exact object/owner/count/quota/bundle digest，统一推进
-`free→reserved→live`、receipt-bound transfer 或 tombstone+directory-fsync-bound release；terminal reducer
-要求 bundle 每项恰好一次 release/transfer/retain，缺项/双 owner/early credit/unknown kind 使 root CAS 失败。
-project WAL、derived log 与 `gc-logs.sh` journal rewrite 共用 scratch stage/fsync→publish(old 仍计费)→old
-unlink+dir fsync→final scratch-to-live/old release receipt，history GC 同 CAS 删除 refs 并释放 entry/byte/quota，
-adopt-all 在 immutable mode 前预留完整 manifest。该结构是 conservation/single-owner/no-early-credit/
+`free→reserved→live`、同-kind receipt transfer；kind 永不改变。materialized release 绑定 tombstone+dir-fsync，
+never-materialized reserved cancel 绑定 committed-root absence proof；terminal reducer 要求 bundle 每项恰好一次
+release/transfer/retain，缺项/双 owner/early credit/unknown edge 使 root CAS 失败。project WAL、derived log 与
+`gc-logs.sh` 共用 publish 后双计费、old unlink+dir-fsync 后原子 `compaction_exchange`：old-live token 保持
+kind并 retarget 新 object，scratch token 保持 kind并 release。每个 L1 append 先取不可借用 floor 的 exact
+journal-live entitlement；full 只 bounded backpressure/fail-visible。history GC 同 CAS 释放 ref/entry/byte/quota；
+adopt-all 使用同 `global_admin` kind 的 preprovisioned fixed A/B `adoption_scratch` partition。该结构是 conservation/single-owner/no-early-credit/
 terminal-completeness/idempotence/liveness/admission-feasibility 的唯一实现入口。
 projector 从 registry 即可发现 dormant work；唯一 append lease 覆盖 reservation 到 exact append/
 fsync、applied、tail 与 receipt outbox 原子 commit，earlier 未 applied 禁止 later append。worker

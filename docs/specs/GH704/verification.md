@@ -65,12 +65,17 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 
 - B-027：`bash tests/hooks/test_runtime_rule_signals.sh wal_compaction_capacity_transfer`、
   `bash tests/hooks/test_runtime_rule_signals.sh allocator_wal_capacity_contract`、
-  `bash tests/test_gc_logs_rotation.sh canonical_journal_gc_scratch_capacity`；
+  `bash tests/test_gc_logs_rotation.sh canonical_journal_gc_scratch_capacity`、
+  `bash tests/hooks/test_runtime_rule_signals.sh project_wal_pre_provider_terminal_closure`、
+  `bash tests/test_gc_logs_concurrent.sh canonical_journal_l1_entitlement_capacity_one`；
 - B-028：`bash tests/hooks/test_runtime_rule_signals.sh capacity_ledger_model_check`、
   `bash tests/hooks/test_runtime_rule_signals.sh reservation_bundle_terminal_closure`、
   `bash tests/hooks/test_runtime_rule_signals.sh success_history_gc_release_receipt`、
   `bash tests/hooks/test_runtime_rule_signals.sh derived_log_compaction_capacity_transfer`、
-  `bash tests/hooks/test_runtime_rule_signals.sh admin_adoption_capacity_preflight`。
+  `bash tests/hooks/test_runtime_rule_signals.sh admin_adoption_capacity_preflight`、
+  `bash tests/hooks/test_runtime_rule_signals.sh compaction_role_exchange_capacity_one`、
+  `bash tests/hooks/test_runtime_rule_signals.sh admin_adoption_scratch_capacity_one`、
+  `bash tests/hooks/test_runtime_rule_signals.sh resource_kind_edge_coverage`。
 
 每个 owner script 必须接受 exact named selector，unknown/zero-match nonzero。`capacity_ledger_model_check`
 使用 capacity=1 与 2、两个 source、两个 reservation，穷举 reserve/commit/cancel/abort/ack/off/rebind/
@@ -79,18 +84,24 @@ discard/expiry/GC/compaction/crash/replay；每个 reachable committed state 检
 totality、receipt replay idempotence与至少一条 bounded forward edge。`reservation_bundle_terminal_closure`
 逐 item 覆盖 completed/outbox/quarantine/history/admin/slot/derived 等 cancel/abort，以及 project-ack、
 off-receipt、rebind、terminal discard，mutation 分别删除任一 cancel token、owner 或 resource kind，均须在
-root commit 前 nonzero。
+root commit 前 nonzero。`resource_kind_edge_coverage` 枚举所有声明 edge，mutation 增加 scratch→live、
+kind rewrite、无 absence proof 的 reserved direct release 或 unknown edge 均须在 root commit 前 nonzero。
 
-两个 compaction selector与 canonical-journal selector必须对 project WAL、derived log、journal 分别在
+compaction selectors 与 canonical-journal selector必须对 project WAL、derived log、journal 分别在
 scratch reserve、stage write/fsync、manifest receipt、publish CAS、每个 old unlink + directory fsync、final
-transfer/release receipt 的 before/after 注入 crash；publish 后到 final receipt 前断言 old live + new scratch
-同时计费。mutation 把 live release 提前到 tombstone/dir-fsync 前必须失败。history selector 删除 quota item
+exchange receipt 的 before/after 注入 crash/lost response；publish 后到 final receipt 前断言 old live + new
+scratch 同时计费，final 后 old-live token kind 不变且 retarget new object、scratch kind 不变且 released；连续
+compaction 两次仍只能走该 exchange。mutation 把 kind 改写或 live release 提前到 tombstone/dir-fsync 前必须失败。history selector 删除 quota item
 或 release receipt 必须失败；adoption selector 使用 manifest maximum、`floor - 1` 与 concurrent set drift，
-证明 immutable `adopt_all` 只能在 full-manifest entitlement durable 后出现。allocator selector证明所谓 WAL
+并在 live admin capacity=1/full 下证明 preprovisioned fixed A/B scratch 仍可完成 exact-max adoption。
+`project_wal_pre_provider_terminal_closure` 对 full WAL 断言 cache/provider/validator/reducer call count=0，并
+覆盖 cache hit/miss、provider/validator/reducer error/timeout/cancel/crash 的 bundle totality；journal L1 selector
+覆盖 capacity=1、不可借用 floor、pin/full bounded backpressure、eventual-unpin progress与 permanent failure
+fail-visible no-overrun。allocator selector证明所谓 WAL
 只有预分配 fixed A/B root、无 append/GC 第三容量平面。
 
-所有八个 selector 还必须执行 `N >> capacity` 的 deterministic long-run：正常完成、重复 cancel/abort、
-ack+history expiry、off/adopt/discard 与 repeated compaction 后，ledger 使用量回到 exact expected baseline，
+所有十三个 selector 还必须执行 capacity=1/2、两个 source/reservation 与 `N >> capacity` deterministic
+long-run：正常完成、重复 cancel/abort、ack+history expiry、off/adopt/discard 与至少连续两次 compaction 后，ledger 使用量回到 exact expected baseline，
 storage physical maximum 不增长，下一次 admission 在 capacity 可用时成功；token、entries、bytes、segments、
 per-source quota 任一泄漏、双 credit、ownerless state 或永久 earliest-reservation/adopt-all stall 都 nonzero。
 该 matrix 显式覆盖四个新增 P1、project-ack/off-receipt slot retirement、project WAL/GC/append lease 与
@@ -105,7 +116,9 @@ approved config/policy + verified semantic asset
 completed host event + project/session/change
   → L1 deterministic result
   → approved minimal semantic input + dependency inventory
-  → input digest/cache
+  → input-envelope digest
+  → project-WAL semantic-attempt bundle + exact entitlement/root receipt
+  → cache lookup
   → bounded local provider
   → closed semantic result
   → deterministic detector/W-rule reducer
