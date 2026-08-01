@@ -61,51 +61,45 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 
 ## ResourceLedger mandatory matrix
 
-以下是 B-027/B-028 的 mandatory exact supplement，不得由上表其它宽泛 crash/capacity suite 代替：
+以下 YAML 是 B-027/B-028 的 mandatory machine-readable selector×edge×tuple matrix；正好 13 个 exact
+selectors，不能由 broad suite、旧“8 selectors”清单或 model check 反向替代：
 
-- B-027：`bash tests/hooks/test_runtime_rule_signals.sh wal_compaction_capacity_transfer`、
-  `bash tests/hooks/test_runtime_rule_signals.sh allocator_wal_capacity_contract`、
-  `bash tests/test_gc_logs_rotation.sh canonical_journal_gc_scratch_capacity`、
-  `bash tests/hooks/test_runtime_rule_signals.sh project_wal_pre_provider_terminal_closure`、
-  `bash tests/test_gc_logs_concurrent.sh canonical_journal_l1_entitlement_capacity_one`；
-- B-028：`bash tests/hooks/test_runtime_rule_signals.sh capacity_ledger_model_check`、
-  `bash tests/hooks/test_runtime_rule_signals.sh reservation_bundle_terminal_closure`、
-  `bash tests/hooks/test_runtime_rule_signals.sh success_history_gc_release_receipt`、
-  `bash tests/hooks/test_runtime_rule_signals.sh derived_log_compaction_capacity_transfer`、
-  `bash tests/hooks/test_runtime_rule_signals.sh admin_adoption_capacity_preflight`、
-  `bash tests/hooks/test_runtime_rule_signals.sh compaction_role_exchange_capacity_one`、
-  `bash tests/hooks/test_runtime_rule_signals.sh admin_adoption_scratch_capacity_one`、
-  `bash tests/hooks/test_runtime_rule_signals.sh resource_kind_edge_coverage`。
+```yaml
+resource_ledger_matrix:
+  version: 1
+  dimensions: [entries, bytes, segments, segment_bytes, per_source_quota, physical_bytes]
+  capacities_per_exact_tuple: [1, 2]
+  faults_at_every_boundary: [crash_before, crash_after, lost_response_after]
+  boundary_sets:
+    compaction: [split_receipt_fsync, scratch_reserve_cas, stage_write, stage_file_fsync, manifest_write, manifest_fsync, target_receipt_publish, authority_publish_cas, each_old_unlink, each_old_parent_dir_fsync, final_exchange_cas, exchange_receipt_publish]
+    wal_attempt: [bundle_reserve_cas, absence_proof_fsync, prepared_fsync, journaled_fsync, abort_or_forward_cas, release_receipt_publish]
+    l1_append: [entitlement_reserve_cas, append_write, append_fsync, manifest_receipt_publish, live_cas, absence_release_cas]
+    adoption: [scratch_reserve_cas, primary_stage_write, primary_stage_fsync, alternate_stage_write, alternate_stage_fsync, manifest_write, manifest_fsync, preflight_receipt_publish, selected_mode_cas, authority_publish_cas, each_old_retirement, scratch_release_cas, final_receipt_publish]
+    history_gc: [bucket_select, retirement_cas, ref_delete, quota_release_cas, release_receipt_publish]
+  selectors:
+    - {id: wal_compaction_capacity_transfer, command: "bash tests/hooks/test_runtime_rule_signals.sh wal_compaction_capacity_transfer", edges: [compaction_exchange], tuples: ["project_wal_live/project:<id>/wal_live", "project_wal_scratch/project:<id>/wal_scratch_a|wal_scratch_b"], boundaries: compaction}
+    - {id: allocator_wal_capacity_contract, command: "bash tests/hooks/test_runtime_rule_signals.sh allocator_wal_capacity_contract", edges: [metadata_root_publish], tuples: ["N/A/global/allocator_root_fixed_a|allocator_root_fixed_b"], boundaries: [reserve_cas, root_fsync, publish_cas, release_cas]}
+    - {id: canonical_journal_gc_scratch_capacity, command: "bash tests/test_gc_logs_rotation.sh canonical_journal_gc_scratch_capacity", edges: [compaction_exchange], tuples: ["canonical_journal_live/project:<id>/l1_floor|semantic_live", "canonical_journal_scratch/project:<id>/gc_scratch_a|gc_scratch_b"], boundaries: compaction}
+    - {id: project_wal_pre_provider_terminal_closure, command: "bash tests/hooks/test_runtime_rule_signals.sh project_wal_pre_provider_terminal_closure", edges: [attempt_reserve, absence_release, durable_abort, forward_recovery], tuples: ["project_wal_live/project:<id>/wal_live"], boundaries: wal_attempt}
+    - {id: canonical_journal_l1_entitlement_capacity_one, command: "bash tests/test_gc_logs_concurrent.sh canonical_journal_l1_entitlement_capacity_one", edges: [l1_append, absence_release, bounded_backpressure], tuples: ["canonical_journal_live/project:<id>/l1_floor"], boundaries: l1_append}
+    - {id: capacity_ledger_model_check, command: "bash tests/hooks/test_runtime_rule_signals.sh capacity_ledger_model_check", edges: [all_declared], tuples: [all_declared], boundaries: [all_declared]}
+    - {id: reservation_bundle_terminal_closure, command: "bash tests/hooks/test_runtime_rule_signals.sh reservation_bundle_terminal_closure", edges: [cancel, abort, ack, off, rebind, discard], tuples: [all_reservation_bundle_items], boundaries: [reserve_cas, target_fsync, transfer_cas, retirement_cas, release_receipt_publish]}
+    - {id: success_history_gc_release_receipt, command: "bash tests/hooks/test_runtime_rule_signals.sh success_history_gc_release_receipt", edges: [expiry_gc], tuples: ["success_history/global/source:<id>"], boundaries: history_gc}
+    - {id: derived_log_compaction_capacity_transfer, command: "bash tests/hooks/test_runtime_rule_signals.sh derived_log_compaction_capacity_transfer", edges: [compaction_exchange], tuples: ["derived_log_live/global/derived_live", "derived_log_scratch/global/derived_scratch_a|derived_scratch_b"], boundaries: compaction}
+    - {id: admin_adoption_capacity_preflight, command: "bash tests/hooks/test_runtime_rule_signals.sh admin_adoption_capacity_preflight", edges: [adopt_all_preflight, adopt_all_publish], tuples: ["global_admin/global/admin_live", "global_admin/global/adoption_scratch_a|adoption_scratch_b"], boundaries: adoption}
+    - {id: compaction_role_exchange_capacity_one, command: "bash tests/hooks/test_runtime_rule_signals.sh compaction_role_exchange_capacity_one", edges: [exact_split, compaction_exchange], tuples: [all_live_scratch_pairs], boundaries: compaction}
+    - {id: admin_adoption_scratch_capacity_one, command: "bash tests/hooks/test_runtime_rule_signals.sh admin_adoption_scratch_capacity_one", edges: [adopt_all_preflight, adopt_all_publish, adoption_retirement], tuples: ["global_admin/global/admin_live", "global_admin/global/adoption_scratch_a|adoption_scratch_b"], boundaries: adoption}
+    - {id: resource_kind_edge_coverage, command: "bash tests/hooks/test_runtime_rule_signals.sh resource_kind_edge_coverage", edges: [all_declared], tuples: [all_declared], boundaries: [all_declared]}
+```
 
-每个 owner script 必须接受 exact named selector，unknown/zero-match nonzero。`capacity_ledger_model_check`
-使用 capacity=1 与 2、两个 source、两个 reservation，穷举 reserve/commit/cancel/abort/ack/off/rebind/
-discard/expiry/GC/compaction/crash/replay；每个 reachable committed state 检查 closed resource-kind inventory、
-`sum(free,reserved,live,transfer/retirement states)=maximum`、single owner、无 early credit、bundle terminal
-totality、receipt replay idempotence与至少一条 bounded forward edge。`reservation_bundle_terminal_closure`
-逐 item 覆盖 completed/outbox/quarantine/history/admin/slot/derived 等 cancel/abort，以及 project-ack、
-off-receipt、rebind、terminal discard，mutation 分别删除任一 cancel token、owner 或 resource kind，均须在
-root commit 前 nonzero。`resource_kind_edge_coverage` 枚举所有声明 edge，mutation 增加 scratch→live、
-kind rewrite、无 absence proof 的 reserved direct release 或 unknown edge 均须在 root commit 前 nonzero。
-
-compaction selectors 与 canonical-journal selector必须对 project WAL、derived log、journal 分别在
-scratch reserve、stage write/fsync、manifest receipt、publish CAS、每个 old unlink + directory fsync、final
-exchange receipt 的 before/after 注入 crash/lost response；publish 后到 final receipt 前断言 old live + new
-scratch 同时计费，final 后 old-live token kind 不变且 retarget new object、scratch kind 不变且 released；连续
-compaction 两次仍只能走该 exchange。mutation 把 kind 改写或 live release 提前到 tombstone/dir-fsync 前必须失败。history selector 删除 quota item
-或 release receipt 必须失败；adoption selector 使用 manifest maximum、`floor - 1` 与 concurrent set drift，
-并在 live admin capacity=1/full 下证明 preprovisioned fixed A/B scratch 仍可完成 exact-max adoption。
-`project_wal_pre_provider_terminal_closure` 对 full WAL 断言 cache/provider/validator/reducer call count=0，并
-覆盖 cache hit/miss、provider/validator/reducer error/timeout/cancel/crash 的 bundle totality；journal L1 selector
-覆盖 capacity=1、不可借用 floor、pin/full bounded backpressure、eventual-unpin progress与 permanent failure
-fail-visible no-overrun。allocator selector证明所谓 WAL
-只有预分配 fixed A/B root、无 append/GC 第三容量平面。
-
-所有十三个 selector 还必须执行 capacity=1/2、两个 source/reservation 与 `N >> capacity` deterministic
-long-run：正常完成、重复 cancel/abort、ack+history expiry、off/adopt/discard 与至少连续两次 compaction 后，ledger 使用量回到 exact expected baseline，
-storage physical maximum 不增长，下一次 admission 在 capacity 可用时成功；token、entries、bytes、segments、
-per-source quota 任一泄漏、双 credit、ownerless state 或永久 earliest-reservation/adopt-all stall 都 nonzero。
-该 matrix 显式覆盖四个新增 P1、project-ack/off-receipt slot retirement、project WAL/GC/append lease 与
-derived-log counterpart；原有 focused selectors 仍保留，不能由 model check 反向替代。
+每个 owner script 对 unknown/zero-match selector 必须 nonzero，并实际展开 symbolic tuple 为 policy-epoch
+finite exact inventory。每个 selector 对每个 exact tuple 独立执行 capacity=1/2、两个 source/reservation 与
+`N >> capacity` long-run；`sum(free,reserved,live,transfer/retirement)=maximum` 在六维逐 tuple 成立，且 root
+physical aggregate 不增长。compaction 必须覆盖 retain all/partial/zero、publish 前 exact split、连续两次
+exchange及每个 ordered old unit；只有 explicit `released` unit 产生原 partition credit。任何 tuple rewrite、
+cross-partition borrow、scratch→live、early credit、缺 proof/receipt/owner、双 credit 或 unknown edge 均在 root
+commit 前 nonzero。WAL-full 还断言 cache/provider/validator/reducer calls=0；L1 floor 与 adoption scratch 的
+capacity=1/full 路径不得借用相邻 partition，eventual progress 只在 I/O/unpin 最终成功时成立。
 
 ## 数据流
 

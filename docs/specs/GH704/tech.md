@@ -365,15 +365,17 @@ metadata root 与 project WAL root 只调用该 reducer，禁止各 plane 自建
 registry/live slot、keyed receipt、completed-index、outbox、quarantine/frozen-lag、success-history、
 global-admin、project-WAL live/scratch、derived-log live/scratch、canonical-journal live/scratch；每个 kind
 只有一个 root owner。legacy “allocator WAL” 实现为预分配 fixed A/B global metadata root alias，不是 append
-store/resource kind。token 绑定 exact object/owner/count/quota/bundle digest，统一推进
-`free→reserved→live`、同-kind receipt transfer；kind 永不改变。materialized release 绑定 tombstone+dir-fsync，
-never-materialized reserved cancel 绑定 committed-root absence proof；terminal reducer 要求 bundle 每项恰好一次
-release/transfer/retain，缺项/双 owner/early credit/unknown edge 使 root CAS 失败。project WAL、derived log 与
-`gc-logs.sh` 共用 publish 后双计费、old unlink+dir-fsync 后原子 `compaction_exchange`：old-live token 保持
-kind并 retarget 新 object，scratch token 保持 kind并 release。每个 L1 append 先取不可借用 floor 的 exact
-journal-live entitlement；full 只 bounded backpressure/fail-visible。history GC 同 CAS 释放 ref/entry/byte/quota；
-adopt-all 使用同 `global_admin` kind 的 preprovisioned fixed A/B `adoption_scratch` partition。该结构是 conservation/single-owner/no-early-credit/
-terminal-completeness/idempotence/liveness/admission-feasibility 的唯一实现入口。
+store/resource kind。policy epoch 封存 finite exact `(kind,scope,partition)` inventory、六维 maxima 与 root physical
+maximum；tuple 在 token 全寿命 immutable，逐 tuple/维度守恒且不得 cross-partition rewrite/borrow。L1
+`l1_floor`、`semantic_live`、live admin 与 fixed A/B `adoption_scratch` 独立；每个 partition 都须证明 capacity=1/2。
+唯一 graph 含 `free→reserved→live`、同-tuple transfer、receipt-bound retirement，以及 composite
+`compaction_exchange`。mixed old-live token 在 publish 前 exact split；target durable/publish 后 ordered old units
+逐项 tombstone+dir-fsync，final CAS 才 retarget retained live、release reclaimed live，并 release scratch 回原
+scratch partition。receipt 绑定 before/after 全 tuple/维度/keys/proofs/nonce/root/predecessor，retain
+all/partial/zero 与 lost response 幂等；只有 explicit `released` unit 产生 credit。never-materialized cancel 仍需
+committed-root absence proof；terminal totality 缺项、双 owner、early credit 或 unknown edge 都拒绝 root CAS。
+history GC 同 CAS 释放 ref/entry/byte/quota；13-selector machine-readable matrix 是唯一 crash/lost-response
+覆盖入口。该结构统一证明 conservation/single-owner/no-early-credit/terminal-completeness/idempotence/liveness。
 projector 从 registry 即可发现 dormant work；唯一 append lease 覆盖 reservation 到 exact append/
 fsync、applied、tail 与 receipt outbox 原子 commit，earlier 未 applied 禁止 later append。worker
 须持 matching source effective epoch 的 shared delivery lease并核对 config digest。ready CAS offset-independent seed；sequencer 分配 offset并原子创建 full reservation + retained allocator claim-binding + completed/quarantine tokens；每个 quarantine token 初始预留 closed-max A/B generations/body。active absent 才重建，仅 matching off 可 freeze；frozen ref digest-bind timestamp/retention bucket/registry global-lag offset/query scope。pre-barrier route 永久不可达时先 fsync per-source bounded-body admin entry，再以只含 root/digest/query metadata 的 global stub 替换 live slot；closed permanent route 同样先 fsync quarantine 再发 stub；source corruption 不阻塞 global，rebind 从 body 恢复 exact registration/reservation并重取 completed capacity。

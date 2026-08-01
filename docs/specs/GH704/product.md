@@ -340,10 +340,11 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     cache/provider calls=0；cache/provider/validator/reducer 的 error/timeout/cancel/crash 必须按 terminal-
     totality release never-materialized reservation或向前恢复 durable object。terminal group 只有在所有仍引用它的 cursor、
     expected offset、consumer/barrier/projection recovery proof 已转移后才可 unpin。checkpoint/compaction
-    必须用独立 fixed A/B scratch entitlement：先 fsync checkpoint + compacted manifest，publish CAS
-    只切换 reader authority且 old live + new scratch 同时计费；exact old tombstone/unlink + directory fsync
-    durable 后，final CAS 用双-token `compaction_exchange` 让 old-live token 保持 kind 并 retarget 新
-    generation，同时释放保持 scratch kind 的 token/surplus；禁止 scratch→live。任一 full/crash/pin mismatch 保留
+    必须用独立 fixed A/B scratch entitlement：先 fsync checkpoint + compacted manifest；mixed old-live token
+    在 publish 前 exact split。publish CAS 只切换 reader authority且 ordered old live units + new scratch 同时计费；
+    exact old tombstone/unlink + directory fsync durable 后，final composite `compaction_exchange` 才 retarget
+    retained live units、release reclaimed live units，并释放 scratch units 回原 partition；禁止 scratch→live。
+    任一 full/crash/pin mismatch 保留
     authority并 backpressure，禁止 truncate/age-delete。semantic coordinator 还必须按 project lock →
     所有 canonical journal writer 共用的 bounded append lease，在同一 lease 内完成 tail read → WAL
     prepared/queue fsync → exact journal append/fsync → WAL journaled；legacy Rust/shell writer 也必须先取
@@ -370,9 +371,13 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     GH-704 global event/status 只允许从 `all_activated` barrier 做 idempotent derived
     projection，绑定 source event ID/barrier digest 与 durable projection receipt。
     所有容量必须由 [runtime-integrity.md](runtime-integrity.md) 的 closed `ResourceLedger` inventory 与
-    单一 token machine 管理；每个 token 有 immutable kind + exact object/owner/count/quota/bundle digest，只能
-    `free→reserved→live`、同-kind receipt-bound transfer，或进入 retirement 后 release。materialized object
-    需要 exact tombstone/unlink + directory fsync；never-materialized cancel 需要 committed-root absence proof。
+    单一 token machine 管理；policy epoch 必须封存 finite exact `(resource_kind,scope_id,quota_partition_id)`
+    inventory及逐 tuple/entries/bytes/segments/segment-bytes/quota/physical-bytes maxima，token 全寿命不得改写
+    tuple或跨 partition 借用。每个 committed root 必须同时证明逐 tuple/维度守恒与 root physical aggregate
+    bound；L1 floor、adoption scratch、live/admin 与相邻 source 都独立。每个 token 只能
+    `free→reserved→live`、同-tuple receipt-bound transfer，或进入 retirement 后 release。standalone materialized
+    retirement 需要 exact tombstone/unlink + directory fsync；compaction scratch 只能由 composite exchange
+    移交 target authority 后 release；never-materialized cancel 需要 committed-root absence proof。
     每个 terminal root 对 reservation bundle 中所有 items 恰好一次 release/transfer/retain，否则整个
     commit 拒绝；任一 publish/expiry/逻辑删除不能 early credit。实现必须同时证明 conservation、
     single-owner、no-early-credit、terminal completeness、idempotence、liveness/admission feasibility。
@@ -413,8 +418,12 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     fixed A/B scratch entitlement，足以容纳
     最大 legal compacted segment + retained-proof manifest + metadata generation；即使 live entry/byte/
     segment 已满也能 write-before-release；publish 后 old live + new scratch 仍同时计费，最终 old exact
-    tombstone/directory durability 后由 final CAS 以双-token exchange retarget old-live、释放 scratch/surplus。
-    scratch full/crash 保留可恢复双计费 state并 backpressure，禁止先释放 live capacity。
+    tombstone/directory durability 后只能走唯一 ledger graph 内的 composite `compaction_exchange`。mixed
+    retained/reclaimed live token 必须在 publish 前 exact split；final CAS ordered retarget retained live units、
+    release reclaimed live units，并把 scratch units release 回原 scratch partition。receipt 绑定 before/after
+    全 tuple/维度/keys、split、target、ordered proofs、nonce、root digests 与 predecessor；retain all/partial/zero、
+    lost response 和连续 compaction 都幂等。只有 explicit `released` unit 产 credit，scratch/full/crash 保留可恢复
+    双计费 state并 backpressure，禁止 scratch→live、cross-partition credit 或先释放 live capacity。
     reservation 自身携带 bounded derived body、source
     project identity 与 independently routable receipt route/body，并从 live registration 复制
     canonical event timestamp、retention bucket、query-scope digest，同时绑定实际 allocated global
@@ -620,6 +629,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       regressed 仍需现有 Learn 人工门。
 - [ ] GH-700/GH-702 contract tests 证明只消费已合并 Core capability/mapping，未批准的
       Draft recommendation 不会成为默认行为。
+- [ ] `verification.md` 的 13 个 ResourceLedger exact selectors 按 machine-readable selector×edge×tuple
+      matrix 覆盖每个 reserve/fsync/publish/CAS/release 的 before/after crash 与 lost response；每个已封存
+      partition 独立执行 capacity=1/2、retain all/partial/zero 与 `N >> capacity`，逐 tuple/维度守恒、root
+      physical bound、L1 floor/adoption scratch 不借用、explicit-release-only credit 全部成立。
 - [ ] U-22 证据分别证明 runtime 与 sidecar 各自至少 80% line coverage；final
       reducer/orchestration、inventory 及 adapter verdict、semantic test-weakening verdict、
       runtime W-rule state machine、metrics eligibility、project config/context/event identity、
