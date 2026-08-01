@@ -449,11 +449,10 @@ dual_recovery_ready="${TMP_HOME}/bootstrap-dual-recovery.ready"
 dual_recovery_setup_fifo="${TMP_HOME}/bootstrap-dual-recovery-setup.fifo"
 dual_recovery_ps_fifo="${TMP_HOME}/bootstrap-dual-recovery-ps.fifo"
 dual_recovery_ps_ready="${TMP_HOME}/bootstrap-dual-recovery-ps.ready"
-dual_recovery_bin="${TMP_HOME}/bootstrap-dual-recovery-bin"
 dual_recovery_first_out="${TMP_HOME}/bootstrap-dual-recovery-first.out"
 dual_recovery_second_out="${TMP_HOME}/bootstrap-dual-recovery-second.out"
 dual_recovery_real_ps="$(command -v ps)"
-mkdir -p "${dual_recovery_home}" "${dual_recovery_bin}"
+mkdir -p "${dual_recovery_home}"
 mkfifo "${dual_recovery_setup_fifo}" "${dual_recovery_ps_fifo}"
 env "${bootstrap_base_env[@]}" \
   HOME="${dual_recovery_home}" \
@@ -475,20 +474,27 @@ wait "${dual_recovery_parent_pid}" 2>/dev/null || true
 dual_recovery_nonce="$(awk -F= '$1 == "nonce" { print $2 }' \
   "${dual_recovery_home}/.vibeguard/dist/.bootstrap.lock")"
 dual_recovery_lease="${dual_recovery_home}/.vibeguard/dist/.bootstrap.lock.lease.${dual_recovery_nonce}"
-cat > "${dual_recovery_bin}/ps" <<SH
-#!/usr/bin/env bash
-if [[ "\$*" == *"pgid="* && ! -e "${dual_recovery_ps_ready}" ]]; then
-  : > "${dual_recovery_ps_ready}"
-  IFS= read -r _signal < "${dual_recovery_ps_fifo}"
-fi
-exec "${dual_recovery_real_ps}" "\$@"
-SH
-chmod +x "${dual_recovery_bin}/ps"
 dual_recovery_first_rc=0
-env "${bootstrap_base_env[@]}" \
-  HOME="${dual_recovery_home}" PATH="${dual_recovery_bin}:${PATH}" \
-  VIBEGUARD_TEST_RELEASE_DIR="${lock_wait_release}" \
-  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+env REPO_DIR="${REPO_DIR}" DUAL_RECOVERY_LEASE="${dual_recovery_lease}" \
+  DUAL_RECOVERY_OWNER_PID="${dual_recovery_parent_pid}" \
+  DUAL_RECOVERY_NONCE="${dual_recovery_nonce}" \
+  DUAL_RECOVERY_PS_READY="${dual_recovery_ps_ready}" \
+  DUAL_RECOVERY_PS_FIFO="${dual_recovery_ps_fifo}" \
+  DUAL_RECOVERY_REAL_PS="${dual_recovery_real_ps}" \
+  bash -c '
+    set -euo pipefail
+    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    bootstrap_process_group_table() {
+      if [[ ! -e "${DUAL_RECOVERY_PS_READY}" ]]; then
+        : > "${DUAL_RECOVERY_PS_READY}"
+        IFS= read -r _signal < "${DUAL_RECOVERY_PS_FIFO}"
+      fi
+      LC_ALL=C "${DUAL_RECOVERY_REAL_PS}" -A -o pid= -o pgid= -o stat=
+    }
+    bootstrap_setup_lease_clear_inactive \
+      "${DUAL_RECOVERY_LEASE}" "${DUAL_RECOVERY_OWNER_PID}" \
+      "${DUAL_RECOVERY_NONCE}" || exit 73
+  ' \
   >"${dual_recovery_first_out}" 2>&1 &
 dual_recovery_first_pid=$!
 for _dual_recovery_pause_attempt in {1..100}; do
@@ -511,7 +517,12 @@ assert_cmd "dual stale recovery preserves lock, lease, and active setup child" b
   "${dual_recovery_home}/.vibeguard/dist/.bootstrap.lock" \
   "${dual_recovery_lease}" "${dual_recovery_setup_pid}" \
   "${dual_recovery_home}/.vibeguard/dist"
-printf 'continue\n' > "${dual_recovery_ps_fifo}"
+if [[ -e "${dual_recovery_ps_ready}" ]] \
+  && kill -0 "${dual_recovery_first_pid}" 2>/dev/null; then
+  printf 'continue\n' > "${dual_recovery_ps_fifo}"
+else
+  kill -KILL "${dual_recovery_first_pid}" 2>/dev/null || true
+fi
 wait "${dual_recovery_first_pid}" || dual_recovery_first_rc=$?
 assert_cmd "first stale recoverer also fails closed after liveness proof" \
   test "${dual_recovery_first_rc}" -eq 73
