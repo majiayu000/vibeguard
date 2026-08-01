@@ -239,7 +239,7 @@ Recommended H-004 layout（未批准）：
 
 anchor-block 的三个 mirror 由 user-state tree 外独立单调 backend leaf 授权；root 只是 trust container。
 supporting contract 独占 intent/mirror/journal/barrier/crash 语义；fresh proof 认证 selected mirror 的 stable
-counter/value identity，proof refresh 不改变 equality。no-block 改用 signed release-pinned generation。
+counter/value identity，proof refresh 不改变 equality。no-block mode 来自 cross-release global registry，release pin 只绑 compatibility。
 unrelated leaf/aggregate-root progress 不得使 mirror 失效，unknown same-leaf transition 才 fail closed；
 已证明 target leaf local lag 从 intent/journal roll forward。backend/platform 仍未批准。
 
@@ -260,8 +260,8 @@ validity evidence、previous/target generation；再 CAS+fsync external floor，
 closed、Core-owned runtime-state entry，
 绑定 installation generation、committed policy exact identity、`clock_epoch`、sequence、high-water、latch 与 deterministic time-leaf state；
 fresh proof 只独立认证 state，proof bytes/digest refresh 不得使 entry/mirror 失效。runtime 先验证
-release-pinned signed H-010 mode：anchor-block 验证 policy/install stable state + fresh proof；no-block 重算
-generation；current-release profile 仅时间过期时派生 warn-only ceiling，任何 block claim 仍 fail closed。
+global registry + release-pinned H-010：anchor-block 验证 stable proof；no-block 验证 global family/release/
+install binding，expiry/pin mismatch 只标 stale/audit并保持 warn-only ceiling，零 backend/IPC。
 合法 warn/off/no-data 跳过 time leaf；block claim/candidate 仍 fail closed，candidate 才取 runtime-state
 lock推进 high-water并锁存 fallback。取锁前缓存不得执行，latch 仅新 management generation 可清除。
 新进程继承 durable high-water，不得以启动时间
@@ -453,7 +453,8 @@ status/audit 每条 rule 同时显示 requested、official eligibility/default�
 override status、precision value/null、counts、age、evaluation time、policy/issuer、provenance
 trust、revocation/compatibility status、publication identity、committed/authoritative evaluation
 policy 的 exact digest/generation/validity identities、policy floor、active installation
-generation/floor、runtime sequence/latch、trusted-time high-water/`clock_epoch`、block basis、
+generation/floor、runtime sequence/latch、trusted-time high-water/`clock_epoch`、block basis；no-block 显示
+global profile generation/install binding/warn ceiling/stale且 backend/root/leaf=not_applicable；anchor 显示 backend/root/leaf/CAS/budgets；
 `decision_valid_until`/source-applicable `override_valid_until`、expiry fallback/state 与
 `audit_required`。eligibility digest 必须覆盖
 上列每个 source-applicable binding digest；rule/evaluation-policy/evidence/provenance/
@@ -462,11 +463,10 @@ normalized evaluation-time 变化产生新 digest 并触发 audit，即使 colla
 这包括只跨越 freshness/expiry/revocation window、其他 bytes 均未变化的情况。
 active block 失去 eligibility 时按 H-008 action 事务降级，失败进入 `needs_repair`。
 
-runtime hot path 从 verified release 选择 H-010 mode。anchor-block 在 bounded policy fence 下验证
+runtime hot path 先验证 global registry 再选择 H-010 mode。anchor-block 在 bounded fence 下验证
 external policy/install stable states、fresh proofs与 pointer/floors；失败时 block-capable generation
-未建立，candidate deny/nonzero。authenticated-no-block 用 signed release pin + predecessor-linked
-generation digest 建立 replay-safe warn ceiling；external authority 缺失为 not_applicable，合法 warn/off
-不升级 denial，任何 block claim 非零失败。current block candidate 才取得 runtime-state lock；即使随后
+未建立，candidate deny/nonzero。no-block family 永久 warn/off且零 provision/restart/CAS/IPC；pin/expiry/
+old-binary-new-identity mismatch status nonzero，不改 mode。new block 需 nonrollback backend + new identity + migration；旧 family 不授权/alias。current block candidate 才取得 runtime-state lock；即使随后
 expiry/rollback fallback，也先 CAS 推进 high-water并锁存 `audit_required`。candidate 的 state/proof/
 lock/CAS 失败是 `runtime_guard_unavailable`；runtime 不得因后续
 时钟或 policy bytes 返回旧值而清除 latch。
@@ -598,7 +598,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | Capability/host | planned **guard_pack/capability.rs**; consume approved GH-701 registry when available | Claude/Codex/unknown/incompatible/unsupported fixture matrix |
 | Transaction/receipt | planned **guard_pack/transaction.rs**, receipt/transaction schemas | crash-at-every-stage, concurrent lock, drift, rollback, recovery and canary tests |
 | Precision/runtime policy | planned **guard_pack/precision.rs**, **runtime_guard**, precision/policy/override/runtime-state schemas, `scripts/precision-tracker.py` | exhaustive eligibility truth table + binding/freshness/override/policy-rotation/clock-rollback negatives |
-| Monotonic anchor | planned **guard_pack/anchor/** + anchor authorization/H-010/perf schemas；exact owners in supporting contract | per-leaf concurrency、authorized target、JCS phase crash、identity mutation、installed Claude/Codex all-budget gate |
+| Monotonic anchor | planned **guard_pack/anchor/** + global registry/H-010/mode-specific perf schemas | cross-release terminal/rollback/duplicate、old-client identity、authority-mode lifecycle/status/budgets、per-leaf/JCS gates |
 | Author publish | planned **scripts/lib/guard_pack_manifest.py**, **guard_pack_publish.py**, **scripts/ci/validate-guard-pack-publish.py** | two-build digest equality; half-publish/index-CAS/revoke/yank fixtures |
 | Legacy migration | `scripts/lib/guard_packs.py`, `scripts/lib/guard_pack_receipts.py`, `packs/safe-bash/` | existing 623-case shell surface remains green plus migration ownership sentinels |
 | Release distribution | `scripts/release/payload-manifest.txt`, `scripts/setup/guard-packs.sh`, `setup.sh`, `tests/test_payload.sh`, `tests/test_release_workflow.sh` | GH-699 actual no-clone launcher invokes Rust client; payload tamper fails closed |
@@ -634,8 +634,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | Policy journal + H-010 mode identity | anchor-block validates stable state + refreshable proof；no-block uses signed release-pinned generation；replay cannot authorize block |
-| B-028 insufficient evidence degrades | Generation-scoped runtime guard | valid no-block warn/off survives absent backend；block claim/candidate fails closed；fallback latches time；lost-response resumes |
+| B-027 policy-owned thresholds | Policy journal + global platform registry | no-block family terminal across releases；new block requires nonrollback backend/new identity/migration；old client cannot alias |
+| B-028 insufficient evidence degrades | Generation-scoped runtime guard | no-block expiry/pin/mismatch keeps warn/off with stale/audit；anchor fallback latches time；block claim fails |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
 | B-031 same gate for core/community | Shared eligibility function | identical evidence inputs under curated/community publishers yield identical eligibility; badge/high severity cannot bypass |
@@ -648,8 +648,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-038 GH-701 interface boundary | Host adapter compatibility layer | merged-Draft-only fixture stays fixed Claude/Codex；only decisions + merged implementation + compatibility/native proof accepts registry IDs；reject second registry/early third-host active claim |
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds under the same publication policy match digest；evaluation-policy rotation does not rebuild；publish failures never create resolvable partial entry |
-| B-041 truthful list/status/audit | Shared status + anchor renderer | golden output enumerates authority identities/floors/time plus backend/root/leaf/counter/barrier/availability/repair；degradation exits nonzero without key material |
-| B-042 offline runtime stability | Committed eligibility + local anchor IPC | installed Claude/Codex runner；contract test breaches every H-010 budget and mutates approved-H010/policy/generation/validity/decision identities；all mismatch/rotation nonzero without stale fallback |
+| B-041 truthful list/status/audit | Shared renderer | no-block renders global generation/install binding/ceiling/stale + not_applicable anchors；anchor renders backend/root/leaf/budgets；mismatch nonzero |
+| B-042 offline runtime stability | Runtime/registry gate | two-release rollback/duplicate/transition/old-client fixtures plus authority-mode budget/lifecycle negatives；no stale alias |
 
 ## 数据流
 
@@ -674,9 +674,9 @@ vibeguard add <locator>
        └─ rollback/recovery/needs_repair
 
 runtime hook
-  └─ verify release-pinned signed H-010 mode
-       ├─ authenticated-no-block generation → legal warn/off；backend not_applicable
-       │    └─ any block claim → conservative deny + nonzero
+  └─ verify global registry family + release/install binding
+       ├─ terminal no-block → warn/off；anchors not_applicable；mismatch stale/nonzero
+       │    └─ same-family block/new-identity alias → reject；no deny upgrade
        └─ anchor-block → stable policy/install state + fresh proof + pointer/floors
             ├─ unavailable/block claim → conservative deny + nonzero
             ├─ current warn/off → keep decision；skip time leaf
@@ -743,8 +743,8 @@ confirmation 声明。runtime enforcement、list local state 和 remove 已安�
   - tamper/rollback/freeze/yank/revoke/offline/unsafe archive；
   - failure/cancel/crash at every transaction stage + recovery；
   - parallel target lock、user/other-pack canaries、legacy safe-bash migration；
-  - runtime sentinels、refreshed-proof same-state、no-block replay/absent-backend、breach-mirror
-    one-sided mutations、policy rotation、clock rollback/high-water corruption和 feedback redaction。
+  - runtime sentinels、refreshed proof、two-release rollback/duplicate/transition、old-client identity、
+    no-block status/budgets/lifecycle、breach/policy/clock mutations和 feedback redaction。
 - [ ] Release contract:
   - verified payload包含 client/schemas/policy；
   - GH-699 actual launcher discovery，不 hard-code spec path；

@@ -126,20 +126,24 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     reinstall 是 reattach 还是新 root、device replacement/backup restore 是否禁止或走显式迁移、
     target authorizer profile/key/trust root 与每种 leaf 的 authorized-operation transition rules、
     backend/IPC unavailable 与 partial-CAS 的 repair authority/UX，以及 intentional reset 的确认、
-    evidence retention 和旧 receipts 处置。每个 claimed platform 与每个 anchor-enabled Claude/Codex
-    installed hook 还必须填写带单位的 `hook_e2e_p50_ms`、`hook_e2e_p95_ms`、
-    `hook_e2e_p99_ms`、`hook_e2e_max_ms`，并填写 `cas_timeout_ms`、`ipc_timeout_ms`、
-    `queue_wait_budget_ms`、`contention_total_budget_ms` 与 `contention_retry_limit_count`；不得留空、
+    evidence retention 和旧 receipts 处置。global platform registry 跨全部 Core releases append-only；
+    同一 platform/profile family 一旦 no-block 就永远不得改 mode，duplicate/conflict 跨 release 拒绝。
+    每个 claimed installed hook 必须填写 `hook_e2e_p50/p95/p99/max_ms`；只有 anchor-block 再填写
+    `cas_timeout_ms`、`ipc_timeout_ms`、`queue_wait_budget_ms`、`contention_total_budget_ms` 与
+    `contention_retry_limit_count`，no-block 禁止 backend/CAS budget；不得留空、
     使用无单位“fast/bounded”或用专项 microbenchmark 替代 installed-path end-to-end budget。每次
     gate 必须按 supporting contract 输出 budget、initial、confirmation、逐字段 breaches 与 blocking
-    decision；P50/P95/P99/max、CAS、IPC、queue、contention time/retry 任一项都不能被 P95-only
+    decision；hook 的 P50/P95/P99/max 与 anchor-block source-applicable 的 CAS、IPC、queue、
+    contention time/retry 任一项都不能被 P95-only
     verdict 隐藏。result 必须 exact 绑定获批 H-010/decision artifact digest 与 authoritative
     evaluation-policy digest/generation/validity evidence；任一 policy/budget rotation 或 mismatch 必须
-    nonzero 并全量重跑，不能沿用旧 result。no-block branch 必须由 signed H-010 artifact 提供
-    release-pinned、predecessor-linked generation identity 与 `maximum_effective_decision=warn`；
-    replayed HOME、缺失 backend 或旧 profile 不能授权 block，也不能把合法 warn/off 升级为 denial。
-    signed profile 必须 exact 绑定当前 Core release digest；当前安装 release 的 profile 过期后只保留
-    authenticated warn/off/no-data ceiling 并 nonzero，不得授权 block，也不得改用 HOME 中旧 artifact。
+    nonzero 并全量重跑，不能沿用旧 result。no-block branch 必须引用 global terminal registry entry 与
+    `maximum_effective_decision=warn`；release pin 只绑定 compatibility，不定义 mode。该 platform/family
+    在任何过去/未来 release 都只 warn/off，expiry/pin mismatch 只使 status stale/nonzero。未来 block
+    必须先有 conforming nonrollback backend，再分配旧 client 不会解释为同一 platform 的 new identity，
+    并由 maintainer migration 授权；旧 release/profile 无权授权、替代或 alias。whole-release rollback
+    只能回到旧 family 的 warn/off，不能把新 block identity/receipt 重解释为 no-block；identity mismatch
+    必须 fail-visible。no-block backend/root/leaf 始终 `not_applicable`，不 provision/restart/CAS/IPC。
     未选 branch、block backend 不 conform、identity/IPC 无法认证时不得执行 committed/promoted block；
     实现不能把 `tpm2_nv_v1` 或任何平台方案当作本 Draft 已批准。
 
@@ -335,17 +339,18 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     必须来自 current approved `evaluation_policy_digest`，而不是 pack author、环境变量、
     README、install command 或 artifact-embedded publication policy 临时覆盖。policy
     更新必须在不改写 bundle/index identity 的前提下重算 eligibility；Core-owned
-    runtime 先验证 release-pinned signed H-010 platform branch；若当前 release 的唯一 valid-signature/profile
-    仅时间过期，则使用 expired-profile warn ceiling。`anchor_block_v1` 在每次 enforcement
+    runtime 先验证 global registry entry，再验证 release-pinned H-010 compatibility；terminal no-block
+    expiry/pin mismatch 只保留 warn ceiling + stale/audit status。`anchor_block_v1` 在每次 enforcement
     接受 committed decision 前以 external per-leaf authorities 证明 policy/install pointer/floors current；
-    `authenticated_no_block_v1` 则重算 predecessor-linked no-block generation identity，合法 warn/off
-    不要求 external authority。两者再比较 policy exact `(digest, generation,
+    `authenticated_no_block_v1` 则验证 global family/release/install binding，合法 warn/off 不要求
+    external authority。两者再比较 policy exact `(digest, generation,
     validity_evidence_digest)` 与 committed generation；任一
     identity drift 即使 digest 后来相同，也立即使用 warn/off fallback、durably latch
     `policy_changed + audit_required`；pointer/floor
     anchor-block generation authority/pointer/floor 缺失、malformed、不可验证或低于 floor 时，block
-    candidate 必须拒绝并 nonzero；valid no-block branch 的 backend 缺失是 `not_applicable`，不得把
-    warn/off/no-data 升级为 denial，且任何 block claim 仍 nonzero fail closed。
+    candidate 必须拒绝并 nonzero；no-block backend/root/leaf 是 `not_applicable`，不得运行
+    provision/restart/CAS/IPC 或升级 denial。same-family/cross-release mode transition、duplicate platform、
+    old-binary/new-identity alias 都 fail-visible；新 block 只可使用 nonrollback backend + new identity + migration。
     两者都不能等旧 horizon 到期。status
     同时显示 publication、committed evaluation 与 authoritative active evaluation policy
     identities。anchor-block 的每次 policy activation 还必须在 Core-owned policy lock 下先写入并 fsync closed
@@ -474,7 +479,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     与 precision reason、`decision_valid_until`/expiry state/`audit_required`，以及
     publication policy identity、committed 与 authoritative evaluation policy 各自的 exact
     digest/generation/validity-evidence identity、policy generation floor、active installation
-    generation/floor、runtime-state sequence/latch、monotonic anchor backend/root/per-leaf authority/counter、source-applicable `override_valid_until`、
+    generation/floor、runtime-state sequence/latch、authority mode、source-applicable `override_valid_until`；
+    no-block 显示 global profile generation/install binding/warn ceiling/stale 且 backend/root/leaf=`not_applicable`；
+    anchor-block 显示 selected backend/root/per-leaf authority/counter 与 anchor budget/availability；
     trusted-time high-water 与 `clock_epoch`，并以
     nonzero 区分 `{invalid, incompatible, revoked, needs_repair, protection_suspended,
     runtime_guard_unavailable}`；任何 `audit_required` 或 active protection 降级/暂停也必须
@@ -510,6 +517,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 - [ ] 默认无 telemetry；feedback export 与发送是分离、显式确认的动作。
 - [ ] H-001–H-010 均有 maintainer 选择与 security review evidence，未选择时 official
       publish/install/default-block gate 明确阻断。
+- [ ] `two_release_whole_rollback`、`duplicate_platform_across_releases`、
+      `forbidden_cross_release_mode_transition` 与 old-binary/new-identity fixtures 证明 global terminality；
+      `no_block_status_without_backend` 证明 mode-specific budget/lifecycle/status，不 resolve 为 backend fallback。
 
 ## 边界情况清单
 
