@@ -361,9 +361,11 @@ freshness。`verify-install` 在 H-001 recommendation 和支持
 不得伪装 active。
 
 unsupported 平台的 doctor 必须显示 coverage contract 的 exact manual command sequence：
-`manual-authority start` 创建独立 epoch，`status` 验证 provider/heartbeat，`generate` 只查询该 epoch
-完整覆盖的 window，`stop` quiesce 并封闭 epoch。它不安装 scheduler、不改 `scheduler_state`，
-也不得把 start 前的 interval 报 complete。
+`manual-authority start` 创建独立 epoch，`status` 验证 provider/heartbeat，`generate` 接受任一通过
+CLI 语法、边界与 budget 校验的显式 window；该 epoch 完整覆盖的 window 才能返回 `complete`，start
+前、跨未覆盖区间或 stop 后结束的合法 window 返回无 headline 的 `partial_coverage`（terminal evidence
+仍 nonzero/no-publish）。`stop` quiesce 并封闭 epoch。它不安装 scheduler、不改 `scheduler_state`，
+也不得拒绝合法历史 window 或把 start 前的 interval 报 complete。
 
 `scripts/setup/clean.sh` 先取得 generation/retention 共用的 lifecycle lock，推进并
 durable commit `cleaned` generation，再停止并 probe scheduler inactive；随后只卸载
@@ -576,7 +578,7 @@ JSON：
 | B-002 default install produces scheduled summary after one install confirmation | setup plan + value scheduler integration | `bash tests/test_setup.sh` fresh macOS/Linux fixtures assert summary + cadence/jitter/expiry/provider disclosure, one confirmation, active job and next-window artifact |
 | B-003 narrow GH-556 supersession | surface dispatch in wrapper/installer | `bash tests/test_health_report_scheduler.sh` asserts standalone health remains opt-in/default-health while setup invokes explicit value surface |
 | B-004 opt-out creates no job | setup option + weekly state | `bash tests/test_setup.sh` asserts `--no-weekly-value`, no manager/authority/slot, no per-event coverage diagnostic and `disabled_by_user`; later enable starts a new partial epoch |
-| B-005 unsupported platform fail-visible | platform resolver + manual authority | `bash tests/test_setup.sh` Windows/unknown fixture asserts no fallback job/scheduled authority、`unsupported_platform` and executable manual start/status/generate/stop；manual epoch never claims earlier coverage |
+| B-005 unsupported platform fail-visible | platform resolver + manual authority | `bash tests/test_setup.sh` Windows/unknown fixture asserts no fallback job/scheduled authority、`unsupported_platform` and executable manual start/status/generate/stop；a valid earlier/uncovered window returns headline-free partial while only continuously covered windows may be complete |
 | B-006 one owned identity and third-party preservation | installer upsert/remove | `bash tests/test_health_report_scheduler.sh` repeated install plus third-party launchd/systemd fixtures |
 | B-007 registration failure rollback | lifecycle snapshot/probe/rollback | `bash tests/test_setup.sh` launchd/systemd write/load/probe failure matrix; setup completion absent and owned before-state restored |
 | B-008 exact half-open window metadata | weekly-value CLI parser and wrapper window calculator | `cargo test --manifest-path vibeguard-runtime/Cargo.toml weekly_value_window`; shell fixtures cover timezone/DST boundary |

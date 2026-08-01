@@ -25,9 +25,11 @@ Authority mode closed 为 `scheduled|manual`：
   逐事件 coverage diagnostic；unsupported 平台必须展示 exact
   `vibeguard-runtime observe weekly-value manual-authority start|status|generate|stop`
   命令序列；`generate` 还必须携带第 3 节 CLI 的 exact window/timezone/scope/taxonomy 参数；
-- manual `generate` 只接受该 manual epoch 连续覆盖的 half-open window。早于
-  `manual_enabled_at`、跨越未覆盖区间或在 stop 后结束的 window 必须
-  `partial_coverage`，不能由一次 on-demand scan 补造 complete 历史。
+- manual `generate` 接受任一通过第 3 节 CLI 语法、边界与 budget 校验的显式 half-open
+  window，但只有被该 manual epoch 连续覆盖的 window 才能返回 `complete`。早于
+  `manual_enabled_at`、跨越未覆盖区间或在 stop 后结束的合法 window 必须生成无 headline 的
+  `partial_coverage`；schema/corruption 等 terminal evidence 仍 nonzero/no-publish。命令不得拒绝合法的
+  历史 window，也不能由一次 on-demand scan 补造 complete 历史。
 
 任一 mode 的 epoch 都绑定 exact installed snapshot digest、authority provider identity、
 批准的 cadence/jitter/expiry 和 lifecycle generation。mode、epoch 或 snapshot digest 不同的
