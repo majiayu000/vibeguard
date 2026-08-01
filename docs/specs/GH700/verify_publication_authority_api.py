@@ -1,0 +1,580 @@
+#!/usr/bin/env python3
+"""Stdlib-only semantic verifier for the GH700 authority API artifacts."""
+
+import argparse
+import base64
+import copy
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+SAFE_MAX = 9_007_199_254_740_991
+U64_MAX = 18_446_744_073_709_551_615
+CLIENT = ("get_publication_head", "claim_publication_owner", "renew_publication_owner", "takeover_publication_owner", "append_publication_transition", "plan_release_mutation", "deliver_release_mutation", "recover_release_mutation", "plan_generated_pr", "deliver_generated_pr", "recover_generated_pr", "append_blocked_attempt", "bind_blocked_attempt", "list_blocked_attempts", "commit_reconciliation_watermark", "get_blocked_attempt_frontier", "read_secret_capsule")
+CONTROL = ("prepare_bootstrap_trusted_time", "bootstrap", "migrate", "recover", "ready")
+AUTH_KEYS = ("publication_lease_authorization", "append_authorization", "delivery_authorization", "ledger_append_authorization")
+COVERAGE = {"source_binding", "genesis", "key_attestation", "client_replay", "control_replay", "terminal_binding", "snapshot_binding", "merged_existing_receipts", "recover_selector_database", "recover_selector_backup", "recover_selector_anchor", "control_not_found", "prebootstrap_policy", "release_recovery_pending", "release_not_applied", "release_compensated", "release_blocked", "generated_pr_not_applied", "generated_pr_blocked", "delivery_recovery_required", "capsule_source_plan", "capsule_source_claim"}
+REQUIRED_DIGEST_NODES = {"authorization_signing_preimage_digest", "signature_digest", "client_request_nonce_digest", "control_request_nonce_digest", "time_bound_request_id", "execution_identity_digest", "operation_id", "release_broker_delivery_id", "generated_pr_delivery_id", "delivery_scope_digest", "recovery_query_digest", "capsule_source_request_id", "operation_request_digest", "receipt_digest", "result_digest", "response_nonce_digest", "response_digest", "prior_anchor_binding_digest", "backup_aad_digest", "describe_key_material_attestation_digest", "manifest_key_binding_digest", "generate_data_key_request_digest", "generate_data_key_material_attestation_digest", "key_attestation_digest", "capsule_receipt_digest", "replay_row_digest"}
+
+
+class ContractError(Exception):
+    pass
+
+
+def pairs_no_duplicates(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ContractError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def load(path):
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=pairs_no_duplicates)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ContractError(f"cannot load {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ContractError(f"top-level object required: {path}")
+    return value
+
+
+def walk(value):
+    yield value
+    children = value.values() if isinstance(value, dict) else value if isinstance(value, (list, tuple)) else ()
+    for child in children:
+        yield from walk(child)
+
+
+def jcs(value):
+    for item in walk(value):
+        if isinstance(item, float):
+            raise ContractError("floating-point canonical input forbidden")
+        if isinstance(item, int) and not isinstance(item, bool) and abs(item) > SAFE_MAX:
+            raise ContractError("unsafe JSON integer in canonical input")
+    return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"), sort_keys=True).encode()
+
+
+def sha(raw):
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def dg(domain, preimage):
+    if not isinstance(preimage, dict) or "v" in preimage:
+        raise ContractError("digest preimage must be an object without a caller-supplied v")
+    return sha(jcs({"v": domain, **preimage}))
+
+
+def b64u(raw):
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def decode_b64u(value, size, label):
+    if not isinstance(value, str) or "=" in value or re.fullmatch(r"[A-Za-z0-9_-]+", value) is None:
+        raise ContractError(f"{label}: canonical unpadded base64url required")
+    try:
+        raw = base64.b64decode(value + "=" * ((-len(value)) % 4), altchars=b"-_", validate=True)
+    except ValueError as exc:
+        raise ContractError(f"{label}: invalid base64url") from exc
+    if len(raw) != size or b64u(raw) != value:
+        raise ContractError(f"{label}: decoded length or byte-identical re-encode mismatch")
+    return raw
+
+
+def uint64(value, label):
+    if isinstance(value, bool):
+        raise ContractError(f"{label}: bool is not uint64")
+    if isinstance(value, int):
+        if 0 <= value <= SAFE_MAX:
+            return value
+        raise ContractError(f"{label}: JSON number outside safe uint64 range")
+    if not isinstance(value, str) or re.fullmatch(r"0|[1-9][0-9]*", value) is None:
+        raise ContractError(f"{label}: canonical decimal required")
+    number = int(value)
+    if number <= SAFE_MAX or number > U64_MAX:
+        raise ContractError(f"{label}: decimal uint64 outside safe-max+1..2^64-1")
+    return number
+
+
+def pointer(root, ref):
+    if not ref.startswith("#/"):
+        raise ContractError(f"non-local ref: {ref}")
+    value = root
+    for encoded in ref[2:].split("/"):
+        key = encoded.replace("~1", "/").replace("~0", "~")
+        if not isinstance(value, dict) or key not in value:
+            raise ContractError(f"dangling ref: {ref}")
+        value = value[key]
+    return value
+
+
+def is_type(value, expected):
+    return {
+        "object": isinstance(value, dict), "array": isinstance(value, list), "string": isinstance(value, str),
+        "integer": isinstance(value, int) and not isinstance(value, bool), "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+        "boolean": isinstance(value, bool), "null": value is None,
+    }[expected]
+
+
+def valid(value, schema, root):
+    try:
+        validate(value, schema, root)
+        return True
+    except ContractError:
+        return False
+
+
+def validate(value, schema, root, path="$"):
+    if schema is True:
+        return
+    if schema is False or not isinstance(schema, dict):
+        raise ContractError(f"{path}: invalid/false schema")
+    if "$ref" in schema:
+        validate(value, pointer(root, schema["$ref"]), root, path)
+        return
+    for child in schema.get("allOf", ()):
+        validate(value, child, root, path)
+    if "anyOf" in schema and not any(valid(value, child, root) for child in schema["anyOf"]):
+        raise ContractError(f"{path}: no anyOf branch")
+    if "oneOf" in schema and sum(valid(value, child, root) for child in schema["oneOf"]) != 1:
+        raise ContractError(f"{path}: oneOf cardinality mismatch")
+    if "not" in schema and valid(value, schema["not"], root):
+        raise ContractError(f"{path}: forbidden by not")
+    if "if" in schema:
+        branch = schema.get("then") if valid(value, schema["if"], root) else schema.get("else")
+        if branch is not None:
+            validate(value, branch, root, path)
+    if "const" in schema and value != schema["const"]:
+        raise ContractError(f"{path}: const mismatch")
+    if "enum" in schema and value not in schema["enum"]:
+        raise ContractError(f"{path}: enum mismatch")
+    expected = schema.get("type")
+    if isinstance(expected, str) and not is_type(value, expected):
+        raise ContractError(f"{path}: expected {expected}")
+    if isinstance(expected, list) and not any(is_type(value, item) for item in expected):
+        raise ContractError(f"{path}: type union mismatch")
+    if isinstance(value, dict):
+        missing = [key for key in schema.get("required", ()) if key not in value]
+        if missing:
+            raise ContractError(f"{path}: missing {missing}")
+        props = schema.get("properties", {})
+        for key, item in value.items():
+            if key in props:
+                validate(item, props[key], root, f"{path}.{key}")
+            elif schema.get("additionalProperties") is False:
+                raise ContractError(f"{path}: additional property {key}")
+    if isinstance(value, list):
+        if len(value) < schema.get("minItems", 0) or len(value) > schema.get("maxItems", len(value)):
+            raise ContractError(f"{path}: array cardinality")
+        if schema.get("uniqueItems") and len({jcs(item) for item in value}) != len(value):
+            raise ContractError(f"{path}: duplicate item")
+        for index, item in enumerate(value):
+            if "items" in schema:
+                validate(item, schema["items"], root, f"{path}[{index}]")
+    if isinstance(value, str):
+        if len(value) < schema.get("minLength", 0) or len(value) > schema.get("maxLength", len(value)):
+            raise ContractError(f"{path}: string length")
+        if "pattern" in schema and re.search(schema["pattern"], value) is None:
+            raise ContractError(f"{path}: pattern mismatch")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if value < schema.get("minimum", value) or value > schema.get("maximum", value):
+            raise ContractError(f"{path}: numeric range")
+
+
+def expand(value, fixtures, stack=()):
+    if isinstance(value, list):
+        return [expand(item, fixtures, stack) for item in value]
+    if isinstance(value, dict):
+        if set(value) == {"$fixture"}:
+            name = value["$fixture"]
+            if name not in fixtures or name in stack:
+                raise ContractError(f"bad fixture: {name}")
+            return expand(copy.deepcopy(fixtures[name]), fixtures, stack + (name,))
+        return {key: expand(item, fixtures, stack) for key, item in value.items()}
+    return value
+
+
+def context(value, values):
+    if isinstance(value, list):
+        return [context(item, values) for item in value]
+    if isinstance(value, dict):
+        if set(value) == {"$context"}:
+            if value["$context"] not in values:
+                raise ContractError(f"missing context {value['$context']}")
+            return copy.deepcopy(values[value["$context"]])
+        return {key: context(item, values) for key, item in value.items()}
+    return value
+
+
+def derive(container, key, expected, label):
+    if container.get(key) == {"$derive": key}:
+        container[key] = expected
+    elif container.get(key) != expected:
+        raise ContractError(f"{label}: {key} mismatch")
+
+
+def strip_ids(value):
+    if isinstance(value, list):
+        return [strip_ids(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    omitted = set(AUTH_KEYS) | {"time_bound_request_id", "control_operation_id", "broker_delivery_id", "generated_pr_delivery_id", "recovery_query_digest"}
+    return {key: strip_ids(item) for key, item in value.items() if key not in omitted}
+
+
+def operation_id(request, surface):
+    return dg("GH700:operation-id:v1", {
+        "surface": surface, "method": request["method"], "authority_id": request["authority_id"], "repo_node_id": request["repo_node_id"],
+        "expected_publication_frontier_or_null": request.get("expected_publication_frontier_or_null"),
+        "expected_blocked_attempt_frontier_or_null": request.get("expected_blocked_attempt_frontier_or_null"), "subject": strip_ids(request["body"]),
+    })
+
+
+def auth_digest(auth, label):
+    raw_signature = decode_b64u(auth["signature_b64u"], 64, f"{label}.signature_b64u")
+    derive(auth, "signature_digest", sha(raw_signature), label)
+    preimage = {key: item for key, item in auth.items() if key not in {"signing_preimage_digest", "signature_b64u", "signature_digest"}}
+    derive(auth, "signing_preimage_digest", dg(auth["schema_version"].replace(":v1", ":signing-preimage:v1"), preimage), label)
+
+
+def receipt_digests(value, label="result"):
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            receipt_digests(item, f"{label}[{index}]")
+        return
+    if not isinstance(value, dict):
+        return
+    for key, item in value.items():
+        receipt_digests(item, f"{label}.{key}")
+    if "receipt_version" in value:
+        derive(value, "receipt_digest", dg(value["receipt_version"], {key: item for key, item in value.items() if key != "receipt_digest"}), label)
+    if "capsule_receipt_version" in value:
+        derive(value, "key_attestation_digest", dg("GH700:authority-capsule-key-attestation-digest:v1", value["key_attestation"]), label)
+        derive(value, "capsule_receipt_digest", dg(value["capsule_receipt_version"], {key: item for key, item in value.items() if key != "capsule_receipt_digest"}), label)
+
+
+def request_digests(request, surface):
+    method, body = request["method"], request["body"]
+    nonce = decode_b64u(request["request_nonce"], 32, f"{method}.request_nonce")
+    op_id = operation_id(request, surface)
+    if "time_bound_request_id" in body:
+        time_id = dg("GH700:time-bound-request-id:v1", body["time_bound_intent"])
+        derive(body, "time_bound_request_id", time_id, method)
+        auth = body["publication_lease_authorization"]
+        derive(auth, "authorized_time_bound_request_id", time_id, method)
+        derive(auth, "execution_identity_digest", dg("GH700:execution-identity:v1", body["time_bound_intent"]["execution_identity"]), method)
+    if "control_operation_id" in body:
+        derive(body, "control_operation_id", op_id, method)
+    if "broker_delivery_id" in body:
+        derive(body, "broker_delivery_id", dg("GH700:release-broker-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": body["planned_operation_id"]}), method)
+    if "generated_pr_delivery_id" in body:
+        derive(body, "generated_pr_delivery_id", dg("GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": body["planned_operation_id"]}), method)
+    if "recovery_query_digest" in body:
+        derive(body, "recovery_query_digest", dg("GH700:recovery-query:v1", {"method": method, "planned_operation_id": body["planned_operation_id"]}), method)
+    if "capsule_source" in body:
+        source = body["capsule_source"]
+        derive(source, "source_request_id", dg("GH700:capsule-source-request-id:v1", {key: source[key] for key in ("source_method", "source_operation_id", "secret_slot_id")}), method)
+    for key in AUTH_KEYS:
+        auth = body.get(key)
+        if not isinstance(auth, dict):
+            continue
+        if auth["authorized_method"] != method:
+            raise ContractError(f"{method}: authorization method mismatch")
+        if key == "append_authorization":
+            derive(auth, "authorized_operation_id", op_id, method)
+            if auth["authorized_predecessor_frontier"] != request["expected_publication_frontier_or_null"]:
+                raise ContractError(f"{method}: append frontier mismatch")
+        if key == "ledger_append_authorization":
+            derive(auth, "authorized_operation_id", op_id, method)
+            if auth["authorized_predecessor_frontier"] != request["expected_blocked_attempt_frontier_or_null"]:
+                raise ContractError(f"{method}: ledger frontier mismatch")
+        if key == "delivery_authorization":
+            delivery = body.get("broker_delivery_id", body.get("generated_pr_delivery_id"))
+            derive(auth, "delivery_id", delivery, method)
+            if auth["planned_operation_id"] != body["planned_operation_id"]:
+                raise ContractError(f"{method}: delivery binding mismatch")
+            derive(auth, "delivery_scope_digest", dg("GH700:delivery-scope:v1", {"method": method, "planned_operation_id": body["planned_operation_id"], "delivery_id": delivery}), method)
+        auth_digest(auth, f"{method}.{key}")
+    derive(request, "operation_request_digest", dg(f"GH700:{surface}-operation-request:v1", {key: item for key, item in request.items() if key != "operation_request_digest"}), method)
+    nonce_digest = dg(f"GH700:{surface}-request-nonce:v1", {"authority_id": request["authority_id"], "repo_node_id": request["repo_node_id"], "authenticated_principal_digest": request["authenticated_principal_digest"], "request_nonce": b64u(nonce)})
+    return op_id, nonce_digest
+
+
+def response_digests(response, request, surface, op_id, nonce_digest):
+    method = request["method"]
+    if response["method"] != method or response["operation_request_digest"] != request["operation_request_digest"]:
+        raise ContractError(f"{method}: response request binding mismatch")
+    derive(response, f"{surface}_request_nonce_digest", nonce_digest, method)
+    response_nonce = decode_b64u(response["response_nonce"], 32, f"{method}.response_nonce")
+    if "result" in response:
+        receipt_digests(response["result"])
+        derive(response, "result_digest", dg(f"GH700:{surface}-result:v1", response["result"]), method)
+    preimage = {key: item for key, item in response.items() if key != "response_digest"}
+    preimage["response_nonce_digest"] = dg(f"GH700:{surface}-response-nonce:v1", {"response_nonce": b64u(response_nonce)})
+    derive(response, "response_digest", dg(f"GH700:{surface}-response:v1", preimage), method)
+
+
+def materialize(model, fixtures):
+    request = {**expand({"$fixture": model["request_base"]}, fixtures), **expand(model["request_patch"], fixtures)}
+    op_id, nonce_digest = request_digests(request, model["surface"])
+    values = {"method": request["method"], "operation_id": op_id, "operation_request_digest": request["operation_request_digest"], "generated_pr_delivery_id": dg("GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": op_id}), "publication_frontier": request.get("expected_publication_frontier_or_null"), "blocked_frontier": request.get("expected_blocked_attempt_frontier_or_null")}
+    response = context({**expand({"$fixture": model["success_base"]}, fixtures), **expand(model["success_patch"], fixtures)}, values)
+    response_digests(response, request, model["surface"], op_id, nonce_digest)
+    if any(isinstance(item, dict) and ({"$derive", "$context"} & set(item)) for item in walk((request, response))):
+        raise ContractError(f"{model['model_id']}: unresolved directive")
+    return request, response
+
+
+def check_scalars(schema):
+    defs = schema["$defs"]
+    if defs["nonce"].get("pattern") != r"^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$":
+        raise ContractError("nonce schema final character is not canonical")
+    for raw in (bytes(32), b"\xff" * 32, bytes(range(32))):
+        decode_b64u(b64u(raw), 32, "nonce positive")
+    for bad in ("A" * 42 + "B", "A" * 43 + "=", "A" * 42):
+        try:
+            decode_b64u(bad, 32, "nonce negative")
+        except ContractError:
+            pass
+        else:
+            raise ContractError(f"bad nonce accepted: {bad}")
+    if defs["signature_b64u"].get("pattern") != r"^[A-Za-z0-9_-]{85}[AQgw]$":
+        raise ContractError("signature schema final character is not canonical")
+    decode_b64u(b64u(bytes(range(64))), 64, "signature positive")
+    if defs["uint64"]["oneOf"][1]["pattern"] != r"^(0|[1-9][0-9]*)$":
+        raise ContractError("uint64 string pattern is not syntax-only canonical decimal")
+    good = (0, SAFE_MAX, str(SAFE_MAX + 1), "10000000000000000", str(U64_MAX))
+    if [uint64(item, "uint64 positive") for item in good] != [0, SAFE_MAX, SAFE_MAX + 1, 10**16, U64_MAX]:
+        raise ContractError("uint64 positive boundaries failed")
+    for bad in (-1, SAFE_MAX + 1, "00", "01", str(SAFE_MAX), str(U64_MAX + 1)):
+        try:
+            uint64(bad, "uint64 negative")
+        except ContractError:
+            pass
+        else:
+            raise ContractError(f"bad uint64 accepted: {bad}")
+
+
+def check_schema(schema, root):
+    if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
+        raise ContractError("Draft 2020-12 declaration missing")
+    refs = []
+    for item in walk(schema):
+        if isinstance(item, dict) and "$ref" in item:
+            refs.append(item["$ref"])
+            pointer(schema, item["$ref"])
+    check_scalars(schema)
+    defs = schema["$defs"]
+    methods = {"client": CLIENT, "control": CONTROL}
+    for name, surface in (("client_request_envelope", "client"), ("client_success_envelope", "client"), ("control_request_envelope", "control"), ("control_success_envelope", "control")):
+        if tuple(defs[name]["properties"]["method"].get("enum", ())) != methods[surface]:
+            raise ContractError(f"{name}: open or reordered method enum")
+    for name, surface in (("client_api_replay_row", "client"), ("control_api_replay_row", "control")):
+        if tuple(defs[name]["properties"]["method"].get("enum", ())) != methods[surface]:
+            raise ContractError(f"{name}: missing closed method enum")
+    for name in ("transition_receipt", "frontier_receipt", "control_receipt", "enumeration_snapshot_receipt"):
+        if not 8 <= len(defs[name]["required"]) <= 11:
+            raise ContractError(f"{name}: receipt must have 8-11 fields")
+    if "receipt" in defs and len(defs["receipt"].get("required", ())) == 2:
+        raise ContractError("generic two-field receipt remains")
+    signing = {"signing_key_id", "signing_key_material_id", "signing_preimage_digest", "signature_b64u", "signature_digest"}
+    signing_meta = schema.get("x-gh700-signing-preimages", {})
+    for name in ("publication_lease_authorization", "append_authorization", "delivery_authorization", "ledger_append_authorization"):
+        if not signing <= set(defs[name]["required"]):
+            raise ContractError(f"{name}: incomplete signing contract")
+        meta = signing_meta.get(name, {})
+        expected_fields = [field for field in defs[name]["required"] if field not in {"signing_preimage_digest", "signature_b64u", "signature_digest"}]
+        if meta.get("domain") != defs[name]["properties"]["schema_version"]["const"].replace(":v1", ":signing-preimage:v1") or meta.get("preimage_fields") != expected_fields or "manifest-pinned" not in meta.get("key_binding", ""):
+            raise ContractError(f"{name}: signing preimage/key metadata mismatch")
+    material_schema = defs["authority_capsule_key_attestation"]["properties"]["kms_key_material_id"]
+    if material_schema.get("$ref"):
+        material_schema = pointer(schema, material_schema["$ref"])
+    if material_schema.get("pattern") != "^[0-9a-f]{64}$":
+        raise ContractError("KeyMaterialId is not exact 64hex")
+    if "selector" not in defs["control_body_recover"]["required"]:
+        raise ContractError("control recovery selector missing")
+    deployment = defs["deployment_manifest"]
+    if deployment["properties"].get("deployment_policy") != {"$ref": "#/$defs/deployment_policy_binding"} or any(item.get("$ref") == "#/$defs/prebootstrap_policy_binding" for item in walk(deployment) if isinstance(item, dict)):
+        raise ContractError("history deployment manifest policy branch is not deployment-only")
+    owners = {"authorization": "#/$defs/authorization", "receipt": "#/$defs/typed_receipt", "digest": "#/x-gh700-digest-formulas", "replay": "#/$defs/replay_row", "kms": "#/$defs/authority_kms_manifest"}
+    if schema.get("x-gh700-wire-owners") != owners or len(set(owners.values())) != 5:
+        raise ContractError("wire owner map mismatch")
+    for ref in owners.values():
+        pointer(schema, ref)
+    forbidden = set(schema["x-gh700-forbidden-aliases"])
+    for name, definition in defs.items():
+        if name in forbidden:
+            raise ContractError(f"forbidden alias definition: {name}")
+        for item in walk(definition):
+            if isinstance(item, dict) and (forbidden & (set(item.get("required", ())) | set(item.get("properties", {})))):
+                raise ContractError(f"forbidden alias field in {name}")
+    compact = "".join((root / name).read_text(encoding="utf-8").replace(" ", "") for name in ("publication_history_contract.md", "publication_ledger_contract.md", "publication_authority_protocol_contract.md"))
+    for marker in ('"schema_version":"GH700:append-authorization:v1"', '"schema_version":"GH700:delivery-authorization:v1"', '"schema_version":"GH700:ledger-append-authorization:v1"', '"receipt_version":"GH700:'):
+        if marker in compact:
+            raise ContractError(f"duplicate prose wire owner: {marker}")
+    return len(refs)
+
+
+def check_dag(schema):
+    dag, formulas = schema["x-gh700-digest-dag"], schema["x-gh700-digest-formulas"]
+    nodes = dag["nodes"]
+    if schema.get("x-gh700-digest-framing") != "digest = lowercase sha256:<64hex> of SHA256(JCS({v:domain,...preimage_fields})); callers may not supply v":
+        raise ContractError("digest framing mismatch")
+    if len(nodes) != len(set(nodes)) or set(nodes) != set(formulas) or set(nodes) != REQUIRED_DIGEST_NODES:
+        raise ContractError("digest formula/DAG node mismatch")
+    for name, formula in formulas.items():
+        if set(formula) != {"domain", "preimage", "wire_consumers"} or not all(formula.values()):
+            raise ContractError(f"incomplete digest formula: {name}")
+    outgoing, indegree = {node: [] for node in nodes}, {node: 0 for node in nodes}
+    for source, target in dag["edges"]:
+        if source not in outgoing or target not in outgoing or source == target:
+            raise ContractError("invalid digest DAG edge")
+        outgoing[source].append(target); indegree[target] += 1
+    queue, seen = [node for node in nodes if indegree[node] == 0], 0
+    while queue:
+        node = queue.pop(0); seen += 1
+        for target in outgoing[node]:
+            indegree[target] -= 1
+            if indegree[target] == 0: queue.append(target)
+    if seen != len(nodes):
+        raise ContractError("digest DAG cycle")
+    return len(nodes), len(dag["edges"])
+
+
+def check_kms(schema, fixtures):
+    manifest = expand({"$fixture": "authority_kms_manifest"}, fixtures)
+    attestation = expand({"$fixture": "key_attestation"}, fixtures)
+    validate(manifest, pointer(schema, "#/$defs/authority_kms_manifest"), schema)
+    validate(attestation, pointer(schema, "#/$defs/authority_capsule_key_attestation"), schema)
+    describe = manifest["describe_key_response"]
+    generate = attestation["generate_data_key_response"]
+    identity = (manifest["kms_key_arn"], manifest["kms_key_material_id"])
+    if identity != (describe["key_id"], describe["key_material_id"]) or identity != (attestation["kms_key_arn"], attestation["kms_key_material_id"]) or identity != (generate["key_id"], generate["key_material_id"]):
+        raise ContractError("KMS ARN/KeyMaterialId attestation mismatch")
+    derive(manifest, "key_material_attestation_digest", dg("GH700:describe-key-material-attestation:v1", describe), "KMS manifest")
+    derive(manifest, "manifest_key_binding_digest", dg("GH700:authority-kms-manifest-key-binding:v1", {key: item for key, item in manifest.items() if key != "manifest_key_binding_digest"}), "KMS manifest")
+    derive(attestation, "generate_data_key_request_digest", dg("GH700:generate-data-key-request:v1", attestation["generate_data_key_request"]), "GenerateDataKey")
+    derive(attestation, "key_material_attestation_digest", dg("GH700:generate-data-key-material-attestation:v1", generate), "GenerateDataKey")
+    if attestation["manifest_key_binding_digest"] != manifest["manifest_key_binding_digest"]:
+        raise ContractError("capsule attestation is not bound to deployment KMS manifest")
+    return 4
+
+
+def semantic_pair(request, response, model):
+    method = model["method"]
+    if request["method"] != method or response["method"] != method:
+        raise ContractError(f"{model['model_id']}: method mismatch")
+    if method == "takeover_publication_owner":
+        intent = request["body"]["time_bound_intent"]
+        core, identity = intent["client_payload_core"], intent["execution_identity"]
+        if (core["run_id"], core["run_attempt"]) != (identity["run_id"], identity["run_attempt"]):
+            raise ContractError("takeover run tuple mismatch")
+    if method == "recover_generated_pr":
+        result = response["result"]
+        if len(result["transition_receipts"]) != (2 if result["recovery_state"] == "merged_existing" else 1):
+            raise ContractError("recover_generated_pr receipt cardinality")
+        expected = {"bound_existing": ["generated_pr_bound"], "merged_existing": ["generated_pr_bound", "generated_pr_merged"], "not_applied": ["generated_pr_not_applied"], "blocked": ["generated_pr_blocked"]}[result["recovery_state"]]
+        if [receipt["receipt_kind"] for receipt in result["transition_receipts"]] != expected:
+            raise ContractError("recover_generated_pr receipt sequence")
+    if method == "recover" and request["body"]["selector"] not in {"database", "backup", "anchor"}:
+        raise ContractError("unknown recovery selector")
+
+
+def negative(case, pairs, schema):
+    kind = case["mutation"]
+    scalar_bad = {"nonce_padding": lambda: decode_b64u("A" * 43 + "=", 32, kind), "nonce_noncanonical_last_char": lambda: decode_b64u("A" * 42 + "B", 32, kind), "uint64_leading_zero": lambda: uint64("01", kind), "uint64_overflow": lambda: uint64(str(U64_MAX + 1), kind)}
+    try:
+        if kind in scalar_bad:
+            scalar_bad[kind](); return False
+        request, response = copy.deepcopy(pairs[case["model_id"]])
+        if kind == "unknown_method":
+            request["method"] = "unknown_method"; validate(request, schema, schema)
+        elif kind == "operation_request_digest_mismatch":
+            request["operation_request_digest"] = "sha256:" + "f" * 64; request_digests(request, case["surface"])
+        elif kind in {"result_digest_mismatch", "response_digest_mismatch"}:
+            response["result_digest" if kind.startswith("result") else "response_digest"] = "sha256:" + "f" * 64
+            op, nonce = request_digests(request, case["surface"]); response_digests(response, request, case["surface"], op, nonce)
+        elif kind == "authorization_method_mismatch":
+            key = next(key for key in AUTH_KEYS if key in request["body"]); request["body"][key]["authorized_method"] = "ready"; request_digests(request, case["surface"])
+        elif kind == "authorization_frontier_mismatch":
+            key = next(key for key in ("append_authorization", "ledger_append_authorization") if key in request["body"]); request["body"][key]["authorized_predecessor_frontier"]["full_prefix_digest"] = "sha256:" + "f" * 64; request_digests(request, case["surface"])
+        elif kind == "receipt_extra_field":
+            target = next(item for item in walk(response["result"]) if isinstance(item, dict) and "receipt_digest" in item); target["invented"] = True; validate(response, schema, schema)
+        elif kind == "merged_existing_one_receipt":
+            response["result"]["transition_receipts"] = response["result"]["transition_receipts"][:1]; validate(response, schema, schema)
+        elif kind == "unknown_recovery_selector":
+            request["body"]["selector"] = "filesystem"; validate(request, schema, schema)
+        elif kind == "capsule_source_branch_mismatch":
+            request["body"]["capsule_source"]["secret_slot_id"] = "mutation_nonce"; validate(request, schema, schema)
+        elif kind == "ready_not_found_error":
+            validate(expand(case["value"], case["fixtures"]), schema, schema)
+        else:
+            raise ContractError(f"unknown negative mutation: {kind}")
+    except ContractError:
+        return True
+    return False
+
+
+def main():
+    parser = argparse.ArgumentParser(); parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent); parser.add_argument("--emit-materialized", type=Path); args = parser.parse_args()
+    root = args.root.resolve(); schema = load(root / "publication_authority_api.schema.json"); models = load(root / "publication_authority_api.models.json")
+    refs = check_schema(schema, root); dag_nodes, dag_edges = check_dag(schema); kms_digests = check_kms(schema, models["fixtures"])
+    registry = schema["x-gh700-method-registry"]; rows = [(row["surface"], row["method"]) for row in registry]
+    if rows != [("client", method) for method in CLIENT] + [("control", method) for method in CONTROL] or len(set(rows)) != 22:
+        raise ContractError("registry is not exact unique 17+5")
+    error_sets = {row["method"]: set(row["error_codes"]) for row in registry if row["surface"] == "control"}
+    if "not_found" not in error_sets["recover"] or "not_found" in error_sets["ready"]:
+        raise ContractError("control not_found registry partition mismatch")
+    by_id = {model["model_id"]: model for model in models["models"]}
+    if len(by_id) != len(models["models"]): raise ContractError("duplicate model_id")
+    for row in registry:
+        pointer(schema, row["request_ref"]); pointer(schema, row["success_ref"])
+        model = by_id.get(row["positive_model_id"])
+        if model is None or (model["surface"], model["method"]) != (row["surface"], row["method"]): raise ContractError(f"registry model mismatch: {row['method']}")
+    pairs, coverage, digest_count = {}, set(), 0
+    for model in models["models"]:
+        request, response = materialize(model, models["fixtures"]); validate(request, schema, schema); validate(response, schema, schema); semantic_pair(request, response, model)
+        pairs[model["model_id"]] = (request, response); coverage.update(model.get("coverage_tags", ()))
+        digests = [item for item in walk((request, response)) if isinstance(item, str) and item.startswith("sha256:")]
+        if not digests or "sha256:" + "0" * 64 in digests: raise ContractError(f"{model['model_id']}: missing/zero digest")
+        digest_count += len(digests)
+    if len(models["models"]) < 22: raise ContractError("fewer than 22 positive models")
+    auxiliary = models.get("auxiliary_positive_instances", ())
+    for item in auxiliary:
+        value = expand(item["value"], models["fixtures"])
+        if item["schema_ref"].endswith("replay_row"):
+            surface = "client" if "client_" in item["schema_ref"] else "control"
+            nonce = decode_b64u(value["request_nonce"], 32, item["model_id"])
+            nonce_digest = dg(f"GH700:{surface}-request-nonce:v1", {"authority_id": value["authority_id"], "repo_node_id": value["repo_node_id"], "authenticated_principal_digest": value["authenticated_principal_digest"], "request_nonce": b64u(nonce)})
+            derive(value, f"{surface}_request_nonce_digest", nonce_digest, item["model_id"])
+            derive(value, "replay_row_digest", dg("GH700:api-replay-row:v1", {key: child for key, child in value.items() if key != "replay_row_digest"}), item["model_id"])
+        validate(value, pointer(schema, item["schema_ref"]), schema); coverage.update(item.get("coverage_tags", ()))
+    errors = models.get("error_models", ())
+    for item in errors:
+        request = pairs[item["request_model_id"]][0]
+        surface = "client" if request["api_version"] == "GH700:client-api:v1" else "control"
+        op_id, nonce_digest = request_digests(copy.deepcopy(request), surface)
+        value = context(expand(item["value"], models["fixtures"]), {"operation_request_digest": request["operation_request_digest"]})
+        response_digests(value, request, surface, op_id, nonce_digest)
+        validate(value, schema, schema); coverage.update(item.get("coverage_tags", ()))
+    missing = COVERAGE - coverage
+    if missing: raise ContractError(f"missing positive coverage: {sorted(missing)}")
+    negatives = models.get("negative_fixtures", ())
+    for case in negatives:
+        case = {**case, "fixtures": models["fixtures"]}
+        if not negative(case, pairs, schema): raise ContractError(f"negative accepted: {case['fixture_id']}")
+    if args.emit_materialized:
+        args.emit_materialized.mkdir(parents=True, exist_ok=True)
+        for model_id, (request, response) in pairs.items():
+            (args.emit_materialized / f"{model_id}.request.json").write_bytes(jcs(request)); (args.emit_materialized / f"{model_id}.response.json").write_bytes(jcs(response))
+    print(f"PUBLICATION_AUTHORITY_API_OK registry=17+5 models={len(models['models'])} auxiliary={len(auxiliary)} errors={len(errors)} refs={refs} digests={digest_count}+{kms_digests}kms mismatches=0 dag={dag_nodes}/{dag_edges} negatives={len(negatives)} coverage={len(coverage)}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except ContractError as exc:
+        print(f"PUBLICATION_AUTHORITY_API_FAIL {exc}", file=sys.stderr); raise SystemExit(1)

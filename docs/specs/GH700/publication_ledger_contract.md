@@ -6,7 +6,9 @@
 
 [publication_authority_api.schema.json](publication_authority_api.schema.json) 是 client_api 与
 control_api 的唯一 machine-facing source；[positive models](publication_authority_api.models.json)
-按其声明的 deterministic fixture materialization 产生每个 method 的 request/success 正例。schema
+按其声明的 deterministic fixture materialization 产生每个 method 的 request/success 正例；
+[semantic verifier](verify_publication_authority_api.py) 必须对所有 normative request/response、authorization、
+typed receipt、nested capsule/KMS、replay及 DAG digest重算为零 mismatch，并执行 negative fixtures。schema
 根对象、所有 nested definitions、method/body/result branch、nullability、authorization、error与
 replay object均 closed；unknown/extra/alias/cross-method/null-not-declared一律 invalid_request，
 不得由本文或调用方补充兼容 spelling。
@@ -19,16 +21,9 @@ request_nonce、两个显式 frontier-or-null 与 body。success/error分别只�
 两者均回显 request digest及 client_request_nonce_digest并携 fresh response nonce，且不得
 error/result并存。
 
-digest construction exact 为：
-
-- client_request_nonce_digest = SHA256(JCS({v:"GH700:client-request-nonce:v1",authority_id,
-  repo_node_id,authenticated_principal_digest,request_nonce}))；
-- operation_request_digest = SHA256(JCS({v:"GH700:client-operation-request:v1",
-  request:request_without_operation_request_digest}))；
-- result_digest = SHA256(JCS({v:"GH700:client-result:v1",method,
-  operation_request_digest,result}))；
-- response_digest = SHA256(JCS({v:"GH700:client-response:v1",
-  response:response_without_response_digest}))。
+所有 authority API digest的 exact domain、JCS preimage、wire consumer与无环 dependency只由 schema
+`x-gh700-digest-formulas`/`x-gh700-digest-dag`拥有；本文不复制第二套公式。实现必须运行 semantic verifier，
+不得以 schema shape/count通过代替 preimage重算；literal expected digest、all-zero digest或 mismatch均失败。
 
 authority在任何 lookup、nonce/capsule、TSA、DB、broker或 provider I/O前重算 request identity。
 永久 UNIQUE replay key exact (authority_id,repo_node_id,authenticated_principal_digest,request_nonce)，
@@ -54,8 +49,9 @@ control的 body CAS由 registry的 BODY_P1_B1 标记，不复用 client envelope
 | list_blocked_attempts | 0 | 1 | authenticated read |
 | read_secret_capsule | 1 | 0 | secret_channel_binding |
 
-三个 authorization object由 schema exact定义并 domain-separate
-GH700:{append,delivery,ledger-append}-authorization:v1。authority须重算 signature/detached digest，
+四种 authorization branch、各自 exact signing domain/preimage field list、canonical 64-byte signature、
+manifest-pinned signing key ID/KeyMaterialId与 method-operation/frontier binding只由 schema
+`$defs/authorization`及 `x-gh700-signing-preimages`拥有。authority须重算 signature/detached digest，
 并要求 authenticated principal、policy、authorized method、operation/delivery ID、predecessor、
 fence/lease与 expiry全部 byte-equal request及 committed plan/fold；refresh只改变 mutable
 authorization bytes，不改变 immutable operation。wrong method/ID/frontier/principal或 cross-kind object在
@@ -70,9 +66,9 @@ identity；takeover core必须显式包含 new_owner_run_id/new_owner_run_attemp
 run_id/run_attempt。client不得提交 trusted time、high-water、final payload或 authority evidence。
 
 secret_channel_binding、capsule_source、capsule_receipt 与 authority_capsule_key_attestation exact schema
-均在 machine source。authority capsule key只来自 manifest-pinned KMS key ARN及 actual GenerateDataKey
-response：key_attestation_digest=SHA256(JCS(authority_capsule_key_attestation))；receipt保存
-kms_key_arn/kms_key_material_id/key_attestation_digest，不存在 logical kms_key_version。
+均只在 machine source。authority capsule key只来自 manifest-pinned exact KMS key ARN、authenticated
+DescribeKey 64hex KeyMaterialId attestation及 byte-equal actual GenerateDataKey response；nested digest domain/preimage
+只读 schema DAG并由 verifier重算，不存在 logical kms_key_version。
 UNIQUE (repo_node_id,source_method,source_request_id,secret_slot_id) 保证 claim/mutation capsule只签发一次；
 read challenge与 live exporter fresh验证，但只返回原 capsule。missing/tampered attestation、ciphertext或
 source为 not_found/hard failure，绝不生成 replacement。
@@ -160,9 +156,8 @@ machine registry exact 5 methods为 prepare_bootstrap_trusted_time、bootstrap�
 每项的 request/success ref、role、policy branch、body CAS、error set与 replay class均由
 [publication_authority_api.schema.json](publication_authority_api.schema.json) x-gh700-method-registry唯一拥有。
 control envelope包含 canonical 32-byte request nonce、authenticated principal与 repo identity。
-control_request_nonce_digest、operation_request_digest、result_digest与 response_digest分别使用
-GH700:control-request-nonce:v1、GH700:control-operation-request:v1、GH700:control-result:v1、
-GH700:control-response:v1，preimage shape与 client四式同构，仅将 surface/domain替换为 control。
+control request/operation/result/response digest不在本文复制公式；exact surface domain、preimage与 consumer
+同样只读 schema digest metadata并由 semantic verifier逐个重算。
 永久 replay key同样绑定 authority/repo/principal/nonce；same bytes恢复同一 response，different bytes报
 replay_conflict，任何 state-changing method在副作用前 FULL-fsync reserved row。
 
@@ -213,24 +208,11 @@ scheduled/superseded reason；unknown/alias、wrong nullability/class、same-key
 
 ## Ledger authorization and receipts
 
-`ledger_append_authorization` exact 为
-`{lease_scope,lease_token_digest,ledger_fence,authenticated_actor_digest,authorization_policy_digest}`；
-`lease_scope`必须 exact `repository_blocked_attempt_ledger_v1`。publication owner/fence不得替代它。
-
-`blocked_attempt_frontier_receipt` exact 为
-`{authority_id,repo_node_id,predecessor_frontier,successor_frontier,ledger_operation_id,
-accepted_ledger_fence,record_digest,store_envelope_digest,anchor_receipt_digest,issuer_key_id}`。
-`attempt_record_receipt` exact 为
-`{record_digest,attempt_subject_key,source_identity_key,run_id,run_attempt,attempt_record_kind,
-successor_frontier,store_envelope_digest}`。
-`binding_record_receipt` exact 为
-`{binding_record_digest,binding_evidence_kind,bound_attempt_record_digests,terminal_attempt_key_digest,
-terminal_listing_proof_digest,candidate_identity,source_identity_key,run_id,run_attempt,successor_frontier,
-store_envelope_digest}`。
-`watermark_receipt` exact 为
-`{watermark_digest,terminal_listing_proof_digest,max_terminal_run_id,max_terminal_run_attempt,
-terminal_attempt_count,covered_record_set_digest,prior_watermark_digest_or_null,successor_frontier,
-store_envelope_digest}`。receipt missing/extra field、frontier不等或 digest mismatch均拒绝。
+outer `ledger_append_authorization`与 method result中的 typed ledger/frontier/enumeration receipts只由
+machine schema `$defs/authorization`、`$defs/typed_receipt`及各 registry `success_ref`拥有；本文不得复制字段清单、
+签名 preimage或 receipt wire。其 semantic binding仍要求独立 ledger fence、exact blocked predecessor、
+derived operation ID、authenticated principal与 policy byte-equal request/current fold；publication owner/fence不得
+替代。receipt missing/extra field、wrong method/kind/cardinality/frontier或 verifier digest mismatch均拒绝。
 
 ## Concrete blocked-attempt ledger
 
