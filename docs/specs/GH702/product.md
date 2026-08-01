@@ -138,6 +138,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     nonzero 并全量重跑，不能沿用旧 result。no-block branch 必须由 signed H-010 artifact 提供
     release-pinned、predecessor-linked generation identity 与 `maximum_effective_decision=warn`；
     replayed HOME、缺失 backend 或旧 profile 不能授权 block，也不能把合法 warn/off 升级为 denial。
+    signed profile 必须 exact 绑定当前 Core release digest；当前安装 release 的 profile 过期后只保留
+    authenticated warn/off/no-data ceiling 并 nonzero，不得授权 block，也不得改用 HOME 中旧 artifact。
     未选 branch、block backend 不 conform、identity/IPC 无法认证时不得执行 committed/promoted block；
     实现不能把 `tpm2_nv_v1` 或任何平台方案当作本 Draft 已批准。
 
@@ -333,7 +335,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     必须来自 current approved `evaluation_policy_digest`，而不是 pack author、环境变量、
     README、install command 或 artifact-embedded publication policy 临时覆盖。policy
     更新必须在不改写 bundle/index identity 的前提下重算 eligibility；Core-owned
-    runtime 先验证 release-pinned signed H-010 platform branch。`anchor_block_v1` 在每次 enforcement
+    runtime 先验证 release-pinned signed H-010 platform branch；若当前 release 的唯一 valid-signature/profile
+    仅时间过期，则使用 expired-profile warn ceiling。`anchor_block_v1` 在每次 enforcement
     接受 committed decision 前以 external per-leaf authorities 证明 policy/install pointer/floors current；
     `authenticated_no_block_v1` 则重算 predecessor-linked no-block generation identity，合法 warn/off
     不要求 external authority。两者再比较 policy exact `(digest, generation,

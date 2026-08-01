@@ -307,7 +307,7 @@ signature，body 内不得反向包含自己的 digest。缺字段、unknown/dup
 ```text
 h010_decision_envelope = {
   digest_domain: "vibeguard.gh702.h010-decision.v1",
-  approved_h010_schema_version,
+  schema_version,
   h010_decision_body: {
     product_spec_digest, tech_spec_digest, anchor_contract_digest,
     approved_by: [maintainer_id], approved_at, expires_at,
@@ -323,7 +323,7 @@ h010_decision_envelope = {
           cas_timeout_ms, ipc_timeout_ms, queue_wait_budget_ms,
           contention_total_budget_ms, contention_retry_limit_count
         }]}|null,
-      no_block_profile: {no_block_profile_generation,
+      no_block_profile: {core_release_digest, no_block_profile_generation,
         previous_no_block_generation_digest, release_pin_digest,
         maximum_effective_decision: warn}|null
     }]
@@ -336,7 +336,13 @@ h010_decision_envelope = {
 `anchor_profile` 与 `no_block_profile` 是 closed mutually-exclusive branches。`authenticated_no_block_v1`
 只用于 H-010 明确批准 no conforming backend / no official block 的 platform；它不伪造 backend identity：
 
+`platform_profiles` 必须按 canonical `platform_id` byte order 严格递增且 ID 唯一；duplicate、乱序或同一
+platform 同时出现两个 mode 在 mode selection 前拒绝，runtime 不得 first/last-wins。
+
 ```text
+release_pin_body = {schema_version: 1, platform_id, core_release_digest}
+release_pin_digest =
+  H("vibeguard.gh702.core-release-pin.v1", 1, release_pin_body)
 no_block_generation_body = {
   schema_version: 1, platform_id, core_release_digest,
   h010_decision_artifact_digest, no_block_profile_generation,
@@ -354,20 +360,27 @@ no_block_installation_binding_digest =
 ```
 
 verified Core release 的 release-pinned H-010 generation/digest 是该分支 authority；runtime 从 signed
-artifact 确定性重算 body/digest，不信任 HOME 自报 generation；release-wide 首代 predecessor 必须 null，
+profile 读取 `core_release_digest`，重算 `release_pin_digest` 并要求两者 exact 等于当前 verified Core
+release；artifact 之外的 release value 不得进入 generation。runtime 确定性重算 body/digest，不信任
+HOME 自报 generation；release-wide 首代 predecessor 必须 null，
 后续 exact 指向上一 signed generation，且 chain 不含 installation-specific data。每个 installation 再由
 current Core installation ID 派生 binding digest，binding 不进入 release predecessor。旧 artifact、断链、
 wrong release/platform/installation binding 或任一 field mutation 都不能授权 block；在 current signed no-block profile 下，
 缺少 external backend/leaf 是 `not_applicable` 而非 unavailable，合法 warn/off/no-data 继续执行。任何
 block candidate、放宽 ceiling 或伪造 anchor branch 仍必须 nonzero fail closed。
 
-`approved_h010_schema_version` 来自 envelope outer field；
+`approved_h010_schema_version = h010_decision_envelope.schema_version`，后者是 universal envelope 的
+canonical outer key；`approved_h010_schema_version` 只是在 authority/result body 中引用该已验证值，
+不是可接受的 outer alias。
 `h010_decision_artifact_digest = sha256(JCS({digest_domain:
-"vibeguard.gh702.h010-decision.v1", approved_h010_schema_version, h010_decision_body}))`，preimage
+"vibeguard.gh702.h010-decision.v1", schema_version, h010_decision_body}))`，preimage
 不含 sibling `h010_decision_artifact_digest` 或 `signatures`。`approved_by` 与 `signatures` 均按 ID
 排序且 ID 唯一；signer/quorum/algorithm 必须匹配 repository maintainer trust configuration。维护者签名
-验证和 validity window 成功后才是 exact approved H-010，Recommended
-prose、环境探测或 result 自报均不是来源。
+验证和 validity window 成功后才是 exact approved H-010，Recommended prose、环境探测或 result 自报均不是来源。
+若当前 verified Core release 内唯一、签名与 release pin 均有效的 artifact 仅 `expires_at` 已过，则它不再
+能授权 block，但 runtime 必须派生 `expired_profile_no_block_ceiling_v1`：只保留 warn/off/no-data ceiling，
+status/audit nonzero，任何 block claim、提升 override 或换用 HOME/旧 release artifact 均 fail closed。
+该 ceiling 只来自当前安装 release 的 embedded artifact，不得覆盖同 release 中仍有效的 current artifact。
 
 `evaluation_policy_digest` 来自 authoritative active evaluation-policy envelope 的 literal
 `vibeguard.gh702.evaluation-policy.v1` domain + schema version + policy body digest；其 body 必须引用 exact
@@ -532,6 +545,8 @@ literal domain、outer schema version、signature/key 与 from/target leaf pairi
 nonzero。另覆盖 `refreshed_proof_same_state`、valid unrelated-leaf `unrelated_leaf_advance`（成功）
 和 same-leaf unexpected successor（`needs_repair`）；`two_installations_same_release_predecessor` 必须让两个
 installation 共用同一 release chain、各自派生不同 valid binding，避免 per-install predecessor 误拒绝。
+另须拒绝 duplicate/unsorted platform profiles、signed pin 与 current release mismatch、outer
+`approved_h010_schema_version` alias；expired current-release profile 只允许 warn ceiling，block claim nonzero。
 
 planned **tests/test_guard_pack_anchor.sh** owns schema/IPC/lifecycle/crash/concurrency fixtures；planned
 **tests/perf_guard_pack_anchor.sh** 可保留 anchor fault attribution 专项，但不得自建发布 SLA gate。

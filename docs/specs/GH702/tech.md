@@ -260,8 +260,8 @@ validity evidence、previous/target generation；再 CAS+fsync external floor，
 closed、Core-owned runtime-state entry，
 绑定 installation generation、committed policy exact identity、`clock_epoch`、sequence、high-water、latch 与 deterministic time-leaf state；
 fresh proof 只独立认证 state，proof bytes/digest refresh 不得使 entry/mirror 失效。runtime 先验证
-release-pinned signed H-010 mode：anchor-block 在 `policy.lock`/fence 下验证 policy/install stable state
-与 fresh proof；authenticated-no-block 重算 predecessor-linked generation digest且 ceiling=warn。
+release-pinned signed H-010 mode：anchor-block 验证 policy/install stable state + fresh proof；no-block 重算
+generation；current-release profile 仅时间过期时派生 warn-only ceiling，任何 block claim 仍 fail closed。
 合法 warn/off/no-data 跳过 time leaf；block claim/candidate 仍 fail closed，candidate 才取 runtime-state
 lock推进 high-water并锁存 fallback。取锁前缓存不得执行，latch 仅新 management generation 可清除。
 新进程继承 durable high-water，不得以启动时间
