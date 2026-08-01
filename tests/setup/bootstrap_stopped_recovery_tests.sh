@@ -5,8 +5,7 @@ for group_fixture in dead all_stopped running mixed malformed; do
     env REPO_DIR="${REPO_DIR}" GROUP_FIXTURE="${group_fixture}" bash -c '
       set -euo pipefail
       source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
-      ps() {
-        test "$*" = "-A -o pid= -o pgid= -o stat=" || return 2
+      bootstrap_process_group_table() {
         case "${GROUP_FIXTURE}" in
           dead) printf "%s\n" "1 0 Ss" "88 88 Z" ;;
           all_stopped) printf "%s\n" "1 0 Ss" "88 88 T" "89 88 T+" ;;
