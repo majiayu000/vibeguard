@@ -246,6 +246,7 @@ assert_cmd "portable PID classifier treats real PID 1 as active" bash -c '
 ' _ "${BOOTSTRAP_LIB}"
 assert_cmd "PID classifier treats kill EPERM plus full ps membership as active" bash -c '
   source "$1"
+  bootstrap_pid_liveness_kernel() { printf "Darwin\n"; }
   kill() { return 1; }
   ps() {
     test "$*" = "-A -o pid= -o stat=" || return 2
@@ -256,6 +257,7 @@ assert_cmd "PID classifier treats kill EPERM plus full ps membership as active" 
 ' _ "${BOOTSTRAP_LIB}"
 assert_cmd "PID classifier treats signal-visible zombies as dead" bash -c '
   source "$1"
+  bootstrap_pid_liveness_kernel() { printf "Darwin\n"; }
   kill() { return 0; }
   ps() {
     test "$*" = "-A -o pid= -o stat=" || return 2
@@ -266,6 +268,7 @@ assert_cmd "PID classifier treats signal-visible zombies as dead" bash -c '
 ' _ "${BOOTSTRAP_LIB}"
 assert_cmd "PID classifier proves absence from a complete ps table as dead" bash -c '
   source "$1"
+  bootstrap_pid_liveness_kernel() { printf "Darwin\n"; }
   kill() { return 1; }
   ps() {
     test "$*" = "-A -o pid= -o stat=" || return 2
@@ -276,6 +279,7 @@ assert_cmd "PID classifier proves absence from a complete ps table as dead" bash
 ' _ "${BOOTSTRAP_LIB}"
 assert_cmd "PID classifier keeps empty ps exit 1 conservatively ambiguous" bash -c '
   source "$1"
+  bootstrap_pid_liveness_kernel() { printf "Darwin\n"; }
   kill() { return 1; }
   ps() { return 1; }
   bootstrap_pid_liveness 99
@@ -283,6 +287,7 @@ assert_cmd "PID classifier keeps empty ps exit 1 conservatively ambiguous" bash 
 ' _ "${BOOTSTRAP_LIB}"
 assert_cmd "PID classifier keeps empty ps exit 2 conservatively ambiguous" bash -c '
   source "$1"
+  bootstrap_pid_liveness_kernel() { printf "Darwin\n"; }
   kill() { return 1; }
   ps() { return 2; }
   bootstrap_pid_liveness 99
@@ -291,6 +296,7 @@ assert_cmd "PID classifier keeps empty ps exit 2 conservatively ambiguous" bash 
 for invalid_pid_table in empty header malformed duplicate; do
   assert_cmd "PID classifier rejects ${invalid_pid_table} full ps table" bash -c '
     source "$1"
+    bootstrap_pid_liveness_kernel() { printf "Darwin\n"; }
     table_kind="$2"
     kill() { return 1; }
     ps() {
@@ -306,6 +312,24 @@ for invalid_pid_table in empty header malformed duplicate; do
     test "${BOOTSTRAP_PID_LIVENESS}" = ambiguous
   ' _ "${BOOTSTRAP_LIB}" "${invalid_pid_table}"
 done
+
+pid_proc_root="${TMP_HOME}/bootstrap-pid-proc"
+mkdir -p "${pid_proc_root}/77" "${pid_proc_root}/88" "${pid_proc_root}/89"
+printf '%s\n' '77 (active setup) S 1 77 0 0' > "${pid_proc_root}/77/stat"
+printf '%s\n' '88 (zombie ) setup) Z 1 88 0 0' > "${pid_proc_root}/88/stat"
+printf '%s\n' 'malformed' > "${pid_proc_root}/89/stat"
+assert_cmd "Linux proc PID classifier identifies active, zombie, absent, and malformed states" \
+  env REPO_DIR="${REPO_DIR}" bash -c '
+    set -euo pipefail; source "$1"
+    bootstrap_linux_pid_liveness_from_proc_root "$2" 77
+    test "${BOOTSTRAP_LINUX_PID_LIVENESS}" = active
+    bootstrap_linux_pid_liveness_from_proc_root "$2" 88
+    test "${BOOTSTRAP_LINUX_PID_LIVENESS}" = dead
+    bootstrap_linux_pid_liveness_from_proc_root "$2" 99
+    test "${BOOTSTRAP_LINUX_PID_LIVENESS}" = dead
+    bootstrap_linux_pid_liveness_from_proc_root "$2" 89
+    test "${BOOTSTRAP_LINUX_PID_LIVENESS}" = ambiguous
+  ' _ "${BOOTSTRAP_LIB}" "${pid_proc_root}"
 
 zombie_lock_home="${TMP_HOME}/bootstrap-zombie-lock-home"
 zombie_lock_dir="${zombie_lock_home}/.vibeguard/dist/.bootstrap.lock"

@@ -305,9 +305,42 @@ bootstrap_prepare_clean_selection() {
   BOOTSTRAP_CLEAN_SELECTED_VERSION="${selected}"
 }
 
+bootstrap_pid_liveness_kernel() {
+  command -p uname -s 2>/dev/null
+}
+
+bootstrap_linux_pid_liveness_from_proc_root() {
+  local proc_root="$1" pid="$2" record rest state
+  BOOTSTRAP_LINUX_PID_LIVENESS="ambiguous"
+  [[ "${pid}" =~ ^[1-9][0-9]*$ && -d "${proc_root}" ]] || return 0
+  if [[ ! -e "${proc_root}/${pid}" ]]; then
+    BOOTSTRAP_LINUX_PID_LIVENESS="dead"
+    return 0
+  fi
+  if ! IFS= read -r record < "${proc_root}/${pid}/stat"; then
+    [[ ! -e "${proc_root}/${pid}" ]] \
+      && BOOTSTRAP_LINUX_PID_LIVENESS="dead"
+    return 0
+  fi
+  [[ "${record}" == "${pid} "* && "${record}" == *") "* ]] || return 0
+  rest="${record##*) }"
+  state="${rest%% *}"
+  [[ "${state}" =~ ^[A-Za-z]$ ]] || return 0
+  [[ "${state}" == "Z" ]] \
+    && BOOTSTRAP_LINUX_PID_LIVENESS="dead" \
+    || BOOTSTRAP_LINUX_PID_LIVENESS="active"
+}
+
 bootstrap_pid_liveness() {
-  local pid="$1" ps_output="" pid_state
+  local pid="$1" ps_output="" pid_state kernel
   BOOTSTRAP_PID_LIVENESS="ambiguous"
+  kernel="$(bootstrap_pid_liveness_kernel)" || return 0
+  if [[ "${kernel}" == "Linux" && -r /proc/self/stat ]]; then
+    bootstrap_linux_pid_liveness_from_proc_root /proc "${pid}"
+    BOOTSTRAP_PID_LIVENESS="${BOOTSTRAP_LINUX_PID_LIVENESS}"
+    return 0
+  fi
+  [[ "${kernel}" == "Darwin" ]] || return 0
   if ! ps_output="$(LC_ALL=C ps -A -o pid= -o stat= 2>/dev/null)"; then
     return 0
   fi
