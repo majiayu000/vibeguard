@@ -1,20 +1,21 @@
 ambiguous_lock_home="${TMP_HOME}/bootstrap-ambiguous-lock-home"
 ambiguous_lock_dir="${ambiguous_lock_home}/.vibeguard/dist/.bootstrap.lock"
-ambiguous_lock_bin="${TMP_HOME}/bootstrap-ambiguous-lock-bin"
-mkdir -p "$(dirname "${ambiguous_lock_dir}")" "${ambiguous_lock_bin}"
+ambiguous_lock_fixture="${TMP_HOME}/bootstrap-ambiguous-lock-fixture"
+mkdir -p "$(dirname "${ambiguous_lock_dir}")" "${ambiguous_lock_fixture}"
 printf 'pid=99999999\nnonce=ambiguous-owner\n' > "${ambiguous_lock_dir}"
-cat > "${ambiguous_lock_bin}/ps" <<'SH'
-#!/usr/bin/env bash
-exit 2
+cp "${REPO_DIR}/scripts/setup"/bootstrap* "${ambiguous_lock_fixture}/"
+cat >> "${ambiguous_lock_fixture}/bootstrap-lib.sh" <<'SH'
+bootstrap_pid_liveness() {
+  BOOTSTRAP_PID_LIVENESS="ambiguous"
+}
 SH
-chmod +x "${ambiguous_lock_bin}/ps"
 ambiguous_lock_rc=0
 ambiguous_lock_out="$(
   env "${bootstrap_base_env[@]}" \
     HOME="${ambiguous_lock_home}" \
-    PATH="${ambiguous_lock_bin}:${PATH}" \
     VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
-    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+    bash "${ambiguous_lock_fixture}/bootstrap.sh" \
+      --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
 )" || ambiguous_lock_rc=$?
 assert_cmd "bootstrap refuses a lock whose PID state cannot be proven" \
   test "${ambiguous_lock_rc}" -eq 73
@@ -27,30 +28,31 @@ assert_cmd "ambiguous PID state performs no download or install" \
 
 pid_reuse_home="${TMP_HOME}/bootstrap-pid-reuse-home"
 pid_reuse_dir="${pid_reuse_home}/.vibeguard/dist/.bootstrap.lock"
-pid_reuse_bin="${TMP_HOME}/bootstrap-pid-reuse-bin"
+pid_reuse_fixture="${TMP_HOME}/bootstrap-pid-reuse-fixture"
 pid_reuse_count="${TMP_HOME}/bootstrap-pid-reuse.count"
-mkdir -p "$(dirname "${pid_reuse_dir}")" "${pid_reuse_bin}"
+mkdir -p "$(dirname "${pid_reuse_dir}")" "${pid_reuse_fixture}"
 printf 'pid=99999998\nnonce=pid-reuse-owner\n' > "${pid_reuse_dir}"
 printf '0\n' > "${pid_reuse_count}"
-cat > "${pid_reuse_bin}/ps" <<SH
-#!/usr/bin/env bash
-count="\$(cat "${pid_reuse_count}")"
-count="\$((count + 1))"
-printf '%s\n' "\${count}" > "${pid_reuse_count}"
-if [[ "\${count}" -eq 1 ]]; then
-  printf '1 Ss\\n2 S\\n'
-  exit 0
-fi
-printf '1 Ss\\n99999998 S\\n'
+cp "${REPO_DIR}/scripts/setup"/bootstrap* "${pid_reuse_fixture}/"
+cat >> "${pid_reuse_fixture}/bootstrap-lib.sh" <<'SH'
+bootstrap_pid_liveness() {
+  local count
+  count="$(<"${VIBEGUARD_TEST_PID_REUSE_COUNT}")"
+  count=$((count + 1))
+  printf '%s\n' "${count}" > "${VIBEGUARD_TEST_PID_REUSE_COUNT}"
+  [[ "${count}" -eq 1 ]] \
+    && BOOTSTRAP_PID_LIVENESS="dead" \
+    || BOOTSTRAP_PID_LIVENESS="active"
+}
 SH
-chmod +x "${pid_reuse_bin}/ps"
 pid_reuse_rc=0
 pid_reuse_out="$(
   env "${bootstrap_base_env[@]}" \
     HOME="${pid_reuse_home}" \
-    PATH="${pid_reuse_bin}:${PATH}" \
+    VIBEGUARD_TEST_PID_REUSE_COUNT="${pid_reuse_count}" \
     VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
-    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+    bash "${pid_reuse_fixture}/bootstrap.sh" \
+      --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
 )" || pid_reuse_rc=$?
 assert_cmd "bootstrap rejects PID reuse detected after exact owner claim" \
   test "${pid_reuse_rc}" -eq 73
@@ -124,16 +126,13 @@ assert_cmd "setup gate wait has a deterministic attempt bound" \
 
 lease_revalidation_root="${TMP_HOME}/bootstrap-lease-revalidation"
 lease_revalidation_file="${lease_revalidation_root}/.bootstrap.lock.lease.revalidation"
-lease_revalidation_bin="${TMP_HOME}/bootstrap-lease-revalidation-bin"
 lease_revalidation_count="${TMP_HOME}/bootstrap-lease-revalidation.count"
 lease_revalidation_ready="${TMP_HOME}/bootstrap-lease-revalidation.ready"
 lease_revalidation_fifo="${TMP_HOME}/bootstrap-lease-revalidation.fifo"
 lease_revalidation_first_out="${TMP_HOME}/bootstrap-lease-revalidation-first.out"
 lease_revalidation_second_out="${TMP_HOME}/bootstrap-lease-revalidation-second.out"
-lease_revalidation_real_ps="$(command -v ps)"
 lease_revalidation_tmp="${lease_revalidation_root}/tmp"
-mkdir -p "${lease_revalidation_root}" "${lease_revalidation_bin}" \
-  "${lease_revalidation_tmp}"
+mkdir -p "${lease_revalidation_root}" "${lease_revalidation_tmp}"
 mkfifo "${lease_revalidation_fifo}"
 printf '0\n' > "${lease_revalidation_count}"
 printf '%s\n' \
@@ -144,33 +143,28 @@ printf '%s\n' \
   'leader_pid=4242' \
   'process_group=4242' \
   'leader_identity=Thu_Jan_1_00:00:00_1970' > "${lease_revalidation_file}"
-cat > "${lease_revalidation_bin}/ps" <<SH
-#!/usr/bin/env bash
-if [[ "\$*" == "-A -o pid= -o pgid= -o stat=" ]]; then
-  count="\$(cat "${lease_revalidation_count}")"
-  count="\$((count + 1))"
-  printf '%s\n' "\${count}" > "${lease_revalidation_count}"
-  if [[ "\${count}" -eq 1 ]]; then
-    printf '%s\n' '1 0 Ss'
-  elif [[ "\${count}" -eq 2 ]]; then
-    : > "${lease_revalidation_ready}"
-    IFS= read -r _continue < "${lease_revalidation_fifo}"
-    printf '%s\n' '1 0 Ss' '4242 4242 S'
-  else
-    printf '%s\n' '1 0 Ss' '4242 4242 S'
-  fi
-elif [[ "\$*" == "-p 4242 -o pid= -o pgid= -o stat= -o lstart=" ]]; then
-  printf '%s\n' '4242 4242 S Thu Jan 1 00:00:00 1970'
-else
-  exec "${lease_revalidation_real_ps}" "\$@"
-fi
-SH
-chmod +x "${lease_revalidation_bin}/ps"
 lease_revalidation_first_rc=0
 env REPO_DIR="${REPO_DIR}" BOOTSTRAP_TMP="${lease_revalidation_tmp}" \
-  PATH="${lease_revalidation_bin}:${PATH}" bash -c '
+  LEASE_REVALIDATION_COUNT="${lease_revalidation_count}" \
+  LEASE_REVALIDATION_READY="${lease_revalidation_ready}" \
+  LEASE_REVALIDATION_FIFO="${lease_revalidation_fifo}" bash -c '
   set -euo pipefail
   source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+  bootstrap_process_group_table() {
+    local count
+    count="$(<"${LEASE_REVALIDATION_COUNT}")"
+    count=$((count + 1))
+    printf "%s\n" "${count}" > "${LEASE_REVALIDATION_COUNT}"
+    if [[ "${count}" -eq 1 ]]; then
+      printf "%s\n" "1 0 Ss"
+    elif [[ "${count}" -eq 2 ]]; then
+      : > "${LEASE_REVALIDATION_READY}"
+      IFS= read -r _continue < "${LEASE_REVALIDATION_FIFO}"
+      printf "%s\n" "1 0 Ss" "4242 4242 S"
+    else
+      printf "%s\n" "1 0 Ss" "4242 4242 S"
+    fi
+  }
   bootstrap_setup_lease_clear_inactive "$1" 99999997 revalidation
 ' _ "${lease_revalidation_file}" >"${lease_revalidation_first_out}" 2>&1 &
 lease_revalidation_first_pid=$!
@@ -185,9 +179,26 @@ assert_cmd "canonical setup lease remains visible throughout post-claim validati
   "${lease_revalidation_file}" "${lease_revalidation_root}"
 lease_revalidation_second_rc=0
 env REPO_DIR="${REPO_DIR}" BOOTSTRAP_TMP="${lease_revalidation_tmp}" \
-  PATH="${lease_revalidation_bin}:${PATH}" bash -c '
+  LEASE_REVALIDATION_COUNT="${lease_revalidation_count}" \
+  LEASE_REVALIDATION_READY="${lease_revalidation_ready}" \
+  LEASE_REVALIDATION_FIFO="${lease_revalidation_fifo}" bash -c '
   set -euo pipefail
   source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+  bootstrap_process_group_table() {
+    local count
+    count="$(<"${LEASE_REVALIDATION_COUNT}")"
+    count=$((count + 1))
+    printf "%s\n" "${count}" > "${LEASE_REVALIDATION_COUNT}"
+    if [[ "${count}" -eq 1 ]]; then
+      printf "%s\n" "1 0 Ss"
+    elif [[ "${count}" -eq 2 ]]; then
+      : > "${LEASE_REVALIDATION_READY}"
+      IFS= read -r _continue < "${LEASE_REVALIDATION_FIFO}"
+      printf "%s\n" "1 0 Ss" "4242 4242 S"
+    else
+      printf "%s\n" "1 0 Ss" "4242 4242 S"
+    fi
+  }
   bootstrap_setup_lease_clear_inactive "$1" 99999997 revalidation
 ' _ "${lease_revalidation_file}" >"${lease_revalidation_second_out}" 2>&1 \
   || lease_revalidation_second_rc=$?
@@ -195,7 +206,12 @@ assert_cmd "second recoverer fails closed while canonical lease is revalidated" 
   test "${lease_revalidation_second_rc}" -ne 0
 assert_cmd "second recoverer preserves the canonical lease" \
   test -f "${lease_revalidation_file}"
-printf 'continue\n' > "${lease_revalidation_fifo}"
+if [[ -e "${lease_revalidation_ready}" ]] \
+  && kill -0 "${lease_revalidation_first_pid}" 2>/dev/null; then
+  printf 'continue\n' > "${lease_revalidation_fifo}"
+else
+  kill -KILL "${lease_revalidation_first_pid}" 2>/dev/null || true
+fi
 wait "${lease_revalidation_first_pid}" || lease_revalidation_first_rc=$?
 assert_cmd "first recoverer rejects a group that becomes active during revalidation" \
   test "${lease_revalidation_first_rc}" -ne 0

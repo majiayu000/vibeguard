@@ -145,29 +145,37 @@ unproven_release="${TMP_HOME}/bootstrap-release-unproven-termination"
 unproven_home="${TMP_HOME}/bootstrap-unproven-termination-home"
 unproven_ready="${TMP_HOME}/bootstrap-unproven-termination.ready"
 unproven_ps_marker="${TMP_HOME}/bootstrap-unproven-termination.ps"
-unproven_bin="${TMP_HOME}/bootstrap-unproven-termination-bin"
+unproven_fixture="${TMP_HOME}/bootstrap-unproven-termination-fixture"
 unproven_out="${TMP_HOME}/bootstrap-unproven-termination.out"
 unproven_real_ps="$(command -v ps)"
 make_hostile_bootstrap_release "${unproven_release}" signal-ignore
-mkdir -p "${unproven_home}" "${unproven_bin}"
-cat > "${unproven_bin}/ps" <<SH
-#!/usr/bin/env bash
-if [[ -e "${unproven_ps_marker}" && "\$*" == "-A -o pid= -o pgid= -o stat=" ]]; then
-  printf '%s\n' 'malformed process table'
-  exit 0
-fi
-exec "${unproven_real_ps}" "\$@"
+mkdir -p "${unproven_home}" "${unproven_fixture}"
+cp "${REPO_DIR}/scripts/setup"/bootstrap* "${unproven_fixture}/"
+cat >> "${unproven_fixture}/bootstrap_termination.sh" <<'SH'
+bootstrap_process_group_table() {
+  local kernel
+  if [[ -e "${VIBEGUARD_TEST_UNPROVEN_MARKER}" ]]; then
+    printf '%s\n' 'malformed process table'
+    return 0
+  fi
+  kernel="$(command -p uname -s 2>/dev/null)" || return 1
+  if [[ "${kernel}" == "Linux" && -r /proc/self/stat ]] \
+    && bootstrap_process_group_table_from_proc /proc; then
+    return 0
+  fi
+  LC_ALL=C ps -A -o pid= -o pgid= -o stat= 2>/dev/null
+}
 SH
-chmod +x "${unproven_bin}/ps"
 env "${bootstrap_base_env[@]}" HOME="${unproven_home}" \
-  PATH="${unproven_bin}:${PATH}" \
   VIBEGUARD_TEST_RELEASE_DIR="${unproven_release}" \
   VIBEGUARD_TEST_SETUP_READY="${unproven_ready}" \
+  VIBEGUARD_TEST_UNPROVEN_MARKER="${unproven_ps_marker}" \
   python3 -c 'import os, signal, sys
 for name in ("SIGINT", "SIGTERM", "SIGHUP"):
     signal.signal(getattr(signal, name), signal.SIG_DFL)
 os.execvpe("bash", ["bash", *sys.argv[1:]], os.environ)' \
-    "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+    "${unproven_fixture}/bootstrap.sh" \
+      --version "${BOOTSTRAP_VERSION}" -- --yes \
   >"${unproven_out}" 2>&1 &
 unproven_parent_pid=$!
 for _unproven_ready_attempt in {1..200}; do
