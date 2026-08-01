@@ -422,165 +422,33 @@ typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏�
 读取 axis status，不根据 top-level 猜数值。
 ### 8. Release regeneration 与 README
 
-调整 release DAG，使官方报告来自 staged、将要发布的 artifacts：
+release DAG固定为 build exact artifact→native matrix以 actual launcher运行 bench→逐平台 schema/provenance/
+axis gate→按 canonical target生成 strict signed summary→valid或获批 publish_nonvalid才 publish。summary绑定
+完整 required/display-only set、report/checksum/evidence digest、decision equality、per-surface latency/status；
+summary digest只覆盖删除自身后的 JCS object，detached workflow attestation不回填。published tag不可改写，
+README只消费该验签 summary，不读 stdout或游离附件。
 
-1. build runtime 与 GH-699 payload/receipt fixture；
-2. native matrix 下载准确 target binary + payload，先通过 `current_exe` identity chain，
-   再从 actual merged launcher 运行 `bench --json`；
-3. 每个平台 schema/provenance/axis gate；release summary 只选择 approved
-   `required_platforms` 的 native reports 并比较其 `decision_digest`，`evidence_digest`
-   只作各平台 artifact identity；
-4. 对全部最终展示的 reports 生成 checksums；按 target canonical 排序构建 strict
-   `public_benchmark_summary`，逐项绑定 `required` boolean 与 exact
-   `(target, evidence_digest, report_sha256, checksum)`、完整 required set、decision
-   equality、per-surface latency/status 与 aggregation result。只有 required subset
-   参与 validity/decision equality；display-only reports 同样进入 summary object 和签名
-   preimage，但不改变 summary status。`summary_digest` preimage
-   唯一为删除 `summary_digest` 字段后的完整 summary object 的 JCS bytes；detached
-   release-workflow attestation 绑定结果，不进入 preimage。required reports 全 valid 且
-   decision
-   digest 一致时生成 valid summary，否则生成 non-valid candidate summary；README 只能
-   展示该验签 summary 内绑定的 required 或 display-only report，不能读取游离附件；
-5. 只有 valid 或获批 `publish_nonvalid` 分支可运行 `publish-release`，一次性发布
-   binary、payload、checksums、manifest 与对应 benchmark reports。已 published 的同 tag
-   release 一律拒绝变更。pre-intent claim 无 draft或 exact bound draft 无 transition时可证明/删除后
-   terminal；pending de-current PR 必须先取得 revocation receipt；已 merged
-   de-current 则 exact rollback merge 后才删 draft。各路径均禁止 publish。
-   post-intent：matching public Release→verify+README；否则 matching intent-bound draft→
-   publish+README；否则 `release_recovery_blocked` 并保留 owner。
-publication 使用 attempt-scoped draft 与统一 durable state machine；backend/shared durability/history由 [publication_history_contract.md](publication_history_contract.md)，payload-core/trusted-time/bootstrap evidence由 [publication_authority_protocol_contract.md](publication_authority_protocol_contract.md)，control/client/blocked-attempt wire由 [publication_ledger_contract.md](publication_ledger_contract.md)，named vectors由 [publication_conformance_vectors.md](publication_conformance_vectors.md) 定义；四份 contract共同拥有 deployment/bootstrap、lock/fsync/recovery、high-water、encrypted backup、anchor quorum、canonical schema、secret boundary与 closed unions，本文不复制 machine-facing identifiers：
-1. actors 只按 source/candidate→ledger lease→publication lease→branch CAS；等待 review只消费 contract的
-   owner-liveness/trusted-time protocol；H-006 的值与 approval/roster digest未全部批准并进入 policy digest前，
-   或仅有 host/client clock与 job absence时，claim/heartbeat/takeover均 unavailable。
-2. client只调用 contract指定的 durable authority API，并按其 history/blocked-ledger successor framing、trust/fold、owner-free governance、
-   idempotency、takeover、mutation/broker send-once、recovery与 terminal规则 fail closed；不得直接开 store、
-   建立别名或本地重定义 schema；双 API trust、blocked ledger、broker credential、durable inventory、
-   trusted-time/high-water、detached backup/anchor plan core、class-correct signer quorum、global pending gate、
-   external anchor、bootstrap/normal-emergency rotation cutover与 blocked precedence也只消费该 contract。
-3. generated PR须在首次 head-ref/commit/PR mutation前按 contract的 closed identity planned/bound；response loss完整分页发现 PR/ref后按 authority推进。invalidation plan只绑定
-   pre-merge事实，post-merge receipt才绑定 server返回事实；suffix只消费 contract的 closed union与 tagged cleanup evidence。
-4. protocol surface只绑定 stable identity；attempt plan绑定 mutable base与逐 surface proof，drift须重规划。
-   valid plan只可为 rollover、true genesis或 contract-proven post-invalidation；restoration/其它 owner/mixed/drift/缺 receipt均 blocked。
-5. valid intent在 exact zero receipt与已 merged de-current rollover receipt间二选一，并在 publish前绑定 reviewed new-current plan；nonvalid只绑 unmarked-row plan。failed/retry先 revoke旧 gate/PR/head再 fresh replacement，merged cancellation走 rollback；仅完整 cleanup/rollback/invalidation或 Release+README effect closure可 terminal。
-required target 不能原生执行时显式 `unavailable` 并使 summary non-valid；非 required
-target unavailable 只展示、不阻断。不得用 host/cross binary 贴 native 目标标签；若
-approved set 含四 target 就必须配置四个 native runners。required platforms 的
-effectiveness decision 应一致，差异使 summary `inconclusive`。latency 永远按
-platform × surface 独立展示，不聚合为单一 P95。publication、README 与 checksum gate 只
-消费 schema/digest/attestation 三重验证后的 summary；遗漏/重复/替换 input 均失败。
+publication实现不在本文复制 wire/state machine。权威分层为：
 
-获批 `release_policy` 必须来自闭集 `{block_release, publish_nonvalid}`；缺失/越界值直接
-阻断且不能猜。Recommended proposal（未批准）选择 `block_release`。两个分支共享
-schema/provenance gate，但发布动作闭合如下。
-effective action 为 `block_release` 时（包括 selected policy 是 `publish_nonvalid` 但
-mandatory non-valid report/evidence 未通过 schema/provenance gate），failure-manifest
-schema 是闭集 union：单 target 失败使用 `target_failure`；required reports 各自有效但
-decision 不一致、缺输入或 aggregation 失败使用 `release_aggregation_failure`，后者绑定
-canonical failed-summary preimage/digest、完整 required-platform set 与闭集 aggregation
-reason。每个 required target 都必须有 `input_state` discriminated union：`present` 携带
-非空 report/evidence/checksum identities；`missing` 把三项显式置 null 并携带闭集
-`missing_reason`。strict summary 成功构造时才写非空 `summary_digest`；缺输入使其无法构造
-时该字段显式为 null，failed-summary digest 仍覆盖全部 target slots。matrix wrapper
-对可恢复的 bench/job failure 捕获非零状态但暂不退出，先：
+- [history contract](publication_history_contract.md)：durability、fold、transition/effect closure、trust与 owner；
+- [authority protocol](publication_authority_protocol_contract.md)：time-bound payload core、trusted time与 bootstrap；
+- [API semantics](publication_ledger_contract.md)：Release effective request、blocked ledger与业务验证；
+- [machine schema](publication_authority_api.schema.json)：exact 17 client + 5 control registry、nested types、CAS、
+  authorization、nonce/replay、success/error与 digest DAG；
+- [positive models](publication_authority_api.models.json) 和
+  [conformance vectors](publication_conformance_vectors.md)：每 method正例及 adversarial oracle。
 
-1. 写出 schema-valid candidate failure report，以及包含 candidate tag/source commit、
-   target、`run_id`/`run_attempt`、selected policy/effective action、axis/top-level、closed
-   failure/reason codes、report/evidence/checksums/provenance 的 schema-valid canonical
-   failure manifest；
-2. 对包含 `run_id`/`run_attempt` 的完整 canonical manifest 计算
-   `failure_manifest_digest`，再打包 report、manifest 与 checksums；
-3. 使用名称
-   `benchmark-failure-<tag>-<target>-<run_id>-<run_attempt>-<failure_manifest_digest>.tar.gz`，
-   以 no-overwrite artifact upload 保存；同时以
-   `(run_id, run_attempt, failure_manifest_digest)` 为 predicate/ledger identity，把
-   **完整 canonical failure manifest 内容**与本 candidate 的 ledger
-   `(ledger_length, ledger_root, full_prefix_digest)` 内嵌到不可覆盖、
-   retention-independent 永久可检索的 attestation predicate（或等价 append-only
-   immutable ledger），并以 bundle digest 为 subject；只写 pointer/digest/job summary
-   不合格；
-4. 把 artifact ID/digest、attestation subject 与 closed reason code 写入 job summary；
-5. 最后返回原 benchmark failure，确保 publish-release 不运行。
-workflow retry 必须带相同 `run_id` 下的新 `run_attempt`（新 workflow run 则使用新
-`run_id`）；即使 report/evidence bytes 相同，manifest digest、artifact name 与长期
-predicate/ledger identity 也必须因 attempt identity 不同而不同，不能覆盖旧 bundle 或
-predicate。bundle 即使在 retention 后不再可下载，验证者仍能从长期 predicate/ledger
-取回每个 attempt 的完整 manifest，复算 canonical digest 并复核具体内容/reason。失败
-candidate 不创建 GitHub Release、release page/assets 或 README candidate current row；
-旧 row 仅保留其原 release 身份。
-hard-cancel、runner loss、job/workflow timeout 不能依赖上述 wrapper 继续运行。另设
-completion reconciler，由 release workflow 终态事件触发；GitHub token显式仅授予
-`actions: read`、`contents: read`、`pull-requests: read`；另持 manifest/policy绑定的短期 mTLS
-client identity请求 authority API，但不持有/接收/转发 target write credential；
-   authority sole broker独占 GitHub App write credential并只允许按 durable claim bind/delete exact draft、撤销 pending de-current PR、
-   按 intent 完成同一 draft，或按 durable owner supersede并创建同 candidate exact
-   de-current/rollback/new-current/nonvalid-row/invalidate-current replacement；
-   README PR 均须 review/CAS。reconciler 用 `(repo_node_id, workflow_id, candidate tag/source
-   commit, run_id, run_attempt)` 查询预发布阶段已
-attested staged identity。cancelled/timed_out/failure 且无 normal record 时，先复验
-owner/intent/sentinels：matching public Release则验证并完成 README；否则 matching
-intent-bound draft则发布并完成 README；两者 append `recovered_publication`。intent存在但
-两者皆无则 `release_recovery_blocked`，不写 recovered/interruption；仅无 intent 且最终
-不发布时生成 `pipeline_interrupted` manifest，report/evidence/checksum identity 为 null，
-   `missing_evidence` 为闭集，保留 provenance、policy、interruption 与 publication phase。
-   它只能 takeover 已存在 claim：唯一 claim-nonce draft先 bind再删；pending de-current
-   先撤销 gate/queue/PR/head并验 revocation receipt；`valid_rollback_pending` 恢复旧 marker再删；
-   post-intent 前先 fold并恢复每个 existing release-mutation slot：exact effect bind、proven
-   not-applied后新 slot、partial state经 planned compensation；禁止盲重发或 naked cleanup。
-   全部 slot terminal且 fresh current-tag finalization后才 recovered/README。valid-marker/nonvalid-row/invalidation
-   rejection 可由 current generation重取 lease/fence恢复；new-generation 接管只能在 latest claim/heartbeat envelope 的 trusted-proof-derived store-auth expiry
-   后以 higher-fence exact-frontier CAS重建 exact reviewed replacement，不因 deadline/job absence抢占。它按
-`jcs-rfc8785-v1` 计算 attempt-bound digest并把完整 manifest
-attest/append 到相同永久 store。重复终态 delivery 对相同 bytes 幂等；相同 identity
-已有不同 bytes 时冲突失败且报警，绝不覆盖。normal-path record 已存在时只重验并退出。
-reconciler 自身失败必须由 scheduled audit 重试并保持 candidate 未发布；测试不得用
-已终止 job 的 post-step 冒充此路径。
-若 staged identity 尚未 attested，reconciler 进入独立闭集
-`pipeline_interrupted_pre_attestation` 分支。它只消费受信的 `workflow_run` 终态事件并
-使用 Actions API 按 server-side run ID 复验
-`(repo_node_id, workflow_id, run_id, run_attempt, head_sha, server_ref_type,
-server_ref_name, event, conclusion)`；server ref 还须与对应 branch/tag ref API 对齐，不能
-从 workflow input 猜。candidate tag、policy、staged provenance 与 evidence identities
-全部显式 null。`source_identity_key`与`early_attempt_key`只按
-[publication_ledger_contract.md](publication_ledger_contract.md) 的 exact domain-separated JCS preimage派生；
-本文件不复制或改写其字段、版本或编码。终态事件持 source-identity lease 后 append；API/ref 不可验证则永久
-unbound 并 fail closed，不能从 watermark 删除或信任 workflow artifact/free text。
-release attempt、completion reconciler、scheduled audit 与 publish gate 共享 serialized
-lease，`cancel-in-progress: false`：staged identity 存在时用 candidate key，否则用上述
-source-identity key。identity 后续出现时只在 staged candidate 的 tag/source 与 server ref
-精确匹配后，按 key digest canonical 顺序同时取得 source/candidate leases，append
-early→candidate binding，并把 digest union 进 candidate watermark；无法证明匹配的 record
-永久 unbound，不得由同 commit 的下一个 candidate 接管。每个新 attempt 启动前及 publish
-前在持锁状态枚举同 candidate/source identity 的 terminal attempts，
-要求每个先前 failed/cancelled/timed_out attempt（含 pre-attestation interruption）都有
-唯一、内容一致且与终局匹配的 permanent failure 或 `recovered_publication` record，并生成
-attested reconciliation watermark（覆盖最大 terminal run/attempt 与 record digest set）。
-存在 unreconciled attempt、run listing/permanent store 不可用、不同内容冲突或 watermark
-落后时 fail closed。所有路径都执行唯一全局顺序 source/candidate → repository ledger →
-repository publication → branch CAS；需要较早层的新操作必须全部释放后从头重取，禁止
-deadlock-prone nested reacquisition。append 后才推进 watermark；token/CAS 失效即停写；active
-ownership 只允许同 candidate takeover，任一 `*_recovery_blocked` 阻断下一 publication。
-`publish_nonvalid` 以 prepared owner + intent 发布 schema-valid non-valid report/evidence，
-再通过 owner-bound reviewed PR 创建同版本 row：non-valid axis 留空并显示 status/reason/link，
-永不带 current marker且不删已有 latest-valid marker。row merge 前保持
-`release_committed_nonvalid_row_pending`；crash/reject/close/timeout 按统一 reconciler
-replacement或 `nonvalid_row_recovery_blocked`，不能放行下一 candidate。它不创建 B-029
-blocked record，也不得把旧 release 数字贴到新 row。任一
-mandatory evidence 未通过 gate 时，此分支不得部分发布，必须记录 selected policy 后转入
-B-029 的 effective block action。
-README 使用 marker 管理的生成区。source 必须是该 exact release 的不可变已验证 summary：
-valid branch 消费 valid summary，`publish_nonvalid` 消费同版本 non-valid summary，
-`block_release` 不生成 candidate row。仅 valid branch 在 publication 前 human-reviewed
-地删除旧 current marker并重验 zero-marker，post-release 再添加新 current；non-valid
-branch 跳过这两个 marker 动作，只添加无 marker row并保留 latest-valid current。所有 PR
-都同时更新英文 README 与已配置 locale 文档，保留 human review，不直接 push 高上下文
-文件。generator 对每个平台
-独立显示：
+T10只调用 client surface；T3独占 backend/control/broker/time/KMS/anchor credentials。H-006未批准或只有
+host/client time时所有 time-bound method unavailable。authority不可用、policy/identity/frontier drift、
+proof不完整或 remote outcome不明时零新 mutation。pre-intent只能在 authenticated no-effect/cleanup/revocation
+proof后 terminal；post-intent只能恢复 matching public Release或 exact intent-bound draft，否则
+release_recovery_blocked并保留 owner。pending generated PR、delivery、capsule、backup或 anchor均从 durable
+ID/read-confirm恢复，不使用 local/mock fallback。
 
-- effectiveness valid → rate/FPR；否则 `— (effectiveness: <status>: <reason>)`；
-- 每个 protocol-declared latency surface 都有固定独立 P95/status 列或子行；禁止从多个
-  surface 选择最快/最慢或静默 reduction；
-- row status 始终为共享 top-level；
-- only top-level valid row 可带 `current valid benchmark` 标识。
+blocked attempt先持久化永久 record/frontier，再允许 pipeline失败；completion reconciler以 server-auth
+terminal listing与同一 machine API补录/绑定。watermark必须覆盖每个 terminal attempt的完整 reconciliation；
+unresolved、subset、snapshot drift或 anchor uncertainty阻断下一 publication。README/release regeneration只在
+history与 blocked ledger双 frontier、summary/plan/review、all mutation slots及 external anchor全部 closed后进行。
 ## Product-to-Test Mapping
 
 | Behavior invariant | Implementation area | Verification |
@@ -619,105 +487,50 @@ branch 跳过这两个 marker 动作，只添加无 marker row并保留 latest-v
 
 ## Affected-file / test / command map
 
-下表是 implementation 的预期 ownership map；GH-699 尚未合并的真实 launcher path 标为
-“merge 后探测”，不猜文件名。若实现发现路径不同，先更新 tasks/tech anchor 再改代码。
+implementation ownership只取 [tasks](tasks.md)；GH-699 launcher path在 merge后探测，不猜文件名。
 
-| Concern | Planned affected files | Focused proof |
+| concern | owner surface | focused proof |
 | --- | --- | --- |
-| CLI + module split | `vibeguard-runtime/src/main.rs`, planned **vibeguard-runtime/src/bench/mod.rs**, **model.rs**, **corpus.rs**, **identity.rs**, **mapping.rs**, **runner.rs**, **metrics.rs**, **latency.rs**, **render.rs**, **sandbox.rs** | `cargo test --manifest-path vibeguard-runtime/Cargo.toml bench` |
-| Handle-backed SHA-256 | `vibeguard-runtime/src/setup_support.rs`, planned **vibeguard-runtime/src/bench/identity.rs** | known binary digest + replace-during-read test; no OS shell hash command |
-| Protocol/corpus truth/mapping/ledger/reviews + publication authority | planned **data/public_benchmark/**, the eight **schemas/public_benchmark_*.schema.json** files including **schemas/public_benchmark_protocol.schema.json**, **schemas/publication_history.schema.json**, **schemas/blocked_attempt_ledger.schema.json**, **schemas/publication_authority_deployment.schema.json**, **vibeguard-runtime/src/publication_authority/{mod.rs,store.rs,broker.rs,recovery.rs,restore_anchor.rs,backup_store.rs,anchor_signer.rs,governance_recovery.rs,blocked_attempt_ledger.rs,trusted_time.rs}**, `vibeguard-runtime/src/main.rs`, planned **.github/workflows/publication-authority-deploy.yml**, **.github/workflows/publication-restore-anchor-deploy.yml**, **.github/workflows/publication-restore-backup-deploy.yml**, **scripts/ci/bootstrap_publication_authority.py**, **scripts/ci/bootstrap_publication_restore_anchor.py**, **scripts/ci/bootstrap_publication_restore_backup.py**, **scripts/ci/validate_public_benchmark.py** | T3 owns SQLite/WAL authority, blocked ledger, trusted time, encrypted Object-Lock backup, online anchor quorum, break-glass cutover and DynamoDB anchor lifecycle; shared-identity APIs, full union, serialization/restore goldens |
-| Installed release identity | planned **schemas/release_identity.schema.json**, persisted attestation bundle + signed manifest, `scripts/setup/runtime-install.sh`, `scripts/setup/install.sh`, `scripts/ci/generate_runtime_release_manifest.py` | offline trust-root/issuer/workflow/subject verification plus recomputed binary/payload/wrapper/canonical-config/baseline/all-executable digests rejects tampered receipt/assets |
-| Actual launcher | GH-699 merge 后探测真实 manifest-declared paths；GH-700 owns Homebrew/npm `bench` dispatch changes at those anchors | fresh HOME per-launcher smoke proves argv/stdin/stdout/stderr/exit forwarding to same current-exe and proves bootstrap/setup/init sentinels absent |
-| Production timed exec guard | planned **vibeguard-runtime/src/exec_guard.rs**（非 `bench/`）、`vibeguard-runtime/src/hook_orchestrator.rs`、`hooks/run-hook.sh`、`hooks/run-hook-codex.sh`、`scripts/setup/runtime-install.sh`、`scripts/setup/install.sh`、`scripts/ci/generate_runtime_release_manifest.py`、`.github/workflows/release.yml`、**schemas/release_identity.schema.json** | fresh install + ordinary non-`bench` wrapper proves same registry/policy/live guard; bench cannot activate/reconfigure; per-invocation delay remains in E2E |
-| Wrapper E2E | actual installed `~/.vibeguard/run-hook.sh`, `run-hook-codex.sh` contracts; production code materialize byte-identical readonly temp snapshot，不复制 detector | layout/digest/permission + fake/missing `git`/undeclared-exec matrix, baseline and wrapper timer spies, existing `bash tests/test_hook_perf_contract.sh` |
-| Report/readme | planned **schemas/public_benchmark_report.schema.json**, **schemas/public_benchmark_summary.schema.json**, **scripts/ci/render_public_benchmark.py**, `README.md`, configured locale README | exact summary inputs; valid de-current/zero-gap/new-current and nonvalid preserve-current/unmarked-row goldens; per-surface rows; invalid axis has no numeric cell |
-| Release/failure evidence | `.github/workflows/release.yml`, planned **.github/workflows/benchmark-failure-reconcile.yml**, **scripts/ci/package_benchmark_evidence.py**, **scripts/ci/publish_benchmark_failure_record.py**, **schemas/public_benchmark_failure_manifest.schema.json**, `tests/test_release_workflow.sh`, planned **tests/fixtures/public_benchmark/failure_records/** | missing-target null union、pre-attestation event/API branch、blocked ledger frontier、watermark/idempotency/conflict、deleted-bundle recovery与two-stage marker publish ordering |
-| End-to-end regressions | planned **tests/test_public_benchmark.sh**, **tests/fixtures/public_benchmark/** | official/unofficial, identity, five classes, privacy, concurrency, interruption, digests, wrapper latency and release sentinels |
+| bench CLI/model/corpus/runner/metrics/render/sandbox | runtime bench modules + main dispatch | cargo bench unit/integration tests |
+| installed identity/launcher/exec guard | setup/install/release manifest + actual installed wrappers | fresh HOME, handle-backed digest, forwarding/sentinel matrix |
+| report/summary/README/release failure | planned public benchmark schemas, release workflow, renderer/reconciler | strict summary, marker, release/nonvalid/blocked fixtures |
+| publication authority | T3 runtime authority + deploy/bootstrap surfaces | machine schema/models/vectors, durable volume, TSA, KMS, Object Lock, DynamoDB |
+| consumer/completion | T10 client only | no control/backend/credential; terminal listing/reconciliation |
+| adversarial harness | T12 tests/fixtures | full union, crash/ack-loss, CAS/replay/auth/digest mutations |
 
-Implementation completion commands:
+implementation completion commands remain:
 
-```bash
-cargo fmt --manifest-path vibeguard-runtime/Cargo.toml -- --check
-cargo check --manifest-path vibeguard-runtime/Cargo.toml
-cargo test --manifest-path vibeguard-runtime/Cargo.toml
-bash tests/test_public_benchmark.sh
-bash tests/test_behavior_eval.sh
-bash tests/test_hook_perf_contract.sh
-bash tests/test_release_workflow.sh
-bash scripts/ci/validate-doc-paths.sh
-bash scripts/ci/validate-doc-command-paths.sh
-bash scripts/local-contract-check.sh --quick
-```
+    cargo fmt --manifest-path vibeguard-runtime/Cargo.toml -- --check
+    cargo check --manifest-path vibeguard-runtime/Cargo.toml
+    cargo test --manifest-path vibeguard-runtime/Cargo.toml
+    bash tests/test_public_benchmark.sh
+    bash tests/test_behavior_eval.sh
+    bash tests/test_hook_perf_contract.sh
+    bash tests/test_release_workflow.sh
+    bash scripts/ci/validate-doc-paths.sh
+    bash scripts/ci/validate-doc-command-paths.sh
+    bash scripts/local-contract-check.sh --quick
 
-planned **tests/test_public_benchmark.sh** 的最终产物断言不能只看 exit 0，必须同时证明：
-
-- canary user repo/HOME/global+project logs/install receipt/installed wrappers 在前后
-  byte-identical；timed wrapper 来自 byte-identical readonly temp snapshot 且其
-  materialization events 全在 timer start 前；
-- dangerous fixture 的 execution sentinel 文件始终不存在；
-- secret/path sentinels 不出现在 human stdout、stderr、JSON report、failure bundle、
-  release summary 或 generated README marker；
-- report 通过 schema，`current_exe_sha256` 匹配实际执行文件；required set 同时进入
-  protocol/decision/evidence digests，summary 只受 required native reports 影响；
-- protocol-bound baseline workload/schedule/estimator/timer/threshold 与全部 mapped
-  external executables 已进入 provenance；threshold-1/equal/+1 及 fake/missing/undeclared
-  executable fixtures 得到唯一状态；
-- block_release candidate 的长期 predicate/ledger 可在删除短期 bundle 后恢复完整
-  per-attempt failure manifest/reason/ledger frontier 并复算 digest；missing target 为显式
-  null union，pre-attestation interruption 仍可由 server-authenticated tuple 检索，相同
-  report 的 retry 仍有不同 run/attempt-bound identity。最终 workflow 非零且
-  Release/candidate-row sentinel 均不存在；
-  publish_nonvalid fixture 则最终产生同版本 non-valid report/row。
-- publication-history goldens须由 Rust/Python/shell共同消费 [publication vector registry](publication_conformance_vectors.md)
-  拥有的 exact vectors，并按 [ledger/API contract](publication_ledger_contract.md)及 [authority protocol](publication_authority_protocol_contract.md)验证双 API、payload-core顺序与 bootstrap cross-binding；不得复制 enum/字段/canonical bytes，覆盖 no-draft/deleted-draft、encrypted backup、online quorum、pending gate、normal/emergency rotation、DynamoDB CAS/restore、blocked precedence与 credential boundary反例。
-- integration fixture另覆盖 claim/binding、genesis、rollover、pending de-current cancel、draft/generated PR恢复、
-  break-glass审计与 backup/anchor rollback。
+E2E通过不只看 exit 0：user repo/HOME/log/install/wrapper须 byte-identical，execution/secret sentinels不存在；
+report/current-exe/protocol/required-set/summary digests重算；threshold与 fake/missing/undeclared executable边界
+唯一；blocked record在短期 bundle删除后仍可由永久 ledger恢复；valid/nonvalid publication按 signed history
+闭合。publication harness直接消费 machine schema/models/named vectors，并覆盖 claim/binding、genesis、
+rollover、PR/release recovery、break-glass、backup/anchor rollback与 all-method negatives。
 
 ## 数据流
 
-```text
-release source commit
-  ├─ embedded corpus + truth + mapping + ledger ──> staged runtime binary
-  └─ GH-699 merged T1/T2 ──> payload contract
-        future T3–T6 ──────> bootstrap + native smoke + actual launcher
-                 │                              │
-                 └──────── current_exe/payload/wrapper identity chain
-                                                │
-                                                ▼
-                         preflight (digests + schemas + joins + review gates)
-                 │
- readonly production-layout snapshot wrappers: isolated run A ── isolated run B
-                 │             │
-                 └── semantic comparison
-                              │
-        effectiveness axis + real-wrapper latency axis
-                              │
-                      canonical BenchReport
-                       ├─ cross-platform decision_digest
-                       ├─ platform evidence_digest
-                       ├─ human renderer
-                       ├─ JSON + schema gate
-                       └─ required-platform summary gate
-                            ├─ valid ──> owner_claimed ──> draft_bound ──> prepared ──> genesis receipt / de-current PR
-                            │                              └─ intent_written ──> publish ──> owned new-current PR
-                            ├─ non-valid + block_release
-                            │      └─ permanent per-attempt failure manifest
-                            │            └─ job failure (no Release/current row)
-                            └─ non-valid + publish_nonvalid
-                                   └─ owner_claimed ──> draft_bound ──> prepared ──> intent_written ──> publish ──> owned unmarked row
-```
-benchmark execution不接收用户数据；publication网络调用只允许 manifest-pinned authority API与 planned broker endpoint。持久化面是以下闭集：
-1. caller 显式选择的本次 local report；
-2. valid/`publish_nonvalid` release artifacts，以及 `block_release` 的短期
-   content-addressed failure bundle；
-3. authority-owned `blocked_attempt_ledger_sqlite_v1` 永久无 TTL namespace，内嵌完整 per-attempt manifest，以 `(source_identity_key,run_id,run_attempt,attempt_record_kind,attempt_subject_key)` unique CAS检索；subject key按 kind 绑定 exact candidate 及 target/release scope 或 early-attempt identity，同一 matrix attempt 的多 target 失败独立记录；T3独占 backend/bootstrap/migrate/recover，client只调认证 API，frontier同时进入 external anchor；
-4. authority exact closed durable inventory：signed deployment/bootstrap/migration+normal/break-glass governance、RFC3161 proofs+trusted-time preparations+time high water、SQLite DB/WAL/checkpoint与全部 indexes/pending gate、history+attempt records/manifests/bindings/terminal-listing proof capsules+encrypted provider bytes/terminal reconciliations/watermarks、capsules+retained keys、broker delivery mapping/audit/receipts、独立 S3 Object-Lock encrypted snapshot/manifest/WAL exact versions+AEAD/retention confirmations+KMS refs、online-quorum signatures/lifecycle及 DynamoDB immutable epochs/HEAD CAS+两 frontiers+backup refs+restore/emergency receipts；缺任一项即 blocked。
-temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期 bundle 不得删除第三、
-四项，
-验证者仍能从 permanent predicate/ledger 恢复完整 manifest、通过 schema、复算 digest
-并核对 closed reason/provenance。README 只消费已发布、digest-matched summary，不消费
-本地 stdout 或 blocked-candidate permanent record。
+    source + embedded corpus/truth/mapping + GH-699 payload
+      -> staged exact runtime -> current-exe/launcher identity preflight
+      -> isolated production-wrapper runs -> semantic + latency axes
+      -> canonical report -> strict signed required-platform summary
+      -> valid publication | publish_nonvalid | permanent blocked attempt
+
+benchmark不接收用户数据；publication网络仅到 manifest-pinned authority/broker。持久化闭集为本次 local
+report、published release evidence/短期 failure bundle，以及 authority永久 inventory：SQLite/WAL、history/
+blocked records及 indexes、trusted-time preparations/proofs/high-water、capsules/outbox/audits、encrypted
+Object-Lock backup versions/KMS attestations、signer receipts与 DynamoDB epochs/HEAD。短期 bundle/fixture清理
+不得删除永久 ledger或 recovery evidence；缺任一 durable item即 non-ready。README只消费 published、
+digest-matched summary。
 ## 备选方案
 
 - 直接包装 `eval/run_behavior_eval.py`：拒绝。它依赖 checkout/Python、读取 repo-relative
@@ -755,32 +568,16 @@ temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期
 
 ## 测试计划
 
-- [ ] Unit tests: split corpus/truth/mapping schemas、duplicate-key/join/completeness、
-      append-only ledger、offline attestation + handle-backed identity、全 GH700 integer number/string唯一边界、
-      raw decision/reason closure、per-case initial-state reset、3×3 axis candidate + terminal
-      override、strict input-bound summary aggregation、confusion matrix、report/failure/summary
-      digest builders、fixed latency schedule/quantiles、redaction、cancellation 与 path containment。
-- [ ] Integration tests: released-install fixture 执行五类正/负 cases；wrong
-      current binary/payload/wrapper/bundle/receipt/corpus/mapping、user-config mutation、
-      history-sensitive per-case isolation、all-launcher forwarding、detector error、timeout、
-      environment distortion、parallel runs、interruption、legacy schema 和 sentinels；
-      E2E sample 必须按 fixed schedule 由 readonly snapshot wrapper spy 观察到。
-- [ ] Release contract: native reports/strict summary；`repo_node_id` exact-ref identity、唯一
-      source/candidate→ledger→publication→CAS 顺序、pre-mutation claim/draft binding、五种 PR
-      planned/bound discovery及 de-current revocation gate阻止 orphan/late merge；三种 valid plan、
-      rollback/new-current/nonvalid-row/invalidation takeover及八个 exact recovery-blocked kind 均受测试。
-- [ ] Documentation: 3×3×terminal、per-surface latency、双 locale 与 branch-aware marker
-      freshness；仅 valid metrics 显示数字，links 指向 immutable release evidence。
-- [ ] Existing regression:
-      `cargo check --manifest-path vibeguard-runtime/Cargo.toml`；
-      `cargo test --manifest-path vibeguard-runtime/Cargo.toml`；
-      `bash tests/test_behavior_eval.sh`；
-      `bash tests/test_hook_perf_contract.sh`；
-      `bash tests/test_release_workflow.sh`；
-      `bash scripts/local-contract-check.sh --quick`。
-- [ ] Manual verification: 在无 checkout、无 Cargo/API key 的新 macOS/Linux release
-      install 各运行一次**实际探测到的 launcher**，核对 current-exe identity chain、
-      两类 digest、axis/top-level/cells、无用户数据访问与 per-platform latency 分行。
+- [ ] Unit：corpus/truth/mapping joins、integer边界、decision/reason closure、axis/terminal聚合、digest、
+  latency、redaction/cancellation/path containment；publication直接参数化 22-method schema/models。
+- [ ] Integration：released install的五类 cases、identity/config/launcher/timing/concurrency/interruption/
+  sentinel negatives；authority覆盖 durable replay、CAS/auth、trusted time、capsule、backup/anchor及 recovery。
+- [ ] Release：strict native summary、source→ledger→publication顺序、draft/PR/Release send-once与
+  valid/nonvalid/invalidation/blocked state closure；README双 locale marker只从 immutable evidence生成。
+- [ ] Regression：cargo check/test；tests/test_behavior_eval.sh；tests/test_hook_perf_contract.sh；
+  tests/test_release_workflow.sh；planned tests/test_public_benchmark.sh；local-contract-check --quick。
+- [ ] Manual：无 checkout、Cargo/API key的新 macOS/Linux release install各运行实际 launcher一次，核对
+  current-exe chain、JSON/human一致、无用户数据访问及 per-platform latency。
 
 ## 回滚方案
 

@@ -24,17 +24,22 @@ Closed `client_api`/`control_api` request、response、peer authorization、appr
 exact closed schema分别为：
 
 - `owner_claimed`：`{owner_generation,run_id,run_attempt,candidate_tag_identity_digest,frozen_plan_digest,
-  liveness_policy_digest,draft_claim_nonce_digest,nonce_capsule_id,capsule_ciphertext_digest,kms_key_version,
-  prior_time_high_water}`；
+  liveness_policy_digest,draft_claim_nonce_digest,nonce_capsule_id,capsule_ciphertext_digest,kms_key_arn,
+  kms_key_material_id,key_attestation_digest,prior_time_high_water}`；
 - `owner_heartbeat`：`{owner_generation,heartbeat_sequence,prior_liveness_operation_id,liveness_policy_digest,
   prior_time_high_water}`；
 - `publication_owner_taken_over`：`{candidate_tag_identity_digest,prior_owner_generation,new_owner_generation,
-  prior_owner_terminal_or_expiry_evidence_digest,slot_chain_digest,prior_time_high_water}`。
+  new_owner_run_id,new_owner_run_attempt,prior_owner_terminal_or_expiry_evidence_digest,slot_chain_digest,
+  prior_time_high_water}`。
 
 每个 branch 的 `publication_payload_core_bytes=JCS_BYTES(publication_payload_core)`，
 `publication_payload_core_digest=jcs_sha256(publication_payload_core)`；RFC8785 key lexicographic ordering是唯一
 byte顺序，文档展示顺序不参与编码。missing/extra/alias/cross-branch字段、client-supplied authority field、
 fold/request mismatch或非 canonical scalar一律在 trusted-time nonce前拒绝。
+takeover的 `new_owner_run_id/new_owner_run_attempt`必须 byte-equal authenticated request
+`execution_identity.run_id/run_attempt`，并进入 payload-core digest、trusted-time subject及 operation identity；
+不得从 ambient run、mutable authorization或 prior-owner fold复制。claim capsule的三个 key字段必须
+byte-equal client machine schema定义的 actual `GenerateDataKey` attestation及 receipt。
 
 claim exact顺序为：重算 `time_bound_request_id`与 `claim_pre_nonce_core_digest`；按 history special formula先派生
 `transition_operation_id`；FULL fsync `claim_reserved`（payload core/capsule/proof字段仍 null）；以该 operation ID
@@ -187,6 +192,13 @@ sqlite_transaction_sequence,wal_frame_end,commit_state:"committed",database_file
 parent_directory_fsync:true}`；两个 sequence是 `gh700_uint64`。
 `bootstrap_database_commit_digest=jcs_sha256(bootstrap_database_commit_receipt)`；commit或任一 fsync未完成不得 backup/
 sign/anchor。
+
+epoch-zero没有 prior anchor。genesis backup的 nullable AAD字段须 literal
+`prior_anchor_digest_or_null:null`，而 KMS encryption context的 non-null binding须使用唯一 sentinel：
+`genesis_prior_anchor_binding_digest=jcs_sha256({v:"GH700:genesis-prior-anchor:v1",prior_anchor:null})`
+= `sha256:c1d48a89bbaafb77b7af9c4913cd8e660e73f1278c9e9d5211b1535799faa8aa`。非 genesis
+backup禁止使用该 sentinel；schema/model与 history backup contract必须 byte-equal此值，不能发明空串、zero digest
+或 synthetic anchor。
 
 genesis backup使用 history-owned exact `backup_set_ref`，其 digest exact
 `backup_set_ref_digest=jcs_sha256(backup_set_ref)`。anchor capsule core exact 为

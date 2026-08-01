@@ -263,60 +263,22 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
    result、每个 surface 的选择结果、`summary_digest` 与 release-workflow attestation；
    publication/README 只能消费验签后的 summary。summary gate 只消费 B-031 的 required
    set，跨 target 报告不得冒充实际未运行的平台。
-17. B-017: README benchmark 表必须从 B-016 的已验签 summary 生成，至少显示
-    release、platform、corpus version/digest 短标识、positive/negative 样本数、
-    interception 口径与 rate、false-positive rate、状态及报告链接；latency 不允许静默
-    reduction，每个 production surface 必须有独立 P95/status 列（或独立子行），列集合与
-    顺序来自 protocol schedule。数字不得手工编辑；表格必须明确它代表哪个 release。
-    publication ownership、mutation-secret、append-only history、trusted time、trust/fold与 owner-liveness的
-    完整规范性 contract由 [publication_history_contract.md](publication_history_contract.md)、authority-owned
-    payload-core/trusted-time/bootstrap evidence [publication_authority_protocol_contract.md](publication_authority_protocol_contract.md)、
-    blocked-ledger/API单一真源 [publication_ledger_contract.md](publication_ledger_contract.md)及 named-vector注册表
-    [publication_conformance_vectors.md](publication_conformance_vectors.md)共同组成；四份 contract全部属于
-    B-017/B-018 acceptance surface；product/tech/tasks只引用其 machine-facing
-    identifiers、secret boundary与 conformance vectors，不在调用方复制字段集合、枚举、canonical
-    bytes、alias规则或局部覆盖 fail-closed 语义。
-    generated PR、documentation surface plan、zero-marker plan、publication phase、invalidation
-    receipt与 response-loss/takeover/recovery的 exact machine由同一 contract定义。产品层只要求：
-    所有公开变更来自 exact human-reviewed plan；mutable base或 remote state变化时重新规划/复核；
-    zero-marker必须有完整可验证历史；Release与全部 required documentation surfaces最终一致；
-    proof不完整、结果歧义或不可逆状态不明时保留 owner并阻断下一 candidate，不以重发、手工改
-    marker或本地 fallback恢复。corpus ledger只证明 artifact identities，不参与 publication判定。
-18. B-018: release 报告无效、缺平台或 pipeline 中断时必须按获批的闭集
-    `release_policy` 唯一分支，且不得保留前一 release 数字但换成新版本标签：
-    - `block_release`：按 B-029 保存永久失败证据后阻断；不创建 GitHub Release、
-      release page/asset 或该 candidate 的 README current row，已有历史 row 保持原版本
-      且不得标为该 candidate；
-    - `publish_nonvalid`：发布该版本的 schema-valid non-valid report/evidence，并创建
-      同版本 README row；非 valid axis 的 metric cell 留空并显示 axis status、闭集
-      reason code 与不可变 report 链接，row 永不得标 `current valid benchmark`，也不删除
-      已有 latest-valid row 的该标识。
-    缺失、为空或越界 policy 必须阻断，不能由 renderer/workflow 猜分支。
-    `publish_nonvalid` 的 report/evidence 任一无法达到 schema/provenance gate 时不得
-    发布残缺 release，而是以 `selected_policy: publish_nonvalid`、
-    `effective_action: block_release` 和闭集 prerequisite failure code 进入 B-029。
-    可恢复失败由当前 release workflow 在退出前写 B-029 证据；job/workflow
-    hard-cancel、runner loss 或 timeout 由独立 completion reconciler 在 workflow 终态后
-    按同一 candidate/run/attempt 身份补写与最终状态一致的
-    `recovered_publication` 或 interruption record。它除只读 source 与
-    attestation 写权限外，只能取得 environment-protected、attempt-bound 的 Release
-    mutation 权限：仅可按 durable claim 枚举/bind/delete exact draft；revoke owner gate、
-    disable auto-merge/dequeue、close exact pending de-current PR并 compare-delete exact head；
-    按已验签 `intent_written` 完成/验证同一 draft；或按 durable owner创建/supersede exact
-    de-current/rollback/new-current/nonvalid-row/invalidate-current recovery PR并等待 human review/merge；
-    不得直接写 default branch，也不得创建或改写其他 tag/release。任何新 mutation 前必须
-    审计 publish sentinels；post-intent 严格按 B-029 三分支真值表恢复，不能依赖已终止 job。
-    发布路径必须使用 attempt-scoped draft two-phase commit：先按 B-017 唯一锁顺序 CAS
-    `owner_claimed`，再创建并 bind private draft；只有 `draft_bound` 可上传
-    assets/checksums/summary，完整重验后 CAS `prepared`。valid 选择并证明 `genesis_zero`、
-    `rollover_one` 或 `post_invalidation_zero` receipt 后再写不可变 `intent_written`；`publish_nonvalid` 的 intent
-    绑定 exact unmarked-row plan。最后以唯一 draft→published 作为 commit point。prepared
-    且无可见动作的取消可删 exact draft并 terminal；pending de-current PR 必须先撤销 merge
-    authority并取得 revocation receipt，已 merge de-current 则进入可接管的 reviewed rollback；
-    intent 后严格按 B-029 matching Release/matching draft/neither 三分支；
-    commit 后由同一 durable owner
-    完成 valid marker 或 nonvalid row。不存在 public partial assets、无 owner 的 zero marker、
-    无 owner 的 public Release 或 unrecovered README PR 合法状态。
+17. B-017: README benchmark只从 B-016验签 summary生成，展示 release/platform、corpus identity、
+    sample counts、effectiveness/false-positive与 per-production-surface P95/status及 immutable evidence link；
+    invalid axis不显示 numeric cell。publication规范分层到 history、authority protocol、API semantics、
+    [17+5 machine schema](publication_authority_api.schema.json)、[positive models](publication_authority_api.models.json)
+    与 conformance vectors；product/tech/tasks不得复制 wire、CAS/auth/replay、canonical bytes或 fail-closed例外。
+    所有 public change必须来自 exact human-reviewed plan；base/remote drift重规划复核；proof/outcome不完整时
+    保留 owner并阻断下一 candidate，不重发、手改 marker或 local fallback。
+18. B-018: invalid/missing/interrupted report只按 approved release_policy：
+    block_release先永久写 B-029 evidence，再禁止 Release/current row；publish_nonvalid发布 schema-valid
+    non-valid evidence及 unmarked same-version row，invalid metric留空并保留 latest-valid current marker。
+    publish_nonvalid prerequisite失败以 selected policy + effective block action进入 B-029，不发布残缺结果。
+    normal workflow在退出前写 recoverable failure；hard cancel/runner loss/timeout由 independent completion
+    reconciler按 same source/candidate/run/attempt调用 authenticated client API补录。reconciler source token只读，
+    target mutation credential仅 authority/broker持有；它只能恢复 durable plan、撤销 exact pending PR/draft、
+    bind exhaustive terminal truth或写 blocked record，不能调用 control API、直接开 backend、提供时间、
+    猜 outcome或重发 uncertain mutation。
 19. B-019: 官方 report schema 与 corpus schema 的不兼容变更必须提升各自 schema
     version。旧 binary 不认识新 corpus、或新 renderer 无法验证旧 report 时必须明确
     `unavailable`，不能猜字段、静默丢字段或重新解释旧 headline。兼容读取只能是显式、

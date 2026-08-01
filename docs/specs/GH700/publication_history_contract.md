@@ -110,7 +110,12 @@ response ARN/actual material分别 byte-equal `KeyId`/`KeyMaterialId`，`ciphert
 `kms_data_key_attestation_digest=SHA256(JCS(kms_data_key_attestation))`。immutable object header保留 nonce、exact KMS
 context、wrapped data-key bytes、attestation+digest、tag和
 `AAD=JCS({authority_id,repo_node_id,backup_id,object_kind,successor_frontiers_preimage,time_high_water,plaintext_digest,
-prior_anchor_digest})`；encrypt及 restore/decrypt都从 AAD exact frontiers重算 digest并要求 byte-equal context；禁止明文或
+prior_anchor_digest_or_null,prior_anchor_binding_digest})`。non-genesis时 AAD两个字段分别是 actual prior anchor与
+同一 digest，KMS context的 `prior_anchor_digest`也等于它；epoch-zero时 AAD前者 literal null，后者及 KMS
+context字段都必须 exact sentinel `sha256:c1d48a89bbaafb77b7af9c4913cd8e660e73f1278c9e9d5211b1535799faa8aa`，
+其唯一 preimage是 `{v:"GH700:genesis-prior-anchor:v1",prior_anchor:null}`。sentinel禁用于非 genesis，空串、
+zero digest或 synthetic anchor均拒绝。encrypt及 restore/decrypt都从 AAD exact frontiers重算 digest并要求
+byte-equal context；禁止明文或
 unauthenticated compression。`kms_data_key_attestation_set`是按 `snapshot,recovery_manifest,wal`固定顺序的三项 exact
 `{object_kind,kms_data_key_attestation_digest,key_material_id}`，其 digest为 JCS SHA-256；`wrapped_data_key_set`同序且每项 exact
 `{object_kind,wrapped_data_key_digest,kms_data_key_attestation_digest,key_material_id}`，`wrapped_data_key_set_digest=SHA256(JCS(wrapped_data_key_set))`；每个 wrapped digest取 exact
@@ -195,128 +200,62 @@ history 共用 durable DB/backup/anchor gate，但 authorization domain、fronti
 
 ## Rollback-resistant trusted time
 
-host wall clock、process monotonic clock、client timestamp、GitHub event time与 unsigned HTTP `Date` 均不授权
-expiry/takeover。deployment manifest 的 `trusted_time_service` exact 为
-`{backend,api_version,threshold,sources,maximum_tsa_accuracy_ns,proof_retention_policy_digest}`，backend/API exact
-为 `rfc3161_tsa_quorum_v1` / `GH700:trusted-time-api:v1`；`sources` 是至少三项按 `source_id` canonical排序的
-`{source_id,endpoint,transport,tsa_policy_oid,signer_bundle_digest,server_identity_bundle_digest,
-client_auth_policy_digest}`，endpoint为无 redirect/query/fragment的 manifest-pinned HTTPS path，transport
-exact `tls13_mtls_rfc3161_sha256_v1`，threshold至少二且不超过 source数。source须独立 administration/
-signing root；ambient DNS/proxy/CA、TOFU、同 root重复 signer、unknown policy/algorithm均拒绝。exact preimage为
-`trusted_time_quorum_policy_preimage={v:"GH700:trusted-time-quorum-policy:v1",backend,api_version,threshold,sources,
-maximum_tsa_accuracy_ns,proof_retention_policy_digest}`，`quorum_policy_digest=SHA256(JCS(
-trusted_time_quorum_policy_preimage))`；任何删域、改序、旧 `max_accuracy_seconds` alias或 digest drift均拒绝。
+host/process/client/GitHub/HTTP time均不授权 expiry或 takeover。deployment manifest的 closed
+trusted_time_service、maximum_tsa_accuracy_ns、independent source quorum与 policy digest由
+[authority protocol](publication_authority_protocol_contract.md#trusted-time-proof-profiles)唯一解释；
+旧 max_accuracy_seconds、ambient endpoint/proxy/CA、TOFU、同 root重复 signer或 policy drift均拒绝。
 
-T10只提交 ledger contract的 proof-free time-bound request；T3从 signed fold取 prior high water并按
-[authority protocol contract](publication_authority_protocol_contract.md)的 exact purpose/subject、domain-separated
-replay identity、nonce、proof request与 RFC3161 message imprint构造 proof。client不得提交或替换任一 proof字段。
-claim仍以 `claim_pre_nonce_core_digest`先 durable reserve并只签发一次 draft nonce/capsule；三种 transition的
-publication core均由 authority构造。accepted proof的 interval intersection、proof capsule、prior/new high water
-随 transition及 external anchor原子持久化，restore不得回退；crash/ack-loss只能恢复同一 replay row。
-
-heartbeat only-if-alive 判定要求 `trusted_upper_bound < prior lease_expires_at`；takeover only-if-expired判定要求
-`trusted_lower_bound > lease_expires_at`，边界相等或 uncertainty跨 expiry均拒绝。lease expiry仍按获批 H-006
-由 `accepted_at`计算。proof unavailable、anchor CAS不确定、source/policy/threshold drift、high-water rollback/
-fork或 SQLite↔anchor mismatch使所有 time-dependent transition fail closed；绝不 clamp到 host time、猜 expiry或
-以 job absence接管。T3独占 `trusted_time.rs` persistence、[client API contract](publication_ledger_contract.md)的
-crash-safe preparation及 [authority protocol contract](publication_authority_protocol_contract.md)的 proof profile；
-T10只能提交 non-authoritative time-bound request；
-T12须用真实 RFC3161-compatible independent test signers覆盖 host forward/backward jump、replay、quorum split、
-accuracy overlap、restart/snapshot rollback、heartbeat-vs-takeover race与 anchor ack-loss。
+T10只提交 [machine client schema](publication_authority_api.schema.json) 的 proof-free time-bound request。
+T3从 signed fold取 prior high water，按 protocol构造 subject、replay identity、nonce、proof request、
+RFC3161 imprint与 inclusive interval intersection；proof capsule/high-water与 successor/anchor原子持久化，
+crash/ack-loss只恢复同一 replay row。heartbeat要求 trusted_upper_bound < lease_expires_at；
+takeover要求 trusted_lower_bound > lease_expires_at；相等或 interval跨 expiry均拒绝。unavailable、
+quorum/accuracy/policy drift、rollback/fork或 SQLite↔anchor mismatch使 time-dependent operation fail closed，
+不 clamp host time、不以 job absence接管。
 
 ## Bootstrap governance and first frontier
 
-deployment manifest 的 `bootstrap_governance` exact 为
-`{bootstrap_version,release_identity_root_digest,governance_roster_digest,governance_threshold,
-governance_signer_key_ids,initial_trust_bundle_digest,initial_trust_epoch,first_frontier,
-first_blocked_attempt_frontier,initial_time_high_water,initial_time_proof_bundle_digest}`。
-release-identity root在 store/history/AWS accounts之外，
-签 roster attestation并把 canonical distinct signer key IDs、`1 <= threshold <= signer_count`、repo/purpose、
-initial trust root/leaf certificates与 epoch钉住。`bootstrap_manifest_core_digest` exact 为
-`SHA256(JCS(deployment_manifest_core))`，core 是完整 closed deployment manifest payload 且不含任何
-signature/attestation/approval envelope。detached `bootstrap_approval` exact 为
-`{bootstrap_manifest_core_digest,release_identity_attestation_digest,governance_roster_digest,
-governance_threshold,signer_key_ids,threshold_signatures}`；roster 中 distinct threshold signers 只签
-`SHA256(JCS({v:"GH700:bootstrap-manifest-approval:v1",bootstrap_manifest_core_digest}))`，
-`bootstrap_approval_digest=SHA256(JCS(bootstrap_approval))` 仅进入 receipt/anchor，不回填 manifest core。
-self-signed/TOFU、重复 signer、阈值不足、core/signature/root/roster/epoch drift均拒绝。
+deployment bootstrap_governance闭合绑定 release-identity root、distinct threshold roster、initial trust
+bundle/epoch、两个 length-zero frontier及 initial trusted-time proof/high-water。bootstrap manifest core不含
+signature envelope；detached threshold approval签 GH700:bootstrap-manifest-approval:v1 的 core digest。
+self-sign/TOFU、duplicate/insufficient signer或 root/roster/epoch/core drift均拒绝。control wire、
+prebootstrap policy branch、release-identity attestation validity与 genesis/database/backup/anchor receipts分别由
+[machine API](publication_authority_api.schema.json) 和
+[authority protocol](publication_authority_protocol_contract.md#bootstrap-genesis-and-anchor-evidence)拥有。
 
-`first_frontier` 唯一为 length zero：`repo_node_id` exact，`history_length=0`，`history_root` exact 为
-`SHA256(JCS({v:"GH700:history-empty-root:v1",repo_node_id}))`，`full_prefix_digest` exact 为
-`SHA256(JCS({v:"GH700:history-empty-prefix:v1",repo_node_id}))`。
-`first_blocked_attempt_frontier` 同样固定 `ledger_length=0`，root/full-prefix分别由
-`GH700:blocked-attempt-empty-root:v1` / `GH700:blocked-attempt-empty-prefix:v1` 加 `repo_node_id` 做 JCS SHA-256。
+first publication frontier exact length zero：history_root/full_prefix分别为
+SHA256(JCS({v:"GH700:history-empty-root:v1",repo_node_id})) 与
+SHA256(JCS({v:"GH700:history-empty-prefix:v1",repo_node_id}))；blocked frontier同理使用
+GH700:blocked-attempt-empty-root:v1 / GH700:blocked-attempt-empty-prefix:v1。successor唯一 framing：
+leaf_hash=SHA256(UTF8("GH700:"+domain+"-leaf:v1") || 0x00 || u64be(len(leaf_bytes)) || leaf_bytes)；
+next_root=SHA256(UTF8("GH700:"+domain+"-root:v1") || 0x00 || digest_bytes(prior_root) ||
+leaf_hash || u64be(prior_length+1))；next prefix同域 prefix:v1，连接 prior prefix、leaf length及 bytes。
+domain仅 history/blocked-attempt，leaf分别为 exact closed history record/ledger envelope JCS bytes；
+overflow、noncanonical digest/bytes或重算不等拒绝。framing golden与 nested hash由
+[conformance vectors](publication_conformance_vectors.md)锁定，不在本文复制第二份值。
 
-history 与 blocked-attempt ledger 共享下列唯一 successor framing，其中
-`domain∈{history,blocked-attempt}`；history 的 `leaf_bytes=JCS(exact closed history top-level record)`，
-blocked-attempt 的 `leaf_bytes=JCS(exact ledger_leaf envelope)`（envelope exact 结构见
-`publication_ledger_contract.md`）；`u64be` 是 unsigned 64-bit big-endian，`digest_bytes` 只解码
-canonical lowercase `sha256:<64hex>`：
-`leaf_hash=SHA256(UTF8("GH700:"+domain+"-leaf:v1")||0x00||u64be(len(leaf_bytes))||leaf_bytes)`；
-`next_length=prior_length+1`；
-`next_root=SHA256(UTF8("GH700:"+domain+"-root:v1")||0x00||digest_bytes(prior_root)||leaf_hash||u64be(next_length))`；
-`next_full_prefix_digest=SHA256(UTF8("GH700:"+domain+"-prefix:v1")||0x00||
-digest_bytes(prior_full_prefix_digest)||u64be(len(leaf_bytes))||leaf_bytes)`。结果统一编码为 lowercase
-`sha256:<64hex>`；length overflow、non-canonical digest/record bytes或任一重算不等均拒绝。
-下列 framing-only golden 使用 `repo_node_id="R_kgDOGH700"`、上述 length-zero frontier 与
-`leaf_bytes=7b7d` (`{}`，仅隔离验证 hash primitive，record schema 仍必须拒绝它)：
+T3只在 DB/anchor均不存在时，以 threshold approval、initial RFC3161 quorum及 release-identity attestation
+创建 SQLite genesis，再以 conditional epoch-zero transaction写 EPOCH#0/HEAD；任一已存在只允许 exact
+read-confirm，不能 reset。genesis backup AAD保持 prior_anchor_digest_or_null=null，而 KMS context使用 protocol
+定义的 genesis sentinel；first frontier、blocked frontier、time/trust state与所有 receipts须 cross-bind。
 
-| domain | `leaf_hash` | successor root | successor `full_prefix_digest` |
-| --- | --- | --- | --- |
-| `history` | `sha256:f846a7690345ef0b8217076e8a5b960ed0394701191ea3f497a25a7083304ac1` | `sha256:0781fb121749d9247a26f74f34449715311cf09511ec81ab0103c0b758583bc3` | `sha256:e73400b4b88aa43e6500ab69b4bafee6693cc2a0c733d0228e3e41a3701b6d76` |
-| `blocked-attempt` | `sha256:86a1d6dedf4fb174dee3f38281770624896176b1a89b244b4c0ecf3ca5a07b1c` | `sha256:1ab51f4579df55ede8eb606fd2558a0ebfd4364de7016e16c31dbfc0a71f4153` | `sha256:24c3426a0db6999dc2c3e1dd610bb62ce321fa8fb743237edf0e6306c0bc488f` |
+manifest另闭合 break_glass_governance：外部 cold recovery root/roster至少3、threshold至少2，与 routine
+signer及 authority/anchor/backup administration隔离；allowed cause仅 active leaf/root expiry、current threshold
+unavailable/revoked。normal trust不可授权时，authority先冻结 mutation，strong-read HEAD并验证 exact encrypted
+backup/full prefixes/high-water，再以 protocol的 incident_open与 cutover两个独立 trusted-time replay identity
+建立 anchored incident receipt及 fresh audit-delay evidence。cutover lower必须 >= incident upper + approved delay；
+host time、proof复用、pre-state drift、rollback/fork/pending anchor均拒绝。
 
-T3 bootstrap只在 DB/anchor均不存在时，以
-threshold approval、RFC3161 quorum initial-time proof和外部 release-identity attestation原子创建 SQLite
-genesis/trust state，再以 DynamoDB epoch-zero conditional transaction锚定 first frontier、zero blocked-ledger
-frontier及 initial time high water；两侧任一已存在只可 byte/digest match，不能重置。bootstrap receipt exact
-绑定 `bootstrap_manifest_core_digest`/`bootstrap_approval_digest`、root/roster/threshold/signer set、first frontier、trust epoch、time proof与 anchor transaction。
+distinct recovery threshold只签 incident receipt、delay evidence、current anchor/frontiers/trust epoch、fresh
+bundle/next epoch与 audit digest；new bundle须新 root及正常 threshold roster。global anchor gate仍执行
+DB→encrypted exact-version backup→privileged signature→epoch append/HEAD CAS→strong-read；确认前零 write
+authorization/receipt，确认后只启用 anchored new root。incident/proofs/approval/backup/read-back永久保留。
+recovery roster自身不足 threshold时保持 blocked，无 single-admin/manual-DB bypass。
 
-deployment manifest同时必须有独立 `break_glass_governance={recovery_root_digest,recovery_roster_digest,
-recovery_threshold,recovery_signer_key_ids,allowed_causes,minimum_audit_delay_seconds,recovery_policy_digest}`。
-recovery root/roster在 authority/history/anchor/backup/routine-signer accounts之外，由至少3名 cold offline
-signer组成且 threshold>=2；key/approval不能与 routine online quorum或 current trust bundle复用，allowed causes只含
-`{active_leaf_expired,active_root_expired,current_threshold_unavailable,current_threshold_revoked}`。bootstrap
-approval同时签该 exact recovery contract；缺失、阈值不足、同管理域或未经 bootstrap root验签即 publication unavailable。
-
-当 normal leaf/root rotation因 active key过期/撤销或 current threshold不可达而不可能满足 pre-state trust时，唯一
-恢复路径是 `trust_emergency_root_cutover`。authority先冻结 publication/broker与 normal governance，strong-read
-DynamoDB HEAD和其 exact encrypted backup set，完成 restore-grade AEAD/full-prefix/time-high-water验证；rollback、
-fork、pending anchor或 backup缺失时不得开始。然后构造 exact `incident_open_intent={schema_version:"GH700:break-glass-incident-open:v1",repo_node_id,recovery_incident_id,cause,current_anchor_digest,current_publication_frontier,current_blocked_attempt_frontier,current_trust_epoch,recovery_policy_digest}`；两 frontier须 byte-equal HEAD且含 full-prefix，digest exact `SHA256(JCS(incident_open_intent))`。
-T3按 [authority protocol contract](publication_authority_protocol_contract.md)先以 purpose
-`break_glass_incident_open`完成独立 replay identity/nonce/request/message-imprint/proof；incident receipt锚定后，cutover
-另以 `break_glass_cutover`取得 fresh proof，二者不得复用。在 global `anchor_commit_gate`内 FULL fsync永久 unique
-incident index、proof replay row与 pending plan；plan保持两 frontier不变、推进 high water并绑定 intent/proof/interval。
-随后严格复用唯一 DB→encrypted snapshot/manifest/WAL exact-version backup→`break_glass_incident_open` threshold signature→同一 transaction append `EPOCH#<restore_epoch>`并 CAS `HEAD`→strong-read确认的 closed model；禁止 incident-specific DynamoDB row。exact `incident_open_receipt={incident_open_intent_digest,trusted_time_proof_digest,trusted_lower_bound,trusted_upper_bound,prior_time_high_water,new_time_high_water,anchor_plan_core_digest,backup_set_ref_digest,epoch_anchor_receipt_digest}`，digest为 `SHA256(JCS(incident_open_receipt))`。
-gate的 plan/finalized crash与 ack-loss规则原样适用；确认前零 receipt/cutover，same incident/same bytes返原 receipt，异值冲突。snapshot、recovery manifest、EPOCH signed payload与 restore replay必须完整包含并核验 incident index/state/proof/receipt及两 frontier。
-cutover须取得另一个 fresh trusted-time proof，exact
-`audit_delay_evidence={incident_open_receipt_digest,incident_open_trusted_upper_bound,
-cutover_trusted_lower_bound,minimum_audit_delay_seconds,cutover_trusted_time_proof_digest}`；intent digest须重算且 byte-equal anchored receipt字段，evidence的 receipt digest/upper bound须 byte-equal该 receipt，cutover lower bound/proof digest须 byte-equal fresh verified proof，minimum须 byte-equal manifest的 governance值，且 only-if
-`cutover_trusted_lower_bound >= incident_open_trusted_upper_bound + minimum_audit_delay_seconds`；等式允许，
-`audit_delay_evidence_digest=SHA256(JCS(audit_delay_evidence))`；interval overlap、host/client time、未 anchored
-open receipt、pre-state drift或 time-high-water rollback均拒绝。
-distinct recovery threshold signer只对含 `{incident_open_receipt_digest,audit_delay_evidence_digest}`的
-`{repo_node_id,cause,evidence_digest,current_anchor_digest,current_publication_frontier,current_blocked_attempt_frontier,
-current_trust_epoch,new_bundle_digest,next_trust_epoch,recovery_incident_id,audit_log_digest,incident_open_receipt_digest,audit_delay_evidence_digest}`
-做 domain-separated offline approval；new bundle须有全新 root、
-满足正常 threshold的 signer roster、单调 next epoch与 release-identity attestation。special envelope只接受该
-bootstrap-pinned recovery chain，不要求已失效 old key；它 append exact-predecessor emergency record，再将新的 encrypted
-backup、完整 break-glass audit和 privileged `emergency_root_cutover` signature CAS到更高 external anchor epoch。
-anchor确认前 old state仍 active且零 write/receipt；确认后只从 anchored successor启用 new root。approval、incident/
-cause证据、参与 signer、incident-open/cutover trusted-time proofs与 intervals、backup/anchor request/read-back及 cutover receipt永久保留且可独立审计；
-不能改写旧 history、降低 time/frontier、重置 bootstrap或跳过 external anchor。recovery roster本身不足 threshold时
-系统保持 blocked，只能通过另一个已 bootstrap-pinned recovery threshold，绝无单人/admin/manual DB bypass。
-approval的 `current_anchor_digest`必须 byte-equal incident-open EPOCH/HEAD successor digest，两个 current frontier必须
-byte-equal该 anchor内的 unchanged frontiers；任何 pre-state drift都须重新开始新的 incident。
-first history record的 predecessor必须是 first frontier并由 initial trusted leaf签名，或按上述 special envelope
-执行 exact emergency cutover；其后 `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked,
-trust_emergency_root_cutover}` 可在首次 eligible valid publication之前按各自 normal/emergency authorization追加。
-前三者使用独立 governance lease/fence/threshold。`genesis_zero` fold把这些验签、phase-neutral且 publication-state-neutral
-的 records与 terminal non-valid/no-publication records一并忽略，只要求从 first frontier到本次 exact prepared
-owner之间从未出现 eligible valid publication/current marker restoration；它们不使 genesis失效。bootstrap
-root/roster不能由 history rotation替换；rotation只按 current trust chain推进，recovery必须从 manifest-pinned
-first frontier重放完整 prefix、验证每个 cutover/threshold signer及 external anchored latest frontier，缺 first
-frontier/bootstrap receipt、未知 signer、rotation gap/fork或 rollback一律拒绝。
+first history predecessor必须是 verified first frontier；其后 normal rotation/revocation或上述 emergency cutover
+均是 phase-neutral signed record。genesis-zero fold只忽略验签 governance与 terminal non-valid/no-publication，
+仍须证明没有 eligible valid publication/current restoration。bootstrap root/roster不可由 history rotation替换；
+restore须从 first frontier重放完整 prefix并验证每个 trust edge及 external latest anchor。
 
 ## Ownership 与 lock order
 
@@ -336,206 +275,73 @@ claim nonce 创建 exact private draft；服务端返回后、任何 asset uploa
 恢复时按同一顺序重取 lease并提升 fence。
 ## Candidate tag 与 mutation slot
 
-claim 还必须绑定 immutable `candidate_tag_identity`：repo、canonical
-`refs/tags/<name>`、ref node/OID、annotated tag object与完整 peel chain、peeled commit
-（必须等于 source）及 effective tag-protection/ruleset digest。official 候选必须已有受保护、
-不可更新/删除且无 actor/App bypass 的 tag；Release API 不得隐式创建或移动 tag。所有
-normal/recovery Release 写使用同一 closed slot machine，payload 字段 `mutation_kind∈{draft_create,
-draft_update,draft_delete,asset_upload,asset_delete,publish}`。远程调用前须 fenced-CAS append
-`record_kind=release_mutation_planned`（payload携 `mutation_kind,transition_slot`），绑定 repo/tag identity/owner generation/
-mutation kind/slot/predecessor/stable mutation slot ID/plan-core digest、`mutation_nonce_digest`+opaque `mutation_nonce_capsule_id`/`broker_delivery_id`、trusted App/installation、exact pre-state/public non-secret request
-template/expected post-state digests及完整 kind tuple。`draft_create` 另绑定
-`draft_claim_nonce_digest`、draft-claim capsule identity、tag/source/public metadata；其它 kind
-绑定各自 full pre/post tuple。
-history中的 `request_commitment` 只对 public template、mutation nonce digest/capsule identity及
-draft-create专用 claim nonce digest/capsule identity做 JCS hash。构造顺序固定且无环：先冻结不含
-nonce/capsule/commitment/ciphertext/final payload digest/operation ID的 non-secret plan core，
-再计算 `plan_core_digest`及 `mutation_slot_id=H(v,repo_node_id,owner_generation,mutation_kind,
-transition_slot,predecessor,plan_core_digest)`并选择 opaque `mutation_nonce_capsule_id`。store/HSM CSPRNG为 slot
-签发 fresh mutation nonce及 typed digest `mutation_nonce_digest = SHA256(JCS({v:"GH700:release-mutation-nonce:v1",
-repo_node_id,owner_generation,mutation_kind,transition_slot,mutation_slot_id,nonce_b64u}))`；
-随后计算 request commitment并以 `(repo,owner,mutation_kind,transition_slot,mutation_slot_id,
-request_commitment)` 作 capsule AAD/index，最后把 ciphertext digest/KMS version纳入 final
-payload并计算 payload digest与 generic transition operation ID。capsule持久化与 planned append
-同事务；same operation replay只返原 plan/capsule，跨 slot/kind/owner/slot-ID/operation替换拒绝。
-六种 mutation均拒绝 raw mutation nonce、含它的 request bytes及可逆编码进入 template/commitment
-preimage/intent/history/operation ID/log/report/receipt；raw draft-claim nonce同样只可在 authorize后
-经 authenticated secret channel解封，并由 broker在内存物化 wire request。mutable fence/lease只在 authorization envelope。
-只有 planned state可经 environment-protected sole broker调用；pre-call guard authorization
-绑定 current tag/ruleset、owner、actual fence/frontier、plan digest与 `broker_delivery_id`，
-broker须按 plan解封 exact mutation capsule及 draft-create的 exact claim capsule、重算各 typed
-digest、plan-core/slot-ID/final payload/operation derivation，并证明 canonical template对每个
-declared secret恰有一个 typed placeholder且无其它
-placeholder；只允许替换这些位置并使用 plan-pinned endpoint/method，并按
-[authority API contract](publication_ledger_contract.md#release-effective-request-digest)从实际 canonical request-target/header/body bytes
-重算 domain-separated `effective_request_digest`。signed send-once audit
-绑定 plan/request commitment、`mutation_nonce_capsule_id`/draft-claim capsule IDs+ciphertext
-digests、endpoint/method、`mutation_slot_id`/`broker_delivery_id`、`effective_request_digest`与 delivery outcome，不含 raw secret；restart/takeover复用 same capsule/delivery，store/
-broker拒绝 same slot/delivery第二次 send。该 audit不证明 remote commit。normal response后
-重取 server state，只有 postcheck通过才 append
-`release_mutation_bound`与 completed guard receipt，绑定 `request_commitment`、`broker_delivery_id`、
-response/resource IDs、pre/post tag+ruleset tuples、owner/fence/frontier。
-send/response/postcheck/bind任一不确定时禁止重发，先进入 `release_mutation_recovery_pending`，
-重取 lease/fence/frontier并按 immutable plan完整分页枚举 Release/all states/assets及 broker
-outbox/delivery/audit：唯一 exact post-state、正确 tag/source/App/delivery且无 extra时以 fresh
-discovery/postcheck receipt恢复 bound；exact pre-state加 authenticated exhaustive negative
-且 broker证明 request quiescent/not-in-flight时 append `release_mutation_not_applied`，之后才可
-新 slot；zero但仍 in-flight不得重发。partial/conflicting/multiple state只能先 append
-`compensation_planned`，其远程补偿本身也是新 planned/guarded/bound slot，完整证明恢复
-pre-state且无 extra后才 `compensated`。blocked-kind precedence唯一为：`mutation_kind=draft_create`
-的 permission/pagination/audit/rate-limit/5xx或任何不可证明 outcome只进入 `draft_recovery_blocked`，
-此时 `release_mutation_recovery_blocked` schema-invalid；generic blocked kind仅适用于
-`{draft_update,draft_delete,asset_upload,asset_delete,publish}` 的不可逆/不可证明 outcome、tag move/
-delete/recreate、peel/source/ruleset/bypass drift，并保留 owner。takeover只能引用旧 plan并 fresh authorize。
-`draft_bound`/`prepared`/publish/cleanup/terminal/`recovered_publication` 只能在所有 predecessor
-slots进入 closed terminal set `{bound,not_applied,compensated}` 后推进；每个 not-applied须携
-exact-pre-state+exhaustive-negative+broker-quiescence receipt，每个 intended phase effect须由
-恰一 later/effective bound slot满足或由 compensated显式恢复，且无 pending/blocked/in-flight/
-extra resource。final recovery还须 fresh
-finalization receipt绑定 current tag tuple与完整 slot chain。任何窗口 drift不写 recovered/README。
-`owner_claimed` append request须通过 authenticated secret channel另交由 store/HSM CSPRNG
-为该 proposed generation签发的 uniform 256-bit one-time nonce；未消费的 issuance不授权任何
-Release/PR/draft mutation。nonce跨 repo/candidate/generation全局不得复用，且不进入 JCS
-intent、operation ID、history payload、日志或报告。store以永久 unique index拒绝复用，并在
-同一事务验证 `draft_claim_nonce_digest = SHA256(JCS({v:
-"GH700:draft-claim-nonce:v1", repo_node_id, owner_generation, nonce_b64u}))`及 issuance
-attestation；schema固定字段类型/Unicode normalization，`nonce_b64u`只能是32-byte nonce的
-unpadded base64url canonical encoding，任何替代边界/编码均拒绝。随后以 KMS/HSM封装到 retention-independent secret
-capsule，key为 `(repo_node_id, owner_generation, transition_operation_id)`；committed
-envelope只绑定 opaque `nonce_capsule_id`、ciphertext digest与 KMS key version。capsule与
-对应历史解密 key须保留到整个 candidate publication ownership successor chain terminal及
-获批的 recovery/audit retention window结束，绝不能在旧 generation被 takeover/terminal时
-提前销毁；key rotation不能破坏 active recovery。
-unwrap还须提交 current repository-publication lease scope/token、latest signed frontier与
-server-authenticated actor；store必须核对 actor 的 repo/workflow/App/installation/run identity
-是 exact current owner，或是在 trusted-proof-derived store-auth expiry 后由 exact-frontier takeover record建立的
-同 candidate successor，并验证 current fence。公开的 fence/generation/capsule ID本身都不是
-credential，不能授权读取/解封。解封后重验 digest；restart发生在
-claim commit后、draft create前时必须复用该 nonce；capsule缺失、越权、密文/key-version/
-digest不符或 KMS不可用均进入 `draft_recovery_blocked`，不得生成新 nonce、重写 claim或创建
-第二个 draft。
+claim冻结 candidate tag identity（repo、canonical tag ref、ref/tag object、完整 peel chain、source commit及
+effective no-bypass protection）。Release不得隐式创建/移动 tag。六种 mutation kind、plan/slot/request
+commitment、secret placeholder、effective-request digest、append/delivery authorization与每个 method的 CAS/
+success/recovery wire均由 [API contract](publication_ledger_contract.md#release-effective-request-digest)及
+[machine schema](publication_authority_api.schema.json)唯一拥有。
+
+无环顺序固定：冻结不含 secret/ciphertext/final digest/operation ID的 public plan core；派生 plan digest、
+stable mutation slot及 authority-owned broker delivery ID；KMS/HSM只签发一次 mutation nonce并产生
+actual key ARN/material attestation；随后计算 request commitment/capsule receipt、final payload与 generic
+operation ID并在同一 transaction提交 planned successor/outbox。draft_create另绑定 original claim capsule。
+raw secret只在 authenticated broker memory中替换 typed placeholder；不得进入 template、history、ID、log或
+report。same request恢复同一 capsule/delivery，cross owner/kind/slot/plan替换永久冲突。
+
+broker在 send前验证 current owner/fence/frontier、delivery authorization、tag/ruleset、committed plan、
+capsule attestations与 exact effective request；FULL-fsync send_started/audit后只发送一次。normal response须
+fresh postcheck exact effect才 bind。response loss、restart/takeover/restore均复用原 delivery ID并只可
+read-confirm/recover：唯一 post-state→bound；exact pre-state + exhaustive negative + broker quiescence→
+not_applied；partial/conflicting/multiple→planned compensation；不可证明→kind-specific recovery_blocked。
+任何 pending/blocked/in-flight slot阻止 prepared/publish/cleanup/terminal/recovered_publication。
+
+draft claim nonce同样是 canonical 32-byte base64url、repo/candidate/generation全局 unique，先在
+claim_reserved durable冻结 operation identity，再只生成一次 capsule。committed claim及 planned mutation
+payload都绑定 capsule ciphertext、kms_key_arn、kms_key_material_id与 key_attestation_digest；logical
+kms_key_version不存在。unwrap须 fresh authenticated current owner/fence/frontier，且验证 retained capsule及
+actual KMS attestation。missing/tampered/unauthorized/KMS unavailable进入 draft_recovery_blocked，不生成
+replacement nonce、claim或 draft。
 
 ## Generated PR、documentation 与 publication states
 
-所有 generated PR及 replacement统一使用
-`record_kind=generated_pr_planned → record_kind=generated_pr_bound`，两者 payload的 `pr_kind ∈
-{decurrent,rollback,new_current,nonvalid_row,invalidate_current}`。planned必须早于首次
-head-ref/commit/PR mutation，绑定 repo/owner generation/kind/candidate、base ref/OID、head
-repo/ref、expected tree/OID、patch/nonce/ruleset digest、trusted App/installation identity及
-replacement chain；nonce必须进入受保护 deterministic ref/commit/check identity，不能只放可编辑
-PR metadata。create/bind response loss须完整分页枚举 draft/open/closed/merged/queued PR与 head
-ref并核对完整 tuple：唯一 active match在重读 latest signed frontier/fence/ruleset后 CAS bound；
-唯一 merged match按 kind进入 receipt/rollback/marker/row恢复；closed match先 revoke再
-replacement。ordinary/stale zero保留 owner且不得重发 non-idempotent create；仅同一线性化快照
-覆盖 PR+ref的 authenticated exhaustive negative receipt及 broker quiescence可证明不存在，此时 append
-`generated_pr_not_applied`后才可 new slot。多匹配、tuple/creator
-不符、分页/权限不全、rate-limit/5xx/timeout或无强一致 absence API，按 kind进入对应 recovery
-blocked variant。旧 fence late bind、reopen/ref ABA、stale check/review与 ruleset bypass均由
-latest-frontier merge gate拒绝。
+generated PR统一 planned→bound，pr_kind闭集为 decurrent、rollback、new_current、nonvalid_row、
+invalidate_current。planned须早于 ref/commit/PR mutation并绑定 owner/kind/candidate、base/head、expected
+tree/patch、ruleset、trusted App/installation、replacement chain及 fresh 32-byte head nonce commitment。
+review core进入唯一 commit trailer，check identity进入 required check external_id；ref、commit、tree、check、
+App/installation/ruleset任一不等不能 bind/merge。replacement必须 fresh slot/nonce/ref/review/check，且旧 gate/
+queue/PR/head先有 authenticated revocation receipt。
 
-generated PR nonce由 mutation broker/HSM签发为 uniform 256-bit one-time value，`nonce_b64u`只能是
-32-byte nonce的 canonical unpadded base64url。唯一公开承诺为
-`head_ref_nonce_digest=SHA256(JCS({v:"GH700:generated-pr-head-nonce:v1",repo_node_id,
-owner_generation,pr_kind,transition_slot,nonce_b64u}))`；raw nonce不得进入 history、commit、check、
-PR metadata、日志或报告。`owner_generation_digest=SHA256(JCS(owner_generation))`，exact ref为
-`refs/heads/vibeguard/gh700/<owner_generation_digest>/<pr_kind>/<transition_slot_decimal>/
-<head_ref_nonce_digest>`；两 digest path component均为 lowercase 64-hex且不带 `sha256:`。
-`generated_pr_review_core` exact object为 `{v:"GH700:generated-pr-review-core:v1",repo_node_id,
-owner_generation,pr_kind,transition_slot,base_ref_oid,head_repo_node_id,head_ref,
-head_ref_nonce_digest,expected_tree_digest,patch_digest,merge_method,ruleset_digest,
-trusted_app_identity_digest,trusted_installation_identity_digest,replacement_chain_digest_or_null,invalidation_context_or_null}`；后者仅 `pr_kind=invalidate_current` 时 non-null且 exact `{invalidated_release_identity,evidence_digest,documentation_surface_plan_digest}`，其它 kind须 literal null，其
-`review_core_digest=SHA256(JCS(generated_pr_review_core))`。reviewed commit必须只有一个 exact trailer
-`VibeGuard-Generated-PR-Review-Core: <review_core_digest>`，commit OID/tree/ref与 core逐字段一致。
-`generated_pr_check_identity` exact object为 `{v:"GH700:generated-pr-check-identity:v1",
-repo_node_id,owner_generation,pr_kind,transition_slot,head_repo_node_id,head_ref,head_oid,
-review_core_digest,trusted_app_identity_digest,trusted_installation_identity_digest,ruleset_digest}`，其
-`check_identity_digest=SHA256(JCS(generated_pr_check_identity))`；required check的 `external_id`必须 exact
-等于该 digest，且 check App/installation/head SHA/ref均匹配。ref、commit trailer、check三者任一缺失或
-不一致均不能 bind/merge；每次 replacement必须新 slot、nonce、ref、review core、commit与 check identity。
+planned commit后 authority按 API contract唯一派生 generated_pr_delivery_id，transaction内建立 plan↔delivery
+双 UNIQUE outbox。send前 FULL-fsync send_started；ack-loss/restart/takeover/restore只按原 ID discovery/recover，
+不第二次 create。exact one match才 bind/merge-recover；authenticated exhaustive negative + broker quiescence
+才 not_applied；multiple、identity/creator drift、分页/权限/remote uncertainty进入对应 recovery-blocked。
+closed request/success state及 nullability由 [machine schema](publication_authority_api.schema.json)唯一拥有。
 
-planned transition提交并得到 `planned_operation_id`后，authority exact 派生
-`generated_pr_delivery_id=SHA256(JCS({v:"GH700:generated-pr-delivery-id:v1",repo_node_id,
-planned_operation_id}))`，wire编码为 lowercase `sha256:<64hex>`；它不进入 planned payload或 operation-ID
-preimage，故无自引用。planned append同一事务创建永久 outbox mapping与
-`UNIQUE(repo_node_id,planned_operation_id)`、`UNIQUE(repo_node_id,generated_pr_delivery_id)`：same plan/same
-ID只返回原 state/audit，same plan/different ID或 same ID/different plan永久冲突。首次网络发送前须 durable
-CAS `send_started`并 FULL fsync；response loss、restart、takeover、restore都复用同一 ID且只走 recovery，
-不得第二次 send，terminal/migration不得删除或重写 mapping。PR/ref discovery、broker quiescence与
-send-once audit均按该 ID检索。
+required_documentation_surfaces是 protocol批准闭集，surface plan冻结 path、marker grammar、renderer digest、
+base blob及 expected after blob/tree/patch。stable path/renderer改变要求 protocol bump；mutable base/default ref
+变化要求 fresh render、human review、slot及 plan。三种 valid pre-intent branch：
 
-`required_documentation_surfaces`是 protocol批准的稳定闭集；每项只绑定
-`surface_id`、canonical repo-relative path、locale/marker grammar、renderer logical ID/version/
-artifact digest与 output schema，不绑定 mutable default-ref/live blob OID。owner claim冻结的
-`documentation_surface_plan_digest`绑定 protocol digest、observed default ref OID及每个 surface
-的 `{surface_id,path,base_blob_oid,base_blob_sha256,marker_before_identity,
-marker_before_cardinality,renderer_digest,expected_after_blob_digest,
-expected_after_tree_digest,patch_digest}`。每个 generated plan/replacement再绑定 exact current
-base ref/OID与完整 tuple；gate紧邻 mutation重取 default ref/all blobs，任一 drift撤销旧 gate并用
-新 slot/nonce/head、fresh render/review重规划。stable path/renderer改变才要求 protocol bump；
-receipt绑定 per-attempt plan/base blobs。
+- rollover_one：全部 surface恰一且同 current identity，先完成 atomic decurrent PR及 merge receipt；
+- genesis_zero：全部零 marker且 history无 eligible valid publication，写 genesis_zero_receipt，无 no-op PR；
+- post_invalidation_zero：全部零 marker且有 exact terminal invalidation suffix，写
+  post_invalidation_zero_receipt，无 no-op PR。
 
-valid documentation plan是 exact closed union：
+mixed/missing/duplicate/extra marker、cross-surface identity drift或缺 required zero receipt均 fail closed。
+intent_written必须绑定 human-approved exact plan/base/patch/review。valid publication只可从相应 zero receipt或
+committed decurrent merge进入 intent，再到 release_committed_valid_marker_pending及 reviewed new-current；
+publish_nonvalid从 prepared→intent→release_committed_nonvalid_row_pending，只合并 unmarked row且不改 current。
+worker loss只允许 reconciler从 committed owner/intent/public truth恢复。
 
-- `rollover_one`：CAS证明每个 required surface恰有一个 eligible current valid row/marker，所有
-  surface绑定同一 current release/version/summary identity且无 missing/duplicate/extra marker/
-  locale drift；以 `record_kind=generated_pr_planned, pr_kind=decurrent` 创建并 bind一次原子更新全部 surfaces的
-  PR identity。merge gate按 latest signed frontier验证 owner generation、committed envelope
-  actual fence及 PR/head/base；合并后、publication intent前持久化 merge SHA与 before/after blob
-  digest receipt。
-- `genesis_zero`：CAS证明全部 required surfaces为零 marker、history没有 eligible valid publication，
-  且除本次 exact current prepared owner tuple外无 active owner；authorization fence只取 committed
-  store envelope。intent前持久化绑定 history frontier、surface set与 base blobs的 zero-marker
-  receipt，不制造 no-op PR。
-- `post_invalidation_zero`：全部 surfaces为零 marker，最后一次 current-valid publication已有
-  terminal invalidation receipt，之后 suffix满足本 contract的 exact closed union。intent前 append
-  `post_invalidation_zero_receipt`，绑定 current frontier、invalidation-receipt digest、exact owner
-  与全部 current surface blobs，不制造 no-op de-current PR。
+decurrent未 merge的取消须 higher-fence CAS、revoke authorization、dequeue/close、compare-delete head并证明
+default branch/marker unchanged；竞争 merge转 rollback_pending。已 merge且 intent前取消只恢复 reviewed
+rollback；继续发布则 revoked old plan后 fresh replacement。rollback/new-current/nonvalid-row任一无法取得
+approved exact replacement即写对应 recovery-blocked并保留 owner；只有 effect closed与 cleanup完成才 terminal。
 
-mixed zero/one、跨 surface version/summary不一致、缺 surface、闭集外 current marker、历史 valid却
-缺 exact terminal invalidation/fresh zero receipt及其它 zero-marker state均 fail closed。
-`intent_written`须绑定对应 plan receipt与已 human-approved的 exact new-current patch/review/base
-digest；base/CAS变化即重审。valid ownership以 fenced CAS推进
-`genesis_zero_receipt|post_invalidation_zero_receipt → intent_written →
-release_committed_valid_marker_pending`，或以 committed
-`generated_pr_merged(pr_kind=decurrent)` rollover receipt进入同一 intent。Release commit后
-worker消失时，reconciler只从 existing prepared owner+intent+public sentinel幂等补齐。
-
-de-current PR未 merge时取消须先以 higher-fence CAS进入
-`valid_decurrent_pr_cancel_pending`，撤销 merge authorization、disable auto-merge/dequeue、关闭
-exact PR、compare-delete head ref并取得 server-authenticated revocation receipt，证明 PR closed/
-unmerged、queue/head absent、default branch/marker unchanged且无 ruleset bypass，之后才可清理 draft
-并 terminal；竞争中已 merge转 `valid_rollback_pending`。candidate继续时，rejected/closed/stalled/
-drift plan须先 revoke旧 gate/queue/PR/head并取得 receipt，再以新 fence/head/PR/nonce重新
-planned/bound与 review；original/replacement不能同时获 merge authorization。任一证明失败进入
-`decurrent_pr_recovery_blocked`。已 merge且 intent前取消只允许恢复 receipt绑定旧 marker的
-reviewed rollback PR；rollback/new-current PR失败或 response loss时，current generation可在重取
-lease/fence后恢复 same-candidate/exact-patch human-reviewed replacement。新 generation takeover
-只能在 trusted-proof-derived store-auth expiry后 higher-fence exact-frontier CAS；无获批 replacement时进入相应
-recovery-blocked record并保留 owner。只有 rollback+draft cleanup或 new-current merge完成才 terminal。
-
-`publish_nonvalid`也必须从 prepared owner先 CAS至 `intent_written`，且只有该状态可推进
-`release_committed_nonvalid_row_pending`；它不改 current marker，只能合并同 summary的
-human-reviewed unmarked row。其 PR recovery使用同一 higher-fence replacement/review machine；
-无获批 replacement为 `nonvalid_row_recovery_blocked`。exact unmarked row merge后才 terminal。
-
-已公开 current valid的 invalidation只能由 `invalidate_current` PR原子更新全部 required surfaces：
-移除 exact current marker、将 exact row标为 invalid并绑定 approved reason/evidence。planned/bound
-envelope绑定 latest frontier、base/head ref+OID、reviewed commit、expected head/default tree、
-patch、merge method/ruleset与逐 surface expected-after blobs；schema禁止 future merge commit
-OID/timestamp/server output。server确认 merge后才 append terminal
-`invalidate_current_merged_receipt`，绑定 actual merge commit OID/PR node/method、default-ref
-before/after OIDs、actual tree、逐 surface before/after blobs、owner/fence/frontier与 evidence。
-merge response loss须发现 exact merged PR/default ref并核对 actual tuple；receipt缺失/不匹配、
-stale frontier、partial surface update、新 current或 concurrent CAS failure进入
-`invalidation_recovery_blocked`并保留 owner。
-
-intent后 exact draft缺失/不匹配且没有 matching public Release只能进入
-`release_recovery_blocked`并保留 active owner。claim后 draft-create response丢失只可按 claim
-nonce+exact repo/tag/source发现：唯一匹配先 higher-fence bind后 cleanup；普通 zero保持 owner并
-恢复，只有 authenticated exhaustive/complete-page consistent negative receipt可 terminal。API无法
-提供此证明、stale zero、分页/权限裁剪、multiple/mismatch、rate-limit/5xx均进入
-`draft_recovery_blocked`；deadline/heartbeat不得推断从未创建。无 durable claim的
-pre-attestation interruption必须证明零 Release mutation。
+current-valid invalidation只能用 invalidate_current PR原子更新所有 surface，移除 exact marker并绑定 approved
+reason/evidence。merge后 receipt绑定 actual PR/merge/default-ref/tree及每个 before/after blob；response loss只
+接受发现的唯一 exact merged tuple。partial/stale/concurrent/new-current drift进入
+invalidation_recovery_blocked。intent后 draft/Release不匹配、claim-draft discovery不完整或 remote effect不明
+分别进入 release_recovery_blocked/draft_recovery_blocked；deadline或 heartbeat不能证明从未创建。
 
 ## Frontier、trust 与 deterministic fold
 
@@ -641,7 +447,7 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 
 | `record_kind` | exact `payload` fields |
 | --- | --- |
-| `owner_claimed` | `{owner_generation,run_id,run_attempt,candidate_tag_identity_digest,frozen_plan_digest,liveness_policy_digest,draft_claim_nonce_digest,nonce_capsule_id,capsule_ciphertext_digest,kms_key_version,trusted_time_proof_digest,prior_time_high_water,new_time_high_water,claim_accepted_at,lease_expires_at}` |
+| `owner_claimed` | `{owner_generation,run_id,run_attempt,candidate_tag_identity_digest,frozen_plan_digest,liveness_policy_digest,draft_claim_nonce_digest,nonce_capsule_id,capsule_ciphertext_digest,kms_key_arn,kms_key_material_id,key_attestation_digest,trusted_time_proof_digest,prior_time_high_water,new_time_high_water,claim_accepted_at,lease_expires_at}` |
 | `owner_heartbeat` | `{owner_generation,heartbeat_sequence,prior_liveness_operation_id,liveness_policy_digest,trusted_time_proof_digest,prior_time_high_water,new_time_high_water,accepted_at,lease_expires_at}` |
 | `publication_owner_taken_over` | `{candidate_tag_identity_digest,prior_owner_generation,new_owner_generation,new_owner_run_id,new_owner_run_attempt,prior_owner_terminal_or_expiry_evidence_digest,slot_chain_digest,trusted_time_proof_digest,prior_time_high_water,new_time_high_water,accepted_at,lease_expires_at}` |
 | `draft_bound` | `{owner_generation,release_node_id,tag_identity_digest,target_commit_oid,draft_claim_nonce_digest,release_mutation_operation_id}` |
@@ -657,7 +463,7 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | `recovered_publication` | `{owner_generation,intent_operation_id,recovery_truth_branch,release_node_id,generated_pr_chain_digest,finalization_receipt_digest}` |
 | `publication_terminal_no_publication` | `{candidate_tag_identity_digest,terminal_owner_generation,terminal_owner_run_id,terminal_owner_run_attempt,complete_generation_chain_digest,closed_slot_chain_digest,draft_cleanup_evidence,exhaustive_negative_discovery_digest}` |
 | `publication_terminal` | `{owner_generation,terminal_kind,release_identity_or_null,generated_pr_chain_digest,closed_slot_chain_digest,finalization_receipt_digest}` |
-| `release_mutation_planned` | `{owner_generation,mutation_kind,transition_slot,mutation_slot_id,plan_core_digest,request_commitment,mutation_nonce_digest,mutation_nonce_capsule_id,broker_delivery_id,capsule_ciphertext_digest,kms_key_version,tag_identity_digest,pre_state_digest,request_template_digest,expected_post_state_digest}` |
+| `release_mutation_planned` | `{owner_generation,mutation_kind,transition_slot,mutation_slot_id,plan_core_digest,request_commitment,mutation_nonce_digest,mutation_nonce_capsule_id,broker_delivery_id,capsule_ciphertext_digest,kms_key_arn,kms_key_material_id,key_attestation_digest,tag_identity_digest,pre_state_digest,request_template_digest,expected_post_state_digest}` |
 | `release_mutation_bound` | `{owner_generation,mutation_kind,mutation_slot_id,planned_operation_id,request_commitment,broker_delivery_id,effective_request_digest,response_resource_digest,post_state_digest,completed_guard_receipt_digest}` |
 | `release_mutation_recovery_pending` | `{owner_generation,mutation_kind,mutation_slot_id,planned_operation_id,broker_delivery_id,effective_request_digest,uncertain_outcome_code,send_once_audit_digest}` |
 | `release_mutation_not_applied` | `{owner_generation,mutation_kind,mutation_slot_id,recovery_pending_operation_id,exact_pre_state_digest,exhaustive_negative_discovery_digest,broker_quiescence_receipt_digest}` |

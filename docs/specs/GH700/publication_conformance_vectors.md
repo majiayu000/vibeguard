@@ -236,3 +236,40 @@ backup KMS须接受三个 object各自 response ARN/actual `KeyMaterialId`/Ciphe
 logical `kms_key_version`、KeyId-as-UUID、missing/malformed/material substitution、Describe/current-material冒充 actual response、
 request/context/blob/attestation/set-digest drift；generated-PR nullability与 exhaustive anchor-class negatives继续逐项生成。
 这些约束的 unknown/extra/alias/null/applicability reject与所属 contract schema一并生成，不得由 consumer维护本地例外。
+
+## Closed-wire model and mutation matrix
+
+[publication_authority_api.schema.json](publication_authority_api.schema.json) 与
+[publication_authority_api.models.json](publication_authority_api.models.json) 是新增的 spec-local machine inputs；
+它们不复制到 root `schemas/`，Draft阶段也不生成 runtime code。conformance runner须：
+
+1. 以 Draft 2020-12 meta-schema编译 schema；所有 local `$ref`须存在且不可形成 ref-only cycle；
+2. 要求 registry exact 17 client + 5 control、method与 positive model ID分别唯一、无 alias/dangling ref；
+3. 按 models文件声明递归展开 `$fixture`，再 shallow-merge patch，逐 method分别用 registry
+   `request_ref`/`success_ref`验证 request与success，且 model method/surface byte-equal registry；
+4. 对每个正例生成 missing/extra/null/alias/wrong-method/wrong-result、P/B CAS flip、wrong authorization kind/
+   authorized method/operation/delivery/frontier/principal、nonce padding/length/character、same nonce different bytes、
+   replay principal substitution及 response error/result collision negatives；每项都必须 reject；
+5. 对 prebootstrap policy/deployment policy cross-branch、terminal/source binding cross-field、genesis sentinel用于
+   non-genesis、null prior anchor无 sentinel、capsule key ARN/material/attestation substitution及 takeover run tuple
+   substitution分别生成独立 negatives；
+6. 对 `x-gh700-digest-dag`验证 node unique、edge endpoint declared且拓扑排序完整；逐 digest node mutation必须只使
+   downstream verifier失败，禁止回边、自 digest或未声明 digest source。
+
+九个 review finding cluster与 machine ownership exact 映射如下；architecture omission不得藏入 prose-only例外：
+
+| finding cluster | authoritative machine/protocol location |
+| --- | --- |
+| `TRUSTED_TIME_SCHEMA`（accuracy + trusted nonce） | history quorum schema、protocol proof profile、bootstrap model |
+| `TERMINAL_BINDING_BRANCH` | `$defs/terminal_binding_evidence` / `$defs/source_binding_evidence` |
+| `GENESIS_PRIOR_ANCHOR` | genesis sentinel metadata + protocol/history KMS/AAD branch |
+| `CAPSULE_KEY_SOURCE` | `$defs/authority_capsule_key_attestation` + `$defs/capsule_receipt` |
+| `RELEASE_ATTESTATION_TIME` | prebootstrap control semantic gate |
+| `TAKEOVER_RUN_TUPLE` | authority takeover payload core + time-bound positive model |
+| `CLIENT_NONCE_REPLAY` | nonce format + `$defs/client_api_replay_row` + response binding |
+| `FRONTIER_CAS` | all 17 registry `frontier_profile` values + request refs |
+| `AUTHORIZATION_OBJECTS` | append/delivery/ledger authorization defs + registry refs |
+
+architecture omissions map to the exact 22-row registry, prebootstrap tagged policy branch, per-method request/success/error
+refs, durable replay rows, response/result digest domains, forbidden-alias inventory and acyclic digest DAG。CI未来接入时须直接
+消费这些 artifacts；不得手写第二份 method switch、CAS table或 wire type。
