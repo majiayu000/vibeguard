@@ -237,10 +237,12 @@ identity/per-leaf authority 一律 `needs_repair`。recovery 按 counter 顺序�
 
 ## Runtime behavior
 
-只有 committed record 带 official/local block basis 且 pre-runtime decision 是 block 时，hook 才使用
-相同 protocol 推进 trusted-time leaf；这包含随后因 expiry/rollback 选择 fallback 的 observation，确保
-旧 block 不会复活。committed decision 本就是 warn/off（包括 no-data/below-floor）的规则不依赖 anchor，
-backend unavailable 也不得把它们升级为 denial。候选 block 在 barrier 前不得执行；其 backend/CAS/
+每次 hook 都先在 policy lock/fence 下用 policy/install per-leaf authority 证明本地 pointer/floor 是 current generation，并把 fence 持有到 decision；验证失败
+表示尚未建立可用的 committed decision，必须 nonzero fail closed，不能先信任旧 HOME 的 warn/off。
+只有证明 current 后且 committed record 带 official/local block basis、pre-runtime decision 是 block 时，
+hook 才使用相同 protocol 推进 trusted-time leaf；这包含随后因 expiry/rollback 选择 fallback 的 observation，
+确保旧 block 不会复活。current committed decision 本就是 warn/off（包括 no-data/below-floor）的规则跳过
+trusted-time leaf，time backend unavailable 也不得把它们升级为 denial。候选 block 在 barrier 前不得执行；其 backend/CAS/
 IPC 超时或 attestation invalid 时执行既有 conservative denial。经验证的 target-local-lag recovery
 可以在 bounded retry 内完成；超过预算返回 nonzero 并留下可由 management recovery 继续的 exact
 intent/journal，不得删除或从 previous mirror 放行。
@@ -280,7 +282,7 @@ platform/backend/service model 并在 approved artifact 固定该目录 inventor
 | Failure/repair | backend locked/full/unavailable, IPC timeout, partial provision, forked intents, target mirror corruption and reset interruption preserve evidence and expose the approved repair authority |
 | Every-hook performance | canonical [`docs/reference/hook-latency-contract.md`](../../reference/hook-latency-contract.md) `hook_e2e_ms` gate runs every anchor-enabled Claude `~/.vibeguard/run-hook.sh` and Codex `~/.vibeguard/run-hook-codex.sh` installed-snapshot path through real IPC/read/CAS/barrier；reports p50/p95/p99/max plus timeout/queue contention against exact H-010 budgets，not a direct repo hook, mock anchor or management-only path |
 | Concurrency | parallel hooks on different leaf authorities advance independently despite aggregate-root changes；same-leaf operations remain recovery-first serialized with unique successors, no forked mirrors and bounded nonzero failure |
-| Decision scope | no-data、below-floor warn 与 explicit off never enter anchor or become denial；block-basis expiry/fallback still advances and latches trusted time；only candidate committed/promoted block fails closed |
+| Decision scope | every decision first authenticates current policy/install generation；current no-data、below-floor warn 与 explicit off skip trusted-time CAS and never become denial；block-basis fallback still latches time |
 | Identity mutation closure | generated `one_field_at_a_time` negatives cover every registered anchor/H-010 identity plus budget/batch/domain/version/signature fields；registry coverage fails when a new identity is unlisted |
 | Packaging | verified payload contains client/service/backend/provision modules, schemas and selected platform service assets；fresh no-checkout install proves peer identity and service target |
 
@@ -369,8 +371,10 @@ result_body = {
   authority_base_body, authority_base_digest, budget_body, budget_digest,
   decision_body, decision_artifact_digest,
   initial: batch_body(phase=initial), initial_digest: batch_digest(initial),
+  initial_breaches: initial.ordered_breaches,
   confirmation: batch_body(phase=confirmation)|null,
   confirmation_digest: batch_digest(confirmation)|null,
+  confirmation_breaches: confirmation.ordered_breaches|[],
   decision: pass|cleared_transient|confirmed_regression|confirmation_error
 }
 result_body_digest = H("vibeguard.gh702.anchor-perf-result.v1", schema_version, result_body)
@@ -382,8 +386,9 @@ result_envelope = {digest_domain, schema_version, result_body, result_body_diges
 echo 或 CLI override；`successor_baseline = {per_leaf_authority_id, from_leaf_counter,
 from_leaf_digest, target_leaf_counter, target_leaf_digest}`，且 workload schedule 的 closed body digest
 必须 exact 等于 H-010 的 `workload_schedule_digest`。所有 `metric_summary`、budget/batch/result field
-都是 closed、required 且不允许 alias；confirmation
-两字段只能同时为 null（initial 无 breach）或同时为 exact confirmation body/digest。`initial`/
+都是 closed、required 且不允许 alias；`initial_breaches` 必须 byte-equal `initial.ordered_breaches`；
+confirmation body/digest 为 null 时 `confirmation_breaches` 必须是 empty array；否则三者必须是 exact
+confirmation body/digest/`ordered_breaches`。`initial`/
 `confirmation` 保存 exact `batch_body`，其 sibling digest 不进入自身 body；result 引用 batch digest，
 所以 swap/relabel batch、budget 或 authority 会改变 result digest。`decision_artifact_digest` 的唯一来源
 是 literal `vibeguard.gh702.anchor-perf-decision.v1` fixture decision body，不是 H-010 artifact 的 alias，

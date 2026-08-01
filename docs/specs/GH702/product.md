@@ -330,13 +330,15 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     必须来自 current approved `evaluation_policy_digest`，而不是 pack author、环境变量、
     README、install command 或 artifact-embedded publication policy 临时覆盖。policy
     更新必须在不改写 bundle/index identity 的前提下重算 eligibility；Core-owned
-    authoritative local evaluation-policy pointer 一旦切换，runtime 必须在下一次可能执行
-    committed/promoted block 前
-    比较其 exact `(digest, generation, validity_evidence_digest)` 与 committed generation；任一
+    authoritative local evaluation-policy pointer 一旦切换，runtime 必须在每次 enforcement 接受任何
+    本地 committed decision 前先在 policy lock/fence 下以 external per-leaf authorities 验证 policy
+    pointer/floor 与 active installation pointer/floor 是 current，并持有到 decision；再比较 policy exact `(digest, generation,
+    validity_evidence_digest)` 与 committed generation；任一
     identity drift 即使 digest 后来相同，也立即使用 warn/off fallback、durably latch
     `policy_changed + audit_required`；pointer/floor
-    缺失、malformed 或 pointer generation 低于 floor 时则是 `runtime_guard_unavailable`；候选 block
-    必须拒绝本次操作并非零返回，不能通过 fallback 放行，但 committed warn/off 不得升级为 denial。
+    任一 generation authority/pointer/floor 缺失、malformed、不可验证或低于 floor 时，current committed
+    decision 尚未建立，必须拒绝本次操作并非零返回，不能先信任 replayed warn/off。current generation
+    验证成功后，committed warn/off 不进入 trusted-time leaf，其 failure 不得升级为 denial。
     两者都不能等旧 horizon 到期。status
     同时显示 publication、committed evaluation 与 authoritative active evaluation policy
     identities。每次 policy activation 还必须在 Core-owned policy lock 下先写入并 fsync closed
@@ -367,8 +369,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     evaluation/expiry interval 内，也必须立即忽略旧 block、使用 fallback 并显示
     `clock_rollback + audit_required`。该 anchor path 只适用于 committed record 带 official/local
     block basis 且 pre-runtime decision 为 block 的候选；即使本次随后因 expiry/rollback 选择 fallback，
-    仍须推进 high-water 并锁存 reason，防止旧 block 复活。committed decision 本就是 warn/off（包括
-    no-data/below-floor）的规则不访问 anchor，anchor failure 也不得把它升级为 denial。high-water state 必须按 active generation 隔离并由同一
+    仍须推进 high-water 并锁存 reason，防止旧 block 复活。current generation 已由 B-027 验证且
+    committed decision 本就是 warn/off（包括 no-data/below-floor）的规则不访问 trusted-time leaf，
+    time-anchor failure 也不得把它升级为 denial。high-water state 必须按 active generation 隔离并由同一
     installation-scope pointer 选择；runtime 必须按 canonical order 取得 policy lock 与
     installation runtime-state lock，在锁内读取并直到 decision 执行后持续重验 policy
     pointer/floor、active pointer/state，
