@@ -1,50 +1,36 @@
-use crate::setup_install_state::managed_tree_decision;
-use crate::setup_support::{SetupResult, sha256_file};
+use crate::setup_install_state::{managed_tree_decision, read_state};
+use crate::setup_support::{SetupResult, sha256_text, write_json_atomic};
+use serde_json::{Map, Value, json};
+use std::collections::BTreeMap;
 use std::ffi::CString;
-use std::fs;
-use std::io;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "Usage: vibeguard-runtime setup-state-remove-managed-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";
+const USAGE: &str = "Usage: vibeguard-runtime setup-state-quarantine-managed-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";
+const TRANSACTION_VERSION: u64 = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct LeafSnapshot {
-    path: PathBuf,
-    identity: FileIdentity,
-    checksum: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct FileIdentity {
-    #[cfg(unix)]
-    device: u64,
-    #[cfg(unix)]
-    inode: u64,
-    #[cfg(windows)]
-    volume: Option<u32>,
-    #[cfg(windows)]
-    index: Option<u64>,
-    len: u64,
-}
-
-#[derive(Debug)]
-struct TreeSnapshot {
-    leaves: Vec<LeafSnapshot>,
-    directories: Vec<PathBuf>,
-}
-
-struct StagedLeaf {
-    original: PathBuf,
-    staged: PathBuf,
-    snapshot: LeafSnapshot,
+struct Transaction {
+    version: u64,
+    phase: String,
+    dest: String,
+    quarantine: String,
+    transaction: String,
+    source_prefix: String,
+    tracked_digest: String,
+    install_state_generation: u64,
+    nonce: String,
 }
 
 pub fn run(args: &[String]) -> SetupResult<()> {
     if args.len() != 4 {
         return Err(USAGE.into());
     }
-    let states = [Path::new(&args[0]), Path::new(&args[1])];
+    let current_state = Path::new(&args[0]);
+    let previous_state = Path::new(&args[1]);
+    let states = [current_state, previous_state];
     let dest = absolute(Path::new(&args[2]));
     let parent = dest
         .parent()
@@ -61,76 +47,194 @@ pub fn run(args: &[String]) -> SetupResult<()> {
         )
         .into());
     }
-    if !owned_by_any_state(&states, &dest, &args[3], &dest)? {
-        return Err(format!(
+
+    if let Some(existing) =
+        recover_or_find_committed(&states, current_state, &dest, parent, name, &args[3])?
+    {
+        println!("QUARANTINED\t{}", existing.display());
+        return Ok(());
+    }
+
+    if matches!(
+        fs::symlink_metadata(&dest),
+        Err(error) if error.kind() == io::ErrorKind::NotFound
+    ) {
+        println!("ABSENT");
+        return Ok(());
+    }
+
+    let tracked_digest = owned_digest(&states, &dest, &args[3], &dest)?.ok_or_else(|| {
+        format!(
             "managed tree is not an exact VibeGuard-owned copy: {}",
             dest.display()
+        )
+    })?;
+    let generation = current_generation(current_state)?;
+    let mut transaction =
+        reserve_transaction(&dest, parent, name, &args[3], &tracked_digest, generation)?;
+    let transaction_path = PathBuf::from(&transaction.transaction);
+    let quarantine = PathBuf::from(&transaction.quarantine);
+    write_new_json_durable(&transaction_path, &transaction_value(&transaction))?;
+
+    rename_noreplace(&dest, &quarantine).map_err(|error| {
+        format!(
+            "failed to atomically quarantine {}: {error}; intent retained at {}",
+            dest.display(),
+            transaction_path.display()
+        )
+    })?;
+    sync_directory(parent)?;
+    inject_failure(
+        "VIBEGUARD_TEST_QUARANTINE_AFTER_RENAME",
+        "injected failure after quarantine rename",
+    )?;
+
+    verify_exact(&states, &quarantine, &args[3], &dest)?;
+    inject_postverify_for_test(&quarantine)?;
+    inject_public_replacement_for_test(&dest)?;
+    verify_exact(&states, &quarantine, &args[3], &dest).map_err(|_| {
+        format!(
+            "quarantined tree changed after ownership verification; data retained at {}",
+            quarantine.display()
+        )
+    })?;
+    if fs::symlink_metadata(&dest).is_ok() {
+        return Err(format!(
+            "public destination was replaced; quarantined data retained at {}",
+            quarantine.display()
         )
         .into());
     }
 
-    let quarantine = quarantine_noreplace(&dest, parent, name)?;
-    let transaction = remove_quarantined(&states, &dest, &quarantine, &args[3]);
-    match transaction {
-        Ok(()) => {
-            println!("REMOVED");
-            Ok(())
-        }
-        Err(error) => restore_or_preserve(&dest, &quarantine, error),
-    }
+    publish_record(current_state, &transaction)?;
+    inject_failure(
+        "VIBEGUARD_TEST_QUARANTINE_AFTER_STATE",
+        "injected failure after install-state publish",
+    )?;
+    transaction.phase = "committed".into();
+    write_json_durable(&transaction_path, &transaction_value(&transaction))?;
+    println!("QUARANTINED\t{}", quarantine.display());
+    Ok(())
 }
 
-fn remove_quarantined(
+fn recover_or_find_committed(
+    states: &[&Path; 2],
+    current_state: &Path,
+    dest: &Path,
+    parent: &Path,
+    name: &str,
+    source_prefix: &str,
+) -> SetupResult<Option<PathBuf>> {
+    let active_record = active_record(states, dest)?;
+    let mut committed = None;
+    for transaction_path in transaction_paths(parent, name)? {
+        let mut transaction = read_transaction(&transaction_path)?;
+        validate_transaction(
+            &transaction,
+            &transaction_path,
+            dest,
+            parent,
+            name,
+            source_prefix,
+        )?;
+        let record_matches = active_record
+            .as_ref()
+            .is_some_and(|record| record == &record_value(&transaction));
+        let quarantine = PathBuf::from(&transaction.quarantine);
+        match transaction.phase.as_str() {
+            "intent" if record_matches => {
+                ensure_public_absent(dest)?;
+                verify_exact(states, &quarantine, source_prefix, dest)?;
+                transaction.phase = "committed".into();
+                write_json_durable(&transaction_path, &transaction_value(&transaction))?;
+                publish_record(current_state, &transaction)?;
+                committed = Some(quarantine);
+            }
+            "intent" => {
+                recover_intent(states, dest, parent, source_prefix, &quarantine)?;
+                transaction.phase = "restored".into();
+                write_json_durable(&transaction_path, &transaction_value(&transaction))?;
+            }
+            "committed" if record_matches => {
+                ensure_public_absent(dest)?;
+                verify_exact(states, &quarantine, source_prefix, dest)?;
+                publish_record(current_state, &transaction)?;
+                committed = Some(quarantine);
+            }
+            "committed" | "restored" => {}
+            phase => return Err(format!("unknown managed-tree transaction phase: {phase}").into()),
+        }
+    }
+    if active_record.is_some() && committed.is_none() {
+        return Err("install-state quarantine locator has no exact transaction".into());
+    }
+    Ok(committed)
+}
+
+fn recover_intent(
     states: &[&Path; 2],
     dest: &Path,
+    parent: &Path,
+    source_prefix: &str,
     quarantine: &Path,
-    source_prefix: &str,
 ) -> SetupResult<()> {
-    if !owned_by_any_state(states, quarantine, source_prefix, dest)? {
-        return Err("quarantined tree failed ownership revalidation".into());
-    }
-    let snapshot = snapshot_tree(quarantine)?;
-    if !owned_by_any_state(states, quarantine, source_prefix, dest)? {
-        return Err("quarantined tree changed after ownership verification".into());
-    }
-    inject_postverify_for_test(quarantine, dest)?;
-    remove_snapshot(quarantine, snapshot)
-}
-
-fn owned_by_any_state(
-    states: &[&Path; 2],
-    actual: &Path,
-    source_prefix: &str,
-    tracked: &Path,
-) -> SetupResult<bool> {
-    let mut owned = false;
-    for state in states {
-        if state.exists() {
-            owned |= managed_tree_decision(state, actual, source_prefix, tracked)? == "OWNED";
-        }
-    }
-    Ok(owned)
-}
-
-fn quarantine_noreplace(dest: &Path, parent: &Path, name: &str) -> SetupResult<PathBuf> {
-    for attempt in 1..=10 {
-        let candidate = parent.join(format!(
-            ".{name}.vibeguard-remove.{}-{}-{attempt}",
-            std::process::id(),
-            now_nanos()
-        ));
-        inject_collision_for_test(&candidate)?;
-        match rename_noreplace(dest, &candidate) {
-            Ok(()) => return Ok(candidate),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => {
-                return Err(format!(
-                    "failed to atomically quarantine {}: {error}",
-                    dest.display()
+    let public_exists = fs::symlink_metadata(dest).is_ok();
+    let quarantine_exists = fs::symlink_metadata(quarantine).is_ok();
+    match (public_exists, quarantine_exists) {
+        (false, true) => {
+            verify_exact(states, quarantine, source_prefix, dest).map_err(|_| {
+                format!(
+                    "uncommitted quarantine changed; refusing recovery and retaining {}",
+                    quarantine.display()
                 )
-                .into());
-            }
+            })?;
+            rename_noreplace(quarantine, dest).map_err(|error| {
+                format!(
+                    "failed to restore uncommitted quarantine without replacement: {error}; data retained at {}",
+                    quarantine.display()
+                )
+            })?;
+            sync_directory(parent)?;
+            verify_exact(states, dest, source_prefix, dest)?;
+            Ok(())
         }
+        (true, false) => verify_exact(states, dest, source_prefix, dest),
+        (true, true) => Err(format!(
+            "recovery collision: public and quarantine paths both exist; retained {}",
+            quarantine.display()
+        )
+        .into()),
+        (false, false) => Err("transaction paths are both missing; refusing recovery".into()),
+    }
+}
+
+fn reserve_transaction(
+    dest: &Path,
+    parent: &Path,
+    name: &str,
+    source_prefix: &str,
+    tracked_digest: &str,
+    generation: u64,
+) -> SetupResult<Transaction> {
+    for attempt in 1..=10 {
+        let nonce = format!("{}-{}-{attempt}", std::process::id(), now_nanos());
+        let quarantine = parent.join(format!(".{name}.vibeguard-quarantine.{nonce}"));
+        let transaction = parent.join(format!(".{name}.vibeguard-transaction.{nonce}.json"));
+        inject_collision_for_test(&quarantine)?;
+        if fs::symlink_metadata(&quarantine).is_ok() || fs::symlink_metadata(&transaction).is_ok() {
+            continue;
+        }
+        return Ok(Transaction {
+            version: TRANSACTION_VERSION,
+            phase: "intent".into(),
+            dest: path_text(dest),
+            quarantine: path_text(&quarantine),
+            transaction: path_text(&transaction),
+            source_prefix: source_prefix.into(),
+            tracked_digest: tracked_digest.into(),
+            install_state_generation: generation,
+            nonce,
+        });
     }
     Err(format!(
         "failed to reserve unique quarantine for managed tree: {}",
@@ -139,215 +243,362 @@ fn quarantine_noreplace(dest: &Path, parent: &Path, name: &str) -> SetupResult<P
     .into())
 }
 
-fn restore_or_preserve(
-    dest: &Path,
-    quarantine: &Path,
-    error: Box<dyn std::error::Error>,
+fn owned_digest(
+    states: &[&Path; 2],
+    actual: &Path,
+    source_prefix: &str,
+    tracked_dest: &Path,
+) -> SetupResult<Option<String>> {
+    let mut digest = None;
+    for state_path in states {
+        if !state_path.exists()
+            || managed_tree_decision(state_path, actual, source_prefix, tracked_dest)? != "OWNED"
+        {
+            continue;
+        }
+        let state = read_state(state_path)?;
+        let files = state["files"]
+            .as_object()
+            .ok_or("install-state files must be an object")?;
+        let mut tracked = BTreeMap::new();
+        for (path, entry) in files {
+            let expanded = absolute(Path::new(path));
+            if expanded == tracked_dest || expanded.starts_with(tracked_dest) {
+                tracked.insert(path, entry);
+            }
+        }
+        let canonical = serde_json::to_string(&tracked)?;
+        let candidate = format!("sha256:{}", sha256_text(&canonical));
+        if digest.as_ref().is_some_and(|value| value != &candidate) {
+            return Err("install-state generations disagree on managed-tree digest".into());
+        }
+        digest = Some(candidate);
+    }
+    Ok(digest)
+}
+
+fn verify_exact(
+    states: &[&Path; 2],
+    actual: &Path,
+    source_prefix: &str,
+    tracked_dest: &Path,
 ) -> SetupResult<()> {
-    match fs::symlink_metadata(quarantine) {
-        Ok(_) => {}
-        Err(metadata_error) if metadata_error.kind() == io::ErrorKind::NotFound => {
-            return Err(error);
-        }
-        Err(metadata_error) => {
-            return Err(format!(
-                "{error}; cannot inspect quarantine before restore: {}: {metadata_error}",
-                quarantine.display()
-            )
-            .into());
-        }
-    }
-    inject_public_replacement_for_test(dest)?;
-    match rename_noreplace(quarantine, dest) {
-        Ok(()) => Err(format!("{error}; restored public tree without deletion").into()),
-        Err(restore_error) if restore_error.kind() == io::ErrorKind::AlreadyExists => Err(format!(
-            "{error}; public destination was replaced; quarantined data preserved at {}",
-            quarantine.display()
+    if owned_digest(states, actual, source_prefix, tracked_dest)?.is_none() {
+        return Err(format!(
+            "managed tree is not an exact VibeGuard-owned copy: {}",
+            actual.display()
         )
-        .into()),
-        Err(restore_error) => Err(format!(
-            "{error}; restore failed ({restore_error}); quarantined data preserved at {}",
-            quarantine.display()
-        )
-        .into()),
+        .into());
     }
+    Ok(())
 }
 
-fn snapshot_tree(root: &Path) -> SetupResult<TreeSnapshot> {
-    let mut snapshot = TreeSnapshot {
-        leaves: Vec::new(),
-        directories: Vec::new(),
+fn active_record(states: &[&Path; 2], dest: &Path) -> SetupResult<Option<Value>> {
+    let mut record = None;
+    let dest_text = path_text(dest);
+    for state_path in states {
+        if !state_path.exists() {
+            continue;
+        }
+        let state = read_state(state_path)?;
+        validate_state_metadata(&state)?;
+        let candidate = state
+            .get("disabled_skill_quarantines")
+            .and_then(Value::as_object)
+            .and_then(|records| records.get(&dest_text))
+            .cloned();
+        if let Some(candidate) = candidate {
+            if record.as_ref().is_some_and(|value| value != &candidate) {
+                return Err("install-state generations disagree on quarantine locator".into());
+            }
+            record = Some(candidate);
+        }
+    }
+    Ok(record)
+}
+
+fn publish_record(state_path: &Path, transaction: &Transaction) -> SetupResult<()> {
+    let mut state = read_state(state_path)?;
+    validate_state_metadata(&state)?;
+    let state_object = state
+        .as_object_mut()
+        .ok_or("install-state root must be an object")?;
+    let records = state_object
+        .entry("disabled_skill_quarantines")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or("disabled_skill_quarantines must be an object")?;
+    let record = record_value(transaction);
+    if let Some(existing) = records.get(&transaction.dest)
+        && existing != &record
+    {
+        return Err("refusing to replace a different quarantine locator".into());
+    }
+    records.insert(transaction.dest.clone(), record);
+    write_json_atomic(state_path, &state)?;
+    sync_parent(state_path)
+}
+
+fn record_value(transaction: &Transaction) -> Value {
+    json!({
+        "version": transaction.version,
+        "quarantine": transaction.quarantine,
+        "transaction": transaction.transaction,
+        "source_prefix": transaction.source_prefix,
+        "tracked_digest": transaction.tracked_digest,
+        "install_state_generation": transaction.install_state_generation,
+        "nonce": transaction.nonce,
+    })
+}
+
+fn transaction_value(transaction: &Transaction) -> Value {
+    json!({
+        "version": transaction.version,
+        "phase": transaction.phase,
+        "dest": transaction.dest,
+        "quarantine": transaction.quarantine,
+        "transaction": transaction.transaction,
+        "source_prefix": transaction.source_prefix,
+        "tracked_digest": transaction.tracked_digest,
+        "install_state_generation": transaction.install_state_generation,
+        "nonce": transaction.nonce,
+    })
+}
+
+pub(crate) fn validate_state_metadata(state: &Value) -> SetupResult<()> {
+    let Some(records) = state.get("disabled_skill_quarantines") else {
+        return Ok(());
     };
-    snapshot_directory(root, &mut snapshot)?;
-    snapshot
-        .directories
-        .sort_by_key(|path| std::cmp::Reverse(path.components().count()));
-    snapshot
-        .leaves
-        .sort_by(|left, right| left.path.cmp(&right.path));
-    Ok(snapshot)
+    let records = records
+        .as_object()
+        .ok_or("disabled_skill_quarantines must be an object")?;
+    for (dest, record) in records {
+        let record = record
+            .as_object()
+            .ok_or("disabled skill quarantine record must be an object")?;
+        validate_record(dest, record)?;
+    }
+    Ok(())
 }
 
-fn snapshot_directory(directory: &Path, snapshot: &mut TreeSnapshot) -> SetupResult<()> {
-    for entry in fs::read_dir(directory)? {
+fn validate_record(dest: &str, record: &Map<String, Value>) -> SetupResult<()> {
+    let expected = [
+        "install_state_generation",
+        "nonce",
+        "quarantine",
+        "source_prefix",
+        "tracked_digest",
+        "transaction",
+        "version",
+    ];
+    if record.len() != expected.len() || expected.iter().any(|key| !record.contains_key(*key)) {
+        return Err("disabled skill quarantine record has unknown or missing fields".into());
+    }
+    if record["version"].as_u64() != Some(TRANSACTION_VERSION)
+        || record["install_state_generation"].as_u64().is_none()
+        || !valid_text(&record["nonce"])
+        || !valid_text(&record["source_prefix"])
+        || !valid_digest(&record["tracked_digest"])
+    {
+        return Err("disabled skill quarantine record has invalid scalar fields".into());
+    }
+    let dest = absolute(Path::new(dest));
+    let parent = dest
+        .parent()
+        .ok_or("quarantine record destination has no parent")?;
+    for key in ["quarantine", "transaction"] {
+        let path = record[key]
+            .as_str()
+            .map(Path::new)
+            .ok_or("quarantine locator must be a string")?;
+        if !path.is_absolute() || path.parent() != Some(parent) || path == dest {
+            return Err("quarantine locator must be an absolute destination sibling".into());
+        }
+    }
+    Ok(())
+}
+
+fn validate_transaction(
+    transaction: &Transaction,
+    path: &Path,
+    dest: &Path,
+    parent: &Path,
+    name: &str,
+    source_prefix: &str,
+) -> SetupResult<()> {
+    if transaction.version != TRANSACTION_VERSION
+        || transaction.dest != path_text(dest)
+        || transaction.transaction != path_text(path)
+        || transaction.source_prefix != source_prefix
+        || !valid_digest(&Value::String(transaction.tracked_digest.clone()))
+        || transaction.nonce.is_empty()
+    {
+        return Err(format!(
+            "managed-tree transaction does not match request: {}",
+            path.display()
+        )
+        .into());
+    }
+    let quarantine = Path::new(&transaction.quarantine);
+    let expected_transaction = parent.join(format!(
+        ".{name}.vibeguard-transaction.{}.json",
+        transaction.nonce
+    ));
+    let expected_quarantine = parent.join(format!(
+        ".{name}.vibeguard-quarantine.{}",
+        transaction.nonce
+    ));
+    if path != expected_transaction || quarantine != expected_quarantine {
+        return Err("managed-tree transaction contains an unknown path".into());
+    }
+    Ok(())
+}
+
+fn transaction_paths(parent: &Path, name: &str) -> SetupResult<Vec<PathBuf>> {
+    let prefix = format!(".{name}.vibeguard-transaction.");
+    let mut paths = Vec::new();
+    for entry in fs::read_dir(parent)? {
         let path = entry?.path();
+        if !path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.starts_with(&prefix))
+        {
+            continue;
+        }
         let metadata = fs::symlink_metadata(&path)?;
-        if metadata.file_type().is_symlink() || (!metadata.is_file() && !metadata.is_dir()) {
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
             return Err(format!(
-                "managed tree contains unsupported path type: {}",
+                "managed-tree transaction path is not a regular file: {}",
                 path.display()
             )
             .into());
         }
-        if metadata.is_dir() {
-            snapshot.directories.push(path.clone());
-            snapshot_directory(&path, snapshot)?;
-        } else {
-            snapshot.leaves.push(LeafSnapshot {
-                identity: file_identity(&metadata),
-                checksum: sha256_file(&path)?,
-                path,
-            });
-        }
+        paths.push(path);
     }
-    Ok(())
+    paths.sort();
+    Ok(paths)
 }
 
-fn remove_snapshot(root: &Path, snapshot: TreeSnapshot) -> SetupResult<()> {
-    let stage = reserve_stage(root)?;
-    let mut staged = Vec::new();
-    for (index, leaf) in snapshot.leaves.into_iter().enumerate() {
-        let staged_path = stage.join(index.to_string());
-        if let Err(error) = rename_noreplace(&leaf.path, &staged_path) {
-            rollback_staged(root, &stage, &staged)?;
-            return Err(format!(
-                "managed leaf could not be identity-staged: {}: {error}",
-                leaf.path.display()
-            )
-            .into());
-        }
-        let item = StagedLeaf {
-            original: leaf.path.clone(),
-            staged: staged_path,
-            snapshot: leaf,
-        };
-        if let Err(error) = verify_staged_leaf(&item) {
-            staged.push(item);
-            rollback_staged(root, &stage, &staged)?;
-            return Err(error);
-        }
-        staged.push(item);
+fn read_transaction(path: &Path) -> SetupResult<Transaction> {
+    let value: Value = serde_json::from_slice(&fs::read(path)?)?;
+    let object = value
+        .as_object()
+        .ok_or("managed-tree transaction root must be an object")?;
+    let expected = [
+        "dest",
+        "install_state_generation",
+        "nonce",
+        "phase",
+        "quarantine",
+        "source_prefix",
+        "tracked_digest",
+        "transaction",
+        "version",
+    ];
+    if object.len() != expected.len() || expected.iter().any(|key| !object.contains_key(*key)) {
+        return Err("managed-tree transaction has unknown or missing fields".into());
     }
-    for directory in snapshot.directories {
-        if let Err(error) = fs::remove_dir(&directory) {
-            rollback_staged(root, &stage, &staged)?;
-            return Err(format!(
-                "managed directory changed before deletion: {}: {error}",
-                directory.display()
-            )
-            .into());
-        }
-    }
-    if let Err(error) = fs::remove_dir(root) {
-        rollback_staged(root, &stage, &staged)?;
-        return Err(format!(
-            "managed tree changed before final deletion: {}: {error}",
-            root.display()
-        )
-        .into());
-    }
-    for item in &staged {
-        verify_staged_leaf(item).map_err(|error| {
-            format!(
-                "private deletion stage changed; preserved without deletion at {}: {error}",
-                item.staged.display()
-            )
-        })?;
-        fs::remove_file(&item.staged).map_err(|error| {
-            format!(
-                "failed to delete verified managed leaf from private stage {}: {error}",
-                item.staged.display()
-            )
-        })?;
-    }
-    fs::remove_dir(&stage).map_err(|error| {
-        format!(
-            "managed tree removed but private deletion stage must be preserved: {}: {error}",
-            stage.display()
-        )
-        .into()
+    Ok(Transaction {
+        version: object["version"]
+            .as_u64()
+            .ok_or("managed-tree transaction version must be an integer")?,
+        phase: required_string(object, "phase")?,
+        dest: required_string(object, "dest")?,
+        quarantine: required_string(object, "quarantine")?,
+        transaction: required_string(object, "transaction")?,
+        source_prefix: required_string(object, "source_prefix")?,
+        tracked_digest: required_string(object, "tracked_digest")?,
+        install_state_generation: object["install_state_generation"]
+            .as_u64()
+            .ok_or("managed-tree transaction generation must be an integer")?,
+        nonce: required_string(object, "nonce")?,
     })
 }
 
-fn reserve_stage(root: &Path) -> SetupResult<PathBuf> {
-    let parent = root.parent().ok_or("quarantine has no parent")?;
-    for attempt in 1..=10 {
-        let stage = parent.join(format!(
-            ".vibeguard-delete-stage.{}-{}-{attempt}",
-            std::process::id(),
-            now_nanos()
-        ));
-        match fs::create_dir(&stage) {
-            Ok(()) => return Ok(stage),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Err("failed to reserve private managed-tree deletion stage".into())
+fn required_string(object: &Map<String, Value>, key: &str) -> SetupResult<String> {
+    object[key]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| format!("managed-tree transaction {key} must be a non-empty string").into())
 }
 
-fn verify_staged_leaf(item: &StagedLeaf) -> SetupResult<()> {
-    let metadata = fs::symlink_metadata(&item.staged)?;
-    if !metadata.is_file()
-        || metadata.file_type().is_symlink()
-        || file_identity(&metadata) != item.snapshot.identity
-        || sha256_file(&item.staged)? != item.snapshot.checksum
-    {
-        return Err(format!(
-            "managed leaf identity changed before deletion: {}",
-            item.original.display()
-        )
-        .into());
+fn current_generation(path: &Path) -> SetupResult<u64> {
+    let state = read_state(path)?;
+    validate_state_metadata(&state)?;
+    match (state.get("generation"), state.get("complete")) {
+        (None, None) => Ok(0),
+        (Some(generation), Some(complete)) if complete.as_bool().is_some() => generation
+            .as_u64()
+            .filter(|value| *value > 0)
+            .ok_or_else(|| "install-state generation must be a positive integer".into()),
+        _ => Err("install-state generation and complete must be declared together".into()),
     }
-    Ok(())
 }
 
-fn rollback_staged(root: &Path, stage: &Path, staged: &[StagedLeaf]) -> SetupResult<()> {
-    fs::create_dir_all(root)?;
-    for item in staged.iter().rev() {
-        if let Some(parent) = item.original.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        rename_noreplace(&item.staged, &item.original).map_err(|error| {
-            format!(
-                "managed-tree rollback collision; data preserved at {}: {error}",
-                item.staged.display()
-            )
-        })?;
+fn write_new_json_durable(path: &Path, value: &Value) -> SetupResult<()> {
+    let tmp = path.with_extension(format!("tmp.{}.{}", std::process::id(), now_nanos()));
+    let bytes = serde_json::to_vec_pretty(value)?;
+    let result = (|| {
+        let mut file = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        file.write_all(&bytes)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        rename_noreplace(&tmp, path)?;
+        sync_parent(path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
     }
-    fs::remove_dir(stage)?;
-    Ok(())
+    result
 }
 
-fn file_identity(metadata: &fs::Metadata) -> FileIdentity {
+fn write_json_durable(path: &Path, value: &Value) -> SetupResult<()> {
+    write_json_atomic(path, value)?;
+    sync_parent(path)
+}
+
+fn sync_parent(path: &Path) -> SetupResult<()> {
+    sync_directory(path.parent().ok_or("durable path has no parent")?)
+}
+
+fn sync_directory(path: &Path) -> SetupResult<()> {
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        FileIdentity {
-            device: metadata.dev(),
-            inode: metadata.ino(),
-            len: metadata.len(),
-        }
-    }
+    File::open(path)?.sync_all()?;
     #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        FileIdentity {
-            volume: metadata.volume_serial_number(),
-            index: metadata.file_index(),
-            len: metadata.file_size(),
-        }
+    let _ = path;
+    Ok(())
+}
+
+fn ensure_public_absent(dest: &Path) -> SetupResult<()> {
+    match fs::symlink_metadata(dest) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Ok(_) => Err(format!(
+            "disabled public destination unexpectedly exists: {}",
+            dest.display()
+        )
+        .into()),
+        Err(error) => Err(error.into()),
     }
+}
+
+fn valid_text(value: &Value) -> bool {
+    value
+        .as_str()
+        .is_some_and(|text| !text.is_empty() && !text.contains(['\n', '\r']))
+}
+
+fn valid_digest(value: &Value) -> bool {
+    value
+        .as_str()
+        .and_then(|text| text.strip_prefix("sha256:"))
+        .is_some_and(|digest| {
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        })
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -417,6 +668,10 @@ fn absolute(path: &Path) -> PathBuf {
     }
 }
 
+fn path_text(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
 fn now_nanos() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -432,7 +687,7 @@ fn inject_collision_for_test(candidate: &Path) -> SetupResult<()> {
     Ok(())
 }
 
-fn inject_postverify_for_test(quarantine: &Path, _dest: &Path) -> SetupResult<()> {
+fn inject_postverify_for_test(quarantine: &Path) -> SetupResult<()> {
     if let Some(name) = std::env::var_os("VIBEGUARD_TEST_REMOVE_POSTVERIFY_INJECT") {
         let name = PathBuf::from(name);
         if name.components().count() != 1 || name.as_os_str().is_empty() {
@@ -447,6 +702,13 @@ fn inject_public_replacement_for_test(dest: &Path) -> SetupResult<()> {
     if let Some(value) = std::env::var_os("VIBEGUARD_TEST_REMOVE_PUBLIC_REPLACEMENT") {
         fs::create_dir(dest)?;
         fs::write(dest.join("custom.txt"), value.to_string_lossy().as_bytes())?;
+    }
+    Ok(())
+}
+
+fn inject_failure(variable: &str, message: &str) -> SetupResult<()> {
+    if std::env::var_os(variable).is_some() {
+        return Err(message.into());
     }
     Ok(())
 }

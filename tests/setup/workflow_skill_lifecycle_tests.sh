@@ -23,6 +23,16 @@ printf 'pid=99999999\nnonce=stale-fixture\n' > "${gh719_lock_home}/.vibeguard/se
 assert_cmd "stale setup lifecycle lock is reclaimed" env HOME="${gh719_lock_home}" \
   bash -c 'source "$1/scripts/setup/lib.sh"; setup_lock_acquire; setup_lock_release' _ "${REPO_DIR}"
 
+gh719_reclaim_lock_home="${TMP_HOME}/gh719-reclaim-lock-home"
+mkdir -p "${gh719_reclaim_lock_home}/.vibeguard/setup.lock"
+printf 'pid=99999999\nnonce=stale-owner\n' \
+  > "${gh719_reclaim_lock_home}/.vibeguard/setup.lock/owner"
+printf 'pid=99999998\nnonce=stale-reclaimer\n' \
+  > "${gh719_reclaim_lock_home}/.vibeguard/setup.lock/reclaiming"
+assert_cmd "crashed stale setup-lock reclaimer is recovered" env \
+  HOME="${gh719_reclaim_lock_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  bash -c 'source "$1/scripts/setup/lib.sh"; setup_lock_acquire; setup_lock_release' _ "${REPO_DIR}"
+
 gh719_lock_publish_home="${TMP_HOME}/gh719-lock-publish-home"
 if HOME="${gh719_lock_publish_home}" bash -c '
   source "$1/scripts/setup/lib.sh"
@@ -172,6 +182,7 @@ gh719_quarantine_collision_out="$(
     VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
     VIBEGUARD_TEST_REMOVE_COLLIDE_ALL=1 bash -c '
     source "$1/scripts/setup/lib.sh"
+    source "$1/scripts/lib/install-state.sh"
     dest="$2"
     remove_disabled_skill \
       "${dest}" plan-flow "$(dirname "${dest}")" skills/plan-flow
@@ -213,6 +224,7 @@ gh719_postverify_out="$(
   HOME="${gh719_postverify_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
     VIBEGUARD_TEST_REMOVE_POSTVERIFY_INJECT=POSTVERIFY_DELETED bash -c '
       source "$1/scripts/setup/lib.sh"
+      source "$1/scripts/lib/install-state.sh"
       dest="$2"
       remove_disabled_skill \
         "${dest}" plan-flow "$(dirname "${dest}")" skills/plan-flow
@@ -220,11 +232,15 @@ gh719_postverify_out="$(
 )" || gh719_postverify_rc=$?
 assert_cmd "post-verification injection fails disabled removal" test \
   "${gh719_postverify_rc}" -ne 0
-assert_contains "${gh719_postverify_out}" "restored public tree without deletion" \
-  "post-verification injection reports fail-closed restore"
+assert_contains "${gh719_postverify_out}" "changed after ownership verification" \
+  "post-verification injection reports fail-closed mutation"
 assert_cmd "post-verification injection preserves managed public bytes" test \
-  -f "${gh719_postverify_skill}/SKILL.md"
-assert_contains "$(cat "${gh719_postverify_skill}/POSTVERIFY_DELETED")" "user-data" \
+  ! -e "${gh719_postverify_skill}"
+gh719_postverify_quarantine="$(find "$(dirname "${gh719_postverify_skill}")" -maxdepth 1 \
+  -type d -name '.plan-flow.vibeguard-quarantine.*' -print -quit)"
+assert_cmd "post-verification mutation retains managed quarantine" test \
+  -f "${gh719_postverify_quarantine}/SKILL.md"
+assert_contains "$(cat "${gh719_postverify_quarantine}/POSTVERIFY_DELETED")" "user-data" \
   "post-verification user data is never deleted"
 
 gh719_state_home="${TMP_HOME}/gh719-state-home"
@@ -360,8 +376,12 @@ assert_cmd "deleted skill is restored when no opt-out is recorded" test -d "${gh
 
 gh719_set_disabled plan-flow auto-optimize
 gh719_disable_out="$(gh719_setup 2>&1)"
-assert_contains "${gh719_disable_out}" "REMOVED plan-flow" "reinstall removes a newly disabled skill"
+assert_contains "${gh719_disable_out}" "QUARANTINED plan-flow" "reinstall quarantines a newly disabled skill"
 assert_cmd "disabled Codex skill is gone after reinstall" test ! -e "${gh719_home}/.codex/skills/plan-flow"
+assert_cmd "disabled Codex skill quarantine is durably recorded" python3 -c \
+  'import json,sys; d=json.load(open(sys.argv[1])); r=d["disabled_skill_quarantines"][sys.argv[2]]; assert r["version"] == 1 and r["tracked_digest"].startswith("sha256:")' \
+  "${gh719_home}/.vibeguard/install-state.json" \
+  "${gh719_home}/.codex/skills/plan-flow"
 assert_cmd "same-name Claude skill remains installed" test -e "${gh719_home}/.claude/skills/auto-optimize"
 assert_cmd "same-name Codex skill is disabled" test ! -e "${gh719_home}/.codex/skills/auto-optimize"
 assert_cmd "non-disabled skills are unaffected" test -d "${gh719_home}/.codex/skills/fixflow"
@@ -370,6 +390,10 @@ gh719_repeat_out="$(gh719_setup 2>&1)"
 assert_contains "${gh719_repeat_out}" "SKIP plan-flow (disabled" "repeat reinstall skips the disabled skill"
 assert_not_contains "${gh719_repeat_out}" "RESTORING plan-flow" "repeat reinstall does not restore the disabled skill"
 assert_cmd "disabled skill stays gone across reinstalls" test ! -e "${gh719_home}/.codex/skills/plan-flow"
+assert_cmd "repeat reinstall retains the quarantine locator" python3 -c \
+  'import json,os,sys; d=json.load(open(sys.argv[1])); q=d["disabled_skill_quarantines"][sys.argv[2]]["quarantine"]; assert os.path.isfile(os.path.join(q,"SKILL.md"))' \
+  "${gh719_home}/.vibeguard/install-state.json" \
+  "${gh719_home}/.codex/skills/plan-flow"
 
 gh719_check_out="$(HOME="${gh719_home}" bash "${REPO_DIR}/setup.sh" --check 2>&1)"
 assert_contains "${gh719_check_out}" "[DISABLED] plan-flow" "--check reports the skill as disabled"
@@ -378,6 +402,13 @@ assert_not_contains "${gh719_check_out}" "[MISSING] plan-flow" "--check does not
 gh719_set_disabled
 gh719_setup >/dev/null 2>&1
 assert_cmd "clearing the opt-out re-enables the skill" test -d "${gh719_home}/.codex/skills/plan-flow"
+
+gh719_set_disabled plan-flow
+gh719_redisable_out="$(gh719_setup 2>&1)"
+assert_contains "${gh719_redisable_out}" "QUARANTINED plan-flow" \
+  "a re-enabled canonical skill can be disabled again"
+assert_cmd "repeat disable after re-enable removes the public skill again" \
+  test ! -e "${gh719_home}/.codex/skills/plan-flow"
 
 gh719_set_disabled plan-flow
 VIBEGUARD_DISABLED_SKILLS='' gh719_setup >/dev/null 2>&1
@@ -414,4 +445,4 @@ else
   TOTAL=$((TOTAL + 1))
 fi
 assert_cmd "unowned disabled skill is preserved" test -f "${gh719_home}/.codex/skills/plan-flow/custom.txt"
-assert_not_contains "${gh719_unowned_out}" "REMOVED plan-flow" "failed ownership check does not claim removal"
+assert_not_contains "${gh719_unowned_out}" "QUARANTINED plan-flow" "failed ownership check does not claim quarantine"

@@ -1,7 +1,7 @@
 mod common;
 
 use common::{assert_output, bin, path_text, unique_temp_dir, write_json};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Output;
@@ -28,8 +28,14 @@ impl Fixture {
         fs::write(skill.join("SKILL.md"), "managed\n").expect("skill should be written");
         write_json(
             &state,
+            &json!({"version": 1, "generation": 2, "complete": false, "files": {}}),
+        );
+        write_json(
+            &previous,
             &json!({
                 "version": 1,
+                "generation": 1,
+                "complete": true,
                 "files": {
                     path_text(&skill.join("SKILL.md")): {
                         "source": "skills/plan-flow/SKILL.md",
@@ -47,9 +53,9 @@ impl Fixture {
         }
     }
 
-    fn args(&self) -> Vec<String> {
+    fn args_for(&self, command: &str) -> Vec<String> {
         vec![
-            "setup-state-remove-managed-tree".into(),
+            command.into(),
             path_text(&self.state),
             path_text(&self.previous),
             path_text(&self.skill),
@@ -58,30 +64,42 @@ impl Fixture {
     }
 
     fn run(&self, env: &[(&str, &str)]) -> Output {
-        let mut command = bin();
-        command
-            .args(self.args())
+        self.run_command("setup-state-quarantine-managed-tree", env)
+    }
+
+    fn run_command(&self, command: &str, env: &[(&str, &str)]) -> Output {
+        let mut process = bin();
+        process
+            .args(self.args_for(command))
             .env("HOME", self.root.join("home"))
             .current_dir(&self.root);
         for (key, value) in env {
-            command.env(key, value);
+            process.env(key, value);
         }
-        command.output().expect("managed-tree removal should run")
+        process
+            .output()
+            .expect("managed-tree quarantine should run")
+    }
+
+    fn state(&self) -> Value {
+        serde_json::from_slice(&fs::read(&self.state).expect("state should read"))
+            .expect("state should parse")
+    }
+
+    fn record(&self) -> Option<Value> {
+        let state = self.state();
+        state
+            .get("disabled_skill_quarantines")?
+            .get(path_text(&self.skill))
+            .cloned()
     }
 
     fn quarantines(&self) -> Vec<PathBuf> {
-        let mut paths = fs::read_dir(self.skill.parent().unwrap())
-            .expect("skill parent should be readable")
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.starts_with(".plan-flow.vibeguard-remove."))
-            })
-            .collect::<Vec<_>>();
-        paths.sort();
-        paths
+        sibling_paths(&self.skill, ".plan-flow.vibeguard-quarantine.")
+    }
+
+    fn transactions(&self) -> Vec<PathBuf> {
+        sibling_paths(&self.skill, ".plan-flow.vibeguard-transaction.")
     }
 }
 
@@ -91,16 +109,32 @@ impl Drop for Fixture {
     }
 }
 
+fn sibling_paths(path: &std::path::Path, prefix: &str) -> Vec<PathBuf> {
+    let mut paths = fs::read_dir(path.parent().unwrap())
+        .expect("parent should be readable")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|candidate| {
+            candidate
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(prefix))
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths
+}
+
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
 #[test]
 fn command_rejects_invalid_arity() {
-    let root = unique_temp_dir("remove-managed-tree-arity");
+    let root = unique_temp_dir("quarantine-managed-tree-arity");
     fs::create_dir_all(root.join("home")).expect("home should be created");
     let output = bin()
-        .arg("setup-state-remove-managed-tree")
+        .arg("setup-state-quarantine-managed-tree")
         .env("HOME", root.join("home"))
         .current_dir(&root)
         .output()
@@ -109,85 +143,142 @@ fn command_rejects_invalid_arity() {
         &output,
         1,
         "",
-        "vibeguard-runtime error: Usage: vibeguard-runtime setup-state-remove-managed-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>\n",
+        "vibeguard-runtime error: Usage: vibeguard-runtime setup-state-quarantine-managed-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>\n",
     );
     fs::remove_dir_all(root).expect("temp root should be removed");
 }
 
 #[test]
-fn exact_managed_tree_is_removed_without_quarantine_residue() {
-    let fixture = Fixture::new("remove-managed-tree-success");
+fn exact_managed_tree_is_durably_quarantined_without_deletion() {
+    let fixture = Fixture::new("quarantine-managed-tree-success");
     let output = fixture.run(&[]);
-    assert_output(&output, 0, "REMOVED\n", "");
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert!(String::from_utf8_lossy(&output.stdout).starts_with("QUARANTINED\t"));
     assert!(!fixture.skill.exists());
-    assert!(fixture.quarantines().is_empty());
+    let quarantines = fixture.quarantines();
+    assert_eq!(quarantines.len(), 1);
+    assert_eq!(
+        fs::read_to_string(quarantines[0].join("SKILL.md")).unwrap(),
+        "managed\n"
+    );
+    let record = fixture.record().expect("state locator should be committed");
+    assert_eq!(record["version"], 1);
+    assert_eq!(record["quarantine"], path_text(&quarantines[0]));
+    assert_eq!(record["source_prefix"], SOURCE);
+    assert_eq!(record["install_state_generation"], 2);
+    assert!(
+        record["tracked_digest"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:")
+    );
+    let transactions = fixture.transactions();
+    assert_eq!(transactions.len(), 1);
+    let transaction: Value = serde_json::from_slice(&fs::read(&transactions[0]).unwrap()).unwrap();
+    assert_eq!(transaction["phase"], "committed");
+}
+
+#[test]
+fn compatibility_remove_command_never_deletes_quarantine() {
+    let fixture = Fixture::new("quarantine-managed-tree-compat");
+    let output = fixture.run_command("setup-state-remove-managed-tree", &[]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert!(!fixture.skill.exists());
+    assert!(fixture.quarantines()[0].join("SKILL.md").is_file());
+}
+
+#[test]
+fn crash_after_rename_recovers_then_commits_without_deletion() {
+    let fixture = Fixture::new("quarantine-managed-tree-rename-crash");
+    let crashed = fixture.run(&[("VIBEGUARD_TEST_QUARANTINE_AFTER_RENAME", "1")]);
+    assert_eq!(crashed.status.code(), Some(1));
+    assert!(stderr(&crashed).contains("injected failure after quarantine rename"));
+    assert!(!fixture.skill.exists());
+    assert_eq!(fixture.quarantines().len(), 1);
+    assert!(fixture.record().is_none());
+
+    let retry = fixture.run(&[]);
+    assert_eq!(retry.status.code(), Some(0), "{}", stderr(&retry));
+    assert!(!fixture.skill.exists());
+    assert_eq!(fixture.quarantines().len(), 1);
+    assert!(fixture.quarantines()[0].join("SKILL.md").is_file());
+    assert!(fixture.record().is_some());
+}
+
+#[test]
+fn late_failure_after_state_publish_is_committed_on_retry() {
+    let fixture = Fixture::new("quarantine-managed-tree-late-failure");
+    let failed = fixture.run(&[("VIBEGUARD_TEST_QUARANTINE_AFTER_STATE", "1")]);
+    assert_eq!(failed.status.code(), Some(1));
+    assert!(stderr(&failed).contains("injected failure after install-state publish"));
+    assert!(!fixture.skill.exists());
+    assert!(fixture.record().is_some());
+    assert!(fixture.quarantines()[0].join("SKILL.md").is_file());
+
+    let retry = fixture.run(&[]);
+    assert_eq!(retry.status.code(), Some(0), "{}", stderr(&retry));
+    assert!(String::from_utf8_lossy(&retry.stdout).starts_with("QUARANTINED\t"));
+    assert!(!fixture.skill.exists());
+    assert!(fixture.quarantines()[0].join("SKILL.md").is_file());
 }
 
 #[test]
 fn destination_collisions_fail_before_public_mutation() {
-    let fixture = Fixture::new("remove-managed-tree-collision");
+    let fixture = Fixture::new("quarantine-managed-tree-collision");
     let before = fs::read(fixture.skill.join("SKILL.md")).expect("managed bytes should read");
     let output = fixture.run(&[("VIBEGUARD_TEST_REMOVE_COLLIDE_ALL", "1")]);
     assert_eq!(output.status.code(), Some(1));
     assert!(stderr(&output).contains("failed to reserve unique quarantine"));
-    assert_eq!(
-        fs::read(fixture.skill.join("SKILL.md")).expect("public bytes should remain"),
-        before
-    );
-    let quarantines = fixture.quarantines();
-    assert_eq!(quarantines.len(), 10);
-    assert!(
-        quarantines
-            .iter()
-            .all(|path| path.join("collision-sentinel").is_file())
-    );
+    assert_eq!(fs::read(fixture.skill.join("SKILL.md")).unwrap(), before);
+    assert!(fixture.record().is_none());
+    assert_eq!(fixture.quarantines().len(), 10);
 }
 
 #[test]
-fn postverify_injection_is_restored_and_never_deleted() {
-    let fixture = Fixture::new("remove-managed-tree-postverify");
+fn postverify_mutation_fails_visible_and_preserves_all_data() {
+    let fixture = Fixture::new("quarantine-managed-tree-postverify");
     let output = fixture.run(&[(
         "VIBEGUARD_TEST_REMOVE_POSTVERIFY_INJECT",
-        "POSTVERIFY_DELETED",
+        "POSTVERIFY_USER_DATA",
     )]);
     assert_eq!(output.status.code(), Some(1));
-    assert!(stderr(&output).contains("restored public tree without deletion"));
+    assert!(stderr(&output).contains("changed after ownership verification"));
+    assert!(!fixture.skill.exists());
+    assert!(fixture.record().is_none());
+    let quarantine = &fixture.quarantines()[0];
+    assert!(quarantine.join("SKILL.md").is_file());
     assert_eq!(
-        fs::read_to_string(fixture.skill.join("POSTVERIFY_DELETED"))
-            .expect("injected user data should remain"),
+        fs::read_to_string(quarantine.join("POSTVERIFY_USER_DATA")).unwrap(),
         "user-data\n"
     );
-    assert!(fixture.skill.join("SKILL.md").is_file());
-    assert!(fixture.quarantines().is_empty());
 }
 
 #[test]
 fn concurrent_public_replacement_preserves_both_trees() {
-    let fixture = Fixture::new("remove-managed-tree-public-replacement");
+    let fixture = Fixture::new("quarantine-managed-tree-public-replacement");
     let output = fixture.run(&[
         (
             "VIBEGUARD_TEST_REMOVE_POSTVERIFY_INJECT",
-            "POSTVERIFY_DELETED",
+            "POSTVERIFY_USER_DATA",
         ),
         ("VIBEGUARD_TEST_REMOVE_PUBLIC_REPLACEMENT", "custom\n"),
     ]);
     assert_eq!(output.status.code(), Some(1));
-    assert!(stderr(&output).contains("public destination was replaced"));
     assert_eq!(
-        fs::read_to_string(fixture.skill.join("custom.txt")).expect("replacement should remain"),
+        fs::read_to_string(fixture.skill.join("custom.txt")).unwrap(),
         "custom\n"
     );
-    let quarantines = fixture.quarantines();
-    assert_eq!(quarantines.len(), 1);
-    assert!(quarantines[0].join("SKILL.md").is_file());
-    assert!(quarantines[0].join("POSTVERIFY_DELETED").is_file());
+    let quarantine = &fixture.quarantines()[0];
+    assert!(quarantine.join("SKILL.md").is_file());
+    assert!(quarantine.join("POSTVERIFY_USER_DATA").is_file());
+    assert!(fixture.record().is_none());
 }
 
 #[test]
-fn missing_unowned_and_replayed_paths_fail_without_mutation() {
-    let fixture = Fixture::new("remove-managed-tree-unowned");
+fn unowned_public_path_fails_and_never_installed_absence_is_idempotent() {
+    let fixture = Fixture::new("quarantine-managed-tree-unowned");
     let wrong_source = {
-        let mut args = fixture.args();
+        let mut args = fixture.args_for("setup-state-quarantine-managed-tree");
         *args.last_mut().unwrap() = "skills/not-plan-flow".into();
         bin()
             .args(args)
@@ -201,8 +292,7 @@ fn missing_unowned_and_replayed_paths_fail_without_mutation() {
 
     fs::remove_dir_all(&fixture.skill).expect("skill should be removed for replay");
     let replay = fixture.run(&[]);
-    assert_eq!(replay.status.code(), Some(1));
-    assert!(stderr(&replay).contains("not an exact VibeGuard-owned copy"));
+    assert_output(&replay, 0, "ABSENT\n", "");
 }
 
 #[cfg(unix)]
@@ -210,7 +300,7 @@ fn missing_unowned_and_replayed_paths_fail_without_mutation() {
 fn symlink_and_special_paths_fail_closed() {
     use std::os::unix::fs::symlink;
 
-    let symlink_fixture = Fixture::new("remove-managed-tree-symlink");
+    let symlink_fixture = Fixture::new("quarantine-managed-tree-symlink");
     let real_skill = symlink_fixture.root.join("real-skill");
     fs::rename(&symlink_fixture.skill, &real_skill).expect("skill should move");
     symlink(&real_skill, &symlink_fixture.skill).expect("skill symlink should be created");
@@ -218,32 +308,18 @@ fn symlink_and_special_paths_fail_closed() {
     assert_eq!(symlink_output.status.code(), Some(1));
     assert!(
         fs::symlink_metadata(&symlink_fixture.skill)
-            .expect("symlink should remain")
+            .unwrap()
             .file_type()
             .is_symlink()
     );
     assert!(real_skill.join("SKILL.md").is_file());
 
-    let special_fixture = Fixture::new("remove-managed-tree-special");
+    let special_fixture = Fixture::new("quarantine-managed-tree-special");
     let fifo = special_fixture.skill.join("user-fifo");
     let fifo_text = std::ffi::CString::new(path_text(&fifo)).expect("fifo path should be C-safe");
-    let result = unsafe { libc::mkfifo(fifo_text.as_ptr(), 0o600) };
-    assert_eq!(result, 0);
+    assert_eq!(unsafe { libc::mkfifo(fifo_text.as_ptr(), 0o600) }, 0);
     let special_output = special_fixture.run(&[]);
     assert_eq!(special_output.status.code(), Some(1));
     assert!(fifo.exists());
     assert!(special_fixture.skill.join("SKILL.md").is_file());
-}
-
-#[test]
-fn invalid_injection_name_restores_without_deleting_data() {
-    let fixture = Fixture::new("remove-managed-tree-invalid-injection");
-    let output = fixture.run(&[(
-        "VIBEGUARD_TEST_REMOVE_POSTVERIFY_INJECT",
-        "nested/POSTVERIFY_DELETED",
-    )]);
-    assert_eq!(output.status.code(), Some(1));
-    assert!(stderr(&output).contains("test injection name"));
-    assert!(stderr(&output).contains("restored public tree without deletion"));
-    assert!(fixture.skill.join("SKILL.md").is_file());
 }

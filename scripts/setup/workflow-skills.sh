@@ -44,8 +44,7 @@ skill_is_disabled() {
 
 remove_disabled_skill() {
   local dest="$1" skill="$2" dest_dir="$3" source_path="$4"
-  local dest_parent dest_parent_abs dest_dir_abs ownership_rc removal_output
-  [[ -e "${dest}" || -L "${dest}" ]] || return 0
+  local dest_parent dest_parent_abs dest_dir_abs quarantine_output quarantine_path
 
   dest_parent="$(dirname "${dest}")"
   if [[ ! -d "${dest_parent}" || ! -d "${dest_dir}" ]]; then
@@ -59,35 +58,33 @@ remove_disabled_skill() {
     return 1
   fi
 
-  if state_managed_tree_owned "${dest}" "${source_path}"; then
-    :
-  else
-    ownership_rc=$?
-    if [[ "${ownership_rc}" -eq 2 ]]; then
-      red "  ERROR: cannot verify ownership for disabled skill ${skill}"
-    else
-      red "  ERROR: refusing to remove ${skill}; current tree is not an exact VibeGuard-managed copy"
-    fi
-    return 1
-  fi
-
-  if ! removal_output="$(setup_runtime setup-state-remove-managed-tree \
+  if ! quarantine_output="$(setup_runtime setup-state-quarantine-managed-tree \
     "${STATE_FILE}" "${STATE_PREVIOUS_FILE}" "${dest}" "${source_path}" 2>&1)"; then
-    red "  ERROR: failed to remove disabled skill ${skill}: ${dest}"
+    red "  ERROR: failed to quarantine disabled skill ${skill}: ${dest}"
     while IFS= read -r line; do
       [[ -n "${line}" ]] && red "  ${line}"
-    done <<< "${removal_output}"
+    done <<< "${quarantine_output}"
     return 1
   fi
-  if [[ "${removal_output}" != "REMOVED" ]]; then
-    red "  ERROR: invalid managed-tree removal result for disabled skill ${skill}"
-    return 1
-  fi
+  case "${quarantine_output}" in
+    ABSENT) ;;
+    $'QUARANTINED\t'*)
+      quarantine_path="${quarantine_output#*$'\t'}"
+      [[ -n "${quarantine_path}" ]] || {
+        red "  ERROR: invalid quarantine locator for disabled skill ${skill}"
+        return 1
+      }
+      yellow "  QUARANTINED ${skill} at ${quarantine_path} (disabled via $(disabled_skills_source_label))"
+      ;;
+    *)
+      red "  ERROR: invalid managed-tree quarantine result for disabled skill ${skill}"
+      return 1
+      ;;
+  esac
   if [[ -e "${dest}" || -L "${dest}" ]]; then
     red "  ERROR: concurrent replacement preserved at disabled skill path: ${dest}"
     return 1
   fi
-  yellow "  REMOVED ${skill} (disabled via $(disabled_skills_source_label))"
 }
 
 report_skill_restore() {

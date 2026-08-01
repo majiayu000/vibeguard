@@ -488,8 +488,13 @@ static COMMANDS: &[Command] = &[
         handler: setup_install_state::verify_managed_tree,
     },
     Command {
+        name: "setup-state-quarantine-managed-tree",
+        usage: "<state-file> <previous-state-file> <dest-dir> <source-prefix>  — durably quarantine a managed tree without deletion",
+        handler: setup_managed_tree_remove::run,
+    },
+    Command {
         name: "setup-state-remove-managed-tree",
-        usage: "<state-file> <previous-state-file> <dest-dir> <source-prefix>  — atomically quarantine and identity-delete a managed tree",
+        usage: "<state-file> <previous-state-file> <dest-dir> <source-prefix>  — compatibility alias for non-destructive managed-tree quarantine",
         handler: setup_managed_tree_remove::run,
     },
     Command {

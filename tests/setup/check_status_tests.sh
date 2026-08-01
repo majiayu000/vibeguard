@@ -128,9 +128,8 @@ assert_cmd() {
 }
 
 # Establish one current-source runtime before any setup behavior invocation.
-# The hostile fixture first proves that version/command probes alone cannot
-# distinguish a same-version stale binary, then the suite overrides every
-# freshness-affecting caller input with the worktree build.
+# The hostile fixture proves that the exact quarantine capability rejects a
+# same-version stale binary before any setup behavior can invoke it.
 STALE_RUNTIME_DIR="$(mktemp -d)"
 STALE_RUNTIME="${STALE_RUNTIME_DIR}/vibeguard-runtime"
 STALE_RUNTIME_MARKER="${STALE_RUNTIME_DIR}/called"
@@ -142,19 +141,23 @@ if [[ -n "${VIBEGUARD_STALE_RUNTIME_MARKER:-}" ]]; then
 fi
 case "${1:-}" in
   version) printf '%s\n' "${VIBEGUARD_STALE_RUNTIME_VERSION:?}" ;;
+  setup-state-quarantine-managed-tree)
+    printf '%s\n' "Unknown command: setup-state-quarantine-managed-tree" >&2
+    exit 2
+    ;;
   *) exit 0 ;;
 esac
 SH
 chmod +x "${STALE_RUNTIME}"
 
-if ! env \
+if env \
   VIBEGUARD_REPO_DIR="${REPO_DIR}" \
   VIBEGUARD_SETUP_RUNTIME_VERSION="${CURRENT_RUNTIME_VERSION}" \
   VIBEGUARD_STALE_RUNTIME_MARKER= \
   VIBEGUARD_STALE_RUNTIME_VERSION="${CURRENT_RUNTIME_VERSION}" \
   bash -c 'source "$1"; setup_runtime_supports "$2"' \
     _ "${REPO_DIR}/scripts/setup/lib.sh" "${STALE_RUNTIME}"; then
-  printf 'ERROR: stale runtime fixture did not satisfy the legacy setup probe\n' >&2
+  printf 'ERROR: stale runtime fixture unexpectedly satisfied the exact capability probe\n' >&2
   exit 1
 fi
 rm -f "${STALE_RUNTIME_MARKER}"

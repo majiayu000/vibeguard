@@ -93,6 +93,7 @@ setup_runtime_supports() {
     setup-codex-hooks-check-timeouts \
     setup-state-list-tracked-under \
     setup-state-verify-managed-tree \
+    setup-state-quarantine-managed-tree \
     setup-state-generation \
     setup-state-mark-complete \
     setup-lock-publish-owner \

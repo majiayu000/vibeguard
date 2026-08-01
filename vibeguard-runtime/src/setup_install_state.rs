@@ -324,9 +324,10 @@ pub fn mark_complete(args: &[String]) -> SetupResult<()> {
 }
 
 pub fn publish_lock_owner(args: &[String]) -> SetupResult<()> {
-    if args.len() != 3 {
+    if args.len() != 3 && args.len() != 4 {
         return Err(
-            "Usage: vibeguard-runtime setup-lock-publish-owner <lock-dir> <pid> <nonce>".into(),
+            "Usage: vibeguard-runtime setup-lock-publish-owner <lock-dir> <pid> <nonce> [reclaiming]"
+                .into(),
         );
     }
     if args[1].is_empty() || args[1] == "0" || !args[1].bytes().all(|byte| byte.is_ascii_digit()) {
@@ -340,11 +341,28 @@ pub fn publish_lock_owner(args: &[String]) -> SetupResult<()> {
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err("setup lock path must be a regular directory".into());
     }
-    let owner = lock_dir.join("owner");
+    let owner_name = args.get(3).map(String::as_str).unwrap_or("owner");
+    if owner_name != "owner" && owner_name != "reclaiming" {
+        return Err("setup lock owner name must be owner or reclaiming".into());
+    }
+    let owner = lock_dir.join(owner_name);
     if owner.exists() || std::fs::symlink_metadata(&owner).is_ok() {
         return Err("setup lock owner already exists".into());
     }
-    write_text_atomic(&owner, &format!("pid={}\nnonce={}\n", args[1], args[2]))?;
+    let content = format!("pid={}\nnonce={}\n", args[1], args[2]);
+    if owner_name == "reclaiming" {
+        let staged = lock_dir.join(format!(".reclaiming.{}.{}", args[1], args[2]));
+        write_text_atomic(&staged, &content)?;
+        if let Err(link_error) = std::fs::hard_link(&staged, &owner) {
+            std::fs::remove_file(&staged).map_err(|cleanup_error| {
+                format!("{link_error}; staged reclaimer cleanup failed: {cleanup_error}")
+            })?;
+            return Err(link_error.into());
+        }
+        std::fs::remove_file(&staged)?;
+    } else {
+        write_text_atomic(&owner, &content)?;
+    }
     #[cfg(unix)]
     if let Err(error) = std::fs::File::open(lock_dir).and_then(|file| file.sync_all()) {
         if let Err(cleanup_error) = std::fs::remove_file(&owner)
@@ -391,7 +409,7 @@ pub(crate) fn managed_tree_decision(
     let state = read_state(state_file)?;
     ensure_state_version(&state)?;
     let source_prefix = source_prefix.trim_end_matches('/');
-    match std::fs::symlink_metadata(&dest_dir) {
+    match std::fs::symlink_metadata(dest_dir) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
         Ok(_) => return Ok("UNOWNED:path_type"),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok("UNOWNED:missing"),
@@ -406,7 +424,7 @@ pub(crate) fn managed_tree_decision(
         .iter()
         .filter_map(|(dest, info)| {
             let expanded = setup_absolute_path(&expand_home(dest));
-            let relative = expanded.strip_prefix(&tracked_dest_dir).ok()?;
+            let relative = expanded.strip_prefix(tracked_dest_dir).ok()?;
             Some((dest_dir.join(relative), info))
         })
         .collect::<BTreeMap<_, _>>();
@@ -416,7 +434,7 @@ pub(crate) fn managed_tree_decision(
 
     let mut leaves = BTreeSet::new();
     let mut directories = BTreeSet::new();
-    collect_managed_tree_paths(&dest_dir, &mut leaves, &mut directories)?;
+    collect_managed_tree_paths(dest_dir, &mut leaves, &mut directories)?;
     for leaf in &leaves {
         let Some(info) = tracked.get(leaf) else {
             return Ok("UNOWNED:untracked_path");
@@ -518,7 +536,7 @@ pub fn list_project_hooks(args: &[String]) -> SetupResult<()> {
     Ok(())
 }
 
-fn read_state(path: &Path) -> SetupResult<Value> {
+pub(crate) fn read_state(path: &Path) -> SetupResult<Value> {
     let text = std::fs::read_to_string(path)?;
     let value: Value = serde_json::from_str(&text)?;
     if !value.is_object() {
@@ -549,6 +567,7 @@ fn ensure_state_version(state: &Value) -> SetupResult<()> {
 }
 
 fn validate_state_for_preflight(state: &Value) -> SetupResult<()> {
+    crate::setup_managed_tree_remove::validate_state_metadata(state)?;
     let version = state
         .get("version")
         .and_then(Value::as_i64)
