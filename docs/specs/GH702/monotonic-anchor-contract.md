@@ -32,11 +32,39 @@ Draft。本文是 [`product.md`](product.md) 与 [`tech.md`](tech.md) 的 suppor
   provisioning container identity，不是所有 leaf 共用的 CAS version；
 - `leaf_identity = policy/evaluation | installation/<installation_scope_id> |
   time/<installation_scope_id>`；
-- `per_leaf_authority_id = H("vibeguard.gh702.anchor-leaf-authority.v1", root_identity,
-  leaf_identity)`；
-- `from_leaf = (leaf_counter, leaf_digest, leaf_attestation_digest)`；
-- `target_leaf = (leaf_counter, leaf_digest, leaf_attestation_digest)`，counter 必须是该 leaf
-  authority 认可的唯一 successor；
+- `per_leaf_authority_id` 使用下列 semantic v1 body 与 exact preimage，不是位置 tuple：
+
+```text
+per_leaf_authority_body = {
+  schema_version: 1,
+  root_identity: {root_id, root_schema_version, principal_id, core_installation_id},
+  leaf_identity: {leaf_kind: policy_evaluation|installation|time,
+                  installation_scope_id: string|null}
+}
+per_leaf_authority_id = sha256(
+  UTF8("vibeguard.gh702.anchor-leaf-authority.v1\0") ||
+  UTF8(RFC8785_JCS(per_leaf_authority_body)))
+```
+
+  `installation_scope_id` 仅 `policy_evaluation` 时必须为 null，其他 kind 必须为 non-empty
+  canonical ID；body closed，`schema_version` 是 digest 语义，字段名、null discriminant、domain bytes
+  或 JCS bytes 任一变化都产生不同 ID，tuple/alias/省略字段均不接受；
+- `from_leaf = (leaf_counter, leaf_digest, leaf_attestation_digest)`，attestation 是已存在 current
+  leaf 的 backend-authenticated 证据；
+- pre-CAS target 只含确定性数据：
+
+```text
+target_leaf_body = {schema_version: 1, target_leaf_counter, target_leaf_value_digest}
+target_leaf_digest = sha256(
+  UTF8("vibeguard.gh702.anchor-target-leaf.v1\0") ||
+  UTF8(RFC8785_JCS(target_leaf_body)))
+target_leaf = {target_leaf_body, target_leaf_digest}
+```
+
+  counter 必须是该 leaf authority 认可的唯一 successor；`post_cas_backend_attestation` 只能由 CAS
+  成功响应或后续 authenticated current read 产生，并 exact 绑定 backend/root/per-leaf authority、
+  `target_leaf_body`、`target_leaf_digest`、operation 与 authorization；其 verified envelope digest
+  记为 `post_cas_backend_attestation_digest`，不得进入任何 pre-CAS target/authorization/intent/mirror；
 - `authorized_operation_digest`、`target_authorization_digest` 与 `authorizer_key_id`；
 - `mirror_generation_id`、mirror `file_digest`、previous mirror generation/digest；
 - owner transaction/runtime operation、policy/installation generation 与适用 lock/fence identities。
@@ -70,7 +98,8 @@ approved committed identity，time 是同 epoch sequence/high-water monotonic ad
 digest_domain = "vibeguard.gh702.anchor-target-authorization.v1"
 authorization_body = {
   backend_identity, root_identity, per_leaf_authority_id,
-  from_leaf, target_leaf, anchor_operation_id, authorized_operation_digest,
+  from_leaf, target_leaf_body, target_leaf_digest,
+  anchor_operation_id, authorized_operation_digest,
   h010_decision_artifact_digest, evaluation_policy_digest,
   authoritative_policy_generation, policy_validity_evidence_digest,
   lock_fence_identity, authorizer_key_id, authorization_nonce, authorization_expires_at
@@ -97,9 +126,12 @@ anchor/
     generations/<mirror_generation_id>.json
 ```
 
-mirror generation 使用 closed envelope。`mirror_body` 保存 generation identity、exact external
-attestation identity、leaf payload 与 previous generation/digest，但不含自己的 digest；outer
-`schema_version` 是 envelope 的 semantic version，不能只作为 parser hint。
+mirror generation 使用 closed envelope。`mirror_body` 不含自己的 digest；outer `schema_version` 是
+envelope 的 semantic version，不能只作为 parser hint。prepared target
+`mirror_body` 只保存 deterministic `target_leaf_body`/`target_leaf_digest`、generation identity、leaf
+payload 与 previous generation/digest，不保存尚不存在的 `post_cas_backend_attestation`；该 attestation
+及其 digest 只能进入 post-CAS commit journal。current mirror 的 external proof 是 mirror/pointer 所引用的
+commit-journal attestation，不得把 attestation 回填到 immutable mirror。
 `file_digest = sha256(UTF8(RFC8785_JCS({schema_version, mirror_body})))` 是 envelope 中与 body 同级的
 sibling。完整文件必须 byte-equal `RFC8785_JCS({schema_version, mirror_body, file_digest})`，reader
 拒绝 duplicate/unknown key、非 JCS bytes 或重算不等；digest preimage 包含 exact outer version + body，
@@ -116,14 +148,22 @@ phase 只存在于 durable intent 预先绑定的合法 digest、commit journal 
 receipt bytes、wall clock、filename 或进程内状态：
 
 ```text
-prepared_phase_digest = H(prepared_domain, operation, target_authorization_digest, mirror_file_digest, from_leaf, target_leaf)
-external_advanced_phase_digest = H(external_advanced_domain, prepared_phase_digest, target_leaf)
+prepared_phase_digest = H(prepared_domain, operation, target_authorization_digest, mirror_file_digest, from_leaf, target_leaf_body, target_leaf_digest)
+external_advanced_phase_digest = H(external_advanced_domain, prepared_phase_digest, target_leaf_digest)
 selected_phase_digest = H(selected_domain, external_advanced_phase_digest, mirror_generation_id, mirror_file_digest)
-barrier_complete_phase_digest = H(barrier_complete_domain, selected_phase_digest, target_leaf, barrier_id)
+barrier_complete_phase_digest = H(barrier_complete_domain, selected_phase_digest, target_leaf_digest, barrier_id)
 ```
 
-这里每行的 `domain` 均是该 literal phase 的独立 domain tag。backend receipt 是 `target_leaf` 的
-认证证据而不是 digest 输入；journal record 保存 receipt digest、phase name、该 phase digest 与
+完整无环顺序是 `per_leaf_authority_body → per_leaf_authority_id` 与
+`target_leaf_body → target_leaf_digest → target_authorization_digest → mirror_file_digest/prepared →
+external_advanced → selected → barrier_complete`。`post_cas_backend_attestation` 只在 CAS 后向上游
+`target_leaf_digest + target_authorization_digest` 提供 sibling evidence；它不反向进入 target、
+authorization、mirror 或任何预计算 phase digest，因此 Core/backend authorization 与 recovery 都不依赖
+未来 receipt/current attestation。
+
+这里每行的 `domain` 均是该 literal phase 的独立 domain tag。`post_cas_backend_attestation` 是
+`target_leaf` 的认证证据而不是预计算 phase digest 输入；journal record 保存
+`post_cas_backend_attestation_digest`、phase name、该 phase digest 与
 predecessor phase digest。`current.json` 保存 target generation/`file_digest` 和
 `selected_phase_digest`。任一 phase 名、digest、predecessor 或 immutable identity 不 exact 时不得构造
 后继 phase。schema golden vectors 必须从 envelope bytes 独立提取 outer `schema_version` + body、重算
@@ -139,19 +179,22 @@ predecessor phase digest。`current.json` 保存 target generation/`file_digest`
 
 1. Core service 先从 authenticated `authorized_operation` 重构 target、验证 leaf transition 并签发
    `target_authorization`。生成 closed pre-CAS intent，绑定 authorization raw bytes/digest、上述全部
-   identity、target mirror canonical body/`file_digest`、expected successor、commit-journal path、
+   pre-CAS identity、`target_leaf_body`/`target_leaf_digest`、target mirror canonical
+   body/`file_digest`、expected successor、commit-journal path、
    barrier ID 与四个合法 phase digest；写入临时文件并 fsync，
    rename 后 fsync intent file 与 parent directory。intent durable 前禁止 external CAS。
 2. 将 target 写入 inactive mirror generation；fsync file 与 generations directory。不得覆盖
    current/previous generation，current pointer 保持旧值。
 3. exclusive service 紧邻调用前重验 target authorization，再调用 per-leaf compare-and-swap，比较 exact
-   `from_leaf` 并推进到 exact `target_leaf`。CAS response 必须是 backend-authenticated receipt，且其
-   operation/root/per-leaf/from/target/authorization identities 与 intent exact 相等；aggregate root
-   observation 只能作 diagnostic。
-4. 将 receipt 与 exact `external_advanced_phase_digest` append/replace 到 commit journal，record
+   `from_leaf` 并推进到 exact `target_leaf_body`/`target_leaf_digest`。CAS response 必须携带
+   backend-authenticated `post_cas_backend_attestation`，且其 operation/root/per-leaf/from/target/
+   authorization identities 与 intent exact 相等；aggregate root observation 只能作 diagnostic。
+4. 将 `post_cas_backend_attestation` 及其 digest 与 exact `external_advanced_phase_digest`
+   append/replace 到 commit journal，record
    predecessor 必须是 intent 的 `prepared_phase_digest`；fsync journal file 与 parent directory。
-   若进程在 CAS response 后、此 fsync 前崩溃，durable intent + backend current attestation 仍足以
-   重构同一个 external-advanced record；不得要求内存 response 才能恢复。
+   若进程在 CAS response 后、此 fsync 前崩溃，durable pre-CAS authorization/intent/target mirror 加
+   backend authenticated current read 返回的 exact target attestation 仍足以重构同一个
+   external-advanced record；不得要求 intent 预知未来 attestation 或依赖内存 response 才能恢复。
 5. target mirror 保持 byte-immutable；重验其 body/`file_digest` 后，atomic rename `current.json` 到绑定
    target generation/`file_digest` 与 exact `selected_phase_digest` 的新 pointer，重开校验并 fsync pointer
    与 parent directory；再把同一 selected phase append/replace 到 journal 并 fsync。
@@ -176,7 +219,7 @@ recovery 必须先取得同一 locks/fence，验证 backend/root/leaf identity�
 | --- | --- |
 | intent 不 durable | external CAS 不得发生；清理 private temp，不改变 current |
 | intent durable，backend leaf exact `from_leaf` | CAS 未发生；重验 target authorization 后可删除 prepared target 或重试同一 leaf CAS，不得选 target mirror |
-| backend leaf exact `target_leaf`，journal 缺 receipt | 验证 authorization、intent 与 immutable prepared target `file_digest`，重算 intent-bound external-advanced phase，向 journal 补写 backend current leaf attestation 并 roll forward |
+| backend leaf exact `target_leaf`，journal 缺 post-CAS attestation | 验证 authorization、intent 与 immutable prepared target `file_digest`，重算 intent-bound external-advanced phase，向 journal 补写 backend current leaf attestation 并 roll forward |
 | backend leaf exact target，journal 已 external_advanced，pointer 仍 previous | 重验 immutable target generation，重算 exact selected phase 后重复 current-pointer rename + file/dir fsync |
 | pointer 已 target，external-advanced journal durable 但 selected journal 缺失 | 重验 pointer `selected_phase_digest`、immutable mirror `file_digest` 与 intent；以 external-advanced 为 predecessor 幂等重建 selected record，fsync journal file+parent、重开 exact 校验后才可进入 barrier |
 | pointer 与 selected journal 已 target，barrier 未完成 | 重读五方 identity；全等则补写/fsync barrier，否则按下述 mismatch 失败 |
@@ -228,9 +271,9 @@ platform/backend/service model 并在 approved artifact 固定该目录 inventor
 | --- | --- |
 | Schema parity | Rust/Python readers share positive/negative corpus for intent/commit/mirror/IPC and closed H-010/budget/batch/result envelopes；unknown, duplicate, empty, mutable phase and cross-record identity mismatch fail visibly |
 | Phase construction | golden vectors independently recompute outer-version+body `file_digest` and all four intent-bound phase digests；outer-version-only、mirror body、phase name/order/predecessor、receipt identity or pointer mutations cannot construct the next phase |
-| Target authorization | wrong/expired/self-signed authorization, client-chosen target, operation reconstruction drift and every leaf-transition field mutation fail before CAS；valid signed target binds intent/mirror/request/receipt |
+| Target authorization | wrong/expired/self-signed authorization, client-chosen target, operation reconstruction drift and every leaf-transition field mutation fail before CAS；valid signed deterministic target body/digest binds intent/mirror/request，post-CAS attestation exact binds the same authorization without a future-receipt dependency |
 | Barrier crash matrix | deterministic fault after every temp fsync, rename, directory fsync, leaf CAS response, commit-journal phase write, pointer selection, barrier and cleanup；exact from retries, exact target reconstructs and rolls forward, same-leaf divergence needs_repair |
-| Lost-response recovery | leaf CAS advances but response/journal write is lost while unrelated leaves advance；durable authorization+intent+target mirror+fresh leaf attestation complete barrier without permanent unavailable |
+| Lost-response recovery | leaf CAS advances but response/journal write is lost while unrelated leaves advance；durable pre-CAS authorization+intent+target mirror and a fresh authenticated current-target attestation reconstruct the post-CAS journal and complete barrier without permanent unavailable |
 | Cross-platform availability | every H-010 claimed release OS/architecture provisions real selected backend/service, restarts and completes CAS；unclaimed platform reports explicit unsupported and cannot block |
 | IPC trust | wrong executable/user/principal, stale session, replayed response, protocol downgrade, endpoint substitution, malformed attestation and service restart all fail closed |
 | Identity/lifecycle | fresh provision, idempotent reattach, key/backend rotation, same-device reinstall, Core reinstall, backup restore and device replacement follow each exact H-010 choice；identity ambiguity never auto-resets |
@@ -383,17 +426,28 @@ generation、validity evidence、decision artifact 与 budget echo identity 并�
 ID 在 runner/budget table/CI/result 中各恰好一次，并用 wrapper 与 anchor-service sentinels 证明真实
 installed path 已执行。
 
-schema registry 必须导出下列 exhaustive identity field sets，fixture generator 以
-`one_field_at_a_time` 对每个 field 执行 change/delete/cross-record-swap，并证明所有 consumer nonzero；
-新增 identity field 却未进入 registry 本身也是 contract failure：
+schema registry 必须导出下列 exhaustive identity field sets，且每项使用 schema 的 canonical exact
+field name/path；consumer 不得将 alias 归一化成 canonical field。fixture generator 以
+`one_field_at_a_time` 对每个 field 执行 change/delete/cross-record-swap/alias mutation，并证明所有
+consumer nonzero；新增 identity field 却未进入 registry 本身也是 contract failure。result body 的真实字段
+只叫 `decision`；任何替代名称都是 unknown alias，必须拒绝：
 
 ```text
 anchor_identity_fields = {
   backend_kind, backend_instance_id, device_key_digest, protocol_version,
   root_id, root_schema_version, principal_id, core_installation_id,
-  per_leaf_authority_id, leaf_identity,
+  per_leaf_authority_body.schema_version,
+  per_leaf_authority_body.root_identity.root_id,
+  per_leaf_authority_body.root_identity.root_schema_version,
+  per_leaf_authority_body.root_identity.principal_id,
+  per_leaf_authority_body.root_identity.core_installation_id,
+  per_leaf_authority_body.leaf_identity.leaf_kind,
+  per_leaf_authority_body.leaf_identity.installation_scope_id,
+  per_leaf_authority_id,
   from_leaf_counter, from_leaf_digest, from_leaf_attestation_digest,
-  target_leaf_counter, target_leaf_digest, target_leaf_attestation_digest,
+  target_leaf_body.schema_version, target_leaf_body.target_leaf_counter,
+  target_leaf_body.target_leaf_value_digest,
+  target_leaf_digest, post_cas_backend_attestation_digest,
   anchor_operation_id, authorized_operation_digest,
   target_authorization_digest, authorizer_key_id, authorization_nonce,
   authorization_expires_at, lock_fence_identity, mirror_generation_id,
@@ -413,7 +467,7 @@ h010_identity_fields = {
   host_kind, installed_wrapper_path, anchor_enabled, surface,
   workload_schedule_digest, successor_baseline, runs,
   budget_digest, decision_artifact_digest, initial_digest,
-  confirmation_digest, result_decision, result_body_digest
+  confirmation_digest, decision, result_body_digest
 }
 ```
 
