@@ -6,12 +6,13 @@ GH-614: https://github.com/majiayu000/vibeguard/issues/614
 
 ## 用户问题
 
-VibeGuard 的必需 macOS CI 与 Ubuntu 共用一个 30 分钟的 `validate-and-test`
-作业上限。PR #613 的实现未修改任何 setup 路径，但 macOS 在
-`Setup regression tests` 仍持续正常输出时，于 30 分 21 秒被 GitHub 取消；
-同一 SHA 重跑后又在 26 分 04 秒通过。近期成功样本还出现过 29 分 44 秒，
-距离上限只剩 16 秒。这会把 runner 时长波动误报为产品回归，并阻止 setup
-之后的必需检查产生证据。
+GH614 的首次修复把必需 `validate-and-test` 作业上限从 30 分钟提高到 45 分钟，
+但新的真实运行证明这仍不足。PR #727 head
+`3947abd7583ac90a93516ee8476d807c3856dfca` 的 run `30651857110`、
+macOS job `91226778977` 从 19:44:43Z 运行至 20:30:02Z，耗时 45 分 16 秒后
+被取消。前 63 个步骤全部通过，其中 `Setup regression tests` 完整通过且耗时约
+34 分钟；第 64 步 `Guard unit tests` 被取消，后续 precision、performance 与
+benchmark 步骤未运行。这是同一类总作业上限回归，因此 Issue 重开而非另建问题。
 
 ## 目标
 
@@ -30,7 +31,7 @@ VibeGuard 的必需 macOS CI 与 Ubuntu 共用一个 30 分钟的 `validate-and-
 ## Behavior Invariants
 
 1. B-001 — 在已观测的健康 macOS 时长波动范围内，必需 CI 不得再因旧的
-   30 分钟总作业上限取消；新上限仍必须是有限值。
+   45 分钟总作业上限取消；新上限仍必须是有限值。
 2. B-002 — `bash tests/test_setup.sh` 必须继续在 macOS 必需 CI 中完整执行，
    且非零退出必须使该 check 失败。
 3. B-003 — `CI (ubuntu-latest)`、`CI (macos-latest)` 与
@@ -46,12 +47,12 @@ VibeGuard 的必需 macOS CI 与 Ubuntu 共用一个 30 分钟的 `validate-and-
 
 ## 验收标准
 
-- [ ] `validate-and-test` 使用 45 分钟的有限上限，为已记录的 30 分 21 秒取消点
-      提供 14 分 39 秒余量。
+- [ ] `validate-and-test` 使用 60 分钟的有限上限，为已记录的 45 分 16 秒取消点
+      提供 14 分 44 秒余量。
 - [ ] `bash tests/test_setup.sh` 仍是 `validate-and-test` 中的精确阻塞命令。
 - [ ] Ubuntu/macOS matrix、Windows job、Self-Application job 与
       `Benchmark Report` 依赖关系保持不变。
-- [ ] 新 workflow contract 在实现前因 30 分钟旧值失败，在实现后通过。
+- [ ] 新 workflow contract 在实现前因 45 分钟旧值失败，在实现后通过。
 - [ ] 实现 head 的本地 focused/broad gate 与完整 GitHub CI 全绿。
 
 ## 边界情况清单

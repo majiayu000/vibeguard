@@ -636,7 +636,7 @@ def validate(workflow: str) -> None:
     job_lines = job.splitlines()
     required_lines = {
         "stable required check name": "    name: CI (${{ matrix.os }})",
-        "finite timeout headroom": "    timeout-minutes: 45",
+        "finite timeout headroom": "    timeout-minutes: 60",
         "Ubuntu/macOS matrix": "        os: [ubuntu-latest, macos-latest]",
     }
     for description, line in required_lines.items():

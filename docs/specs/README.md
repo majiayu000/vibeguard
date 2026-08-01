@@ -37,7 +37,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | `GH621/` | Implemented reference | Behavior-preserving extraction of install-time runtime acquisition, provenance, and source fallback from the oversized setup entrypoint |
 | `codex-app-observability-plugin.md` | Implemented reference | Codex App plugin packaging, dashboard generation, observability commands, and plugin privacy boundaries |
 | `GH618/` | Implemented reference | Manifest-driven compliance language scope, guard-pack reporting, and fail-visible config handling |
-| `GH614/` | Implemented reference | Bounded macOS CI timeout headroom while preserving required check names and blocking setup coverage |
+| `GH614/` | Draft | Reopened macOS CI headroom correction from 45 to 60 minutes while preserving required check names and blocking setup coverage |
 | `GH611/` | Implemented reference | Stable multi-sample hook P95 latency gate replacing the flaky 3-sample max collapse |
 | `GH608/` | Implemented reference | Correct default `VIBEGUARD_DIR` resolution for standalone compliance-check runs |
 | `GH605/` | Implemented reference | Rust test-path classifier recognition of `*_tests.rs` for RS-03 precision |
