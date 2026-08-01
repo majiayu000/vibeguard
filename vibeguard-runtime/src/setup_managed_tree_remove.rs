@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const USAGE: &str = "Usage: vibeguard-runtime setup-state-quarantine-managed-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";
+const RELEASE_USAGE: &str = "Usage: vibeguard-runtime setup-state-release-quarantined-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";
 const TRANSACTION_VERSION: u64 = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -117,6 +118,73 @@ pub fn run(args: &[String]) -> SetupResult<()> {
     Ok(())
 }
 
+pub fn release(args: &[String]) -> SetupResult<()> {
+    if args.len() != 4 {
+        return Err(RELEASE_USAGE.into());
+    }
+    let current_state = Path::new(&args[0]);
+    let previous_state = Path::new(&args[1]);
+    let states = [current_state, previous_state];
+    let dest = absolute(Path::new(&args[2]));
+    let parent = dest
+        .parent()
+        .ok_or("managed tree has no parent directory")?;
+    let name = dest
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .ok_or("managed tree name must be non-empty UTF-8")?;
+    let Some(record) = active_record(current_state, &dest)? else {
+        println!("ABSENT");
+        return Ok(());
+    };
+    verify_exact(&states, &dest, &args[3], &dest)?;
+
+    let mut matched = None;
+    for transaction_path in transaction_paths(parent, name)? {
+        let transaction = read_transaction(&transaction_path)?;
+        validate_transaction(
+            &transaction,
+            &transaction_path,
+            &dest,
+            parent,
+            name,
+            &args[3],
+        )?;
+        if record_value(&transaction) != record {
+            continue;
+        }
+        if matched.is_some() {
+            return Err("multiple quarantine transactions match the active record".into());
+        }
+        matched = Some((transaction_path, transaction));
+    }
+    let (transaction_path, mut transaction) =
+        matched.ok_or("active quarantine record has no exact durable transaction")?;
+    if transaction.phase != "committed"
+        && transaction.phase != "intent"
+        && transaction.phase != "released"
+    {
+        return Err("active quarantine transaction is not releasable".into());
+    }
+    let quarantine = Path::new(&transaction.quarantine);
+    let metadata = fs::symlink_metadata(quarantine)
+        .map_err(|error| format!("quarantine retention cannot be proven: {error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("quarantine retention path is not a regular directory".into());
+    }
+
+    transaction.phase = "released".into();
+    write_json_durable(&transaction_path, &transaction_value(&transaction))?;
+    inject_failure(
+        "VIBEGUARD_TEST_RELEASE_AFTER_TRANSACTION",
+        "injected failure after quarantine release transaction",
+    )?;
+    remove_record(current_state, &dest)?;
+    println!("RELEASED");
+    Ok(())
+}
+
 fn recover_or_find_committed(
     states: &[&Path; 2],
     current_state: &Path,
@@ -125,7 +193,7 @@ fn recover_or_find_committed(
     name: &str,
     source_prefix: &str,
 ) -> SetupResult<Option<PathBuf>> {
-    let active_record = active_record(states, dest)?;
+    let active_record = active_record(current_state, dest)?;
     let mut committed = None;
     for transaction_path in transaction_paths(parent, name)? {
         let mut transaction = read_transaction(&transaction_path)?;
@@ -161,7 +229,7 @@ fn recover_or_find_committed(
                 publish_record(current_state, &transaction)?;
                 committed = Some(quarantine);
             }
-            "committed" | "restored" => {}
+            "committed" | "restored" | "released" => {}
             phase => return Err(format!("unknown managed-tree transaction phase: {phase}").into()),
         }
     }
@@ -293,28 +361,18 @@ fn verify_exact(
     Ok(())
 }
 
-fn active_record(states: &[&Path; 2], dest: &Path) -> SetupResult<Option<Value>> {
-    let mut record = None;
-    let dest_text = path_text(dest);
-    for state_path in states {
-        if !state_path.exists() {
-            continue;
-        }
-        let state = read_state(state_path)?;
-        validate_state_metadata(&state)?;
-        let candidate = state
-            .get("disabled_skill_quarantines")
-            .and_then(Value::as_object)
-            .and_then(|records| records.get(&dest_text))
-            .cloned();
-        if let Some(candidate) = candidate {
-            if record.as_ref().is_some_and(|value| value != &candidate) {
-                return Err("install-state generations disagree on quarantine locator".into());
-            }
-            record = Some(candidate);
-        }
+fn active_record(current_state: &Path, dest: &Path) -> SetupResult<Option<Value>> {
+    if !current_state.exists() {
+        return Ok(None);
     }
-    Ok(record)
+    let state = read_state(current_state)?;
+    validate_state_metadata(&state)?;
+    let dest_text = path_text(dest);
+    Ok(state
+        .get("disabled_skill_quarantines")
+        .and_then(Value::as_object)
+        .and_then(|records| records.get(&dest_text))
+        .cloned())
 }
 
 fn publish_record(state_path: &Path, transaction: &Transaction) -> SetupResult<()> {
@@ -335,6 +393,26 @@ fn publish_record(state_path: &Path, transaction: &Transaction) -> SetupResult<(
         return Err("refusing to replace a different quarantine locator".into());
     }
     records.insert(transaction.dest.clone(), record);
+    write_json_atomic(state_path, &state)?;
+    sync_parent(state_path)
+}
+
+fn remove_record(state_path: &Path, dest: &Path) -> SetupResult<()> {
+    let mut state = read_state(state_path)?;
+    validate_state_metadata(&state)?;
+    let state_object = state
+        .as_object_mut()
+        .ok_or("install-state root must be an object")?;
+    let records = state_object
+        .get_mut("disabled_skill_quarantines")
+        .and_then(Value::as_object_mut)
+        .ok_or("active quarantine record is missing from install state")?;
+    if records.remove(&path_text(dest)).is_none() {
+        return Err("active quarantine record changed before release".into());
+    }
+    if records.is_empty() {
+        state_object.remove("disabled_skill_quarantines");
+    }
     write_json_atomic(state_path, &state)?;
     sync_parent(state_path)
 }

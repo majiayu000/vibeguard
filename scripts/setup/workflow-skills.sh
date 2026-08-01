@@ -101,6 +101,28 @@ report_skill_restore() {
   return "${tracked_rc}"
 }
 
+release_reenabled_skill() {
+  local dest="$1" skill="$2" source_path="$3" release_output
+  if ! release_output="$(setup_runtime setup-state-release-quarantined-tree \
+    "${STATE_FILE}" "${STATE_PREVIOUS_FILE}" "${dest}" "${source_path}" 2>&1)"; then
+    red "  ERROR: failed to release retained quarantine after re-enabling ${skill}"
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] && red "  ${line}"
+    done <<< "${release_output}"
+    return 1
+  fi
+  case "${release_output}" in
+    ABSENT) ;;
+    RELEASED)
+      yellow "  RE-ENABLED ${skill} from the canonical source; prior quarantine retained."
+      ;;
+    *)
+      red "  ERROR: invalid quarantine release result for re-enabled skill ${skill}"
+      return 1
+      ;;
+  esac
+}
+
 install_manifest_skills() {
   local target_uri="$1" dest_dir="$2" install_fn="$3" apply_disabled="${4:-0}"
   local skill_links source_path skill
@@ -124,6 +146,9 @@ install_manifest_skills() {
       fi
       "${install_fn}" \
         "${REPO_DIR}/${source_path}" "${dest_dir}/${skill}" "${source_path}" "${skill}" || return 1
+      if [[ "${apply_disabled}" == "1" ]]; then
+        release_reenabled_skill "${dest_dir}/${skill}" "${skill}" "${source_path}" || return 1
+      fi
     else
       yellow "  SKIP ${skill} (source not found: ${source_path})"
     fi

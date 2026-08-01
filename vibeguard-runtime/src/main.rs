@@ -493,6 +493,11 @@ static COMMANDS: &[Command] = &[
         handler: setup_managed_tree_remove::run,
     },
     Command {
+        name: "setup-state-release-quarantined-tree",
+        usage: "<state-file> <previous-state-file> <dest-dir> <source-prefix>  — release a retained quarantine after canonical re-enable",
+        handler: setup_managed_tree_remove::release,
+    },
+    Command {
         name: "setup-state-remove-managed-tree",
         usage: "<state-file> <previous-state-file> <dest-dir> <source-prefix>  — compatibility alias for non-destructive managed-tree quarantine",
         handler: setup_managed_tree_remove::run,

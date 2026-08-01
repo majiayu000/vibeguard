@@ -94,6 +94,7 @@ setup_runtime_supports() {
     setup-state-list-tracked-under \
     setup-state-verify-managed-tree \
     setup-state-quarantine-managed-tree \
+    setup-state-release-quarantined-tree \
     setup-state-generation \
     setup-state-mark-complete \
     setup-lock-publish-owner \

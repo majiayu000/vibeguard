@@ -132,24 +132,25 @@ assert_cmd "blocked clean preserves install assets" test \
 
 gh719_remove_race_home="${TMP_HOME}/gh719-remove-race-home"
 gh719_remove_race_skill="${gh719_remove_race_home}/.codex/skills/plan-flow"
-mkdir -p "${gh719_remove_race_skill}"
+mkdir -p "${gh719_remove_race_skill}" "${gh719_remove_race_home}/.vibeguard"
 printf 'managed\n' > "${gh719_remove_race_skill}/SKILL.md"
+python3 - "${gh719_remove_race_home}/.vibeguard/install-state.json" \
+  "${gh719_remove_race_skill}/SKILL.md" <<'PY'
+import json, sys
+state, skill_file = sys.argv[1:]
+with open(state, "w", encoding="utf-8") as handle:
+    json.dump({"version": 1, "files": {skill_file: {
+        "source": "skills/plan-flow/SKILL.md", "type": "copy",
+        "checksum": "sha256:5b4bc29f140e30c01417d810e700ecc54a84a0107566d84215b42e5742ef8d96"
+    }}}, handle)
+PY
 gh719_remove_race_rc=0
-HOME="${gh719_remove_race_home}" bash -c '
+HOME="${gh719_remove_race_home}" \
+  VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  VIBEGUARD_TEST_REMOVE_PUBLIC_REPLACEMENT='user-owned after verify' bash -c '
   source "$1/scripts/setup/lib.sh"
   source "$1/scripts/lib/install-state.sh"
   dest="$2"
-  ownership_checks=0
-  state_managed_tree_owned() {
-    ownership_checks=$((ownership_checks + 1))
-    if [[ "${ownership_checks}" -eq 1 ]]; then
-      mv -- "${dest}" "${dest}.verified"
-      mkdir -p "${dest}"
-      printf "user-owned after verify\n" > "${dest}/custom.txt"
-      return 0
-    fi
-    return 1
-  }
   remove_disabled_skill \
     "${dest}" plan-flow "$(dirname "${dest}")" skills/plan-flow
 ' _ "${REPO_DIR}" "${gh719_remove_race_skill}" >/dev/null 2>&1 \
@@ -158,6 +159,10 @@ assert_cmd "concurrent skill replacement fails disabled removal" test \
   "${gh719_remove_race_rc}" -ne 0
 assert_cmd "concurrent user skill replacement is preserved" test \
   -f "${gh719_remove_race_skill}/custom.txt"
+gh719_remove_race_quarantine="$(find "$(dirname "${gh719_remove_race_skill}")" \
+  -maxdepth 1 -type d -name '.plan-flow.vibeguard-quarantine.*' -print -quit)"
+assert_cmd "concurrent replacement retains the managed quarantine" test \
+  -f "${gh719_remove_race_quarantine}/SKILL.md"
 
 gh719_quarantine_collision_home="${TMP_HOME}/gh719-quarantine-collision-home"
 gh719_quarantine_collision_skill="${gh719_quarantine_collision_home}/.codex/skills/plan-flow"

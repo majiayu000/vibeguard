@@ -188,6 +188,66 @@ fn compatibility_remove_command_never_deletes_quarantine() {
 }
 
 #[test]
+fn reenabled_canonical_tree_can_be_quarantined_again() {
+    let fixture = Fixture::new("quarantine-managed-tree-reenable-cycle");
+    let first = fixture.run(&[]);
+    assert_eq!(first.status.code(), Some(0), "{}", stderr(&first));
+    let first_quarantine = fixture.quarantines()[0].clone();
+    let mut previous: Value =
+        serde_json::from_slice(&fs::read(&fixture.previous).unwrap()).unwrap();
+    previous["disabled_skill_quarantines"] = fixture.state()["disabled_skill_quarantines"].clone();
+    write_json(&fixture.previous, &previous);
+    fs::create_dir_all(&fixture.skill).expect("public skill should be recreated");
+    fs::write(fixture.skill.join("SKILL.md"), "managed\n")
+        .expect("canonical public skill should be restored");
+
+    let released = fixture.run_command("setup-state-release-quarantined-tree", &[]);
+    assert_eq!(released.status.code(), Some(0), "{}", stderr(&released));
+    assert_eq!(String::from_utf8_lossy(&released.stdout), "RELEASED\n");
+    assert!(fixture.record().is_none());
+    assert!(first_quarantine.join("SKILL.md").is_file());
+    let first_transaction: Value =
+        serde_json::from_slice(&fs::read(&fixture.transactions()[0]).unwrap()).unwrap();
+    assert_eq!(first_transaction["phase"], "released");
+
+    let second = fixture.run(&[]);
+    assert_eq!(second.status.code(), Some(0), "{}", stderr(&second));
+    assert!(!fixture.skill.exists());
+    assert_eq!(fixture.quarantines().len(), 2);
+    assert!(first_quarantine.join("SKILL.md").is_file());
+    assert!(fixture.record().is_some());
+}
+
+#[test]
+fn interrupted_reenable_release_is_retryable_without_data_loss() {
+    let fixture = Fixture::new("quarantine-managed-tree-release-retry");
+    let first = fixture.run(&[]);
+    assert_eq!(first.status.code(), Some(0), "{}", stderr(&first));
+    fs::create_dir_all(&fixture.skill).expect("public skill should be recreated");
+    fs::write(fixture.skill.join("SKILL.md"), "managed\n")
+        .expect("canonical public skill should be restored");
+
+    let interrupted = fixture.run_command(
+        "setup-state-release-quarantined-tree",
+        &[("VIBEGUARD_TEST_RELEASE_AFTER_TRANSACTION", "1")],
+    );
+    assert_eq!(interrupted.status.code(), Some(1));
+    assert!(stderr(&interrupted).contains("injected failure after quarantine release"));
+    assert!(fixture.record().is_some());
+    assert!(fixture.skill.join("SKILL.md").is_file());
+    assert!(fixture.quarantines()[0].join("SKILL.md").is_file());
+    let transaction: Value =
+        serde_json::from_slice(&fs::read(&fixture.transactions()[0]).unwrap()).unwrap();
+    assert_eq!(transaction["phase"], "released");
+
+    let retry = fixture.run_command("setup-state-release-quarantined-tree", &[]);
+    assert_eq!(retry.status.code(), Some(0), "{}", stderr(&retry));
+    assert!(fixture.record().is_none());
+    assert!(fixture.skill.join("SKILL.md").is_file());
+    assert!(fixture.quarantines()[0].join("SKILL.md").is_file());
+}
+
+#[test]
 fn crash_after_rename_recovers_then_commits_without_deletion() {
     let fixture = Fixture::new("quarantine-managed-tree-rename-crash");
     let crashed = fixture.run(&[("VIBEGUARD_TEST_QUARANTINE_AFTER_RENAME", "1")]);
