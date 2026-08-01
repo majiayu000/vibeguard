@@ -259,6 +259,19 @@ assert_cmd "Linux proc snapshots provide portable group state without procps fla
     test "${table}" = $'"'"'1 0 S\n4242 4242 S\n4243 4242 Z'"'"'
   ' _ "${group_proc_root}"
 
+tty_proc_root="${TMP_HOME}/bootstrap-tty-proc"
+mkdir -p "${tty_proc_root}/42" "${tty_proc_root}/43" "${tty_proc_root}/44"
+printf '%s\n' '42 (foreground shell) S 1 42 42 34816 42 0' > "${tty_proc_root}/42/stat"
+printf '%s\n' '43 (background ) shell) S 1 43 42 34816 42 0' > "${tty_proc_root}/43/stat"
+printf '%s\n' 'malformed' > "${tty_proc_root}/44/stat"
+assert_cmd "Linux proc TTY probe distinguishes foreground, background, and malformed records" \
+  env REPO_DIR="${REPO_DIR}" bash -c '
+    set -euo pipefail; source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    bootstrap_linux_tty_is_foreground_from_proc_root "$1" 42
+    ! bootstrap_linux_tty_is_foreground_from_proc_root "$1" 43
+    ! bootstrap_linux_tty_is_foreground_from_proc_root "$1" 44
+  ' _ "${tty_proc_root}"
+
 dead_lock_home="${TMP_HOME}/bootstrap-dead-lock-home"
 dead_lock_dir="${dead_lock_home}/.vibeguard/dist/.bootstrap.lock"
 mkdir -p "${dead_lock_dir}"

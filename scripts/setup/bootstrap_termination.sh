@@ -99,9 +99,31 @@ bootstrap_setup_gate_wait() {
   return 124
 }
 
+bootstrap_linux_tty_is_foreground_from_proc_root() {
+  local root="$1" pid="$2" record rest pgid tpgid had_noglob=0
+  [[ "${pid}" =~ ^[1-9][0-9]*$ ]] || return 1
+  IFS= read -r record < "${root}/${pid}/stat" || return 1
+  [[ "${record}" == "${pid} "* && "${record}" == *") "* ]] || return 1
+  rest="${record##*) }"
+  [[ $- == *f* ]] && had_noglob=1
+  set -f
+  # shellcheck disable=SC2086 # Kernel stat fields require intentional word splitting.
+  set -- ${rest}
+  [[ "${had_noglob}" == "1" ]] || set +f
+  [[ $# -ge 6 ]] || return 1
+  pgid="$3" tpgid="$6"
+  [[ "${pgid}" =~ ^[1-9][0-9]*$ && "${pgid}" == "${tpgid}" ]]
+}
+
 bootstrap_setup_tty_is_foreground() {
-  local terminal_state
+  local terminal_state kernel
   [[ -t 0 ]] || return 1
+  kernel="$(command -p uname -s 2>/dev/null)" || return 1
+  if [[ "${kernel}" == "Linux" ]]; then
+    bootstrap_linux_tty_is_foreground_from_proc_root /proc "$$"
+    return
+  fi
+  [[ "${kernel}" == "Darwin" ]] || return 1
   terminal_state="$(LC_ALL=C ps -p $$ -o pgid= -o tpgid= 2>/dev/null)" || return 1
   awk 'NF == 2 && $1 ~ /^[1-9][0-9]*$/ && $1 == $2 { ok = 1 }
        NF != 2 { bad = 1 }
