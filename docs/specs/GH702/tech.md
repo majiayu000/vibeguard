@@ -237,10 +237,10 @@ Recommended H-004 layout（未批准）：
   overrides/<source_storage_key>/<target>/<profile>.json
 ```
 
-三个 mirror 的 authority 是 user-state tree 外、各自独立单调的 backend leaf；root 仅是稳定 trust container。
-record identity、intent、two-generation mirror、journal/barrier/crash matrix 只由 supporting contract 定义。
-runtime/management 要求 fresh per-leaf attestation 认证 selected mirror 的 exact leaf counter/value digest；
-proof refresh 或 unrelated leaf/aggregate-root progress 不得使 mirror 失效，unknown same-leaf state 才 fail closed；
+anchor-block 的三个 mirror 由 user-state tree 外独立单调 backend leaf 授权；root 只是 trust container。
+supporting contract 独占 intent/mirror/journal/barrier/crash 语义；fresh proof 认证 selected mirror 的 stable
+counter/value identity，proof refresh 不改变 equality。no-block 改用 signed release-pinned generation。
+unrelated leaf/aggregate-root progress 不得使 mirror 失效，unknown same-leaf transition 才 fail closed；
 已证明 target leaf local lag 从 intent/journal roll forward。backend/platform 仍未批准。
 
 `source_storage_key` 是 closed union：official 为
@@ -258,12 +258,12 @@ validity evidence、previous/target generation；再 CAS+fsync external floor，
 保持 fail closed。runtime 验证 pointer generation `>= floor`，旧 replay 即使 digest 匹配也
 无效。pack/environment/CLI/publication artifact 均不能改写。每个 active generation 有独立
 closed、Core-owned runtime-state entry，
-绑定 installation generation、committed policy exact identity、`clock_epoch`、sequence、high-water、latch 与 deterministic time-leaf state body/digest；
-fresh attestation 只独立认证 state，proof bytes/digest refresh 不得使 entry/mirror 失效。runtime 总先取得
-`policy.lock`/等价 fence，证明 policy/install authorities 与 pointer/floors exact current，并持有到 decision。
-current warn/off/no-data 跳过 runtime-state/time leaf；只有 block candidate 再取得 bounded runtime-state lock，
-对可信 observation 先推进 high-water，fallback 同时锁存 reason。取锁前缓存不得执行；candidate 的
-time-state lock/CAS 失败才 denial，latch 只有新 management generation 可清除。
+绑定 installation generation、committed policy exact identity、`clock_epoch`、sequence、high-water、latch 与 deterministic time-leaf state；
+fresh proof 只独立认证 state，proof bytes/digest refresh 不得使 entry/mirror 失效。runtime 先验证
+release-pinned signed H-010 mode：anchor-block 在 `policy.lock`/fence 下验证 policy/install stable state
+与 fresh proof；authenticated-no-block 重算 predecessor-linked generation digest且 ceiling=warn。
+合法 warn/off/no-data 跳过 time leaf；block claim/candidate 仍 fail closed，candidate 才取 runtime-state
+lock推进 high-water并锁存 fallback。取锁前缓存不得执行，latch 仅新 management generation 可清除。
 新进程继承 durable high-water，不得以启动时间
 重置。同 epoch 的 audit 不得降低它；显式 trusted-clock reconciliation 必须验证 Core-approved
 time evidence，在 management locks 下重新 audit，递增 epoch，并将 evidence、新 generation
@@ -462,14 +462,13 @@ normalized evaluation-time 变化产生新 digest 并触发 audit，即使 colla
 这包括只跨越 freshness/expiry/revocation window、其他 bytes 均未变化的情况。
 active block 失去 eligibility 时按 H-008 action 事务降级，失败进入 `needs_repair`。
 
-runtime hot path 先在 bounded policy lock/fence 下验证 external policy/install per-leaf authorities 与本地 pointer/floor exact current，并持有到 decision；
-失败时 committed generation 未建立，必须 conservative deny/nonzero，不能信任 replayed warn/off。验证后
-本就是 warn/off（包括 no-data/below-floor）的 record 保持原 decision、跳过 trusted-time leaf，time-anchor
-unavailable 不能升级 denial。只有 current committed official/local block candidate 才取得 bounded
-runtime-state lock，并在 decision 执行前持续重验 policy/active pointer、floor、state 与 per-leaf proof。policy identity drift 使用 semantic fallback；
-即使随后因 expiry/rollback 选择 fallback，也先 CAS 推进 high-water 并在同一 state 锁存 closed reason +
-`audit_required`，防止旧 block 复活。候选 block 的 pointer/floor/state/per-leaf proof 缺失、malformed、
-replay 或任一 lock/CAS 失败才是 `runtime_guard_unavailable`，保守拒绝并非零返回；runtime 不得因后续
+runtime hot path 从 verified release 选择 H-010 mode。anchor-block 在 bounded policy fence 下验证
+external policy/install stable states、fresh proofs与 pointer/floors；失败时 block-capable generation
+未建立，candidate deny/nonzero。authenticated-no-block 用 signed release pin + predecessor-linked
+generation digest 建立 replay-safe warn ceiling；external authority 缺失为 not_applicable，合法 warn/off
+不升级 denial，任何 block claim 非零失败。current block candidate 才取得 runtime-state lock；即使随后
+expiry/rollback fallback，也先 CAS 推进 high-water并锁存 `audit_required`。candidate 的 state/proof/
+lock/CAS 失败是 `runtime_guard_unavailable`；runtime 不得因后续
 时钟或 policy bytes 返回旧值而清除 latch。
 clock rollback 只有显式 reconciliation 可恢复；其他 official block 需 fresh audit，promotion
 还需 fresh confirmation。
@@ -635,8 +634,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | Policy journal + per-leaf anchor CAS | Core-reconstructed signed target authorization + intent/fence/barrier bind exact authority；rotation/identity drift cannot reuse old decision；post-floor drift rolls forward suspended |
-| B-028 insufficient evidence degrades | Anchored generation-scoped runtime guard | authenticate current generation before classification；current warn/off/no-data skip time anchor；block fallback latches time；lost-response resumes |
+| B-027 policy-owned thresholds | Policy journal + H-010 mode identity | anchor-block validates stable state + refreshable proof；no-block uses signed release-pinned generation；replay cannot authorize block |
+| B-028 insufficient evidence degrades | Generation-scoped runtime guard | valid no-block warn/off survives absent backend；block claim/candidate fails closed；fallback latches time；lost-response resumes |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
 | B-031 same gate for core/community | Shared eligibility function | identical evidence inputs under curated/community publishers yield identical eligibility; badge/high severity cannot bypass |
@@ -675,14 +674,13 @@ vibeguard add <locator>
        └─ rollback/recovery/needs_repair
 
 runtime hook
-  └─ authenticate current policy/install per-leaf authorities + local pointer/floors
-       ├─ stale/unavailable → current generation unestablished → conservative deny + nonzero
-       ├─ current committed warn/off/no-data → keep decision；skip trusted-time leaf
-       └─ current committed block basis → generation-scoped time authority/state
-            ├─ identity/time/horizon valid → committed block
-            ├─ drift/expiry/rollback → persisted fallback + audit_required
-            ├─ time-state/lock/CAS unavailable → conservative deny + nonzero
-            └─ no registry/network/telemetry access
+  └─ verify release-pinned signed H-010 mode
+       ├─ authenticated-no-block generation → legal warn/off；backend not_applicable
+       │    └─ any block claim → conservative deny + nonzero
+       └─ anchor-block → stable policy/install state + fresh proof + pointer/floors
+            ├─ unavailable/block claim → conservative deny + nonzero
+            ├─ current warn/off → keep decision；skip time leaf
+            └─ block → time authority；fallback latches；no network/telemetry
 ```
 
 持久化面是 closed set：content-addressed verified store、index/registry-event caches、
@@ -745,8 +743,8 @@ confirmation 声明。runtime enforcement、list local state 和 remove 已安�
   - tamper/rollback/freeze/yank/revoke/offline/unsafe archive；
   - failure/cancel/crash at every transaction stage + recovery；
   - parallel target lock、user/other-pack canaries、legacy safe-bash migration；
-  - runtime network/secret/path sentinels、policy rotation before expiry、clock rollback within the
-    validity interval/across restart/high-water corruption和 feedback redaction。
+  - runtime sentinels、refreshed-proof same-state、no-block replay/absent-backend、breach-mirror
+    one-sided mutations、policy rotation、clock rollback/high-water corruption和 feedback redaction。
 - [ ] Release contract:
   - verified payload包含 client/schemas/policy；
   - GH-699 actual launcher discovery，不 hard-code spec path；
