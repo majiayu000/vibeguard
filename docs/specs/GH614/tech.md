@@ -13,7 +13,7 @@ GH-614: https://github.com/majiayu000/vibeguard/issues/614
 | Area | Files | Current behavior | Why relevant |
 | --- | --- | --- | --- |
 | 主 CI matrix | `.github/workflows/ci.yml:21` | `validate-and-test` 生成稳定的 Ubuntu/macOS required check | 必须保持 job id、名称表达式和 OS matrix |
-| 总作业上限 | `.github/workflows/ci.yml:24` | Ubuntu/macOS 共用 `timeout-minutes: 45` | macOS 已在 45 分 16 秒被取消 |
+| 总作业上限 | `.github/workflows/ci.yml:24` | Ubuntu/macOS 共用 `timeout-minutes: 45` | macOS 已在 45 分 19 秒被取消 |
 | setup 覆盖 | `.github/workflows/ci.yml:282` | `bash tests/test_setup.sh` 是普通阻塞步骤 | 不能删除、跳过、弱化或改成 advisory |
 | 后续回归 | `.github/workflows/ci.yml:294` | setup 后仍有 GC、hook、stats、precision、performance 与 benchmark 检查 | 总作业取消会使后续证据全部缺失 |
 | benchmark 依赖 | `.github/workflows/ci.yml:485` | `Benchmark Report` 依赖完整 `validate-and-test` | 必须保持依赖和现有 check 拓扑 |
@@ -35,7 +35,7 @@ precision、performance 与 benchmark 被跳过。实现不得通过改名 requi
 2. 保持 `validate-and-test` job id、`CI (${{ matrix.os }})` 名称、
    `os: [ubuntu-latest, macos-latest]`、全部步骤顺序及
    `benchmark-report.needs: validate-and-test` 不变。
-3. 60 分钟相对已观测的 45 分 16 秒取消点提供 14 分 44 秒余量。它仍是
+3. 60 分钟相对已观测的 45 分 19 秒取消点提供 14 分 41 秒余量。它仍是
    fail-closed 的有限上限；正常运行的计费时长不变，只有异常挂起时每个 matrix
    leg 的最坏上限增加 15 runner-minutes。
 4. 更新 `tests/test_workflow_contracts.sh` 的 `ci setup timeout headroom` contract：
@@ -67,7 +67,7 @@ leg 成功后才触发 `Benchmark Report`。没有新增持久化、外部写入
 
 ## 备选方案
 
-- 只重跑超时 job：45 分 16 秒的真实取消已证明当前边界不足；重跑不能消除错误
+- 只重跑超时 job：45 分 19 秒的真实取消已证明当前边界不足；重跑不能消除错误
   状态与人工等待，因此拒绝。
 - 拆分独立 macOS setup job：能隔离长步骤，但会引入新的 check 名、branch
   protection 迁移、依赖聚合和额外 runner 启动；对当前 P0 修复风险过高，后续可在

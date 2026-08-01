@@ -64,6 +64,6 @@ handoff:
     human_review: pending
 ```
 
-关键决策：使用 60 分钟有限总上限，为 45 分 16 秒取消点提供 14 分 44 秒余量；
+关键决策：使用 60 分钟有限总上限，为 45 分 19 秒取消点提供 14 分 41 秒余量；
 不拆 job、不改 required context、不弱化测试。纠正分支从 `origin/main` 的
 `ce5bada07bda1ae72b5488fcf08be8982185a115` 创建；合并与最终批准保留给人类。

@@ -9,7 +9,7 @@ GH-614: https://github.com/majiayu000/vibeguard/issues/614
 GH614 的首次修复把必需 `validate-and-test` 作业上限从 30 分钟提高到 45 分钟，
 但新的真实运行证明这仍不足。PR #727 head
 `3947abd7583ac90a93516ee8476d807c3856dfca` 的 run `30651857110`、
-macOS job `91226778977` 从 19:44:43Z 运行至 20:30:02Z，耗时 45 分 16 秒后
+macOS job `91226778977` 从 19:44:43Z 运行至 20:30:02Z，耗时 45 分 19 秒后
 被取消。前 63 个步骤全部通过，其中 `Setup regression tests` 完整通过且耗时约
 34 分钟；第 64 步 `Guard unit tests` 被取消，后续 precision、performance 与
 benchmark 步骤未运行。这是同一类总作业上限回归，因此 Issue 重开而非另建问题。
@@ -47,8 +47,8 @@ benchmark 步骤未运行。这是同一类总作业上限回归，因此 Issue 
 
 ## 验收标准
 
-- [ ] `validate-and-test` 使用 60 分钟的有限上限，为已记录的 45 分 16 秒取消点
-      提供 14 分 44 秒余量。
+- [ ] `validate-and-test` 使用 60 分钟的有限上限，为已记录的 45 分 19 秒取消点
+      提供 14 分 41 秒余量。
 - [ ] `bash tests/test_setup.sh` 仍是 `validate-and-test` 中的精确阻塞命令。
 - [ ] Ubuntu/macOS matrix、Windows job、Self-Application job 与
       `Benchmark Report` 依赖关系保持不变。
