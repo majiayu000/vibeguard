@@ -631,7 +631,7 @@ JSON：
 | B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` maps unknown/incompatible evidence to closed partial reasons；real v1 missing identity is `legacy_evidence` partial，schema-v2 missing required identity is terminal `event_identity_missing`/no-publish，present-ID conflicting tuples are `event_identity_conflict` partial |
 | B-033 artifact evidence binding | stable content digest verifier + doctor/export | generated/attempt metadata changes preserve digest；tampered coverage/data/status reason/evidence/window/taxonomy changes alter/reject digest |
 | B-034 interruption recovery | pending state + atomic publish/lifecycle recovery | kill-at-each-phase fixtures followed by retry leave one owned job/current artifact and no temp/pending success claim |
-| B-035 closed live+archive snapshot | coverage contract + real launchers/authority/reader | preserves source bootstrap；exact seq0；installed Git pre-commit parent slot-before-exec and pre-slot failure fixture；outer/hook/index fan-out duplicate/sibling crash；prefix capacity + segment early seal；all-retained preflight before content budget |
+| B-035 closed live+archive snapshot | coverage contract + real launchers/authority/reader | preserves source bootstrap；exact seq0；Planned Changes Manifest 的 `test_precommit_authority.sh` entry exclusively maps `git_pre_commit` slot-before-exec and asserts reservation-before-guard、pre-slot `reservation_rejected` nonzero/zero-write/`guard_started=false`、same-token exactly-one `committed|gap|aborted_before_spawn` outcome；outer/hook/index fan-out duplicate/sibling crash；prefix capacity + segment early seal；all-retained preflight before content budget |
 | B-036 structured classification at creation | event schema v2 + producer registry + Rust/shell/Python writers | version+digest exact match and typed zero-match map `unclassified_event`；fixtures enforce v1 missing → `legacy_evidence` partial，v2 required-identity missing → terminal/no-publish，present-ID conflict → `event_identity_conflict` partial |
 | B-037 byte-stable event identity | writer-generated event ID + GC byte preservation | append→rotate→gzip→read preserves ID; copy dedupes, retry differs；duplicate-ID tuple permutations keep one deterministic conflict digest |
 | B-038 headline publication gate | summary schema + all renderers | empty/partial fixtures只接受 H-004 选中的 null 或 absent 形状且跨 renderer 一致；invalid evidence不发布；complete nonempty 可含真实零 |
@@ -737,8 +737,10 @@ bootstrap 边界，不属于 summary producer。
   live+gzip immutable snapshot、async hash/GC race、duplicate-ID tuple permutation、contract version+digest mismatch、
   zero taxonomy match、legacy identity、mixed categories、GH-706 protocol split、unknown host、no-data/partial、
   old/invalid taxonomy、receipt record/marker+pointer crash parity、all-retained mutation/preflight terminal、content budget partial和 sentinel。
-- [ ] Launcher authority：installed Git pre-commit parent、Claude、Codex outer normalizer+inner fan-out与 standalone
-  authorized-discard exact fixtures 覆盖 wrapper→canonical parent→durable slot、outer request+canonical hook+index→
+- [ ] Launcher authority：Planned Changes Manifest 的 `test_precommit_authority.sh` entry 独占 installed Git pre-commit parent 的
+  `git_pre_commit` wrapper→canonical parent→durable slot、reservation-before-guard、pre-slot nonzero/zero-write/
+  `guard_started=false` 与同 token exactly-one terminal outcome；Claude、Codex outer normalizer+inner fan-out与 standalone
+  authorized-discard exact fixtures 覆盖 outer request+canonical hook+index→
   每 inner durable slot、duplicate拒绝、sibling crash隔离、pre-slot failure、quiescence seal 与 opt-out bypass；
   禁止 mock IPC/fsync。
 - [ ] Scheduler lifecycle：launchd/systemd heartbeat+weekly-output plan/apply/probe/rollback、legacy health

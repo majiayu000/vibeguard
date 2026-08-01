@@ -76,8 +76,11 @@ canonical log、coverage ledger 或 spool 共故障域。
   `~/.vibeguard/pre-commit` wrapper，再执行 `hooks/pre-commit-guard.sh`）也是 registered
   canonical parent，必须以固定的 `canonical_hook_id=git_pre_commit` 在 guard 进程启动前取得并
   fsync single-use reservation，再把不可伪造 token 交给 guard；guard 不得自行创建首个 slot。
-  专用 launcher fixture 必须覆盖 installed wrapper 的一次 reservation、pre-slot failure、guard 未启动
-  和唯一 terminal outcome；其 planned path 由 tech manifest 独占。
+  专用且唯一的 B-035 launcher fixture 是 Planned Changes Manifest 中的 `test_precommit_authority.sh` entry，必须逐项断言
+  reservation ack 先于 guard、pre-slot `reservation_rejected` 返回 nonzero 且
+  `guard_started=false`/目标 read-write 次数为零；已 ack 的 invocation 必须以同一 epoch、invocation_id、token
+  产生恰好一个 `committed|gap|aborted_before_spawn` terminal outcome，禁止重复 terminal record 或 sibling
+  复用，且该 fixture path 由 tech manifest 独占。
 - `hooks/run-hook-codex.sh` outer normalization只生成一次 CSPRNG `outer_request_id`，不得预留或复用 slot；
   `hooks/_lib/codex_runner.sh` fan-out loop才是每个 normalized inner caller的 parent。每个 iteration以 exact
   canonical resolved hook name作为 `canonical_hook_id`、从 0 严格递增 `fanout_index`，并以 epoch-keyed、
@@ -265,7 +268,8 @@ capability缺失/失败时保留 orphan；下一 write将触及 entries/bytes ca
 
 - suspend/resume、clean shutdown、unclean reboot、clock uncertainty、open-slot boundary 与普通 nightly sleep；
 - scheduled/manual namespace、exact seq0/later deadline、manual pre-start/post-seal precedence；
-- installed Git pre-commit wrapper 的 parent reservation、pre-slot rejection、guard zero-start 与 terminal
+- Planned Changes Manifest 中的 `test_precommit_authority.sh` entry 独占验证 installed Git pre-commit `git_pre_commit` parent reservation、
+  pre-slot rejection/nonzero/zero-write、`guard_started=false` 与同 token 恰一个 `committed|gap|aborted_before_spawn`
   outcome；Codex outer/hook/index fan-out identity、duplicate rejection、sibling crash isolation与 slot-before-work；
 - large archive async hashing 与 GC/writer contention 下的 exact installed wrapper P95 gate；
 - segment cap/early seal/reserved capacity；all-retained preflight mutation/incomplete terminal与后续 budget partial；
