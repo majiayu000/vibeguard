@@ -391,7 +391,9 @@ assert_cmd "same-name Claude skill remains installed" test -e "${gh719_home}/.cl
 assert_cmd "same-name Codex skill is disabled" test ! -e "${gh719_home}/.codex/skills/auto-optimize"
 assert_cmd "non-disabled skills are unaffected" test -d "${gh719_home}/.codex/skills/fixflow"
 
-gh719_repeat_out="$(gh719_setup 2>&1)"
+gh719_repeat_rc=0
+gh719_repeat_out="$(gh719_setup 2>&1)" || gh719_repeat_rc=$?
+assert_cmd "repeat reinstall with disabled skills succeeds" test "${gh719_repeat_rc}" -eq 0
 assert_contains "${gh719_repeat_out}" "SKIP plan-flow (disabled" "repeat reinstall skips the disabled skill"
 assert_not_contains "${gh719_repeat_out}" "RESTORING plan-flow" "repeat reinstall does not restore the disabled skill"
 assert_cmd "disabled skill stays gone across reinstalls" test ! -e "${gh719_home}/.codex/skills/plan-flow"

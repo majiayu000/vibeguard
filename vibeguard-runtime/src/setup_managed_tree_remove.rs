@@ -10,9 +10,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "setup_managed_tree_test_support.rs"]
 mod test_support;
+#[path = "setup_managed_tree_state.rs"]
+mod tree_state;
 use test_support::{
     inject_collision, inject_failure, inject_postverify, inject_public_replacement,
 };
+use tree_state::carry_tracked_files;
 
 const USAGE: &str = "Usage: vibeguard-runtime setup-state-quarantine-managed-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";
 const RELEASE_USAGE: &str = "Usage: vibeguard-runtime setup-state-release-quarantined-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";
@@ -113,7 +116,7 @@ pub fn run(args: &[String]) -> SetupResult<()> {
         .into());
     }
 
-    publish_record(current_state, &transaction)?;
+    publish_record(current_state, &states, &transaction)?;
     inject_failure(
         "VIBEGUARD_TEST_QUARANTINE_AFTER_STATE",
         "injected failure after install-state publish",
@@ -225,7 +228,7 @@ fn recover_or_find_committed(
                 verify_exact(states, &quarantine, source_prefix, dest)?;
                 transaction.phase = "committed".into();
                 write_json_durable(&transaction_path, &transaction_value(&transaction))?;
-                publish_record(current_state, &transaction)?;
+                publish_record(current_state, states, &transaction)?;
                 committed = Some(quarantine);
             }
             "intent" => {
@@ -236,7 +239,7 @@ fn recover_or_find_committed(
             "committed" if record_matches => {
                 ensure_public_absent(dest)?;
                 verify_exact(states, &quarantine, source_prefix, dest)?;
-                publish_record(current_state, &transaction)?;
+                publish_record(current_state, states, &transaction)?;
                 committed = Some(quarantine);
             }
             "committed" | "restored" | "released" => {}
@@ -395,9 +398,14 @@ fn active_record(states: &[&Path; 2], dest: &Path) -> SetupResult<Option<Value>>
     Ok(record)
 }
 
-fn publish_record(state_path: &Path, transaction: &Transaction) -> SetupResult<()> {
+fn publish_record(
+    state_path: &Path,
+    states: &[&Path; 2],
+    transaction: &Transaction,
+) -> SetupResult<()> {
     let mut state = read_state(state_path)?;
     validate_state_metadata(&state)?;
+    carry_tracked_files(&mut state, states, Path::new(&transaction.dest))?;
     let state_object = state
         .as_object_mut()
         .ok_or("install-state root must be an object")?;

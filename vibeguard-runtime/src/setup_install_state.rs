@@ -667,7 +667,7 @@ fn now_timestamp() -> String {
     format!("{seconds}")
 }
 
-fn expand_home(path: &str) -> PathBuf {
+pub(crate) fn expand_home(path: &str) -> PathBuf {
     if let Some(stripped) = path.strip_prefix("~/")
         && let Some(home) = home_dir()
     {
@@ -676,7 +676,7 @@ fn expand_home(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
-fn setup_absolute_path(path: &Path) -> PathBuf {
+pub(crate) fn setup_absolute_path(path: &Path) -> PathBuf {
     if path.is_absolute() {
         path.to_path_buf()
     } else {
