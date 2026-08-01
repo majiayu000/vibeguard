@@ -149,6 +149,84 @@ assert_cmd "concurrent skill replacement fails disabled removal" test \
 assert_cmd "concurrent user skill replacement is preserved" test \
   -f "${gh719_remove_race_skill}/custom.txt"
 
+gh719_quarantine_collision_home="${TMP_HOME}/gh719-quarantine-collision-home"
+gh719_quarantine_collision_skill="${gh719_quarantine_collision_home}/.codex/skills/plan-flow"
+mkdir -p "${gh719_quarantine_collision_skill}" "${gh719_quarantine_collision_home}/.vibeguard"
+printf 'managed\n' > "${gh719_quarantine_collision_skill}/SKILL.md"
+python3 - "${gh719_quarantine_collision_home}/.vibeguard/install-state.json" \
+  "${gh719_quarantine_collision_skill}/SKILL.md" <<'PY'
+import json, sys
+state, skill_file = sys.argv[1:]
+with open(state, "w", encoding="utf-8") as handle:
+    json.dump({"version": 1, "files": {skill_file: {
+        "source": "skills/plan-flow/SKILL.md", "type": "copy",
+        "checksum": "sha256:5b4bc29f140e30c01417d810e700ecc54a84a0107566d84215b42e5742ef8d96"
+    }}}, handle)
+PY
+gh719_quarantine_collision_hash="$(
+  shasum -a 256 "${gh719_quarantine_collision_skill}/SKILL.md" | awk '{print $1}'
+)"
+gh719_quarantine_collision_rc=0
+gh719_quarantine_collision_out="$(
+  HOME="${gh719_quarantine_collision_home}" \
+    VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+    VIBEGUARD_TEST_REMOVE_COLLIDE_ALL=1 bash -c '
+    source "$1/scripts/setup/lib.sh"
+    dest="$2"
+    remove_disabled_skill \
+      "${dest}" plan-flow "$(dirname "${dest}")" skills/plan-flow
+  ' _ "${REPO_DIR}" "${gh719_quarantine_collision_skill}" 2>&1
+)" || gh719_quarantine_collision_rc=$?
+assert_cmd "quarantine destination collisions fail disabled removal" test \
+  "${gh719_quarantine_collision_rc}" -ne 0
+assert_contains "${gh719_quarantine_collision_out}" \
+  "failed to reserve unique quarantine" \
+  "quarantine destination collision failure is visible"
+assert_cmd "quarantine collision preserves the public skill file" test \
+  -f "${gh719_quarantine_collision_skill}/SKILL.md"
+assert_cmd "quarantine collision preserves exact public skill bytes" test \
+  "$(shasum -a 256 "${gh719_quarantine_collision_skill}/SKILL.md" | awk '{print $1}')" = \
+  "${gh719_quarantine_collision_hash}"
+assert_cmd "quarantine collision does not nest the managed tree" test \
+  ! -e "${gh719_quarantine_collision_skill}/plan-flow"
+assert_cmd "quarantine collision data never enters the public tree" test \
+  ! -e "${gh719_quarantine_collision_skill}/collision-sentinel"
+
+gh719_postverify_home="${TMP_HOME}/gh719-postverify-home"
+gh719_postverify_skill="${gh719_postverify_home}/.codex/skills/plan-flow"
+mkdir -p "${gh719_postverify_skill}" "${gh719_postverify_home}/.vibeguard"
+printf 'managed\n' > "${gh719_postverify_skill}/SKILL.md"
+cp "${gh719_quarantine_collision_home}/.vibeguard/install-state.json" \
+  "${gh719_postverify_home}/.vibeguard/install-state.json"
+python3 - "${gh719_postverify_home}/.vibeguard/install-state.json" \
+  "${gh719_quarantine_collision_skill}" "${gh719_postverify_skill}" <<'PY'
+import json, sys
+state, old_root, new_root = sys.argv[1:]
+with open(state, encoding="utf-8") as handle:
+    data = json.load(handle)
+data["files"] = {path.replace(old_root, new_root, 1): value for path, value in data["files"].items()}
+with open(state, "w", encoding="utf-8") as handle:
+    json.dump(data, handle)
+PY
+gh719_postverify_rc=0
+gh719_postverify_out="$(
+  HOME="${gh719_postverify_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+    VIBEGUARD_TEST_REMOVE_POSTVERIFY_INJECT=POSTVERIFY_DELETED bash -c '
+      source "$1/scripts/setup/lib.sh"
+      dest="$2"
+      remove_disabled_skill \
+        "${dest}" plan-flow "$(dirname "${dest}")" skills/plan-flow
+    ' _ "${REPO_DIR}" "${gh719_postverify_skill}" 2>&1
+)" || gh719_postverify_rc=$?
+assert_cmd "post-verification injection fails disabled removal" test \
+  "${gh719_postverify_rc}" -ne 0
+assert_contains "${gh719_postverify_out}" "restored public tree without deletion" \
+  "post-verification injection reports fail-closed restore"
+assert_cmd "post-verification injection preserves managed public bytes" test \
+  -f "${gh719_postverify_skill}/SKILL.md"
+assert_contains "$(cat "${gh719_postverify_skill}/POSTVERIFY_DELETED")" "user-data" \
+  "post-verification user data is never deleted"
+
 gh719_state_home="${TMP_HOME}/gh719-state-home"
 mkdir -p "${gh719_state_home}/.vibeguard"
 printf '%s\n' '{"version":1,"files":{}}' > "${gh719_state_home}/.vibeguard/install-state.json"

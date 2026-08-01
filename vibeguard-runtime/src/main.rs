@@ -46,6 +46,7 @@ mod setup_codex_config;
 mod setup_codex_hooks;
 mod setup_codex_hooks_health;
 mod setup_install_state;
+mod setup_managed_tree_remove;
 mod setup_manifest;
 mod setup_markdown;
 mod setup_support;
@@ -485,6 +486,11 @@ static COMMANDS: &[Command] = &[
         name: "setup-state-verify-managed-tree",
         usage: "<state-file> <dest-dir> <source-prefix> [tracked-dest-dir]  — verify exact managed-tree ownership",
         handler: setup_install_state::verify_managed_tree,
+    },
+    Command {
+        name: "setup-state-remove-managed-tree",
+        usage: "<state-file> <previous-state-file> <dest-dir> <source-prefix>  — atomically quarantine and identity-delete a managed tree",
+        handler: setup_managed_tree_remove::run,
     },
     Command {
         name: "setup-state-list-project-hooks",

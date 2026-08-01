@@ -367,28 +367,34 @@ pub fn verify_managed_tree(args: &[String]) -> SetupResult<()> {
         );
     }
     let state_file = Path::new(&args[0]);
-    if !state_file.exists() {
-        println!("UNOWNED:no_state");
-        return Ok(());
-    }
-    let state = read_state(state_file)?;
-    ensure_state_version(&state)?;
     let dest_dir = setup_absolute_path(&expand_home(&args[1]));
     let tracked_dest_dir = args
         .get(3)
         .map(|tracked| setup_absolute_path(&expand_home(tracked)))
         .unwrap_or_else(|| dest_dir.clone());
-    let source_prefix = args[2].trim_end_matches('/');
+    println!(
+        "{}",
+        managed_tree_decision(state_file, &dest_dir, &args[2], &tracked_dest_dir)?
+    );
+    Ok(())
+}
+
+pub(crate) fn managed_tree_decision(
+    state_file: &Path,
+    dest_dir: &Path,
+    source_prefix: &str,
+    tracked_dest_dir: &Path,
+) -> SetupResult<&'static str> {
+    if !state_file.exists() {
+        return Ok("UNOWNED:no_state");
+    }
+    let state = read_state(state_file)?;
+    ensure_state_version(&state)?;
+    let source_prefix = source_prefix.trim_end_matches('/');
     match std::fs::symlink_metadata(&dest_dir) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
-        Ok(_) => {
-            println!("UNOWNED:path_type");
-            return Ok(());
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            println!("UNOWNED:missing");
-            return Ok(());
-        }
+        Ok(_) => return Ok("UNOWNED:path_type"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok("UNOWNED:missing"),
         Err(error) => return Err(error.into()),
     }
 
@@ -405,8 +411,7 @@ pub fn verify_managed_tree(args: &[String]) -> SetupResult<()> {
         })
         .collect::<BTreeMap<_, _>>();
     if tracked.is_empty() {
-        println!("UNOWNED:not_tracked");
-        return Ok(());
+        return Ok("UNOWNED:not_tracked");
     }
 
     let mut leaves = BTreeSet::new();
@@ -414,43 +419,35 @@ pub fn verify_managed_tree(args: &[String]) -> SetupResult<()> {
     collect_managed_tree_paths(&dest_dir, &mut leaves, &mut directories)?;
     for leaf in &leaves {
         let Some(info) = tracked.get(leaf) else {
-            println!("UNOWNED:untracked_path");
-            return Ok(());
+            return Ok("UNOWNED:untracked_path");
         };
         if info.get("type").and_then(Value::as_str) != Some("copy") {
-            println!("UNOWNED:install_type");
-            return Ok(());
+            return Ok("UNOWNED:install_type");
         }
         let expected_source = info.get("source").and_then(Value::as_str).unwrap_or("");
         if expected_source != source_prefix
             && !expected_source.starts_with(&format!("{source_prefix}/"))
         {
-            println!("UNOWNED:source_mismatch");
-            return Ok(());
+            return Ok("UNOWNED:source_mismatch");
         }
         let Some(expected_checksum) = info.get("checksum").and_then(Value::as_str) else {
-            println!("UNOWNED:missing_checksum");
-            return Ok(());
+            return Ok("UNOWNED:missing_checksum");
         };
         let actual_checksum = format!("sha256:{}", sha256_file(leaf)?);
         if actual_checksum != expected_checksum {
-            println!("UNOWNED:checksum_mismatch");
-            return Ok(());
+            return Ok("UNOWNED:checksum_mismatch");
         }
     }
     if tracked.keys().any(|path| !leaves.contains(path)) {
-        println!("UNOWNED:missing_tracked_path");
-        return Ok(());
+        return Ok("UNOWNED:missing_tracked_path");
     }
     if directories
         .iter()
         .any(|directory| !leaves.iter().any(|leaf| leaf.starts_with(directory)))
     {
-        println!("UNOWNED:untracked_path");
-        return Ok(());
+        return Ok("UNOWNED:untracked_path");
     }
-    println!("OWNED");
-    Ok(())
+    Ok("OWNED")
 }
 
 fn collect_managed_tree_paths(
