@@ -352,7 +352,7 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     必须从 intent 确定性重放同一 pointer+fsync roll-forward，不能凭新 floor 猜目标 policy。
     runtime 同时验证 pointer generation 不低于该 floor。floor mirror 必须绑定 Core installation、
     user principal、anchor schema、root identity 与独立 policy `per_leaf_authority_id`，并与
-    `core_monotonic_anchor_v1` backend 当前 stable leaf counter/value identity 相等，并独立验证可刷新
+    signed H-010 `anchor_profile.backend_profile_id` 选定 backend 的当前 stable leaf counter/value identity 相等，并独立验证可刷新
     proof 对该 state 的 binding；同 root 的
     unrelated leaf 推进不得使 policy recovery 失败，但旧 policy leaf snapshot 必因该 leaf authority
     不回退而失配。旧 pointer replay 即使 digest 再次

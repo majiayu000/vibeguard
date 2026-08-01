@@ -338,19 +338,26 @@ h010_decision_envelope = {
 
 ```text
 no_block_generation_body = {
-  schema_version: 1, platform_id, core_release_digest, core_installation_id,
+  schema_version: 1, platform_id, core_release_digest,
   h010_decision_artifact_digest, no_block_profile_generation,
   previous_no_block_generation_digest, release_pin_digest,
   maximum_effective_decision: "warn"
 }
 no_block_generation_digest =
   H("vibeguard.gh702.authenticated-no-block-generation.v1", 1, no_block_generation_body)
+no_block_installation_binding_body = {
+  schema_version: 1, core_installation_id, no_block_generation_digest
+}
+no_block_installation_binding_digest =
+  H("vibeguard.gh702.authenticated-no-block-installation.v1", 1,
+    no_block_installation_binding_body)
 ```
 
 verified Core release 的 release-pinned H-010 generation/digest 是该分支 authority；runtime 从 signed
-artifact 确定性重算 body/digest，不信任 HOME 自报 generation；首代 predecessor 必须 null，后续 exact
-指向上一 signed generation。旧 artifact、断链 predecessor、wrong
-release/install/platform 或任一 field mutation 都不能授权 block；在 current signed no-block profile 下，
+artifact 确定性重算 body/digest，不信任 HOME 自报 generation；release-wide 首代 predecessor 必须 null，
+后续 exact 指向上一 signed generation，且 chain 不含 installation-specific data。每个 installation 再由
+current Core installation ID 派生 binding digest，binding 不进入 release predecessor。旧 artifact、断链、
+wrong release/platform/installation binding 或任一 field mutation 都不能授权 block；在 current signed no-block profile 下，
 缺少 external backend/leaf 是 `not_applicable` 而非 unavailable，合法 warn/off/no-data 继续执行。任何
 block candidate、放宽 ceiling 或伪造 anchor branch 仍必须 nonzero fail closed。
 
@@ -509,7 +516,8 @@ h010_identity_fields = {
   per_leaf_authority_mode, target_authorizer_profile_id, authorizer_key_id,
   provision_ipc_lifecycle_decisions, no_block_profile_generation,
   previous_no_block_generation_digest, release_pin_digest,
-  maximum_effective_decision, no_block_generation_digest, fixture_budgets,
+  maximum_effective_decision, no_block_generation_digest,
+  no_block_installation_binding_digest, fixture_budgets,
   host_kind, installed_wrapper_path, anchor_enabled, surface,
   workload_schedule_digest, successor_baseline, runs,
   budget_digest, decision_artifact_digest, initial_digest, initial_breaches,
@@ -522,7 +530,8 @@ literal domain、outer schema version、signature/key 与 from/target leaf pairi
 `one_sided_breach_change`、`one_sided_breach_delete`、`one_sided_breach_swap` 必须分别只改 top-level
 或 nested `ordered_breaches` 并 nonzero；`nonempty_confirmation_breaches_with_null_confirmation` 也必须
 nonzero。另覆盖 `refreshed_proof_same_state`、valid unrelated-leaf `unrelated_leaf_advance`（成功）
-和 same-leaf unexpected successor（`needs_repair`），避免把 proof/root refresh 当 state mismatch。
+和 same-leaf unexpected successor（`needs_repair`）；`two_installations_same_release_predecessor` 必须让两个
+installation 共用同一 release chain、各自派生不同 valid binding，避免 per-install predecessor 误拒绝。
 
 planned **tests/test_guard_pack_anchor.sh** owns schema/IPC/lifecycle/crash/concurrency fixtures；planned
 **tests/perf_guard_pack_anchor.sh** 可保留 anchor fault attribution 专项，但不得自建发布 SLA gate。
