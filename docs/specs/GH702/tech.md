@@ -239,8 +239,8 @@ Recommended H-004 layout（未批准）：
 
 三个 mirror 的 authority 是 user-state tree 外、各自独立单调的 backend leaf；root 仅是稳定 trust container。
 record identity、intent、two-generation mirror、journal/barrier/crash matrix 只由 supporting contract 定义。
-runtime/management 要求 fresh per-leaf attestation 认证 selected mirror 的 exact leaf counter/digest；
-unrelated leaf/aggregate-root progress 不得使 mirror 失效，unknown same-leaf transition 才 fail closed；
+runtime/management 要求 fresh per-leaf attestation 认证 selected mirror 的 exact leaf counter/value digest；
+proof refresh 或 unrelated leaf/aggregate-root progress 不得使 mirror 失效，unknown same-leaf state 才 fail closed；
 已证明 target leaf local lag 从 intent/journal roll forward。backend/platform 仍未批准。
 
 `source_storage_key` 是 closed union：official 为

@@ -348,7 +348,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     必须从 intent 确定性重放同一 pointer+fsync roll-forward，不能凭新 floor 猜目标 policy。
     runtime 同时验证 pointer generation 不低于该 floor。floor mirror 必须绑定 Core installation、
     user principal、anchor schema、root identity 与独立 policy `per_leaf_authority_id`，并与
-    `core_monotonic_anchor_v1` backend 当前 leaf counter/digest/attestation exact 相等；同 root 的
+    `core_monotonic_anchor_v1` backend 当前 leaf counter/value digest exact 相等，并以任意 fresh valid
+    attestation 独立认证该 state；proof nonce/signature/digest 刷新不得改变 equality。同 root 的
     unrelated leaf 推进不得使 policy recovery 失败，但旧 policy leaf snapshot 必因该 leaf authority
     不回退而失配。旧 pointer replay 即使 digest 再次
     匹配 committed generation 也必须按 unavailable 拒绝，floor 缺失/损坏同样 fail closed。
@@ -386,7 +387,7 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     操作并非零返回，不能降为 warn/off 后放行，也不能因进程重启静默降低 high-water。
     high-water/`clock_epoch`/sequence 每次推进都须以 external root 内独立 authenticated time leaf
     CAS 为 authority，本地 runtime-state 只是 mirror；其他 leaf 合法推进不影响本 leaf equality，
-    但 backend 缺失/不可验证或 restore 后本 leaf counter/digest/attestation 不等必须
+    但 backend 缺失/不可验证或 restore 后本 leaf counter/value digest 不等必须
     `runtime_guard_unavailable`，不得执行旧 block。每个 CAS target 必须由 Core service 从 authenticated
     operation 重构、逐 leaf 验证并以 H-010 approved authorizer 签名；客户端 hash 不具有授权效力。
     rollback 后普通 fresh audit 不能降低同一 clock epoch 的 high-water；恢复必须走显式
