@@ -247,10 +247,14 @@ identity/per-leaf authority 一律 `needs_repair`。recovery 按 counter 顺序�
 
 ## Runtime behavior
 
-runtime 先验证 signed global platform registry entry，再用 current Core release-pinned H-010 profile
-选择 exact mode；release pin 只绑定 compatibility，不能定义或解除 global terminality。
-`anchor_block_v1` 必须在 policy lock/fence 下证明 policy/install per-leaf authority 与 pointer/floor
-current；失败时 block-capable generation 未建立，nonzero fail closed。证明 current 后，warn/off/no-data
+Core 启动前，位于 Core binary/user-state 之外且旧 binary 无法绕过的 host adapter 必须按
+`before_any_core_hook_v1` 验证 signed `platform_launch_floor_attestation`；验证失败、adapter/Core
+version 低于 floor、platform generation mismatch 或 launch authority 不可用时，必须在 launch
+阶段 nonzero fail closed，Core hook 不得启动或产生任何 decision。runtime 随后验证 signed global
+platform registry entry，再用 current Core release-pinned H-010 profile 选择 exact mode；release pin
+只绑定 compatibility，不能定义或解除 global terminality。`anchor_block_v1` 只有在该 external
+nonrollback launch/version-floor authority 已成立且 attestation current 时才可进入 policy lock/fence，
+再证明 policy/install per-leaf authority 与 pointer/floor current；任一失败都 nonzero fail closed。证明 current 后，warn/off/no-data
 跳过 trusted-time leaf，只有 committed/promoted block candidate 推进 time leaf；其 backend/CAS/IPC
 失败仍 conservative deny。`authenticated_no_block_v1` family 是跨全部过去/未来 Core releases 的
 permanent backend-free warn/off ceiling；同一 platform/family 永不允许 anchor-block。它不要求
@@ -268,14 +272,15 @@ H-010 获批后，下列 owner map 必须一一落到 `tech.md` planned-change m
 
 | Concern | Single owner | Required surfaces |
 | --- | --- | --- |
-| Hook/management client | Rust `guard_pack::anchor::client` | anchor-block 执行 bounded IPC/attestation；no-block 验证 global family/release/install binding，且不得调用 backend/IPC |
+| Host launch adapter | Core 外的 H-010 selected platform adapter | 在任何 Core hook 前验证 nonrollback launch floor；old Core/adapter 不满足 floor 时拒绝启动且不产生 decision |
+| Hook/management client | Rust `guard_pack::anchor::client` | 已通过 launch gate 的 anchor-block 执行 bounded IPC/attestation；no-block 验证 global family/release/install binding，且不得调用 backend/IPC |
 | Local persistence | Rust `guard_pack::anchor::{mirror,recovery}` | intent、commit、mirror schemas；file/dir fsync、two-generation GC、barrier state machine |
 | IPC protocol | Rust `guard_pack::anchor::ipc` | versioned closed request/response schema、peer/session binding、timeouts、replay rejection |
 | Core service | Rust `guard_pack::anchor::service` + `scripts/setup/guard-pack-anchor-service/` | 仅 anchor-block 拥有 endpoint lifecycle/health；no-block 不安装或重启 service |
 | External backend | Rust `guard_pack::anchor::backend` | 仅 anchor-block 使用 selected adapter、successor CAS、attested read、device/backend identity |
 | Provision/lifecycle | Rust `guard_pack::anchor::provision` + setup/release integration | 仅 anchor-block 执行 provision/reattach/rotate/restart/CAS/repair；no-block 必须零 backend lifecycle |
-| Public schemas | anchor schemas、H-010 decision/global platform registry、mode-specific perf schemas | closed versions/domains、cross-release terminal registry、identity mutation corpus |
-| Status renderer | existing `guard_pack::render` | no-block: global profile generation/install binding/warn ceiling/stale，backend/root/leaf=`not_applicable`；anchor-block: backend/root/leaf/counter/barrier/repair |
+| Public schemas | launch-floor/anchor schemas、H-010/global registry、mode-specific perf schemas | closed versions/domains、cross-release terminal registry、identity mutation corpus |
+| Status renderer | existing `guard_pack::render` | no-block: global profile generation/install binding/warn ceiling/stale + no-block CI identity，backend/root/leaf=`not_applicable`；anchor-block: launch floor/backend/root/leaf/counter/barrier/repair |
 
 Platform service assets 只能为 anchor-block 进入 manifest 已预留的 setup directory；no-block inventory
 必须证明 backend/service absent。H-010 必须在 approved artifact 固定 selected inventory。在该 approval 前不得
@@ -290,14 +295,15 @@ Platform service assets 只能为 anchor-block 进入 manifest 已预留的 setu
 | Target authorization | wrong/expired/self-signed authorization, client-chosen target, operation reconstruction drift and every stable leaf-transition field mutation fail before CAS；proof refresh with unchanged state remains valid，post-CAS attestation binds the same target/authorization |
 | Barrier crash matrix | deterministic fault after every temp fsync, rename, directory fsync, leaf CAS response, commit-journal phase write, pointer selection, barrier and cleanup；exact from retries, exact target reconstructs and rolls forward, same-leaf divergence needs_repair |
 | Lost-response recovery | leaf CAS advances but response/journal write is lost while unrelated leaves advance；durable pre-CAS state plus fresh authenticated proof reconstructs post-CAS journal；`refreshed_proof_same_state` changes nonce/signature/digest and still retries/rolls forward |
-| Cross-platform availability | anchor-block OS/architecture provisions selected backend/service, restarts and completes CAS；no-block performs none，unclaimed/new identity reports unsupported and cannot be aliased |
+| Cross-platform availability | anchor-block OS/architecture proves external pre-Core launch-floor enforcement, provisions selected backend/service, restarts and completes CAS；no-block performs none and needs no hardware/service fixture |
 | IPC trust | wrong executable/user/principal, stale session, replayed response, protocol downgrade, endpoint substitution, malformed attestation and service restart all fail closed |
-| Identity/lifecycle | `forbidden_cross_release_mode_transition` rejects any no-block platform/family becoming block；future block requires nonrollback backend, new old-client-unknown platform identity, and maintainer migration；old identity never authorizes/replaces it |
+| Identity/lifecycle | `forbidden_cross_release_mode_transition` rejects any no-block platform/family becoming block or migration target；anchor identity is valid only when an external nonrollback launch floor already prevents old Core/adapter execution |
 | Failure/repair | anchor backend/IPC/provision/CAS failures preserve evidence；no-block expiry/pin/new-identity mismatch keeps warn/off ceiling while status is stale/nonzero，never backend fallback |
-| Every-hook performance | canonical hook gate runs every claimed installed snapshot；anchor-block uses real IPC/read/CAS/barrier and full budgets，no-block uses real zero-backend path and hook-only p50/p95/p99/max |
+| Every-hook performance | canonical hook gate runs every claimed installed snapshot；anchor-block uses anchor budget/batch/result with real IPC/read/CAS/barrier，no-block uses independent zero-backend budget/batch/result with hook-only p50/p95/p99/max |
 | Concurrency | parallel hooks on different leaf authorities advance independently despite aggregate-root changes；same-leaf operations remain recovery-first serialized with unique successors, no forked mirrors and bounded nonzero failure |
-| `authority_mode_branch_matrix` | anchor-block requires provision/restart/CAS/IPC/full budgets/backend status；`no_block_status_without_backend` proves zero backend lifecycle, hook-only budget, `not_applicable` anchor fields, and global generation/install binding/ceiling/stale status |
-| Decision scope | global registry makes no-block terminal across releases；release pin cannot change mode。old binary cannot authorize or interpret a new block identity as its platform；identity mismatch is fail-visible while old family remains warn/off |
+| `authority_mode_branch_matrix` | anchor-block requires launch-floor/provision/restart/CAS/IPC/full schemas；`no_block_status_without_backend` proves independent hook-only schemas, zero backend lifecycle, `not_applicable` anchor fields, and global generation/install binding/ceiling/stale status |
+| Decision scope | global registry makes no-block terminal across releases；release pin cannot change mode；`old_binary_prelaunch_rejected` proves an active block platform rejects an old Core/adapter before hooks, never runs warn/off |
+| `final_ci_authority_mode_branch` | anchor-block runs launch-authority + real hardware/service conformance；no-block runs zero-backend installed-hook/schema/status evidence and must not require hardware/service |
 | Identity mutation closure | generated `one_field_at_a_time` negatives cover every registered anchor/H-010 identity plus top-level/nested breach mirrors、budget/batch/domain/version/signature fields；registry coverage fails when a new identity is unlisted |
 | Packaging | anchor payload contains service/backend/provision assets；no-block omits them；fresh installs prove exact registry/profile branch inventory |
 
@@ -314,13 +320,32 @@ global_platform_registry_envelope = {
   registry_body: {registry_generation, previous_registry_digest|null,
     entries: [{platform_id, platform_profile_family_id, global_profile_generation,
       authority_mode, transition_policy: permanent_backend_free_no_block_v1
-                       | new_identity_nonrollback_anchor_v1}]},
+                       | external_launch_floor_anchor_v1}]},
   global_platform_registry_digest,
   signatures: [{signer_key_id, signature_algorithm, signature}]
 }
 global_platform_registry_entry_digest =
   H("vibeguard.gh702.global-platform-registry-entry.v1", 1, exact entries[i])
 global_platform_registry_digest = sha256(JCS({digest_domain, schema_version, registry_body}))
+platform_launch_floor_attestation_envelope = {
+  digest_domain: "vibeguard.gh702.platform-launch-floor-attestation.v1",
+  schema_version: 1,
+  platform_launch_floor_attestation_body: {
+    launch_authority_backend_identity: {
+      backend_kind, backend_instance_id, device_key_digest, protocol_version
+    },
+    launch_authority_profile_id, platform_id, platform_profile_family_id,
+    current_platform_generation, monotonic_launch_floor,
+    allowed_core_min_version, allowed_host_adapter_min_version,
+    launch_policy_digest, global_platform_registry_entry_digest,
+    attestation_sequence, issued_at, expires_at
+  },
+  platform_launch_floor_attestation_digest,
+  signatures: [{signer_key_id, signature_algorithm, signature}]
+}
+platform_launch_floor_attestation_digest =
+  H("vibeguard.gh702.platform-launch-floor-attestation.v1", 1,
+    platform_launch_floor_attestation_body)
 h010_decision_envelope = {
   digest_domain: "vibeguard.gh702.h010-decision.v1",
   schema_version,
@@ -333,9 +358,8 @@ h010_decision_envelope = {
       global_platform_registry_entry_digest,
       authority_mode: anchor_block_v1|authenticated_no_block_v1,
       anchor_profile: {backend_profile_id, service_profile_id,
-        migration_from_platform_id|null, migration_from_profile_family_id|null,
-        maintainer_migration_authorization_digest|null,
-        nonrollback_platform_identity_digest,
+        launch_authority_profile_id, launch_policy_digest,
+        platform_launch_floor_attestation_digest,
         per_leaf_authority_mode: "independent_authenticated_leaf_v1",
         target_authorizer_profile_id, authorizer_key_id,
         provision_ipc_lifecycle_decisions,
@@ -358,10 +382,23 @@ h010_decision_envelope = {
 }
 ```
 
+`platform_launch_floor_attestation` 是 closed、JCS-canonical、由 Core 之外的 nonrollback launch
+authority 签发并持久化的 TCB 证据。backend identity 必须与 H-010
+`launch_authority_profile_id` exact 匹配且 Core/HOME 无写权限；successor 的
+`attestation_sequence`、`current_platform_generation`、`monotonic_launch_floor`、
+`allowed_core_min_version` 与 `allowed_host_adapter_min_version` 均不得降低。signatures 按
+`signer_key_id` 严格排序且唯一，algorithm/signer set/quorum 必须 exact 匹配 H-010 launch-authority
+profile；缺签、少于 quorum、自签、wrong backend/platform/generation/H-010/registry binding、expired
+或任一 floor rollback 都在启动 Core 前 nonzero。host adapter 自身必须由该 Core 外 authority
+enforce adapter floor，旧 adapter 不能跳过检查；验证成功的 attestation digest 进入 launch receipt、
+status 与 anchor perf authority，Core 不能用 maintainer prose、release pin 或本地文件替代它。
+
 `global_platform_registry_invariant` 是跨所有 Core releases 的 append-only canonical contract：entries 按
 `(platform_id, platform_profile_family_id)` byte order 严格递增且 pair 唯一；successor registry 必须保留
 全部旧 entry 和 mode，generation 只能递增。某 pair 一旦声明
-`permanent_backend_free_no_block_v1`，任何过去/未来 release 都不得删除、复用或改成 anchor-block。
+`permanent_backend_free_no_block_v1`，任何过去/未来 release 都不得删除、复用、迁移或改成
+anchor-block。缺少 Core 外、pre-launch、不可由旧 binary/adapter 绕过的 nonrollback launch authority
+的平台必须永久选择该 branch，禁止 maintainer migration 或 official block。
 `duplicate_platform_across_releases`、同 family conflicting mode、registry predecessor/history drift 在 H-010
 selection 前拒绝；runtime/release validator 不得 first/last-wins。release pin 不参与该 invariant。
 
@@ -400,11 +437,12 @@ mismatch 显式 stale/nonzero，但不能改变已识别 no-block family 的 war
 global entry + release profile 派生 binding；HOME 自报 generation/binding 无权改 mode。no-block 的
 backend/root/leaf 均为 `not_applicable`，不得 provision/restart/CAS/IPC 或把合法 warn/off/no-data 升为 denial。
 
-future block 必须先有 conforming nonrollback backend，再分配 new `platform_id` + new family/global
-generation，且新 identity 的 encoding 必须让 old client 视为 unknown/mismatch，不能 alias 成旧 platform。
-maintainer migration 明确绑定 old/new identities 与 backend proof；旧 no-block release/profile 没有授权、
-替代或签发能力。whole-release rollback 到旧 binary 只能执行旧 family 的 warn/off；它面对已安装的新
-block identity 必须 status mismatch fail-visible，不能把该 block receipt/profile 冒充成旧 no-block family。
+official block 只能在已由 external launch/version-floor TCB 管辖、且当前 attestation 证明 old
+Core/adapter 低于 floor 无法启动的平台 generation 上声明；new identity、maintainer authorization、
+backend proof 或 Core 内检查均不能替代 launch floor。no-block platform/family 没有 migration-to-block
+路径。active block platform 的 `two_release_whole_rollback` 必须使旧 binary/adapter 在任何 Core hook
+前 nonzero 拒绝（`old_binary_prelaunch_rejected`），不能执行旧 warn/off、产生 decision 或把 block
+receipt/profile 重解释成 no-block。launch authority/floor 失效时保持 pre-launch fail closed。
 
 `approved_h010_schema_version = h010_decision_envelope.schema_version`，后者是 universal envelope 的
 canonical outer key；`approved_h010_schema_version` 只是在 authority/result body 中引用该已验证值，
@@ -413,10 +451,11 @@ canonical outer key；`approved_h010_schema_version` 只是在 authority/result 
 "vibeguard.gh702.h010-decision.v1", schema_version, h010_decision_body}))`，preimage
 不含 sibling `h010_decision_artifact_digest` 或 `signatures`。`approved_by` 与 `signatures` 均按 ID
 排序且 ID 唯一；signer/quorum/algorithm 必须匹配 repository maintainer trust configuration。维护者签名
-验证和 validity window 成功后才是 exact approved H-010，Recommended prose、环境探测或 result 自报均不是来源。
+验证和 validity window 成功后才是 exact approved H-010；anchor branch 还必须验证 H-010 引用的
+launch-floor attestation current 且 exact binding，Recommended prose、环境探测或 result 自报均不能替代。
 只有 global registry 已标 terminal no-block 的 embedded profile 到期时，runtime 才派生
 `expired_profile_no_block_ceiling_v1`：继续 warn/off/no-data，status stale/`audit_required`/nonzero；expired
-anchor profile 绝不能变成 no-block。expiry、pin mismatch、旧 binary/new identity mismatch 都不授予 block，
+anchor profile 绝不能变成 no-block。expiry、pin mismatch 或 no-block profile mismatch 都不授予 block，
 也不解除 global ceiling；current valid profile 仍优先。
 
 `evaluation_policy_digest` 来自 authoritative active evaluation-policy envelope 的 literal
@@ -432,7 +471,9 @@ anchor profile 绝不能变成 no-block。expiry、pin mismatch、旧 binary/new
 authority_base_body = {
   approved_h010_schema_version, h010_decision_artifact_digest,
   evaluation_policy_digest, authoritative_policy_generation,
-  policy_validity_evidence_digest
+  policy_validity_evidence_digest, platform_launch_floor_attestation_digest,
+  current_platform_generation, monotonic_launch_floor,
+  allowed_core_min_version, allowed_host_adapter_min_version
 }
 authority_base_digest = H("vibeguard.gh702.anchor-perf-authority.v1", schema_version,
                           authority_base_body)
@@ -474,6 +515,74 @@ result_body = {
 result_body_digest = H("vibeguard.gh702.anchor-perf-result.v1", schema_version, result_body)
 result_envelope = {digest_domain, schema_version, result_body, result_body_digest}
 ```
+
+`authenticated_no_block_v1` 使用另一组 closed schemas；它们不复用 anchor authority/budget/batch/result：
+
+```text
+no_block_authority_base_body = {
+  approved_h010_schema_version, h010_decision_artifact_digest,
+  global_platform_registry_entry_digest, no_block_release_profile_digest,
+  no_block_installation_binding_digest, evaluation_policy_digest,
+  authoritative_policy_generation, policy_validity_evidence_digest
+}
+no_block_authority_base_digest =
+  H("vibeguard.gh702.no-block-perf-authority.v1", 1, no_block_authority_base_body)
+no_block_budget_body = {
+  no_block_authority_base_digest, fixture_id, platform_id, host_kind,
+  installed_wrapper_path, workload_schedule_digest, runs,
+  hook_e2e_p50_ms, hook_e2e_p95_ms, hook_e2e_p99_ms, hook_e2e_max_ms
+}
+no_block_budget_digest =
+  H("vibeguard.gh702.no-block-perf-budget.v1", 1, no_block_budget_body)
+no_block_decision_body = {
+  no_block_authority_base_digest, no_block_budget_digest, fixture_id,
+  authority_mode: "authenticated_no_block_v1", anchor_enabled: false,
+  surface: "hook_e2e_ms", confirmation_policy: "hook_fields_only_v1"
+}
+no_block_decision_artifact_digest =
+  H("vibeguard.gh702.no-block-perf-decision.v1", 1, no_block_decision_body)
+no_block_batch_body = {
+  phase: initial|confirmation, no_block_authority_base_digest,
+  no_block_budget_digest, no_block_decision_artifact_digest,
+  fixture_id, platform_id, host_kind, installed_wrapper_path,
+  authority_mode: "authenticated_no_block_v1", anchor_enabled: false,
+  surface: "hook_e2e_ms", runs, workload_schedule_digest,
+  hook_e2e_ms: metric_summary, sample_error_count, ordered_breaches
+}
+no_block_batch_digest =
+  H("vibeguard.gh702.no-block-perf-batch.v1", 1, no_block_batch_body)
+no_block_result_body = {
+  no_block_authority_base_body, no_block_authority_base_digest,
+  no_block_budget_body, no_block_budget_digest,
+  no_block_decision_body, no_block_decision_artifact_digest,
+  initial: no_block_batch_body(phase=initial),
+  initial_digest: no_block_batch_digest(initial),
+  initial_breaches: initial.ordered_breaches,
+  confirmation_applicability:
+    required_numeric_breach|not_applicable_no_initial_breach|not_applicable_initial_error,
+  confirmation: no_block_batch_body(phase=confirmation)|null,
+  confirmation_digest: no_block_batch_digest(confirmation)|null,
+  confirmation_breaches: confirmation.ordered_breaches|[],
+  decision: pass|cleared_transient|confirmed_regression|confirmation_error
+}
+no_block_result_body_digest =
+  H("vibeguard.gh702.no-block-perf-result.v1", 1, no_block_result_body)
+no_block_result_envelope = {
+  digest_domain: "vibeguard.gh702.no-block-perf-result.v1", schema_version: 1,
+  no_block_result_body, no_block_result_body_digest
+}
+```
+
+no-block budget/batch/result 只允许 `hook_e2e_*`、`hook_e2e_ms`、sample error 与 breach
+字段；`backend_profile_id`、CAS/IPC/queue/contention metric、timeout/count/budget、successor baseline
+等 anchor 字段必须 absent，不能填 null 或 zero。initial 无 error 且无 numeric breach 时
+`confirmation_applicability=not_applicable_no_initial_breach`、confirmation/digest 为 null、
+`confirmation_breaches=[]`、decision=pass；initial sample error 时使用
+`not_applicable_initial_error` 并立即 `confirmation_error`。只有 initial hook numeric breach
+使用 `required_numeric_breach` 且必须完整重跑 confirmation；全字段恢复才
+`cleared_transient`，仍 breach 为 `confirmed_regression`，confirmation sample error 为
+`confirmation_error`。initial/confirmation breach mirrors 必须分别 exact 等于其 batch
+`ordered_breaches`；任何 applicability/body/digest/breach 组合不一致都 nonzero。
 
 这里 `H(domain, version, body)` 是上述 named closed object 的 JCS digest，不是位置字符串拼接。
 `budget_body` 必须逐字段重构自 signed H-010 中 exact selected platform/fixture budget，不能接受 result
@@ -517,13 +626,13 @@ initial、confirmation 与运行前/运行后 authoritative policy read 必须 e
 policy/budget rotation、generation/validity/decision artifact drift 或任一 mismatch 都立即 nonzero，旧
 result 不得 grandfather、重标或由 confirmation 清除，只能用新 identity 重跑全部 fixture。
 
-`tests/test_hook_perf_contract.sh` 必须逐 field 断言 closed shape/units、budget echo、initial 与
-confirmation 保留、breach path 与 blocking decision；对 P50/P95/P99/max、CAS、IPC、queue、
+`tests/test_hook_perf_contract.sh` 必须按 authority mode 分别验证两套 closed shape/units、budget echo、
+initial/confirmation/applicability、breach path 与 blocking decision；anchor 对 P50/P95/P99/max、CAS、IPC、queue、
 contention-time、retry-count 分别注入唯一 breach 并要求 gate nonzero；还要逐一 mutate H-010、policy、
 generation、validity evidence、decision artifact 与 budget echo identity 并要求立即 nonzero，再证明仅 numeric transient
-且 confirmation 全字段通过时才清除。它还必须固定每个 anchor-enabled Claude/Codex installed fixture
-ID 在 runner/budget table/CI/result 中各恰好一次，并用 wrapper 与 anchor-service sentinels 证明真实
-installed path 已执行。
+且 confirmation 全字段通过时才清除。no-block 对四个 hook fields、sample error、三种 applicability、
+null/empty breach mirror 和任一 forbidden backend field 注入负例；每个 claimed installed fixture ID 在
+runner/H-010/CI/result 中各恰好一次，anchor 用 service sentinel，no-block 用 zero-backend sentinel。
 
 schema registry 必须导出下列 exhaustive identity field sets，且每项使用 schema 的 canonical exact
 field name/path；consumer 不得将 alias 归一化成 canonical field。fixture generator 以
@@ -561,16 +670,21 @@ h010_identity_fields = {
   approved_by, approved_at, expires_at, signer_key_id, signature_algorithm,
   global_platform_registry_digest, global_platform_registry_entry_digest,
   platform_profile_family_id, global_profile_generation,
+  launch_authority_backend_identity, launch_authority_profile_id, launch_policy_digest,
+  platform_launch_floor_attestation_digest, current_platform_generation,
+  monotonic_launch_floor, allowed_core_min_version, allowed_host_adapter_min_version,
+  attestation_sequence, issued_at, expires_at,
   evaluation_policy_digest, authoritative_policy_generation,
   policy_validity_evidence_digest, authority_base_digest, fixture_id,
   platform_id, authority_mode, anchor_profile, no_block_profile,
   backend_profile_id, service_profile_id,
-  migration_from_platform_id, migration_from_profile_family_id,
-  maintainer_migration_authorization_digest, nonrollback_platform_identity_digest,
   per_leaf_authority_mode, target_authorizer_profile_id, authorizer_key_id,
   provision_ipc_lifecycle_decisions, core_release_digest, release_pin_digest,
   maximum_effective_decision, transition_policy, no_block_release_profile_digest,
   no_block_installation_binding_digest, fixture_budgets,
+  no_block_authority_base_digest, no_block_budget_digest,
+  no_block_decision_artifact_digest, no_block_batch_digest,
+  no_block_result_body_digest, confirmation_applicability,
   host_kind, installed_wrapper_path, anchor_enabled, surface,
   workload_schedule_digest, successor_baseline, runs,
   budget_digest, decision_artifact_digest, initial_digest, initial_breaches,
@@ -584,19 +698,20 @@ literal domain、outer schema version、signature/key 与 from/target leaf pairi
 或 nested `ordered_breaches` 并 nonzero；`nonempty_confirmation_breaches_with_null_confirmation` 也必须
 nonzero。另覆盖 `refreshed_proof_same_state`、valid `unrelated_leaf_advance`、same-leaf unexpected successor
 （`needs_repair`）、`forbidden_cross_release_mode_transition`、`duplicate_platform_across_releases`、
-`two_release_whole_rollback` 与 old-binary/new-identity mismatch。两个 release fixture 必须证明旧 no-block
-family 永远 warn/off，新 block 使用不可 alias 的 identity；rollback 不能把新 receipt/profile 重解释成旧
-family。另须拒绝 duplicate/unsorted current profiles、pin mismatch、outer schema alias；
+`two_release_whole_rollback`、`old_binary_prelaunch_rejected` 与 launch-floor body/signature/quorum/floor
+mutations。fixture 必须证明 no-block family 永远 warn/off 且禁止 migration；active block platform rollback
+到旧 Core/adapter 时在任何 hook 前 nonzero，不能执行 warn/off 或产生 decision。另须拒绝
+duplicate/unsorted current profiles、pin mismatch、outer schema alias；
 `no_block_status_without_backend` 断言 backend/root/leaf=`not_applicable`、global generation/install binding/
-warn ceiling/stale 齐全，且 no-block budget/provision/restart/CAS/IPC anchor fields 全部 absent。
+warn ceiling/stale 与 no-block result/CI identity 齐全，且 backend budget/provision/restart/CAS/IPC fields 全部 absent。
 
 planned **tests/test_guard_pack_anchor.sh** owns schema/IPC/lifecycle/crash/concurrency fixtures；planned
 **tests/perf_guard_pack_anchor.sh** 可保留 anchor fault attribution 专项，但不得自建发布 SLA gate。
 canonical distribution/budget evidence 必须接入 `tests/bench_hook_latency.sh`，并由
-`tests/test_hook_perf_contract.sh` 固定每个 anchor-enabled Claude/Codex installed fixture ID、H-010 每项
-budget 的 result/confirmation/blocking/CI contract。CI 必须在每个 H-010 claimed platform 运行真实 backend
-conformance 或明确、获批且 fail-closed 的 hardware/service fixture；单一 Linux mock 不能证明
-cross-platform availability。
+`tests/test_hook_perf_contract.sh` 固定每个 mode 的 fixture、budget/batch/result/confirmation/CI contract。
+`final_ci_authority_mode_branch` 要求 anchor-block 在每个 claimed platform 验证 pre-Core launch floor 并
+运行真实 backend 或获批 fail-closed hardware/service fixture；no-block 只运行真实 installed zero-backend
+hook、独立 schema/result/status gates，backend/hardware/service evidence 为 `not_applicable` 且不得成为 CI 前提。
 
 本文不规定 backend 实现、平台支持集合、provision/reinstall/device-replacement policy、IPC peer
 authentication 或 latency budget；这些必须由 product spec 的未批准 H-010 决定，并由

@@ -237,11 +237,11 @@ Recommended H-004 layout（未批准）：
   overrides/<source_storage_key>/<target>/<profile>.json
 ```
 
-anchor-block 的三个 mirror 由 user-state tree 外独立单调 backend leaf 授权；root 只是 trust container。
-supporting contract 独占 intent/mirror/journal/barrier/crash 语义；fresh proof 认证 selected mirror 的 stable
-counter/value identity，proof refresh 不改变 equality。no-block mode 来自 cross-release global registry，release pin 只绑 compatibility。
-unrelated leaf/aggregate-root progress 不得使 mirror 失效，unknown same-leaf transition 才 fail closed；
-已证明 target leaf local lag 从 intent/journal roll forward。backend/platform 仍未批准。
+anchor-block 先由 Core 外、pre-launch、旧 binary 不可绕过的 nonrollback authority 验证 closed
+`platform_launch_floor_attestation`；低于 Core/adapter floor 时不启动 hook。通过后，三个 mirror 才由
+user-state tree 外独立单调 backend leaf 授权；supporting contract 独占 launch/intent/mirror/journal/barrier/
+crash 与 mode-specific perf 语义。no-block 来自 cross-release global registry，release pin 只绑 compatibility；
+无 launch TCB 的平台永久 no-block且禁止 migration/official block。backend/platform 仍未批准。
 
 `source_storage_key` 是 closed union：official 为
 `official/<normalized_publisher>/<normalized_pack>`；local 为
@@ -259,11 +259,11 @@ validity evidence、previous/target generation；再 CAS+fsync external floor，
 无效。pack/environment/CLI/publication artifact 均不能改写。每个 active generation 有独立
 closed、Core-owned runtime-state entry，
 绑定 installation generation、committed policy exact identity、`clock_epoch`、sequence、high-water、latch 与 deterministic time-leaf state；
-fresh proof 只独立认证 state，proof bytes/digest refresh 不得使 entry/mirror 失效。runtime 先验证
-global registry + release-pinned H-010：anchor-block 验证 stable proof；no-block 验证 global family/release/
-install binding，expiry/pin mismatch 只标 stale/audit并保持 warn-only ceiling，零 backend/IPC。
-合法 warn/off/no-data 跳过 time leaf；block claim/candidate 仍 fail closed，candidate 才取 runtime-state
-lock推进 high-water并锁存 fallback。取锁前缓存不得执行，latch 仅新 management generation 可清除。
+fresh proof 只认证 state且 refresh 不改变 equality。anchor platform 的 host adapter 在任何 Core hook 前
+验证 attestation body/digest/signature/quorum/backend identity、generation 与 monotonic Core/adapter floors；
+失败/旧版本 launch nonzero且不产生 decision。runtime 再验证 registry + release-pinned H-010：anchor 验证
+stable proof；no-block 验证 global family/release/install binding，mismatch stale/audit、warn-only、零 backend。
+合法 warn/off/no-data 跳过 time leaf；block candidate 才锁 runtime-state 推进 high-water并锁存 fallback。
 新进程继承 durable high-water，不得以启动时间
 重置。同 epoch 的 audit 不得降低它；显式 trusted-clock reconciliation 必须验证 Core-approved
 time evidence，在 management locks 下重新 audit，递增 epoch，并将 evidence、新 generation
@@ -454,7 +454,7 @@ override status、precision value/null、counts、age、evaluation time、policy
 trust、revocation/compatibility status、publication identity、committed/authoritative evaluation
 policy 的 exact digest/generation/validity identities、policy floor、active installation
 generation/floor、runtime sequence/latch、trusted-time high-water/`clock_epoch`、block basis；no-block 显示
-global profile generation/install binding/warn ceiling/stale且 backend/root/leaf=not_applicable；anchor 显示 backend/root/leaf/CAS/budgets；
+global generation/install binding/ceiling/stale + hook-only result/CI，anchors=not_applicable；anchor 显示 launch floor/backend/root/leaf/CAS/budgets；
 `decision_valid_until`/source-applicable `override_valid_until`、expiry fallback/state 与
 `audit_required`。eligibility digest 必须覆盖
 上列每个 source-applicable binding digest；rule/evaluation-policy/evidence/provenance/
@@ -463,16 +463,14 @@ normalized evaluation-time 变化产生新 digest 并触发 audit，即使 colla
 这包括只跨越 freshness/expiry/revocation window、其他 bytes 均未变化的情况。
 active block 失去 eligibility 时按 H-008 action 事务降级，失败进入 `needs_repair`。
 
-runtime hot path 先验证 global registry 再选择 H-010 mode。anchor-block 在 bounded fence 下验证
-external policy/install stable states、fresh proofs与 pointer/floors；失败时 block-capable generation
-未建立，candidate deny/nonzero。no-block family 永久 warn/off且零 provision/restart/CAS/IPC；pin/expiry/
-old-binary-new-identity mismatch status nonzero，不改 mode。new block 需 nonrollback backend + new identity + migration；旧 family 不授权/alias。current block candidate 才取得 runtime-state lock；即使随后
-expiry/rollback fallback，也先 CAS 推进 high-water并锁存 `audit_required`。candidate 的 state/proof/
-lock/CAS 失败是 `runtime_guard_unavailable`；runtime 不得因后续
-时钟或 policy bytes 返回旧值而清除 latch。
-clock rollback 只有显式 reconciliation 可恢复；其他 official block 需 fresh audit，promotion
-还需 fresh confirmation。
-hot path 不联网，也不等待后台 scheduler 或用户先运行命令。
+anchor platform 在 runtime hot path 前已通过 external launch floor；旧 Core/adapter 在 active block
+generation 上 pre-launch nonzero，不能执行 warn/off。runtime 再选 H-010 mode：anchor 在 bounded fence
+验证 external policy/install state、proofs 与 floors，失败时 candidate deny/nonzero；no-block 永久
+warn/off且零 provision/restart/CAS/IPC，pin/expiry mismatch 只标 stale。无 launch TCB 的平台禁止
+migration/official block。block candidate 才锁 runtime-state；fallback 也先 CAS high-water并锁存
+`audit_required`。state/proof/lock/CAS 失败为 `runtime_guard_unavailable`，后续 clock/policy 回值不清
+latch；clock rollback 仅显式 reconciliation 恢复，其他 block 要 fresh audit，promotion 要 fresh confirmation。
+hot path 不联网，也不等待 scheduler 或用户先运行命令。
 
 ### 8. Registry governance、publish 与 revocation
 
@@ -548,7 +546,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "schemas/guard-pack-override.schema.json", "schemas/guard-pack-runtime-state.schema.json",
     "schemas/guard-pack-feedback.schema.json",
     "schemas/guard-pack-anchor-intent.schema.json", "schemas/guard-pack-anchor-commit.schema.json", "schemas/guard-pack-anchor-mirror.schema.json", "schemas/guard-pack-anchor-ipc.schema.json", "schemas/guard-pack-anchor-authorization.schema.json",
-    "schemas/guard-pack-h010-decision.schema.json", "schemas/guard-pack-anchor-perf-budget.schema.json", "schemas/guard-pack-anchor-perf-batch.schema.json", "schemas/guard-pack-anchor-perf-result.schema.json",
+    "schemas/guard-pack-h010-decision.schema.json", "schemas/guard-pack-platform-launch-floor-attestation.schema.json", "schemas/guard-pack-anchor-perf-budget.schema.json", "schemas/guard-pack-anchor-perf-batch.schema.json", "schemas/guard-pack-anchor-perf-result.schema.json", "schemas/guard-pack-no-block-perf-budget.schema.json", "schemas/guard-pack-no-block-perf-batch.schema.json", "schemas/guard-pack-no-block-perf-result.schema.json",
     "packs/safe-bash/pack.yaml", "packs/safe-bash/README.md",
     "scripts/lib/guard_packs.py",
     "scripts/lib/guard_pack_manifest.py",
@@ -557,7 +555,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "scripts/precision-tracker.py",
     "scripts/ci/validate-guard-pack-publish.py",
     "scripts/setup/guard-packs.sh",
-    "scripts/setup/guard-pack-anchor-service/",
+    "scripts/setup/guard-pack-launch-adapter/", "scripts/setup/guard-pack-anchor-service/",
     "scripts/release/payload-manifest.txt",
     "setup.sh",
     "data/guard-pack-policy.json",
@@ -598,7 +596,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | Capability/host | planned **guard_pack/capability.rs**; consume approved GH-701 registry when available | Claude/Codex/unknown/incompatible/unsupported fixture matrix |
 | Transaction/receipt | planned **guard_pack/transaction.rs**, receipt/transaction schemas | crash-at-every-stage, concurrent lock, drift, rollback, recovery and canary tests |
 | Precision/runtime policy | planned **guard_pack/precision.rs**, **runtime_guard**, precision/policy/override/runtime-state schemas, `scripts/precision-tracker.py` | exhaustive eligibility truth table + binding/freshness/override/policy-rotation/clock-rollback negatives |
-| Monotonic anchor | planned **guard_pack/anchor/** + global registry/H-010/mode-specific perf schemas | cross-release terminal/rollback/duplicate、old-client identity、authority-mode lifecycle/status/budgets、per-leaf/JCS gates |
+| Monotonic anchor | planned **guard_pack/anchor/** + external launch adapter + global registry/H-010/mode-specific perf schemas | pre-Core floor/rollback、terminal no-block、independent result/CI、per-leaf/JCS gates |
 | Author publish | planned **scripts/lib/guard_pack_manifest.py**, **guard_pack_publish.py**, **scripts/ci/validate-guard-pack-publish.py** | two-build digest equality; half-publish/index-CAS/revoke/yank fixtures |
 | Legacy migration | `scripts/lib/guard_packs.py`, `scripts/lib/guard_pack_receipts.py`, `packs/safe-bash/` | existing 623-case shell surface remains green plus migration ownership sentinels |
 | Release distribution | `scripts/release/payload-manifest.txt`, `scripts/setup/guard-packs.sh`, `setup.sh`, `tests/test_payload.sh`, `tests/test_release_workflow.sh` | GH-699 actual no-clone launcher invokes Rust client; payload tamper fails closed |
@@ -634,8 +632,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | Policy journal + global platform registry | no-block family terminal across releases；new block requires nonrollback backend/new identity/migration；old client cannot alias |
-| B-028 insufficient evidence degrades | Generation-scoped runtime guard | no-block expiry/pin/mismatch keeps warn/off with stale/audit；anchor fallback latches time；block claim fails |
+| B-027 policy-owned thresholds | External launch adapter + policy/global registry | old Core/adapter rejected pre-hook on block platform；no TCB means permanent no-block/no migration |
+| B-028 insufficient evidence degrades | Generation-scoped runtime guard | no-block hook-only result and expiry/pin fallback；anchor launch/state failure denies；block fallback latches time |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
 | B-031 same gate for core/community | Shared eligibility function | identical evidence inputs under curated/community publishers yield identical eligibility; badge/high severity cannot bypass |
@@ -648,8 +646,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-038 GH-701 interface boundary | Host adapter compatibility layer | merged-Draft-only fixture stays fixed Claude/Codex；only decisions + merged implementation + compatibility/native proof accepts registry IDs；reject second registry/early third-host active claim |
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds under the same publication policy match digest；evaluation-policy rotation does not rebuild；publish failures never create resolvable partial entry |
-| B-041 truthful list/status/audit | Shared renderer | no-block renders global generation/install binding/ceiling/stale + not_applicable anchors；anchor renders backend/root/leaf/budgets；mismatch nonzero |
-| B-042 offline runtime stability | Runtime/registry gate | two-release rollback/duplicate/transition/old-client fixtures plus authority-mode budget/lifecycle negatives；no stale alias |
+| B-041 truthful list/status/audit | Shared renderer | no-block renders global binding/ceiling/stale + hook-only result/CI + not_applicable anchors；anchor renders launch floor/backend/budgets |
+| B-042 offline runtime stability | Launch/runtime/registry gates | whole-release old binary prelaunch reject、floor/duplicate/transition fixtures + mode-specific schemas/CI |
 
 ## 数据流
 
@@ -673,14 +671,14 @@ vibeguard add <locator>
        ├─ reserve/apply/audit → one dependency-set pointer switch
        └─ rollback/recovery/needs_repair
 
-runtime hook
-  └─ verify global registry family + release/install binding
-       ├─ terminal no-block → warn/off；anchors not_applicable；mismatch stale/nonzero
-       │    └─ same-family block/new-identity alias → reject；no deny upgrade
-       └─ anchor-block → stable policy/install state + fresh proof + pointer/floors
-            ├─ unavailable/block claim → conservative deny + nonzero
-            ├─ current warn/off → keep decision；skip time leaf
-            └─ block → time authority；fallback latches；no network/telemetry
+platform launch
+  ├─ anchor claim → external adapter verifies attestation/floors before Core；old/invalid → nonzero, no decision
+  └─ no-block → no external TCB required；global registry permanently forbids official block
+runtime hook → verify global family + release/install binding
+  ├─ no-block → warn/off；hook-only result/CI；anchors not_applicable；mismatch stale/nonzero
+  └─ anchor → stable policy/install proof + floors
+       ├─ unavailable/block claim → conservative deny + nonzero
+       └─ block → time authority；fallback latches；no network/telemetry
 ```
 
 持久化面是 closed set：content-addressed verified store、index/registry-event caches、
@@ -743,8 +741,8 @@ confirmation 声明。runtime enforcement、list local state 和 remove 已安�
   - tamper/rollback/freeze/yank/revoke/offline/unsafe archive；
   - failure/cancel/crash at every transaction stage + recovery；
   - parallel target lock、user/other-pack canaries、legacy safe-bash migration；
-  - runtime sentinels、refreshed proof、two-release rollback/duplicate/transition、old-client identity、
-    no-block status/budgets/lifecycle、breach/policy/clock mutations和 feedback redaction。
+  - runtime sentinels、refreshed proof、two-release rollback/duplicate/transition、old-binary prelaunch floor、
+    no-block independent budget/batch/result/status/CI、breach/policy/clock mutations和 feedback redaction。
 - [ ] Release contract:
   - verified payload包含 client/schemas/policy；
   - GH-699 actual launcher discovery，不 hard-code spec path；
