@@ -359,9 +359,9 @@ no_block_installation_binding_digest =
     no_block_installation_binding_body)
 ```
 
-verified Core release 的 release-pinned H-010 generation/digest 是该分支 authority；runtime 从 signed
-profile 读取 `core_release_digest`，重算 `release_pin_digest` 并要求两者 exact 等于当前 verified Core
-release；artifact 之外的 release value 不得进入 generation。runtime 确定性重算 body/digest，不信任
+verified Core release 的 release-pinned H-010 generation/digest 是该分支 authority；runtime 要求 signed
+profile 的 `core_release_digest` exact 等于当前 verified Core release digest；另从该 signed value 重算
+pin 并要求 exact 等于 signed `release_pin_digest`。artifact 之外的 release value 不得进入 generation。runtime 确定性重算 body/digest，不信任
 HOME 自报 generation；release-wide 首代 predecessor 必须 null，
 后续 exact 指向上一 signed generation，且 chain 不含 installation-specific data。每个 installation 再由
 current Core installation ID 派生 binding digest，binding 不进入 release predecessor。旧 artifact、断链、
@@ -528,7 +528,7 @@ h010_identity_fields = {
   backend_profile_id, service_profile_id,
   per_leaf_authority_mode, target_authorizer_profile_id, authorizer_key_id,
   provision_ipc_lifecycle_decisions, no_block_profile_generation,
-  previous_no_block_generation_digest, release_pin_digest,
+  core_release_digest, previous_no_block_generation_digest, release_pin_digest,
   maximum_effective_decision, no_block_generation_digest,
   no_block_installation_binding_digest, fixture_budgets,
   host_kind, installed_wrapper_path, anchor_enabled, surface,
