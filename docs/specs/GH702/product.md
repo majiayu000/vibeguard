@@ -122,9 +122,12 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     recommendation、探测到的 TPM/Keychain/service 或环境变量自动选择。批准 artifact 必须分别
     决定 Core 外、pre-launch、旧 binary/adapter 不可绕过的 nonrollback launch/version-floor authority、
     closed launch-authority profile/policy 的 backend identity、trusted signer key ID + public-key
-    material digest、algorithm、quorum、maximum validity 与 pre-hook binding，以及
-    `platform_launch_floor_attestation` 的 challenge/session、measured binary、current backend
-    state/counter/predecessor/floors、signature 与 bounded validity、
+    material digest、algorithm、quorum、maximum validity、resume-token minimum entropy、maximum suspended
+    lifetime 与 pre-hook binding，以及
+    canonical approved Core process template 的 entrypoint/argv/environment/cwd/principal/sandbox/IPC digests，
+    `platform_launch_floor_attestation` 的 challenge/session/transaction、current backend state/counter/
+    predecessor/floors、canonical launched-process preimage、suspended-handle/resume-token digests、单次 resume
+    protocol、measured binary、signature 与 bounded validity，
     backend/service owner、independent authenticated per-leaf authority conformance、initial
     provision 权限与 user/Core/device identity、IPC endpoint 的
     server/client peer authentication/ACL/protocol/anti-replay、key/backend identity rotation、同设备
@@ -352,9 +355,14 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     Core+adapter minimum version 任一无效或当前 binary/adapter 低于 floor 时，launch nonzero 且不得产生
     decision；实测 binary digest+version 还必须 exact 匹配 H-010 获批 Core/adapter，只达到 minimum 不授权。
     每次 launch 必须用 never-reused nonce + session + transaction 直接挑战 external backend；backend 在同一
-    nonrollback TCB 操作内 compare current state、永久消费 transaction 并暂停启动 exact process，adapter 验证签名
-    launch commit 后才恢复；cached、predecessor、无法线性化到 state 比较的 response，或仍未过期但已消费/
-    非 current response 一律在 Core hook 前拒绝。通过后 runtime
+    nonrollback TCB `compare_current_state_consume_and_launch` 操作内 compare current state、永久消费 transaction 并按 H-010 canonical template 创建
+    `suspended_before_core_entry_v1` exact process，禁止 current read + local spawn。signed response 必须绑定可重算的
+    launched-process identity body/digest、opaque suspended handle 与 single-use resume token digests；raw handle/token
+    只经 authenticated IPC 交给 adapter，不落 HOME/log/receipt/status。adapter 验证全部 identity 后调用
+    `resume_suspended_process`；response 丢失只允许同一 peer/transaction 的 `recover_launch_handoff` 或
+    `query_or_abort_suspended_process`，不得创建第二 process。pending timeout/验证失败必须 external-TCB terminate
+    并保留 consumed transaction tombstone；cached、predecessor、wrong process/handle/token、无法线性化到 state
+    compare 的 response，或仍未过期但已消费/非 current response 一律在 Core hook 前拒绝。通过后 runtime
     才验证 global registry entry 与 release-pinned H-010 compatibility；terminal no-block
     expiry/pin mismatch 只保留 warn ceiling + stale/audit status。`anchor_block_v1` 在每次 enforcement
     接受 committed decision 前以 external per-leaf authorities 证明 policy/install pointer/floors current；
@@ -535,7 +543,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 - [ ] H-001–H-010 均有 maintainer 选择与 security review evidence，未选择时 official
       publish/install/default-block gate 明确阻断。
 - [ ] `two_release_whole_rollback`、`old_binary_prelaunch_rejected`、仍未过期旧 attestation 在 floor advance 后
-      replay、launch profile/policy/key/quorum/challenge/current-state mutation、
+      replay、read-current+local-spawn、process-template/preimage/handle/token mutation、compare/launch/resume response
+      loss、pending timeout/abort、launch profile/policy/key/quorum/challenge/current-state mutation、
       `duplicate_platform_across_releases` 与 `forbidden_cross_release_mode_transition` fixtures 证明 old Core
       在 active block platform 上于 hook 前 nonzero；`no_block_status_without_backend` 证明独立
       hook-only budget/batch/result、mode-specific lifecycle/status 与 no-hardware/service CI branch。

@@ -238,10 +238,10 @@ Recommended H-004 layout（未批准）：
 ```
 
 anchor-block 先由 Core 外、pre-launch、旧 binary 不可绕过的 nonrollback authority，按 H-010 signed closed
-profile/policy 的 key-material digest/algorithm/quorum，验证 challenge-bound current-state attestation；nonce/session、
-measured binaries、backend counter/predecessor/floors 任一 stale/mismatch 时不启动 hook。通过后，三个 mirror 才由
-external leaves 授权；supporting contract 独占 launch/intent/recovery/mode-specific perf。no-block 来自 global
-registry且无 TCB 时永久 no-block/禁止 migration/official block。backend/platform 仍未批准。
+profile/policy 的 key-material/quorum 和 canonical process template，原子 compare current state、consume transaction、
+create suspended Core；adapter 验证 challenge-bound attestation、process preimage 与 opaque handle/token digest 后，
+才请求 external TCB 单次恢复 exact process。supporting contract 独占 launch/handoff/recovery/mode-specific perf；
+no-block 来自 global registry且无 TCB 时永久 no-block/禁止 migration/official block。backend/platform 仍未批准。
 
 `source_storage_key` 是 closed union：official 为
 `official/<normalized_publisher>/<normalized_pack>`；local 为
@@ -260,9 +260,11 @@ validity evidence、previous/target generation；再 CAS+fsync external floor，
 closed、Core-owned runtime-state entry，
 绑定 installation generation、committed policy exact identity、`clock_epoch`、sequence、high-water、latch 与 deterministic time-leaf state；
 fresh proof 只认证 state且 refresh 不改变 equality。anchor host adapter 每次 pre-hook 生成唯一 CSPRNG
-nonce/session，向 external backend 直接读取 signed current counter/predecessor/floors 与 measured Core/adapter；
-profile/policy/key/quorum、challenge、current state 或 version 任一失败即 launch nonzero/no decision。runtime 再验证
-registry + release H-010：anchor 验证 stable proof；no-block 验证 global binding且 mismatch warn-only/零 backend。
+nonce/session/transaction，向 external backend 发起 supporting contract 的 atomic
+`compare_current_state_consume_and_launch`，不得先 read current proof 再 local spawn。response 必须同时提供 canonical
+process identity preimage、signed attestation 与 digest-bound opaque suspended handle/single-use resume token；adapter
+验证全部 profile/policy/template/key/quorum/current-state/version 后调用 `resume_suspended_process`，丢 response 只按
+同一 transaction recover/query/abort，不得 respawn。之后 runtime 才验证 registry + release H-010；no-block 零 backend。
 合法 warn/off/no-data 跳过 time leaf；block candidate 才锁 runtime-state 推进 high-water并锁存 fallback。
 新进程继承 durable high-water，不得以启动时间
 重置。同 epoch 的 audit 不得降低它；显式 trusted-clock reconciliation 必须验证 Core-approved
@@ -463,10 +465,10 @@ normalized evaluation-time 变化产生新 digest 并触发 audit，即使 colla
 这包括只跨越 freshness/expiry/revocation window、其他 bytes 均未变化的情况。
 active block 失去 eligibility 时按 H-008 action 事务降级，失败进入 `needs_repair`。
 
-anchor platform 在 runtime hot path 前已通过 external launch floor；旧 Core/adapter 在 active block
-generation 上 pre-launch nonzero，不能执行 warn/off。runtime 再选 H-010 mode：anchor 在 bounded fence
-验证 external policy/install state、proofs 与 floors，失败时 candidate deny/nonzero；no-block 永久
-warn/off且零 provision/restart/CAS/IPC，pin/expiry mismatch 只标 stale。无 launch TCB 的平台禁止
+anchor platform 在 runtime hot path 前已由 external TCB 原子 create-suspended，并在验证 signed process/
+handoff identity 后单次 resume；旧 Core/adapter 在 active block generation 上 pre-launch nonzero，不能执行 warn/off。
+runtime 再选 H-010 mode：anchor 在 bounded fence 验证 external policy/install state、proofs 与 floors，失败时
+candidate deny/nonzero；no-block 永久 warn/off且零 provision/restart/CAS/IPC，pin/expiry mismatch 只标 stale。无 launch TCB 的平台禁止
 migration/official block。block candidate 才锁 runtime-state；fallback 也先 CAS high-water并锁存
 `audit_required`。state/proof/lock/CAS 失败为 `runtime_guard_unavailable`，后续 clock/policy 回值不清
 latch；clock rollback 仅显式 reconciliation 恢复，其他 block 要 fresh audit，promotion 要 fresh confirmation。
@@ -632,7 +634,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | External launch adapter + policy/global registry | challenge-bound current backend proof rejects old Core/adapter and still-valid replay；no TCB means permanent no-block/no migration |
+| B-027 policy-owned thresholds | External launch adapter + policy/global registry | atomic compare+consume+create-suspended rejects read+spawn；canonical process preimage + handle/token digest + resume/recover/query/abort fixtures reject old Core/adapter, wrong process, replay and lost responses；no TCB means permanent no-block/no migration |
 | B-028 insufficient evidence degrades | Generation-scoped runtime guard | no-block hook-only result and expiry/pin fallback；anchor launch/state failure denies；block fallback latches time |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
@@ -672,7 +674,7 @@ vibeguard add <locator>
        └─ rollback/recovery/needs_repair
 
 platform launch
-  ├─ anchor claim → external adapter verifies attestation/floors before Core；old/invalid → nonzero, no decision
+  ├─ anchor claim → external TCB compare+consume+create-suspended → adapter verifies process/handoff → single resume；old/invalid → abort/nonzero, no decision
   └─ no-block → no external TCB required；global registry permanently forbids official block
 runtime hook → verify global family + release/install binding
   ├─ no-block → warn/off；hook-only result/CI；anchors not_applicable；mismatch stale/nonzero
@@ -741,7 +743,7 @@ confirmation 声明。runtime enforcement、list local state 和 remove 已安�
   - tamper/rollback/freeze/yank/revoke/offline/unsafe archive；
   - failure/cancel/crash at every transaction stage + recovery；
   - parallel target lock、user/other-pack canaries、legacy safe-bash migration；
-  - runtime sentinels、refreshed proof、two-release rollback/duplicate/transition、old-binary prelaunch floor、
+  - runtime sentinels、refreshed proof、atomic read+spawn negative、process-preimage/handle/token/resume lost-response、two-release rollback/duplicate/transition、old-binary prelaunch floor、
     no-block independent budget/batch/result/status/CI、breach/policy/clock mutations和 feedback redaction。
 - [ ] Release contract:
   - verified payload包含 client/schemas/policy；
