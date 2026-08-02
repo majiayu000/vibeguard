@@ -10,9 +10,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const STATE_VERSION: i64 = 1;
 
 pub fn init(args: &[String]) -> SetupResult<()> {
-    if args.len() != 3 && args.len() != 4 {
+    if !(3..=5).contains(&args.len()) {
         return Err(
-            "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation]"
+            "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills]"
                 .into(),
         );
     }
@@ -34,6 +34,10 @@ pub fn init(args: &[String]) -> SetupResult<()> {
     if generation == 0 {
         return Err("install-state generation must be a positive integer".into());
     }
+    let disabled_skills: Vec<&str> = args
+        .get(4)
+        .map(|value| value.split(',').filter(|name| !name.is_empty()).collect())
+        .unwrap_or_default();
     let mut state = json!({
         "version": STATE_VERSION,
         "generation": generation,
@@ -47,7 +51,7 @@ pub fn init(args: &[String]) -> SetupResult<()> {
     if state_file.exists() {
         let existing = read_state(state_file)?;
         validate_state_for_preflight(&existing)?;
-        carry_incomplete_inventory(&existing, &mut state, generation)?;
+        carry_incomplete_inventory(&existing, &mut state, generation, &disabled_skills)?;
     }
     write_json_atomic(state_file, &state)?;
     Ok(())

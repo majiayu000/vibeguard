@@ -645,7 +645,7 @@ fn sync_parent(path: &Path) -> SetupResult<()> {
     sync_directory(path.parent().ok_or("durable path has no parent")?)
 }
 
-fn sync_directory(path: &Path) -> SetupResult<()> {
+pub(crate) fn sync_directory(path: &Path) -> SetupResult<()> {
     #[cfg(unix)]
     File::open(path)?.sync_all()?;
     #[cfg(windows)]
@@ -684,7 +684,7 @@ fn valid_digest(value: &Value) -> bool {
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
     let from = CString::new(from.as_os_str().as_bytes())?;
     let to = CString::new(to.as_os_str().as_bytes())?;
@@ -705,7 +705,7 @@ fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
     let from = CString::new(from.as_os_str().as_bytes())?;
     let to = CString::new(to.as_os_str().as_bytes())?;
@@ -718,7 +718,7 @@ fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 #[cfg(windows)]
-fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     match fs::rename(from, to) {
         Ok(()) => Ok(()),
         Err(_) if fs::symlink_metadata(to).is_ok() => Err(io::ErrorKind::AlreadyExists.into()),
@@ -733,7 +733,7 @@ fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     target_os = "ios",
     windows
 )))]
-fn rename_noreplace(_from: &Path, _to: &Path) -> io::Result<()> {
+pub(crate) fn rename_noreplace(_from: &Path, _to: &Path) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "atomic no-replace rename is unsupported",
@@ -754,7 +754,7 @@ fn path_text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn now_nanos() -> u128 {
+pub(crate) fn now_nanos() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

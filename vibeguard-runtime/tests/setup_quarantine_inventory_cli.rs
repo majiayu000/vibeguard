@@ -230,3 +230,83 @@ fn init_retry_preserves_incomplete_quarantine_locator_and_inventory() {
     assert!(retained["files"].get(tracked).is_some());
     fs::remove_dir_all(root).expect("temp root should be removed");
 }
+
+#[test]
+fn init_retry_preserves_verifiable_incomplete_disabled_skill_inventory() {
+    let root = unique_temp_dir("quarantine-init-new-opt-out");
+    let state = root.join("state.json");
+    let home = root.join("home");
+    let skill = home.join(".codex/skills/plan-flow/SKILL.md");
+    fs::create_dir_all(skill.parent().expect("skill should have parent"))
+        .expect("skill parent should be created");
+    fs::write(&skill, "hello").expect("managed skill should be written");
+    let modified = skill
+        .parent()
+        .expect("skill should have parent")
+        .join("USER.md");
+    fs::write(&modified, "changed").expect("modified skill file should be written");
+    let other = home.join(".codex/skills/fixflow/SKILL.md");
+    fs::create_dir_all(other.parent().expect("other skill should have parent"))
+        .expect("other skill parent should be created");
+    fs::write(&other, "hello").expect("other skill should be written");
+    let tracked = path_text(&skill);
+    let modified_tracked = path_text(&modified);
+    let other_tracked = path_text(&other);
+    let unsupported_tracked = path_text(
+        &skill
+            .parent()
+            .expect("skill should have parent")
+            .join("LINK.md"),
+    );
+    write_json(
+        &state,
+        &json!({
+            "version": 1,
+            "generation": 5,
+            "complete": false,
+            "files": {
+                tracked.clone(): {
+                    "source": "workflows/plan-flow/SKILL.md",
+                    "type": "copy",
+                    "checksum": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+                },
+                modified_tracked.clone(): {
+                    "source": "workflows/plan-flow/USER.md",
+                    "type": "copy",
+                    "checksum": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+                },
+                other_tracked.clone(): {
+                    "source": "workflows/fixflow/SKILL.md",
+                    "type": "copy",
+                    "checksum": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+                },
+                unsupported_tracked.clone(): {
+                    "source": "workflows/plan-flow/LINK.md",
+                    "type": "symlink"
+                }
+            }
+        }),
+    );
+
+    let output = bin()
+        .args([
+            "setup-state-init",
+            &path_text(&state),
+            "core",
+            "",
+            "5",
+            "plan-flow",
+        ])
+        .env("HOME", &home)
+        .output()
+        .expect("new opt-out init retry should run");
+    assert_output(&output, 0, "", "");
+    let retained: serde_json::Value =
+        serde_json::from_slice(&fs::read(&state).expect("state should be readable"))
+            .expect("state should remain JSON");
+    assert!(retained["files"].get(tracked).is_some());
+    assert!(retained["files"].get(modified_tracked).is_none());
+    assert!(retained["files"].get(other_tracked).is_none());
+    assert!(retained["files"].get(unsupported_tracked).is_none());
+    fs::remove_dir_all(root).expect("temp root should be removed");
+}

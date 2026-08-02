@@ -52,27 +52,37 @@ assert_cmd "crashed stale setup-lock reclaimer is recovered" env \
   bash -c 'source "$1/scripts/setup/lib.sh"; setup_lock_acquire; setup_lock_release' _ "${REPO_DIR}"
 
 gh719_lock_publish_home="${TMP_HOME}/gh719-lock-publish-home"
-if HOME="${gh719_lock_publish_home}" bash -c '
+if HOME="${gh719_lock_publish_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  VIBEGUARD_TEST_SETUP_LOCK_ACQUIRE_BEFORE_RENAME=1 bash -c '
   source "$1/scripts/setup/lib.sh"
-  setup_runtime() {
-    if [[ "$1" == "setup-lock-publish-owner" ]]; then
-      printf "partial-owner" > "$2/owner"
-      return 1
-    fi
-    return 127
-  }
   setup_lock_acquire
 ' _ "${REPO_DIR}" >/dev/null 2>&1; then
-  red "partial setup lock owner publication unexpectedly succeeded"
+  red "interrupted setup lock publication unexpectedly succeeded"
   FAIL=$((FAIL + 1))
   TOTAL=$((TOTAL + 1))
 else
-  green "partial setup lock owner publication fails visibly"
+  green "interrupted setup lock publication fails visibly"
   PASS=$((PASS + 1))
   TOTAL=$((TOTAL + 1))
 fi
-assert_cmd "partial setup lock owner is cleaned after publication failure" test \
+assert_cmd "publication interruption leaves no ownerless canonical lock" test \
   ! -e "${gh719_lock_publish_home}/.vibeguard/setup.lock"
+
+gh719_lock_release_crash_home="${TMP_HOME}/gh719-lock-release-crash-home"
+gh719_lock_release_crash_rc=0
+HOME="${gh719_lock_release_crash_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  VIBEGUARD_TEST_SETUP_LOCK_RELEASE_AFTER_RENAME=1 bash -c '
+    source "$1/scripts/setup/lib.sh"
+    setup_lock_acquire
+    setup_lock_release
+  ' _ "${REPO_DIR}" >/dev/null 2>&1 || gh719_lock_release_crash_rc=$?
+assert_cmd "injected setup-lock release interruption is visible" test \
+  "${gh719_lock_release_crash_rc}" -ne 0
+assert_cmd "release interruption leaves no ownerless canonical lock" test \
+  ! -e "${gh719_lock_release_crash_home}/.vibeguard/setup.lock"
+assert_cmd "setup lock is reacquirable after interrupted release" env \
+  HOME="${gh719_lock_release_crash_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  bash -c 'source "$1/scripts/setup/lib.sh"; setup_lock_acquire && setup_lock_release' _ "${REPO_DIR}"
 
 gh719_lock_race_home="${TMP_HOME}/gh719-lock-race-home"
 gh719_lock_race_control="${TMP_HOME}/gh719-lock-race-control"
@@ -314,6 +324,19 @@ assert_cmd "retry preserves the last complete ownership generation" test \
 assert_cmd "retry reuses the interrupted next generation" python3 -c \
   'import json,sys; d=json.load(open(sys.argv[1])); dest=sys.argv[2]; assert d["generation"] == 5 and d["complete"] is False; assert dest in d["disabled_skill_quarantines"] and dest + "/SKILL.md" in d["files"]' \
   "${gh719_retry_state_home}/.vibeguard/install-state.json" "${gh719_retry_dest}"
+
+gh719_order_home="${TMP_HOME}/gh719-generation-order-home"
+mkdir -p "${gh719_order_home}/.vibeguard"
+printf '%s\n' '{"version":1,"generation":3,"complete":true,"files":{}}' \
+  > "${gh719_order_home}/.vibeguard/install-state.json"
+printf '%s\n' '{"version":1,"generation":5,"complete":true,"files":{}}' \
+  > "${gh719_order_home}/.vibeguard/install-state.previous.json"
+gh719_order_rc=0
+HOME="${gh719_order_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c '
+  source "$1/scripts/lib/install-state.sh"
+  state_preflight
+' _ "${REPO_DIR}" >/dev/null 2>&1 || gh719_order_rc=$?
+assert_cmd "generation ordering fails during preflight" test "${gh719_order_rc}" -ne 0
 
 gh719_set_disabled() {
   python3 - "${gh719_config}" "$@" <<'PY'

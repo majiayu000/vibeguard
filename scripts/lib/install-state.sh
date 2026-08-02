@@ -96,13 +96,46 @@ state_preflight() {
       return 1
     fi
   done
+  state_preflight_generation_order
+}
+
+state_preflight_generation_order() {
+  local current_status="" current_generation=0 previous_status="" previous_generation=0
+  if [[ -f "$STATE_FILE" ]]; then
+    IFS=$'\t' read -r current_status current_generation \
+      < <(state_runtime setup-state-generation "$STATE_FILE") || return 1
+  fi
+  if [[ -f "$STATE_PREVIOUS_FILE" ]]; then
+    IFS=$'\t' read -r previous_status previous_generation \
+      < <(state_runtime setup-state-generation "$STATE_PREVIOUS_FILE") || return 1
+    if [[ "$previous_status" != "COMPLETE" ]]; then
+      printf 'ERROR: previous install-state generation is incomplete: %s\n' \
+        "$STATE_PREVIOUS_FILE" >&2
+      return 1
+    fi
+  fi
+  if [[ "$current_status" == "COMPLETE" && -n "$previous_status" \
+    && "$current_generation" -lt "$previous_generation" ]]; then
+    printf 'ERROR: current install-state generation is older than previous snapshot\n' >&2
+    return 1
+  fi
+  if [[ "$current_status" == "INCOMPLETE" ]]; then
+    if [[ -n "$previous_status" \
+      && "$current_generation" -ne $((previous_generation + 1)) ]]; then
+      printf 'ERROR: incomplete install-state generation does not follow previous snapshot\n' >&2
+      return 1
+    elif [[ -z "$previous_status" && "$current_generation" -ne 1 ]]; then
+      printf 'ERROR: incomplete install-state has no matching complete snapshot\n' >&2
+      return 1
+    fi
+  fi
 }
 
 # Initialize or load state
 state_init() {
   local profile="${1:-core}" languages="${2:-}" snapshot_tmp=""
   local current_status="" current_generation=0 previous_status="" previous_generation=0
-  local base_generation=0 next_generation
+  local base_generation=0 next_generation disabled_output="" disabled_csv=""
   state_preflight || return 1
 
   if [[ -f "$STATE_FILE" ]]; then
@@ -155,8 +188,12 @@ state_init() {
     base_generation="$previous_generation"
   fi
   next_generation=$((base_generation + 1))
+  if declare -F disabled_skills >/dev/null; then
+    disabled_output="$(disabled_skills)" || return 1
+    disabled_csv="${disabled_output//$'\n'/,}"
+  fi
   state_runtime setup-state-init \
-    "$STATE_FILE" "$profile" "$languages" "$next_generation"
+    "$STATE_FILE" "$profile" "$languages" "$next_generation" "$disabled_csv"
 }
 
 state_mark_complete() {

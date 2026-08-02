@@ -46,6 +46,7 @@ mod setup_codex_config;
 mod setup_codex_hooks;
 mod setup_codex_hooks_health;
 mod setup_install_state;
+mod setup_lock_lifecycle;
 mod setup_managed_tree_remove;
 mod setup_manifest;
 mod setup_markdown;
@@ -435,7 +436,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-state-init",
-        usage: "<state-file> <profile> <languages> [generation]  — initialize install state",
+        usage: "<state-file> <profile> <languages> [generation] [disabled-skills]  — initialize install state",
         handler: setup_install_state::init,
     },
     Command {
@@ -452,6 +453,16 @@ static COMMANDS: &[Command] = &[
         name: "setup-lock-publish-owner",
         usage: "<lock-dir> <pid> <nonce> [reclaiming]  — durably publish setup lock ownership",
         handler: setup_install_state::publish_lock_owner,
+    },
+    Command {
+        name: "setup-lock-acquire",
+        usage: "<lock-dir> <pid> <nonce>  — atomically publish a complete setup lock directory",
+        handler: setup_lock_lifecycle::acquire,
+    },
+    Command {
+        name: "setup-lock-release",
+        usage: "<lock-dir> <pid> <nonce>  — atomically retire an owned setup lock directory",
+        handler: setup_lock_lifecycle::release,
     },
     Command {
         name: "setup-state-record-file",

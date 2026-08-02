@@ -63,6 +63,8 @@ ownership 无法证明、state 损坏或隔离失败时必须保留公开目录�
 install-state ownership inventory 并明确报告，不能在留下隐藏资产时声称状态已删除。
 drift 检查必须在 active quarantine locator 上验证原 tracked bytes，不能把按设计缺失的
 public path 报为损坏；中断的 incomplete generation 重试必须保留 locator 与 tracked inventory。
+若用户在重试前新增 opt-out，重试还必须保留该 skill 公开根下 type/checksum 仍可验证的
+incomplete tracked files，不能因先清空库存而永久失去 ownership 证明。
 
 `VIBEGUARD_DISABLED_SKILLS`（逗号分隔）可临时覆盖该列表，遵循用户配置既有的
 「环境变量 > JSON 配置 > 内置默认」优先级。显式空值表示本次临时启用全部 skill；
@@ -73,7 +75,9 @@ public path 报为损坏；中断的 incomplete generation 重试必须保留 lo
 Claude/Codex 托管 skill。bootstrap 可以先在 distribution 目录完成已验证 payload 的
 staging/current 切换，但 child setup 的上述 active-install mutation 仍受该 preflight
 边界约束。preflight 到 install-state 与两个 target mutation 结束之间必须持有同一
-HOME-scoped lifecycle lock。
+HOME-scoped lifecycle lock。锁只能把已经含完整 owner metadata 的目录原子发布到 canonical
+路径，并通过原子重命名退役整个目录；进程中断时不得留下 ownerless canonical lock。
+current/previous generation 的跨文件排序也必须在 active-install mutation 前的 preflight 拒绝。
 
 ## 完成条件
 

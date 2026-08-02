@@ -73,7 +73,8 @@ active `intent`/`committed` 必须匹配当前 source prefix；`restored`/`relea
 
 `scripts/lib/install-state.sh` 的 state 读取错误不得吞掉。`state_init()` 在任何写入前
 验证 current/previous state 都是非 symlink regular JSON；previous snapshot 使用同目录
-临时文件加 atomic rename。
+临时文件加 atomic rename。current/previous 的 complete/incomplete generation 排序在
+preflight 阶段验证，而不是等到 `state_init()` 才验证。
 
 `check_codex_home_installation()` 在 skill 循环内插入禁用分支，输出 `[DISABLED]`
 而非落到 `[MISSING]`；Claude 检查与安装都不消费该字段。`status_report.sh` 把
@@ -82,6 +83,9 @@ active `intent`/`committed` 必须匹配当前 source prefix；`restored`/`relea
 `scripts/setup/setup-lock.sh` 提供 HOME-scoped lifecycle lock。新 owner nonce 携带 Linux
 boot-id/start-ticks 或 Darwin 秒/微秒出生身份；PID 存活且身份相同才算 active，PID 被复用
 时可按 stale owner 回收，身份无法证明时 fail-closed。release 必须匹配 PID+nonce+出生身份。
+runtime 先在 hidden sibling directory 写入并 fsync owner，再以 no-replace rename 原子发布整个
+canonical lock directory；release 则先验证唯一 owner，再把整个 canonical directory 原子改名
+到 retired sibling 后清理。任何中断都不会暴露 ownerless canonical lock。
 `install.sh` 先在临时目录 stage runtime，再验证 `disabled_skills`，然后持锁覆盖 installed
 snapshot、install-state、Claude/Codex mutation 与最终验证。
 
@@ -92,7 +96,8 @@ quarantine，`state_clean()` 就保留两个 generation 作为 ownership invento
 `setup-state-check-drift` 把 active quarantine 覆盖的 public tracked path 映射到 quarantine
 locator 后再做 type/checksum 校验。`state_init()` 重试同一个 incomplete generation 时，新的
 profile/language state 保留其 quarantine records 以及对应 tracked file inventory，供 durable
-transaction recovery 精确匹配；不得在 recovery 前清空 locator。
+transaction recovery 精确匹配；不得在 recovery 前清空 locator。若本次重试新增 disabled
+skill，只续存该公开 skill 根下 type=copy 且当前 checksum 可验证的 incomplete inventory。
 
 ### 4. 运行时能力探测
 
@@ -111,7 +116,8 @@ transaction recovery 精确匹配；不得在 recovery 前清空 locator。
 | `vibeguard-runtime/src/runtime_config.rs` | `runtime_config_get_list` |
 | `vibeguard-runtime/src/setup_install_state.rs` | `list_tracked_under` |
 | `vibeguard-runtime/src/setup_managed_tree_remove.rs` | durable quarantine/release 与 terminal transaction recovery |
-| `vibeguard-runtime/src/setup_quarantine_inventory.rs` | active quarantine count、drift locator 映射与 incomplete retry inventory carry |
+| `vibeguard-runtime/src/setup_quarantine_inventory.rs` | active quarantine count、drift locator 映射与 checksum-verifiable incomplete retry inventory carry |
+| `vibeguard-runtime/src/setup_lock_lifecycle.rs` | canonical lock directory 的原子 acquire/release |
 | `vibeguard-runtime/src/main.rs` | runtime 命令注册 |
 | `scripts/setup/lib.sh` | source 专责模块、探测列表 |
 | `scripts/setup/workflow-skills.sh` | 禁用列表读取、Codex-only 跳过/quarantine/恢复告警 |

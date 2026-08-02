@@ -3,6 +3,7 @@
 
 _VG_SETUP_LOCK_DIR=""
 _VG_SETUP_LOCK_OWNER=""
+_VG_SETUP_LOCK_NONCE=""
 
 setup_lock_process_identity() {
   bootstrap_strong_process_snapshot "$1" || return 1
@@ -77,7 +78,7 @@ setup_lock_acquire() {
     return 1
   fi
 
-  if ! mkdir "${lock_dir}" 2>/dev/null; then
+  if [[ -d "${lock_dir}" ]]; then
     if [[ -L "${owner_file}" || ! -f "${owner_file}" ]]; then
       red "ERROR: setup lock is malformed: ${lock_dir}"
       return 1
@@ -161,13 +162,15 @@ nonce=${reclaim_nonce}"
       return 1
     fi
     if [[ "$(cat "${reclaim_owner_file}")" != "${observed_reclaimer}" ]] \
-      || ! rm -f -- "${reclaim_owner_file}" \
-      || ! rm -f -- "${owner_file}" \
-      || ! rmdir -- "${lock_dir}"; then
+      || ! rm -f -- "${reclaim_owner_file}"; then
       red "ERROR: stale setup lock contains unexpected data: ${lock_dir}"
       return 1
     fi
-    mkdir "${lock_dir}" || return 1
+    if ! setup_runtime setup-lock-release \
+      "${lock_dir}" "${owner_pid}" "${owner_nonce}" >/dev/null; then
+      red "ERROR: failed to atomically retire stale setup lock: ${lock_dir}"
+      return 1
+    fi
     yellow "  Reclaimed stale VibeGuard setup lock (pid ${owner_pid})"
   fi
 
@@ -175,16 +178,13 @@ nonce=${reclaim_nonce}"
   _VG_SETUP_LOCK_DIR="${lock_dir}"
   _VG_SETUP_LOCK_OWNER="pid=$$
 nonce=${owner_nonce_value}"
-  if ! setup_runtime setup-lock-publish-owner \
-    "${lock_dir}" "$$" "${owner_nonce_value}"; then
-    if ! rm -f -- "${owner_file}"; then
-      red "ERROR: failed to clean partial setup lock owner: ${owner_file}"
-    fi
-    if ! rmdir -- "${lock_dir}"; then
-      red "ERROR: failed to clean setup lock directory after owner publication failure: ${lock_dir}"
-    fi
+  _VG_SETUP_LOCK_NONCE="${owner_nonce_value}"
+  if ! setup_runtime setup-lock-acquire \
+    "${lock_dir}" "$$" "${owner_nonce_value}" >/dev/null; then
+    red "ERROR: failed to atomically acquire setup lock: ${lock_dir}"
     _VG_SETUP_LOCK_DIR=""
     _VG_SETUP_LOCK_OWNER=""
+    _VG_SETUP_LOCK_NONCE=""
     return 1
   fi
 }
@@ -202,8 +202,9 @@ setup_lock_release() {
     red "ERROR: refusing to release setup lock owned by another process"
     return 1
   fi
-  rm -f -- "${owner_file}" || return 1
-  rmdir -- "${_VG_SETUP_LOCK_DIR}" || return 1
+  setup_runtime setup-lock-release \
+    "${_VG_SETUP_LOCK_DIR}" "$$" "${_VG_SETUP_LOCK_NONCE}" >/dev/null || return 1
   _VG_SETUP_LOCK_DIR=""
   _VG_SETUP_LOCK_OWNER=""
+  _VG_SETUP_LOCK_NONCE=""
 }

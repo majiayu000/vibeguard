@@ -130,6 +130,7 @@ pub(crate) fn carry_incomplete_inventory(
     existing: &Value,
     target: &mut Value,
     generation: u64,
+    disabled_skills: &[&str],
 ) -> SetupResult<()> {
     validate_state_metadata(existing)?;
     if existing.get("complete").and_then(Value::as_bool) != Some(false)
@@ -137,12 +138,11 @@ pub(crate) fn carry_incomplete_inventory(
     {
         return Ok(());
     }
-    let Some(records) = existing
+    let records = existing
         .get("disabled_skill_quarantines")
         .and_then(Value::as_object)
-    else {
-        return Ok(());
-    };
+        .cloned()
+        .unwrap_or_default();
     let source_files = existing
         .get("files")
         .and_then(Value::as_object)
@@ -150,10 +150,12 @@ pub(crate) fn carry_incomplete_inventory(
     let target_object = target
         .as_object_mut()
         .ok_or("install-state root must be an object")?;
-    target_object.insert(
-        "disabled_skill_quarantines".into(),
-        Value::Object(records.clone()),
-    );
+    if !records.is_empty() {
+        target_object.insert(
+            "disabled_skill_quarantines".into(),
+            Value::Object(records.clone()),
+        );
+    }
     let target_files = target_object["files"]
         .as_object_mut()
         .ok_or("install-state files must be an object")?;
@@ -172,5 +174,48 @@ pub(crate) fn carry_incomplete_inventory(
             return Err("active quarantine has no tracked file inventory".into());
         }
     }
+    let Some(home) = crate::setup_support::home_dir() else {
+        return Ok(());
+    };
+    for name in disabled_skills {
+        if !valid_skill_name(name) {
+            return Err("disabled skill name is invalid".into());
+        }
+        let public = home.join(".codex/skills").join(name);
+        for (path, entry) in source_files {
+            let path_root = setup_absolute_path(&expand_home(path));
+            if path_root != public && !path_root.starts_with(&public) {
+                continue;
+            }
+            if tracked_copy_matches(&path_root, entry)? {
+                target_files.insert(path.clone(), entry.clone());
+            }
+        }
+    }
     Ok(())
+}
+
+fn tracked_copy_matches(path: &Path, entry: &Value) -> SetupResult<bool> {
+    if entry.get("type").and_then(Value::as_str) != Some("copy") {
+        return Ok(false);
+    }
+    let Some(expected) = entry.get("checksum").and_then(Value::as_str) else {
+        return Ok(false);
+    };
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Ok(false);
+    }
+    Ok(format!("sha256:{}", sha256_file(path)?) == expected)
+}
+
+fn valid_skill_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_alphanumeric() || (index > 0 && matches!(byte, b'.' | b'_' | b'-'))
+        })
 }

@@ -98,7 +98,9 @@ setup_runtime_supports() {
     setup-state-release-quarantined-tree \
     setup-state-generation \
     setup-state-mark-complete \
+    setup-lock-acquire \
     setup-lock-publish-owner \
+    setup-lock-release \
     runtime-config-get-list \
     runtime-config-validate; do
     probe_out="$("${runtime}" "${command}" 2>&1 || true)"
