@@ -10,13 +10,14 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent)); from publication_digest_domains import allowed_domains, require_domain
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from publication_authorization_semantics import AUTH_KEYS, validate_authorization_bindings, wrong_principal_mutations
+from publication_digest_domains import allowed_domains, require_domain, validate_domain_sets
 
 SAFE_MAX = 9_007_199_254_740_991
 U64_MAX = 18_446_744_073_709_551_615
 CLIENT = ("get_publication_head", "claim_publication_owner", "renew_publication_owner", "takeover_publication_owner", "append_publication_transition", "plan_release_mutation", "deliver_release_mutation", "recover_release_mutation", "plan_generated_pr", "deliver_generated_pr", "recover_generated_pr", "append_blocked_attempt", "bind_blocked_attempt", "list_blocked_attempts", "commit_reconciliation_watermark", "get_blocked_attempt_frontier", "read_secret_capsule")
 CONTROL = ("prepare_bootstrap_trusted_time", "bootstrap", "migrate", "recover", "ready")
-AUTH_KEYS = ("publication_lease_authorization", "append_authorization", "delivery_authorization", "ledger_append_authorization")
 COVERAGE = {"source_binding", "genesis", "key_attestation", "client_replay", "control_replay", "terminal_binding", "snapshot_binding", "merged_existing_receipts", "recover_selector_database", "recover_selector_backup", "recover_selector_anchor", "control_not_found", "prebootstrap_policy", "release_recovery_pending", "release_not_applied", "release_compensated", "release_blocked", "generated_pr_not_applied", "generated_pr_blocked", "delivery_recovery_required", "capsule_source_plan", "capsule_source_claim"}
 REQUIRED_DIGEST_NODES = {"authorization_signing_preimage_digest", "signature_digest", "client_request_nonce_digest", "control_request_nonce_digest", "time_bound_request_id", "execution_identity_digest", "operation_id", "release_broker_delivery_id", "generated_pr_delivery_id", "delivery_scope_digest", "recovery_query_digest", "capsule_source_request_id", "operation_request_digest", "receipt_digest", "result_digest", "response_nonce_digest", "response_digest", "prior_anchor_binding_digest", "backup_aad_digest", "describe_key_material_attestation_digest", "manifest_key_binding_digest", "generate_data_key_request_digest", "generate_data_key_material_attestation_digest", "key_attestation_digest", "capsule_receipt_digest", "replay_row_digest"}
 DIGEST_SCHEMA = None
@@ -318,26 +319,11 @@ def request_digests(request, surface):
     if "capsule_source" in body:
         source = body["capsule_source"]
         derive(source, "source_request_id", dg("capsule_source_request_id", "GH700:capsule-source-request-id:v1", {key: source[key] for key in ("source_method", "source_operation_id", "secret_slot_id")}), method)
+    validate_authorization_bindings(request, body, op_id, derive, dg, ContractError)
     for key in AUTH_KEYS:
         auth = body.get(key)
         if not isinstance(auth, dict):
             continue
-        if auth["authorized_method"] != method:
-            raise ContractError(f"{method}: authorization method mismatch")
-        if key == "append_authorization":
-            derive(auth, "authorized_operation_id", op_id, method)
-            if auth["authorized_predecessor_frontier"] != request["expected_publication_frontier_or_null"]:
-                raise ContractError(f"{method}: append frontier mismatch")
-        if key == "ledger_append_authorization":
-            derive(auth, "authorized_operation_id", op_id, method)
-            if auth["authorized_predecessor_frontier"] != request["expected_blocked_attempt_frontier_or_null"]:
-                raise ContractError(f"{method}: ledger frontier mismatch")
-        if key == "delivery_authorization":
-            delivery = body.get("broker_delivery_id", body.get("generated_pr_delivery_id"))
-            derive(auth, "delivery_id", delivery, method)
-            if auth["planned_operation_id"] != body["planned_operation_id"]:
-                raise ContractError(f"{method}: delivery binding mismatch")
-            derive(auth, "delivery_scope_digest", dg("delivery_scope_digest", "GH700:delivery-scope:v1", {"method": method, "planned_operation_id": body["planned_operation_id"], "delivery_id": delivery}), method)
         auth_digest(auth, f"{method}.{key}")
     derive(request, "operation_request_digest", dg("operation_request_digest", f"GH700:{surface}-operation-request:v1", {key: item for key, item in request.items() if key != "operation_request_digest"}), method)
     nonce_digest = dg(f"{surface}_request_nonce_digest", f"GH700:{surface}-request-nonce:v1", {"authority_id": request["authority_id"], "repo_node_id": request["repo_node_id"], "authenticated_principal_digest": request["authenticated_principal_digest"], "request_nonce": b64u(nonce)})
@@ -477,6 +463,7 @@ def check_dag(schema):
         raise ContractError("digest framing mismatch")
     if len(nodes) != len(set(nodes)) or set(nodes) != set(formulas) or set(nodes) != REQUIRED_DIGEST_NODES:
         raise ContractError("digest formula/DAG node mismatch")
+    validate_domain_sets(schema, ContractError)
     for name, formula in formulas.items():
         if set(formula) != {"domain", "preimage", "wire_consumers"} or not all(formula.values()):
             raise ContractError(f"incomplete digest formula: {name}")
@@ -522,7 +509,7 @@ def semantic_pair(request, response, model):
     if method == "takeover_publication_owner":
         intent = request["body"]["time_bound_intent"]
         core, identity = intent["client_payload_core"], intent["execution_identity"]
-        if (core["run_id"], core["run_attempt"]) != (identity["run_id"], identity["run_attempt"]):
+        if (core["new_owner_run_id"], core["new_owner_run_attempt"]) != (identity["run_id"], identity["run_attempt"]):
             raise ContractError("takeover run tuple mismatch")
     if method == "recover_generated_pr":
         result = response["result"]
@@ -604,6 +591,14 @@ def check_positive_mutations(pairs, models, registry_by_method, schema, fixtures
             target = mutated_request["body"] if side == "request" else mutated_response["result"]
             target["append_auth"] = {}
             mutations.append((f"{model['model_id']}.{side}.forbidden_alias", mutated_request, mutated_response))
+        for label, key, mutated_request, mutated_response in wrong_principal_mutations(request, response, model["model_id"]):
+            auth_digest(mutated_request["body"][key], f"{model['method']}.{key}")
+            op_id = operation_id(mutated_request, model["surface"])
+            derive(mutated_request, "operation_request_digest", dg("operation_request_digest", f"GH700:{model['surface']}-operation-request:v1", {key: item for key, item in mutated_request.items() if key != "operation_request_digest"}), model["method"])
+            mutated_response["operation_request_digest"] = mutated_request["operation_request_digest"]
+            nonce_digest = mutated_response[f"{model['surface']}_request_nonce_digest"]
+            response_digests(mutated_response, mutated_request, model["surface"], op_id, nonce_digest)
+            mutations.append((label, mutated_request, mutated_response))
         mutated_request, mutated_response = copy.deepcopy((request, response))
         mutated_request["request_nonce"] = b64u(b"\xff" * 32)
         if mutated_request["request_nonce"] == request["request_nonce"]:
@@ -682,17 +677,19 @@ def check_uint64_instance_mutations(pairs, models, registry_by_method, schema):
 
 def check_digest_node_mutations(schema):
     count = 0
+    validate_domain_sets(schema, ContractError)
     for node in schema["x-gh700-digest-dag"]["nodes"]:
-        runtime_domain = next(iter(allowed_domains(schema, node)))
-        mutated = copy.deepcopy(schema)
-        mutated["x-gh700-digest-formulas"][node]["domain"] = f"GH700:mutation:{node}:v1"
-        try:
-            dg(node, runtime_domain, {}, mutated)
-        except ContractError:
-            count += 1
-            continue
-        raise ContractError(f"digest node mutation accepted: {node}")
-    if count != len(REQUIRED_DIGEST_NODES):
+        original = schema["x-gh700-digest-formulas"][node]["domain"]
+        for kind, replacement in (("added", original + f" or GH700:mutation-added:{node}:v1"), ("removed", ""), ("replaced", f"GH700:mutation-replaced:{node}:v1")):
+            mutated = copy.deepcopy(schema)
+            mutated["x-gh700-digest-formulas"][node]["domain"] = replacement
+            try:
+                validate_domain_sets(mutated, ContractError)
+            except ContractError:
+                count += 1
+                continue
+            raise ContractError(f"digest node {kind} mutation accepted: {node}")
+    if count != 3 * len(REQUIRED_DIGEST_NODES):
         raise ContractError("digest mutation matrix is incomplete")
     return count
 

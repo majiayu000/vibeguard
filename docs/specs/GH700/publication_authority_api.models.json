@@ -95,7 +95,7 @@
     "time_bound_takeover": {
       "record_kind": "publication_owner_taken_over",
       "execution_identity": { "run_id": 2, "run_attempt": 1, "transition_slot": 2 },
-      "client_payload_core": { "run_id":2, "run_attempt":1, "transition_slot":2, "candidate_tag_identity_digest":{"$fixture":"digest"}, "prior_owner_generation":1, "new_owner_generation":2, "liveness_policy_digest":{"$fixture":"digest"} },
+      "client_payload_core": { "new_owner_run_id":2, "new_owner_run_attempt":1, "transition_slot":2, "candidate_tag_identity_digest":{"$fixture":"digest"}, "prior_owner_generation":1, "new_owner_generation":2, "liveness_policy_digest":{"$fixture":"digest"} },
       "predecessor_frontier": { "$fixture": "publication_frontier" }
     },
     "secret_claim": {

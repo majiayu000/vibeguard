@@ -249,12 +249,14 @@ request/context/blob/attestation/set-digest drift；generated-PR nullability与 
    `request_ref`/`success_ref`验证 request与success，且 model method/surface byte-equal registry；
 4. 对每个正例生成 missing/extra/null/alias/wrong-method/wrong-result、P/B CAS flip、wrong authorization kind/
    authorized method/operation/delivery/frontier/principal、nonce padding/length/character、same nonce different bytes、
-   replay principal substitution及 response error/result collision negatives；每项都必须 reject；
+   replay principal substitution及 response error/result collision negatives；wrong principal须对四类 authorization
+   的每个物化 branch重算 signing/request/response digests后仍被 request-binding语义拒绝；每项都必须 reject；
 5. 对 prebootstrap policy/deployment policy cross-branch、terminal/source binding cross-field、genesis sentinel用于
    non-genesis、null prior anchor无 sentinel、capsule key ARN/material/attestation substitution及 takeover run tuple
    substitution分别生成独立 negatives；
-6. 对 `x-gh700-digest-dag`验证 node unique、edge endpoint declared且拓扑排序完整；逐 digest node mutation必须只使
-   downstream verifier失败，禁止回边、自 digest或未声明 digest source。
+6. 对 `x-gh700-digest-dag`验证 node unique、edge endpoint declared且拓扑排序完整；
+   `publication_digest_domains.py`须持有每个 node的 exact concrete runtime-domain set，并与 schema完整集合相等；
+   每个 node的 added/removed/replaced domain mutation都必须使 verifier失败，禁止回边、自 digest或未声明 digest source。
 
 spec-local verifier不得把 root `oneOf`验证当成 per-method验证的替代：每个 materialized positive（含同
 method的 auxiliary branch model）必须重新查 exact `(surface,method)` registry row，并同时通过该 row的
@@ -267,7 +269,8 @@ semantic validator标记、closed wire extra/alias或 `$ref` sibling遗漏均 fa
 独立 scalar sample调用 helper后宣称 wire coverage。runner还须对每个正例逐一执行 missing、extra、null、
 forbidden alias、wrong method/result、same-shape nonce substitution、response error/result collision及 applicable
 P/B CAS flip；结构类 mutation必须由 exact request/success schema自身拒绝，禁止用 stale digest失败代替 closure证据。对
-`x-gh700-digest-dag.nodes` 每个 node逐一改成不同的 nonempty runtime domain，并证明 downstream digest计算 fail closed。
+`x-gh700-digest-dag.nodes` 每个 node逐一执行 added、removed及replaced runtime-domain mutation，并证明 exact-set验证
+fail closed；只替换一个当前允许值不得作为“没有额外允许值”的证据。
 最终成功摘要必须分别报告 closed `unevaluatedProperties` 数、per-positive mutation数、物化 uint64 mutation数与
 digest-node mutation数；任一集合为空、未覆盖全部正例或未覆盖全部 digest node都失败。
 
