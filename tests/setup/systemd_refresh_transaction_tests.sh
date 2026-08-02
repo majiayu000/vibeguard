@@ -420,6 +420,41 @@ assert_cmd "fresh unowned rejection preserves state and creates no local ownersh
   "${fresh_unowned_enabled_runtime}" "${fresh_unowned_service}" \
   "${fresh_unowned_timer}" "${fresh_unowned_receipt}"
 
+remove_unowned_home="${TMP_HOME}/standalone-systemd-remove-unowned-home"
+remove_unowned_active="${remove_unowned_home}/.systemctl-vibeguard-gc-active"
+remove_unowned_service_active="${remove_unowned_home}/.systemctl-vibeguard-gc-service-active"
+remove_unowned_enabled="${remove_unowned_home}/.systemctl-vibeguard-gc-enabled"
+remove_unowned_enabled_runtime="${remove_unowned_home}/.systemctl-vibeguard-gc-enabled-runtime"
+remove_unowned_service="${remove_unowned_home}/.config/systemd/user/vibeguard-gc.service"
+remove_unowned_timer="${remove_unowned_home}/.config/systemd/user/vibeguard-gc.timer"
+remove_unowned_receipt="${remove_unowned_home}/.vibeguard/scheduler-ownership"
+mkdir -p "${remove_unowned_home}"
+touch "${remove_unowned_active}" "${remove_unowned_service_active}" \
+  "${remove_unowned_enabled}" "${remove_unowned_enabled_runtime}"
+remove_unowned_rc=0
+remove_unowned_out="$(
+  env HOME="${remove_unowned_home}" "${post_activation_hash_env[@]}" \
+    VIBEGUARD_TEST_SYSTEMD_ACTIVE="${remove_unowned_active}" \
+    VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE="${remove_unowned_service_active}" \
+    VIBEGUARD_TEST_SYSTEMD_ENABLED="${remove_unowned_enabled}" \
+    VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME="${remove_unowned_enabled_runtime}" \
+    VIBEGUARD_TEST_HASH_ACTIVATED="${remove_unowned_home}/not-activated" \
+    VIBEGUARD_TEST_HASH_FAIL_PATH="${remove_unowned_home}/not-this-run" \
+    bash "${REPO_DIR}/scripts/install-systemd.sh" --remove 2>&1
+)" || remove_unowned_rc=$?
+assert_cmd "remove rejects an unowned systemd scheduler before deactivation" \
+  test "${remove_unowned_rc}" -ne 0
+assert_contains "${remove_unowned_out}" \
+  "scheduler ownership receipt is required for --remove" \
+  "unowned remove explains the ownership boundary"
+assert_cmd "unowned remove preserves active and enabled state and creates no ownership" bash -c \
+  'test -e "$1" && test -e "$2" && test -e "$3" && test -e "$4" \
+    && test ! -e "$5" && test ! -e "$6" && test ! -e "$7"' _ \
+  "${remove_unowned_active}" "${remove_unowned_service_active}" \
+  "${remove_unowned_enabled}" "${remove_unowned_enabled_runtime}" \
+  "${remove_unowned_service}" "${remove_unowned_timer}" \
+  "${remove_unowned_receipt}"
+
 successful_service_home="${TMP_HOME}/standalone-systemd-successful-service-refresh-home"
 successful_service_active="${successful_service_home}/.systemctl-vibeguard-gc-active"
 successful_service_service_active="${successful_service_home}/.systemctl-vibeguard-gc-service-active"
