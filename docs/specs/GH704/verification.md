@@ -57,7 +57,7 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 | B-034 GH-702 boundary | capability/policy contract | `bash tests/hooks/test_semantic_defense.sh gh702_sealed_core_boundary`；携带 executable/model/provider 或 unapproved policy 必须失败 |
 | B-035 truthful rendering | doctor/status/observe/stats/health/readers | B-020 consumer commands plus `bash tests/test_setup_check.sh semantic_projection_rendering`、`bash tests/test_hook_status.sh semantic_projection_rendering`、`bash tests/hooks/test_semantic_defense.sh status_rendering_and_redaction`、`bash tests/test_observe.sh semantic_barrier_projection`、`bash tests/test_stats.sh semantic_barrier_projection`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_orchestrator_learn::tests::recent_log_error_is_fail_visible -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_orchestrator_learn::tests::metrics_error_is_fail_visible -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_orchestrator_learn::tests::projection_lag_has_zero_suggestion -- --exact`；project canonical barrier vs project history `projection_done` vs global `project_acknowledged`；v1 legacy；mixed lag empty；all formats agree |
 | B-036 cleanup/rollback | provider/cache/hook lifecycle | `bash tests/hooks/test_semantic_defense.sh cleanup_interrupt_and_l1_rollback`；success/error/timeout/SIGINT matrix |
-| B-037 completion-backed post-edit | app-server lifecycle | `bash tests/hooks/test_semantic_defense.sh codex_post_edit_requires_completion`、`bash tests/hooks/test_semantic_defense.sh codex_thread_cap_pending_backpressure`；每个 selector unknown/zero-match nonzero；pre-completion zero L2；accepted patch exactly once；cap+1/all-pending backpressure before mutation；missing state visible；duplicate/no-callback safe |
+| B-037 completion-backed post-edit | app-server lifecycle | `bash tests/hooks/test_semantic_defense.sh codex_post_edit_requires_completion`、`bash tests/hooks/test_semantic_defense.sh codex_thread_cap_pending_backpressure`、`bash tests/hooks/test_semantic_defense.sh codex_proxy_transport_fail_visible`；每个 selector unknown/zero-match nonzero；pre-completion zero L2；accepted patch exactly once；cap+1/all-pending backpressure before mutation；missing state visible；duplicate/no-callback safe；stdin/stdout read、malformed server request、poisoned `SharedState` lock、child write/flush、worker panic 与 forced-drain timeout 各返回 typed visible error，且 cache/provider/WAL calls=0 |
 
 ## ResourceLedger mandatory matrix
 
@@ -73,14 +73,16 @@ python3 docs/specs/GH704/verify_resource_ledger_model.py
 python3 docs/specs/GH704/verify_resource_ledger_model.py --self-test
 ```
 
-第一条命令必须确定性报告 exactly 13 resource kinds、13 selectors、finite exact tuple expansion、全部
-versioned boundary DAG 与三类 fault expected state，以及同一 physical root 上的 Cartesian full-capacity
-case 数。第二条必须证明 unknown field/kind、boolean maximum、placeholder、pseudo-N/A、未展开 symbol、
-tuple rewrite、boundary 缺状态或 cycle、cross-root component、selector gap、retain-zero metadata gap 与 L1
-prepared-intent gap 都 nonzero。selector owner 后续实现仍须逐 exact tuple 执行 capacity=1/2、两个 source/
+第一条命令必须确定性报告 exactly 13 resource kinds、13 selectors、policy-epoch source/project template
+expansion、finite exact tuples、same-root same-scope same-family live→scratch pairs、全部 versioned boundary DAG
+与三类 fault expected state，以及同一 physical root 上的 Cartesian full-capacity case 数。第二条必须证明
+unknown field/kind、boolean maximum、schema pattern、placeholder、pseudo-N/A、未展开 symbol、tuple rewrite、
+scratch-as-live attempt、cross-family pair、非 exact selector command、缺 target-fsync/queue metadata、boundary
+缺状态或 cycle、cross-root component、selector gap、retain-zero metadata gap、L1 prepared-intent gap 与 early
+credit 都 nonzero，并正向证明新增 finite source/project 可由同一模板展开。selector owner 后续实现仍须逐 exact tuple 执行 capacity=1/2、两个 source/
 reservation 与 `N >> capacity` long-run；WAL-full 必须保持 cache/provider/validator/reducer calls=0。
 
-Compaction 要分别核对 payload accounting 与 fixed empty-root manifest/checkpoint metadata accounting；payload
+Compaction 要分别核对 payload accounting 与 fixed empty-root manifest/checkpoint/queue A/B metadata accounting；payload
 retained live units 可以为 `0`，但 root metadata 的 positive physical bytes 仍在同 root 守恒，不能把 after
 state 伪装成六维全零。L1 materialized append 则先 fsync prepared intent，再写 row；exact prefix 只能
 roll-forward，partial/mismatch 必须 `needs_repair`，或在 capability 能证明 exact offset 时执行 truncate/

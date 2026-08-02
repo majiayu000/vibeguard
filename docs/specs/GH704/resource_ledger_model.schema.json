@@ -5,14 +5,18 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "authority", "version", "dimensions", "resource_kinds", "exact_scopes",
-    "tuple_expansion_grammar", "tuples", "tuple_sets", "root_components", "roots",
+    "authority", "version", "policy_epoch", "tuple_templates", "metadata_templates",
+    "dimensions", "resource_kinds", "exact_scopes", "tuple_expansion_grammar", "tuples",
+    "tuple_sets", "live_scratch_pairs", "live_scratch_pair_sets", "root_components", "roots",
     "root_capacity_scenarios", "edge_registry", "selectors", "retain_zero_contract",
     "l1_materialized_recovery"
   ],
   "properties": {
     "authority": {"const": "docs/specs/GH704/resource_ledger_model.json"},
     "version": {"type": "integer", "minimum": 1},
+    "policy_epoch": {"$ref": "#/$defs/policy_epoch"},
+    "tuple_templates": {"type": "array", "minItems": 13, "uniqueItems": true, "items": {"$ref": "#/$defs/tuple_template"}},
+    "metadata_templates": {"type": "array", "minItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/metadata_template"}},
     "dimensions": {
       "type": "array", "minItems": 6, "maxItems": 6, "uniqueItems": true,
       "prefixItems": [
@@ -33,6 +37,8 @@
     "tuple_expansion_grammar": {"$ref": "#/$defs/tuple_expansion_grammar"},
     "tuples": {"type": "array", "minItems": 13, "items": {"$ref": "#/$defs/tuple"}},
     "tuple_sets": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/tuple_set"}},
+    "live_scratch_pairs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/live_scratch_pair"}},
+    "live_scratch_pair_sets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/live_scratch_pair_set"}},
     "root_components": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/root_component"}},
     "roots": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/root"}},
     "root_capacity_scenarios": {
@@ -55,6 +61,7 @@
     "nonnegative_integer": {"type": "integer", "minimum": 0},
     "positive_integer": {"type": "integer", "minimum": 1},
     "identifier": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "maxima": {
       "type": "object", "additionalProperties": false,
       "required": ["entries", "bytes", "segments", "segment_bytes", "per_source_quota", "physical_bytes"],
@@ -65,6 +72,47 @@
         "segment_bytes": {"$ref": "#/$defs/nonnegative_integer"},
         "per_source_quota": {"$ref": "#/$defs/nonnegative_integer"},
         "physical_bytes": {"$ref": "#/$defs/nonnegative_integer"}
+      }
+    },
+    "policy_epoch": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "inventory_version", "inventory_digest", "source_ids", "project_ids"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "inventory_version": {"$ref": "#/$defs/positive_integer"},
+        "inventory_digest": {"$ref": "#/$defs/digest"},
+        "source_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^source_[a-z0-9_]+$"}},
+        "project_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^project_[a-z0-9_]+$"}}
+      }
+    },
+    "tuple_template": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "cardinality", "tuple_id_prefix", "resource_kind", "scope_binding", "quota_partition_binding", "root_binding", "physical_domain_binding", "maxima"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "cardinality": {"enum": ["global_once", "per_source", "per_project"]},
+        "tuple_id_prefix": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "tuple_id_suffix": {"type": "string", "pattern": "^_[a-z0-9_]+$"},
+        "resource_kind": {"$ref": "#/$defs/resource_kind"},
+        "scope_binding": {"enum": ["global", "member_id"]},
+        "quota_partition_binding": {"$ref": "#/$defs/identifier"},
+        "root_binding": {"enum": ["global_control_root", "allocator_root", "member_storage_root"]},
+        "physical_domain_binding": {"enum": ["global_control_volume", "allocator_volume", "member_volume"]},
+        "maxima": {"$ref": "#/$defs/maxima"}
+      }
+    },
+    "metadata_template": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "cardinality", "component_id_prefix", "metadata_role", "root_binding", "physical_domain_binding", "max_physical_bytes"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "cardinality": {"enum": ["global_once", "per_project"]},
+        "component_id_prefix": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "component_id_suffix": {"type": "string", "pattern": "^_[a-z0-9_]+$"},
+        "metadata_role": {"$ref": "#/$defs/identifier"},
+        "root_binding": {"enum": ["global_control_root", "allocator_root", "member_storage_root"]},
+        "physical_domain_binding": {"enum": ["global_control_volume", "allocator_volume", "member_volume"]},
+        "max_physical_bytes": {"$ref": "#/$defs/positive_integer"}
       }
     },
     "tuple_expansion_grammar": {
@@ -102,6 +150,23 @@
           "type": "array", "minItems": 1, "uniqueItems": true,
           "items": {"$ref": "#/$defs/identifier"}
         }
+      }
+    },
+    "live_scratch_pair": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "live_tuple_id", "scratch_tuple_id"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "live_tuple_id": {"$ref": "#/$defs/identifier"},
+        "scratch_tuple_id": {"$ref": "#/$defs/identifier"}
+      }
+    },
+    "live_scratch_pair_set": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "pair_ids"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "pair_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}}
       }
     },
     "root_component": {
@@ -150,7 +215,7 @@
         "root_id": {"$ref": "#/$defs/identifier"},
         "required_full_component_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
         "cartesian_axes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/capacity_axis"}},
-        "coverage": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["live_scratch_ab", "l1_semantic", "admin_adoption", "two_sources"]}}
+        "coverage": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["live_scratch_ab", "l1_semantic", "admin_adoption", "all_sources"]}}
       }
     },
     "edge": {
@@ -163,6 +228,7 @@
         "from_states": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
         "to_states": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
         "tuple_set_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+        "pair_set_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
         "immutable_tuple": {"const": true},
         "receipt_requirements": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}}
       }
@@ -207,6 +273,7 @@
         "command": {"type": "string", "minLength": 1},
         "edge_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
         "tuple_set_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+        "pair_set_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
         "boundary_paths": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/boundary_path"}}
       }
     },
@@ -215,7 +282,7 @@
       "required": ["payload_live_units_min", "empty_root_metadata_component_ids", "composite_receipt_sections"],
       "properties": {
         "payload_live_units_min": {"const": 0},
-        "empty_root_metadata_component_ids": {"type": "array", "minItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+        "empty_root_metadata_component_ids": {"type": "array", "minItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
         "composite_receipt_sections": {
           "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
           "items": {"enum": ["payload_accounting", "root_metadata_accounting"]}

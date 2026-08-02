@@ -139,12 +139,16 @@ from-state 证明 no-write rejection；仅验证 ID 存在不算通过。W-02 L1
 
 ### ResourceLedger：唯一容量与所有权状态机
 
-[`resource_ledger_model.json`](resource_ledger_model.json) 是 closed 13-kind inventory、finite exact tuples、
-tuple sets、root components/physical domains/maxima、edge registry、root Cartesian cases、13 selectors 与
-versioned boundary DAG 的唯一 machine authority；schema 与 verifier 分别是
+[`resource_ledger_model.json`](resource_ledger_model.json) 是 closed 13-kind inventory、policy-epoch
+source/project templates、finite exact tuples、tuple sets、same-root live→scratch pairs、root components/
+physical domains/maxima、edge registry、root Cartesian cases、13 selectors 与 versioned boundary DAG 的唯一
+machine authority；schema 与 verifier 分别是
 [`resource_ledger_model.schema.json`](resource_ledger_model.schema.json) 和
-[`verify_resource_ledger_model.py`](verify_resource_ledger_model.py)。本 Markdown 只解释不变量，不再维护
-第二份 kind/partition/edge 表。policy epoch 必须持久化 model 中的 exact tuple set 与六维 maxima；任何
+[`verify_resource_ledger_model.py`](verify_resource_ledger_model.py)。每个 policy epoch 先封存 digest-bound
+finite source/project inventory，再由 versioned templates 确定性展开 tuple、component、root 与 legal pair；
+alpha/beta 只是 schema-valid example epoch，不是 production inventory 上限，新增有限 member 生成新 epoch
+instance 而不修改 template contract。本 Markdown 只解释不变量，不再维护第二份 kind/partition/edge 表。
+policy epoch 必须持久化 model 中的 exact tuple set 与六维 maxima；任何
 placeholder、wildcard、pipe alternative、pseudo-N/A、boolean maximum 或 symbolic-all 都在 root CAS 前拒绝。
 旧称 “allocator WAL” 仅是 model 中 fixed A/B checksummed metadata root components，不是 resource kind 或
 可增长 append log。
@@ -341,7 +345,9 @@ crash-safe WAL boundary，并且 hook 返回前必须证明 operation 已取消/
 无法证明 bounded I/O 的 backend 在开始 edge 前返回 `unavailable`，禁止侥幸启动。
 
 queue metadata 只保留两个 checksummed fixed-size generations、committed cursors、pending count
-与 oldest timestamp。project recovery WAL 自身必须是 checksummed segmented store，并由 closed
+与 oldest timestamp；两个 A/B generation 都是每个 project root 的 positive fixed metadata component，
+在 WAL/journal live 与 scratch 满载的 root aggregate/Cartesian proof 中持续计费，不得从 payload maxima
+之外隐式分配。project recovery WAL 自身必须是 checksummed segmented store，并由 closed
 positive `project_recovery_wal_max_entries`、`project_recovery_wal_max_bytes`、
 `project_recovery_wal_max_segments` 与 `project_recovery_wal_segment_max_bytes` 同时约束。每个新
 semantic attempt 必须在 cache lookup/provider/validator/reducer 前原子创建

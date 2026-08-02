@@ -11,6 +11,9 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from json_schema_subset import SchemaValidationError, validate_schema_instance
+from resource_ledger_epoch import EpochModelError, positive_expansion_counts, validate_epoch_instance
+
 
 MODEL_PATH = Path(__file__).with_name("resource_ledger_model.json")
 SCHEMA_PATH = Path(__file__).with_name("resource_ledger_model.schema.json")
@@ -53,10 +56,25 @@ SELECTOR_IDS = {
     "admin_adoption_scratch_capacity_one",
     "resource_kind_edge_coverage",
 }
-ROOT_COVERAGE = {"live_scratch_ab", "l1_semantic", "admin_adoption", "two_sources"}
+ROOT_COVERAGE = {"live_scratch_ab", "l1_semantic", "admin_adoption", "all_sources"}
 EXPECTED_KEYS = {"crash_before", "crash_after", "lost_response_after"}
 FORBIDDEN_LITERAL_STRINGS = {"N/A", "all_declared", "*"}
 FORBIDDEN_FRAGMENTS = ("<", ">", "|")
+EXPECTED_SELECTOR_COMMANDS = {
+    "wal_compaction_capacity_transfer": "bash tests/hooks/test_runtime_rule_signals.sh wal_compaction_capacity_transfer",
+    "allocator_wal_capacity_contract": "bash tests/hooks/test_runtime_rule_signals.sh allocator_wal_capacity_contract",
+    "canonical_journal_gc_scratch_capacity": "bash tests/test_gc_logs_rotation.sh canonical_journal_gc_scratch_capacity",
+    "project_wal_pre_provider_terminal_closure": "bash tests/hooks/test_runtime_rule_signals.sh project_wal_pre_provider_terminal_closure",
+    "canonical_journal_l1_entitlement_capacity_one": "bash tests/test_gc_logs_concurrent.sh canonical_journal_l1_entitlement_capacity_one",
+    "capacity_ledger_model_check": "python3 docs/specs/GH704/verify_resource_ledger_model.py",
+    "reservation_bundle_terminal_closure": "bash tests/hooks/test_runtime_rule_signals.sh reservation_bundle_terminal_closure",
+    "success_history_gc_release_receipt": "bash tests/hooks/test_runtime_rule_signals.sh success_history_gc_release_receipt",
+    "derived_log_compaction_capacity_transfer": "bash tests/hooks/test_runtime_rule_signals.sh derived_log_compaction_capacity_transfer",
+    "admin_adoption_capacity_preflight": "bash tests/hooks/test_runtime_rule_signals.sh admin_adoption_capacity_preflight",
+    "compaction_role_exchange_capacity_one": "bash tests/hooks/test_runtime_rule_signals.sh compaction_role_exchange_capacity_one",
+    "admin_adoption_scratch_capacity_one": "bash tests/hooks/test_runtime_rule_signals.sh admin_adoption_scratch_capacity_one",
+    "resource_kind_edge_coverage": "bash tests/hooks/test_runtime_rule_signals.sh resource_kind_edge_coverage",
+}
 
 
 class ModelError(ValueError):
@@ -165,6 +183,13 @@ def validate_schema(schema: dict[str, Any]) -> None:
         if isinstance(definition, dict) and definition.get("type") == "object":
             if definition.get("additionalProperties") is not False:
                 fail(f"schema.$defs.{name}: object must reject unknown fields")
+
+
+def validate_schema_instance_or_fail(model: dict[str, Any], schema: dict[str, Any]) -> None:
+    try:
+        validate_schema_instance(model, schema)
+    except SchemaValidationError as exc:
+        fail(f"schema instance validation failed: {exc}")
 
 
 def validate_tuple_model(model: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -345,20 +370,28 @@ def validate_roots(
             fail(f"model.root_capacity_scenarios.{scenario_id}: L1+semantic co-residency is missing")
         if "admin_adoption" in scenario_coverage and not ("admin_live" in selected_names and "adoption_scratch" in selected_names):
             fail(f"model.root_capacity_scenarios.{scenario_id}: admin+adoption co-residency is missing")
-        if "two_sources" in scenario_coverage and not ("source_alpha" in selected_names and "source_beta" in selected_names):
-            fail(f"model.root_capacity_scenarios.{scenario_id}: two-source co-residency is missing")
+        if "all_sources" in scenario_coverage:
+            missing_sources = [
+                source_id for source_id in model["policy_epoch"]["source_ids"]
+                if source_id not in selected_names
+            ]
+            if missing_sources:
+                fail(f"model.root_capacity_scenarios.{scenario_id}: admitted sources missing {missing_sources}")
     if coverage != ROOT_COVERAGE:
         fail(f"model.root_capacity_scenarios: missing root coverage {sorted(ROOT_COVERAGE - coverage)}")
     return components, roots, cartesian_cases
 
 
-def validate_edges(model: dict[str, Any], tuple_sets: dict[str, Any]) -> dict[str, Any]:
+def validate_edges(
+    model: dict[str, Any], tuple_sets: dict[str, Any], pair_sets: dict[str, Any]
+) -> dict[str, Any]:
     edges = unique_index(model["edge_registry"], "model.edge_registry")
     for edge_id, edge in edges.items():
         object_keys(
             edge,
             f"model.edge_registry.{edge_id}",
             {"id", "version", "edge_type", "from_states", "to_states", "tuple_set_ids", "immutable_tuple", "receipt_requirements"},
+            {"pair_set_ids"},
         )
         integer_value(edge["version"], f"model.edge_registry.{edge_id}.version", minimum=1)
         if edge["edge_type"] not in {"simple", "composite"}:
@@ -371,10 +404,21 @@ def validate_edges(model: dict[str, Any], tuple_sets: dict[str, Any]) -> dict[st
         unknown_sets = set(referenced_sets) - tuple_sets.keys()
         if unknown_sets:
             fail(f"model.edge_registry.{edge_id}: unknown tuple sets {sorted(unknown_sets)}")
+        referenced_pairs = unique_strings(
+            edge.get("pair_set_ids", []),
+            f"model.edge_registry.{edge_id}.pair_set_ids",
+            nonempty=False,
+        )
+        unknown_pair_sets = set(referenced_pairs) - pair_sets.keys()
+        if unknown_pair_sets:
+            fail(f"model.edge_registry.{edge_id}: unknown pair sets {sorted(unknown_pair_sets)}")
         unique_strings(edge["receipt_requirements"], f"model.edge_registry.{edge_id}.receipt_requirements")
     compaction = edges.get("compaction_exchange")
     if not compaction or compaction["edge_type"] != "composite":
         fail("model.edge_registry.compaction_exchange: must be a declared composite edge")
+    for edge_id in ("exact_split", "compaction_exchange"):
+        if edges[edge_id].get("pair_set_ids") != ["all_live_scratch_pairs"]:
+            fail(f"model.edge_registry.{edge_id}: must use exact live-to-scratch pairs")
     required_receipt = {
         "payload_accounting",
         "root_metadata_accounting",
@@ -386,6 +430,9 @@ def validate_edges(model: dict[str, Any], tuple_sets: dict[str, Any]) -> dict[st
     }
     if not required_receipt <= set(compaction["receipt_requirements"]):
         fail("model.edge_registry.compaction_exchange: composite receipt is incomplete")
+    for edge_id in ("attempt_reserve", "durable_abort", "forward_recovery"):
+        if edges[edge_id]["tuple_set_ids"] != ["project_wal_live_tuples"]:
+            fail(f"model.edge_registry.{edge_id}: pre-provider lifecycle may use live WAL tuples only")
     return edges
 
 
@@ -428,7 +475,7 @@ def validate_dag(nodes: list[Any], location: str) -> int:
 
 
 def validate_selectors(
-    model: dict[str, Any], edges: dict[str, Any], tuple_sets: dict[str, Any]
+    model: dict[str, Any], edges: dict[str, Any], tuple_sets: dict[str, Any], pair_sets: dict[str, Any]
 ) -> tuple[dict[str, Any], int, int]:
     selectors = unique_index(model["selectors"], "model.selectors")
     if selectors.keys() != SELECTOR_IDS:
@@ -440,11 +487,12 @@ def validate_selectors(
             selector,
             f"model.selectors.{selector_id}",
             {"id", "version", "command", "edge_ids", "tuple_set_ids", "boundary_paths"},
+            {"pair_set_ids"},
         )
         integer_value(selector["version"], f"model.selectors.{selector_id}.version", minimum=1)
         command = string_value(selector["command"], f"model.selectors.{selector_id}.command")
-        if selector_id != "capacity_ledger_model_check" and selector_id not in command:
-            fail(f"model.selectors.{selector_id}: exact command does not contain selector id")
+        if command != EXPECTED_SELECTOR_COMMANDS[selector_id]:
+            fail(f"model.selectors.{selector_id}: command differs from the closed exact invocation")
         edge_ids = unique_strings(selector["edge_ids"], f"model.selectors.{selector_id}.edge_ids")
         unknown_edges = set(edge_ids) - edges.keys()
         if unknown_edges:
@@ -453,6 +501,14 @@ def validate_selectors(
         unknown_sets = set(set_ids) - tuple_sets.keys()
         if unknown_sets:
             fail(f"model.selectors.{selector_id}: unknown tuple sets {sorted(unknown_sets)}")
+        pair_set_ids = unique_strings(
+            selector.get("pair_set_ids", []),
+            f"model.selectors.{selector_id}.pair_set_ids",
+            nonempty=False,
+        )
+        unknown_pair_sets = set(pair_set_ids) - pair_sets.keys()
+        if unknown_pair_sets:
+            fail(f"model.selectors.{selector_id}: unknown pair sets {sorted(unknown_pair_sets)}")
         path_ids: set[str] = set()
         for path_position, path in enumerate(list_value(selector["boundary_paths"], f"model.selectors.{selector_id}.boundary_paths")):
             path_location = f"model.selectors.{selector_id}.boundary_paths[{path_position}]"
@@ -479,8 +535,8 @@ def validate_retain_zero(model: dict[str, Any], components: dict[str, Any], edge
         contract["empty_root_metadata_component_ids"],
         "model.retain_zero_contract.empty_root_metadata_component_ids",
     )
-    if len(metadata_ids) < 4:
-        fail("model.retain_zero_contract: both manifest/checkpoint components are required for both projects")
+    if len(metadata_ids) < 8:
+        fail("model.retain_zero_contract: manifest/checkpoint/queue A/B metadata are required for both projects")
     roles: set[str] = set()
     roots: set[str] = set()
     for component_id in metadata_ids:
@@ -490,11 +546,14 @@ def validate_retain_zero(model: dict[str, Any], components: dict[str, Any], edge
         integer_value(component["max_physical_bytes"], f"model.root_components.{component_id}.max_physical_bytes", minimum=1)
         roles.add(component["metadata_role"])
         roots.add(component["root_id"])
-    if roles != {"empty_root_manifest", "empty_root_checkpoint"} or roots != {
+    if roles != {
+        "empty_root_manifest", "empty_root_checkpoint",
+        "queue_metadata_generation_a", "queue_metadata_generation_b",
+    } or roots != {
         "project_alpha_storage_root",
         "project_beta_storage_root",
     }:
-        fail("model.retain_zero_contract: fixed empty-root manifest/checkpoint coverage is incomplete")
+        fail("model.retain_zero_contract: fixed project metadata coverage is incomplete")
     sections = set(unique_strings(contract["composite_receipt_sections"], "model.retain_zero_contract.composite_receipt_sections"))
     if sections != {"payload_accounting", "root_metadata_accounting"}:
         fail("model.retain_zero_contract: payload and root metadata accounting must be separate")
@@ -561,7 +620,8 @@ def validate_l1_recovery(model: dict[str, Any], edges: dict[str, Any], selectors
         "l1_row_fsync",
         "l1_manifest_publish",
         "l1_mismatch_repair",
-        "l1_exact_cleanup",
+        "l1_exact_cleanup_durable",
+        "l1_cleanup_release_receipt",
     }
     if not required_nodes <= all_nodes.keys():
         fail("model.l1_materialized_recovery: selector boundary coverage is incomplete")
@@ -569,24 +629,36 @@ def validate_l1_recovery(model: dict[str, Any], edges: dict[str, Any], selectors
         fail("model.l1_materialized_recovery: row write can precede durable prepared intent")
     if all_nodes["l1_mismatch_repair"]["post_state"] != "needs_repair":
         fail("model.l1_materialized_recovery: mismatch branch must fail visible")
-    if all_nodes["l1_exact_cleanup"]["expected"]["crash_after"] != "materialized_retirement_durable":
+    if all_nodes["l1_exact_cleanup_durable"]["post_state"] != "retirement_pending":
+        fail("model.l1_materialized_recovery: cleanup credits capacity before durable retirement")
+    if all_nodes["l1_exact_cleanup_durable"]["expected"]["crash_after"] != "materialized_retirement_durable":
         fail("model.l1_materialized_recovery: exact cleanup lacks materialized retirement state")
+    if not node_reaches(all_nodes, "l1_exact_cleanup_durable", "l1_cleanup_release_receipt"):
+        fail("model.l1_materialized_recovery: release receipt can precede durable retirement")
+    if all_nodes["l1_cleanup_release_receipt"]["post_state"] != "released":
+        fail("model.l1_materialized_recovery: cleanup lacks receipt-bound release")
 
 
 def validate_model(model: dict[str, Any], schema: dict[str, Any]) -> dict[str, int]:
     validate_schema(schema)
+    validate_schema_instance_or_fail(model, schema)
     object_keys(
         model,
         "model",
         {
             "authority",
             "version",
+            "policy_epoch",
+            "tuple_templates",
+            "metadata_templates",
             "dimensions",
             "resource_kinds",
             "exact_scopes",
             "tuple_expansion_grammar",
             "tuples",
             "tuple_sets",
+            "live_scratch_pairs",
+            "live_scratch_pair_sets",
             "root_components",
             "roots",
             "root_capacity_scenarios",
@@ -604,10 +676,15 @@ def validate_model(model: dict[str, Any], schema: dict[str, Any]) -> dict[str, i
     if set(unique_strings(model["resource_kinds"], "model.resource_kinds")) != RESOURCE_KINDS:
         fail("model.resource_kinds: expected the closed 13-kind inventory")
     reject_symbolic_values(model)
+    try:
+        epoch_counts = validate_epoch_instance(model)
+    except EpochModelError as exc:
+        fail(f"model.policy_epoch: {exc}")
     tuples, tuple_sets = validate_tuple_model(model)
+    pair_sets = unique_index(model["live_scratch_pair_sets"], "model.live_scratch_pair_sets")
     components, roots, cartesian_cases = validate_roots(model, tuples)
-    edges = validate_edges(model, tuple_sets)
-    selectors, boundary_paths, boundary_nodes = validate_selectors(model, edges, tuple_sets)
+    edges = validate_edges(model, tuple_sets, pair_sets)
+    selectors, boundary_paths, boundary_nodes = validate_selectors(model, edges, tuple_sets, pair_sets)
     validate_retain_zero(model, components, edges)
     validate_l1_recovery(model, edges, selectors)
     expanded_links = sum(
@@ -628,6 +705,7 @@ def validate_model(model: dict[str, Any], schema: dict[str, Any]) -> dict[str, i
         "boundary_paths": boundary_paths,
         "boundaries": boundary_nodes,
         "fault_expectations": boundary_nodes * len(EXPECTED_KEYS),
+        **epoch_counts,
     }
 
 
@@ -647,6 +725,13 @@ def self_test(model: dict[str, Any], schema: dict[str, Any]) -> int:
         ("selector_gap", lambda value: value["selectors"].pop()),
         ("retain_zero_metadata", lambda value: value["root_components"][24].__setitem__("max_physical_bytes", 0)),
         ("l1_intent_gap", lambda value: value["l1_materialized_recovery"]["prepared_intent_fields"].pop()),
+        ("schema_pattern", lambda value: value["exact_scopes"].append("Bad Scope")),
+        ("selector_command", lambda value: next(item for item in value["selectors"] if item["id"] == "wal_compaction_capacity_transfer").__setitem__("command", "true # wal_compaction_capacity_transfer")),
+        ("scratch_attempt", lambda value: next(item for item in value["edge_registry"] if item["id"] == "attempt_reserve").__setitem__("tuple_set_ids", ["project_wal_tuples"])),
+        ("cross_family_pair", lambda value: value["live_scratch_pairs"][0].__setitem__("scratch_tuple_id", "journal_scratch_alpha_a")),
+        ("queue_metadata_gap", lambda value: value["retain_zero_contract"]["empty_root_metadata_component_ids"].pop()),
+        ("wal_target_fsync_gap", lambda value: next(item for item in value["selectors"] if item["id"] == "wal_compaction_capacity_transfer")["boundary_paths"][0]["nodes"].pop(2)),
+        ("l1_early_credit", lambda value: next(node for node in next(item for item in value["selectors"] if item["id"] == "canonical_journal_l1_entitlement_capacity_one")["boundary_paths"][0]["nodes"] if node["id"] == "l1_exact_cleanup_durable").__setitem__("post_state", "released")),
     ]
     for name, mutate in cases:
         candidate = copy.deepcopy(model)
@@ -656,6 +741,7 @@ def self_test(model: dict[str, Any], schema: dict[str, Any]) -> int:
         except ModelError:
             continue
         fail(f"self-test {name}: invalid mutation was accepted")
+    positive_expansion_counts(model)
     return len(cases)
 
 
