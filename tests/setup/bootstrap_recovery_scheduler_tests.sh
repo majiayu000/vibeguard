@@ -347,6 +347,93 @@ assert_cmd "SIGKILL retry commits setup and releases lock" bash -c \
   'grep -qFx "phase=committed" "$1" && test ! -e "$2"' _ \
   "${stage_crash_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}" \
   "${stage_crash_home}/.vibeguard/dist/.bootstrap.lock"
+pregate_release="${TMP_HOME}/bootstrap-release-pregate-counted"
+make_hostile_bootstrap_release "${pregate_release}" counted-handoff
+pending_lease_home="${TMP_HOME}/bootstrap-pending-lease-crash-home"
+pending_lease_bin="${TMP_HOME}/bootstrap-pending-lease-crash-bin"
+pending_lease_marker="${TMP_HOME}/bootstrap-pending-lease-crash.marker"
+pending_lease_count="${TMP_HOME}/bootstrap-pending-lease-crash.count"
+pending_lease_real_ln="$(command -v ln)"
+mkdir -p "${pending_lease_home}" "${pending_lease_bin}"
+cat > "${pending_lease_bin}/ln" <<SH
+#!/usr/bin/env bash
+previous="" last=""
+for argument in "\$@"; do previous="\${last}"; last="\${argument}"; done
+if [[ "\${last}" == */.bootstrap.lock.lease.* \
+  && ! -e "${pending_lease_marker}" \
+  && -f "\${previous}" ]] \
+  && grep -qFx 'state=pending' "\${previous}"; then
+  if "${pending_lease_real_ln}" "\$@"; then
+    : > "${pending_lease_marker}"
+    kill -KILL "\${PPID}"
+    exit 137
+  fi
+  exit 1
+fi
+exec "${pending_lease_real_ln}" "\$@"
+SH
+chmod +x "${pending_lease_bin}/ln"
+pending_lease_rc=0
+env "${bootstrap_base_env[@]}" HOME="${pending_lease_home}" \
+  PATH="${pending_lease_bin}:${PATH}" VIBEGUARD_TEST_RELEASE_DIR="${pregate_release}" \
+  VIBEGUARD_TEST_SETUP_COUNT="${pending_lease_count}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >/dev/null 2>&1 || pending_lease_rc=$?
+pending_lease_file="$(find "${pending_lease_home}/.vibeguard/dist" -maxdepth 1 \
+  -name '.bootstrap.lock.lease.*' -print -quit)"
+assert_cmd "SIGKILL before active lease publication leaves pending evidence" bash -c \
+  'test "$1" -ne 0 && grep -qFx "state=pending" "$2" && test ! -e "$3"' _ \
+  "${pending_lease_rc}" "${pending_lease_file}" "${pending_lease_count}"
+assert_cmd "pending lease retry proves setup was gated and recovers" env "${bootstrap_base_env[@]}" \
+  HOME="${pending_lease_home}" VIBEGUARD_TEST_RELEASE_DIR="${pregate_release}" \
+  VIBEGUARD_TEST_SETUP_COUNT="${pending_lease_count}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes
+assert_cmd "pending-window retry executes setup exactly once" \
+  bash -c 'test "$(wc -l < "$1")" -eq 1' _ "${pending_lease_count}"
+active_lease_home="${TMP_HOME}/bootstrap-active-lease-crash-home"
+active_lease_bin="${TMP_HOME}/bootstrap-active-lease-crash-bin"
+active_lease_marker="${TMP_HOME}/bootstrap-active-lease-crash.leader"
+active_lease_count="${TMP_HOME}/bootstrap-active-lease-crash.count"
+active_lease_real_mv="$(command -v mv)"
+mkdir -p "${active_lease_home}" "${active_lease_bin}"
+cat > "${active_lease_bin}/mv" <<SH
+#!/usr/bin/env bash
+previous="" last=""
+for arg in "\$@"; do previous="\${last}"; last="\${arg}"; done
+if [[ "\${last}" == */.bootstrap.lock.lease.* ]] \
+  && grep -qFx 'state=active' "\${previous}" 2>/dev/null; then
+  if "${active_lease_real_mv}" "\$@"; then
+    awk -F= '\$1 == "leader_pid" { print \$2 }' "\${last}" > "${active_lease_marker}"
+    kill -KILL "\${PPID}"
+    exit 137
+  fi
+  exit 1
+fi
+exec "${active_lease_real_mv}" "\$@"
+SH
+chmod +x "${active_lease_bin}/mv"
+active_lease_rc=0
+env "${bootstrap_base_env[@]}" HOME="${active_lease_home}" \
+  PATH="${active_lease_bin}:${PATH}" VIBEGUARD_TEST_RELEASE_DIR="${pregate_release}" \
+  VIBEGUARD_TEST_SETUP_COUNT="${active_lease_count}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >/dev/null 2>&1 || active_lease_rc=$?
+active_lease_leader="$(cat "${active_lease_marker}")"
+for _active_lease_attempt in {1..600}; do
+  kill -0 "${active_lease_leader}" 2>/dev/null || break
+  sleep 0.05
+done
+active_lease_file="$(find "${active_lease_home}/.vibeguard/dist" -maxdepth 1 \
+  -name '.bootstrap.lock.lease.*' -print -quit)"
+assert_cmd "SIGKILL after active lease publication preserves identity evidence" bash -c \
+  'test "$1" -ne 0 && grep -qFx "state=active" "$2" && test ! -e "$3"' _ \
+  "${active_lease_rc}" "${active_lease_file}" "${active_lease_count}"
+assert_cmd "active-before-gate retry waits for group death and recovers" env "${bootstrap_base_env[@]}" \
+  HOME="${active_lease_home}" VIBEGUARD_TEST_RELEASE_DIR="${pregate_release}" \
+  VIBEGUARD_TEST_SETUP_COUNT="${active_lease_count}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes
+assert_cmd "active-window retry executes setup exactly once" \
+  bash -c 'test "$(wc -l < "$1")" -eq 1' _ "${active_lease_count}"
 
 for missing_final_phase in setup committed; do
   missing_final_home="${TMP_HOME}/bootstrap-missing-final-${missing_final_phase}-home"

@@ -272,6 +272,10 @@ if [[ "${1:-}" == "--remove" ]]; then
     fi
     REMOVE_RECEIPT=1
   fi
+  if [[ "${REMOVE_RECEIPT}" != "1" ]]; then
+    red "ERROR: scheduler ownership receipt is required for --remove; preserving scheduler state."
+    exit 1
+  fi
   if ! scheduler_capture_active_state \
       vibeguard-gc.timer REMOVE_PRIOR_TIMER_ACTIVE \
     || ! scheduler_capture_active_state \
