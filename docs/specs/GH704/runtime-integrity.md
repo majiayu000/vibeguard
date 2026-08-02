@@ -400,7 +400,10 @@ L1 decision但返回 typed persistence unavailable，零 append且绝不越界�
 与 reader pins，并执行 common protocol + `compaction_exchange`。只在 I/O 最终成功且 pins 最终 unpin 的
 fair schedule 下承诺 finite progress；永久 pin、disk/scratch failure 必须 fail visible并保持 bounded old state，
 不得声称 liveness、移动 pinned row或超额 append。crash/replay 不得出现双 authority/early credit/scan rebuild。
-policy epoch 必须证明 L1 floor + journal live/scratch 与 allocator fixed A/B root bytes 可同时落盘。
+每个 scratch generation 的 maxima 必须由同 project 的全部 live partitions 计算：additive dimensions
+取 L1 + semantic 总和，`segment_bytes` 取两者最大值；v1 closed maxima 是 3 entries、49,152 logical bytes、
+3 segments、32,768 segment bytes 与 98,304 physical bytes。policy epoch 必须证明 L1 floor + journal
+live/scratch 与 allocator fixed A/B root bytes 可同时落盘。
 
 ## 4. Serialized global offset append
 

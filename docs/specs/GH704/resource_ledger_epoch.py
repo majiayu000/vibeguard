@@ -36,6 +36,22 @@ EXPECTED_EDGE_TUPLE_SETS = {
     "adoption_retirement": ["global_admin_tuples"],
 }
 
+EXPECTED_SELECTOR_RELATIONS = {
+    "wal_compaction_capacity_transfer": (("compaction_exchange",), ("project_wal_tuples",), ("all_live_scratch_pairs",)),
+    "allocator_wal_capacity_contract": (("metadata_root_publish",), ("derived_log_tuples",), ()),
+    "canonical_journal_gc_scratch_capacity": (("compaction_exchange",), ("canonical_journal_tuples",), ()),
+    "project_wal_pre_provider_terminal_closure": (("attempt_reserve", "absence_release", "durable_abort", "forward_recovery"), ("project_wal_live_tuples",), ()),
+    "canonical_journal_l1_entitlement_capacity_one": (("l1_append_prepare", "l1_append_materialize", "l1_append_roll_forward", "l1_append_exact_cleanup", "bounded_backpressure"), ("l1_floor_tuples",), ()),
+    "capacity_ledger_model_check": (tuple(EXPECTED_EDGE_TUPLE_SETS), ("all_exact_tuples",), ()),
+    "reservation_bundle_terminal_closure": (("terminal_totality", "absence_release", "materialized_retirement", "transfer"), ("reservation_bundle_tuples",), ()),
+    "success_history_gc_release_receipt": (("expiry_gc",), ("success_history_tuples",), ()),
+    "derived_log_compaction_capacity_transfer": (("compaction_exchange",), ("derived_log_tuples",), ()),
+    "admin_adoption_capacity_preflight": (("adopt_all_preflight", "adopt_all_publish"), ("global_admin_tuples",), ()),
+    "compaction_role_exchange_capacity_one": (("exact_split", "compaction_exchange"), ("all_compaction_tuples",), ("all_live_scratch_pairs",)),
+    "admin_adoption_scratch_capacity_one": (("adopt_all_preflight", "adopt_all_publish", "adoption_retirement"), ("global_admin_tuples",), ()),
+    "resource_kind_edge_coverage": (tuple(EXPECTED_EDGE_TUPLE_SETS), ("all_exact_tuples",), ()),
+}
+
 
 def canonical(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -327,6 +343,47 @@ def validate_named_tuple_sets(model: dict[str, Any], tuples: dict[str, dict[str,
         raise EpochModelError("tuple_sets: named membership differs from epoch expansion")
 
 
+def validate_selector_relations(model: dict[str, Any]) -> None:
+    selectors = exact_index(model["selectors"], "selectors")
+    if set(selectors) != set(EXPECTED_SELECTOR_RELATIONS):
+        raise EpochModelError("selectors: inventory differs from the closed contract")
+    for selector_id, expected in EXPECTED_SELECTOR_RELATIONS.items():
+        selector = selectors[selector_id]
+        actual = (
+            tuple(selector["edge_ids"]),
+            tuple(selector["tuple_set_ids"]),
+            tuple(selector.get("pair_set_ids", [])),
+        )
+        if actual != expected:
+            raise EpochModelError(f"selector {selector_id}: canonical edge/tuple/pair relation changed")
+
+
+def validate_journal_scratch_capacity(tuples: dict[str, dict[str, Any]]) -> None:
+    additive_dimensions = ("entries", "bytes", "segments", "per_source_quota", "physical_bytes")
+    live_by_scope: dict[str, list[dict[str, Any]]] = {}
+    scratch_by_scope: dict[str, list[dict[str, Any]]] = {}
+    for item in tuples.values():
+        if item["resource_kind"] == "canonical_journal_live":
+            live_by_scope.setdefault(item["scope_id"], []).append(item)
+        elif item["resource_kind"] == "canonical_journal_scratch":
+            scratch_by_scope.setdefault(item["scope_id"], []).append(item)
+    if set(live_by_scope) != set(scratch_by_scope):
+        raise EpochModelError("canonical journal scratch scopes differ from live scopes")
+    for scope_id, live_items in live_by_scope.items():
+        if {item["quota_partition_id"] for item in live_items} != {"l1_floor", "semantic_live"}:
+            raise EpochModelError(f"{scope_id}: canonical journal live partitions are not closed")
+        expected = {
+            dimension: sum(item["maxima"][dimension] for item in live_items)
+            for dimension in additive_dimensions
+        }
+        expected["segment_bytes"] = max(item["maxima"]["segment_bytes"] for item in live_items)
+        scratch_items = scratch_by_scope[scope_id]
+        if {item["quota_partition_id"] for item in scratch_items} != {"gc_scratch_a", "gc_scratch_b"}:
+            raise EpochModelError(f"{scope_id}: canonical journal scratch generations are not closed")
+        if any(item["maxima"] != expected for item in scratch_items):
+            raise EpochModelError(f"{scope_id}: each journal scratch generation must hold all live partitions")
+
+
 def validate_resource_kind_coverage(model: dict[str, Any], tuples: dict[str, dict[str, Any]]) -> None:
     selectors = exact_index(model["selectors"], "selectors")
     selector = selectors.get("resource_kind_edge_coverage")
@@ -414,6 +471,8 @@ def validate_epoch_instance(model: dict[str, Any]) -> dict[str, int]:
     require_exact(model["root_components"], expected_components, "root_components")
     validate_pair_relations(model, tuples)
     validate_named_tuple_sets(model, tuples)
+    validate_selector_relations(model)
+    validate_journal_scratch_capacity(tuples)
     validate_resource_kind_coverage(model, tuples)
     validate_boundary_contracts(model)
     component_index = exact_index(expected_components, "expanded components")

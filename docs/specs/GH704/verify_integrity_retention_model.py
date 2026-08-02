@@ -26,13 +26,33 @@ EXPECTED_SELECTOR_IDS = {
     "hypothesis_observe", "attempt_observe", "failure_observe",
     "reset_observe", "retention_retire", "l1_evidence_publish",
 }
-EXPECTED_TRANSITION_SELECTORS = {
-    ("hypothesis_observe", "retain_hypothesis"): "hypothesis_observe",
-    ("attempt_observe", "retain_attempt"): "attempt_observe",
-    ("failure_observe", "retain_failure"): "failure_observe",
-    ("reset_observe", "retain_reset"): "reset_observe",
-    ("retention_retire", "retire_evidence"): "retention_retire",
-    ("l1_evidence_publish", "publish_l1_evidence"): "l1_evidence_publish",
+RETAIN_STEPS = (
+    ("reservation_write", (), "absent", "reservation_partial"),
+    ("reservation_fsync", ("reservation_write",), "reservation_partial", "reserved"),
+    ("evidence_write", ("reservation_fsync",), "reserved", "evidence_partial"),
+    ("evidence_fsync", ("evidence_write",), "evidence_partial", "evidence_durable"),
+    ("retention_publish", ("evidence_fsync",), "evidence_durable", "retained"),
+)
+RETIRE_STEPS = (
+    ("retirement_intent", (), "retained", "retirement_pending"),
+    ("tombstone_fsync", ("retirement_intent",), "retirement_pending", "tombstone_durable"),
+    ("directory_fsync", ("tombstone_fsync",), "tombstone_durable", "retirement_durable"),
+    ("retirement_publish", ("directory_fsync",), "retirement_durable", "retired"),
+)
+PUBLISH_STEPS = (
+    ("prepared_write", (), "retained", "prepared_partial"),
+    ("prepared_fsync", ("prepared_write",), "prepared_partial", "prepared_durable"),
+    ("row_write", ("prepared_fsync",), "prepared_durable", "row_partial"),
+    ("row_fsync", ("row_write",), "row_partial", "row_durable"),
+    ("manifest_publish", ("row_fsync",), "row_durable", "published"),
+)
+EXPECTED_TRANSITION_CONTRACTS = {
+    ("hypothesis_observe", "retain_hypothesis"): ("hypothesis_observe", ("absent",), "retained", ("reserved", "retained", "published", "retired", "needs_repair"), RETAIN_STEPS),
+    ("attempt_observe", "retain_attempt"): ("attempt_observe", ("absent",), "retained", ("reserved", "retained", "published", "retired", "needs_repair"), RETAIN_STEPS),
+    ("failure_observe", "retain_failure"): ("failure_observe", ("absent",), "retained", ("reserved", "retained", "published", "retired", "needs_repair"), RETAIN_STEPS),
+    ("reset_observe", "retain_reset"): ("reset_observe", ("absent",), "retained", ("reserved", "retained", "published", "retired", "needs_repair"), RETAIN_STEPS),
+    ("retention_retire", "retire_evidence"): ("retention_retire", ("retained", "published"), "retired", ("absent", "reserved", "retired", "needs_repair"), RETIRE_STEPS),
+    ("l1_evidence_publish", "publish_l1_evidence"): ("l1_evidence_publish", ("retained",), "published", ("absent", "reserved", "published", "retired", "needs_repair"), PUBLISH_STEPS),
 }
 SUPPORTED_SCHEMA_KEYWORDS = {
     "$schema", "$id", "$defs", "$ref", "title", "description", "type",
@@ -258,6 +278,19 @@ def validate_dag(steps: list[dict[str, Any]], location: str) -> dict[str, dict[s
     return indexed
 
 
+def transition_contract(transition: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        transition["selector_id"],
+        tuple(transition["from_states"]),
+        transition["to_state"],
+        tuple(transition["illegal_from_states"]),
+        tuple(
+            (step["id"], tuple(step["depends_on"]), step["crash_before"], step["crash_after"])
+            for step in transition["steps"]
+        ),
+    )
+
+
 def validate_inventory(model: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     epoch = model["policy_epoch"]
     if len(epoch["source_ids"]) != len(set(epoch["source_ids"])):
@@ -310,9 +343,9 @@ def validate_edges_and_evidence(
             fail(f"model.edges.{edge_id}: unknown tuple templates {sorted(unknown_templates)}")
         transitions = unique_index(edge["transitions"], f"model.edges.{edge_id}.transitions")
         for transition_id, transition in transitions.items():
-            expected_selector = EXPECTED_TRANSITION_SELECTORS.get((edge_id, transition_id))
-            if expected_selector is None or transition["selector_id"] != expected_selector:
-                fail(f"model.edges.{edge_id}.{transition_id}: selector differs from the canonical owner")
+            expected_contract = EXPECTED_TRANSITION_CONTRACTS.get((edge_id, transition_id))
+            if expected_contract is None or transition_contract(transition) != expected_contract:
+                fail(f"model.edges.{edge_id}.{transition_id}: canonical transition contract changed")
             if transition["selector_id"] not in selectors:
                 fail(f"model.edges.{edge_id}.{transition_id}: unknown selector")
             if set(transition["from_states"]) - state_universe or transition["to_state"] not in state_universe:
@@ -402,6 +435,15 @@ def refresh_epoch_expansion(candidate: dict[str, Any]) -> None:
     candidate["tuples"] = expand_tuples(candidate)
 
 
+def remove_retention_evidence_fsync(candidate: dict[str, Any]) -> None:
+    edge = next(item for item in candidate["edges"] if item["id"] == "hypothesis_observe")
+    transition = edge["transitions"][0]
+    transition["steps"] = [step for step in transition["steps"] if step["id"] != "evidence_fsync"]
+    publish = next(step for step in transition["steps"] if step["id"] == "retention_publish")
+    publish["depends_on"] = ["evidence_write"]
+    publish["crash_before"] = "evidence_partial"
+
+
 def self_test(model: dict[str, Any], schema: dict[str, Any]) -> tuple[int, int]:
     negative_cases: list[tuple[str, Callable[[dict[str, Any]], None]]] = [
         ("unknown_top_level", lambda value: value.__setitem__("unknown", True)),
@@ -419,6 +461,7 @@ def self_test(model: dict[str, Any], schema: dict[str, Any]) -> tuple[int, int]:
         ("illegal_transition_gap", lambda value: value["edges"][0]["transitions"][0]["illegal_from_states"].pop()),
         ("fault_case_gap", lambda value: value["evidence_bindings"][0]["required_cases"].pop()),
         ("boundary_cycle", lambda value: value["edges"][0]["transitions"][0]["steps"][0]["depends_on"].append("reservation_fsync")),
+        ("retention_evidence_fsync_gap", remove_retention_evidence_fsync),
         ("l1_publish_depends_on_prepared", lambda value: value["edges"][-1]["transitions"][0]["steps"][-1].__setitem__("depends_on", ["prepared_fsync"])),
         ("l1_row_fsync_bypass", lambda value: value["edges"][-1]["transitions"][0]["steps"][3].__setitem__("depends_on", ["prepared_fsync"])),
     ]

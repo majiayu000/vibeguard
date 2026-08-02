@@ -19,6 +19,22 @@ class SchemaValidationError(ValueError):
     """The schema profile or supplied instance is invalid."""
 
 
+def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise SchemaValidationError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def parse_json_strict(text: str) -> Any:
+    try:
+        return json.loads(text, object_pairs_hook=reject_duplicate_keys)
+    except json.JSONDecodeError as exc:
+        raise SchemaValidationError(str(exc)) from exc
+
+
 def canonical_token(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 

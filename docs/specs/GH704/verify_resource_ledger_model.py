@@ -6,12 +6,11 @@ from __future__ import annotations
 import argparse
 import copy
 import itertools
-import json
 import sys
 from pathlib import Path
 from typing import Any, Callable
 
-from json_schema_subset import SchemaValidationError, validate_schema_instance
+from json_schema_subset import SchemaValidationError, parse_json_strict, validate_schema_instance
 from resource_ledger_epoch import EpochModelError, materialize_epoch, positive_expansion_model, validate_epoch_instance
 
 
@@ -87,9 +86,8 @@ def fail(message: str) -> None:
 
 def load_resource_ledger_json(path: Path) -> dict[str, Any]:
     try:
-        with path.open(encoding="utf-8") as handle:
-            value = json.load(handle)
-    except (OSError, json.JSONDecodeError) as exc:
+        value = parse_json_strict(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, SchemaValidationError) as exc:
         fail(f"cannot load {path}: {exc}")
     if not isinstance(value, dict):
         fail(f"{path}: top-level value must be an object")
@@ -706,6 +704,16 @@ def validate_model(model: dict[str, Any], schema: dict[str, Any]) -> dict[str, i
     }
 
 
+def reduce_journal_scratch_capacity(candidate: dict[str, Any]) -> None:
+    old_maxima = {"entries": 2, "bytes": 32768, "segments": 2, "segment_bytes": 32768, "per_source_quota": 0, "physical_bytes": 65536}
+    for template in candidate["tuple_templates"]:
+        if template["id"] in {"journal_scratch_a", "journal_scratch_b"}:
+            template["maxima"] = old_maxima
+    rebuilt = materialize_epoch(candidate, candidate["policy_epoch"]["source_ids"], candidate["policy_epoch"]["project_ids"])
+    candidate.clear()
+    candidate.update(rebuilt)
+
+
 def self_test(model: dict[str, Any], schema: dict[str, Any]) -> int:
     cases: list[tuple[str, Callable[[dict[str, Any]], None]]] = [
         ("unknown_field", lambda value: value.__setitem__("unknown_field", 1)),
@@ -722,6 +730,7 @@ def self_test(model: dict[str, Any], schema: dict[str, Any]) -> int:
         ("selector_gap", lambda value: value["selectors"].pop()),
         ("coverage_edge_gap", lambda value: next(item for item in value["selectors"] if item["id"] == "resource_kind_edge_coverage")["edge_ids"].pop()),
         ("coverage_tuple_set_rewrite", lambda value: next(item for item in value["selectors"] if item["id"] == "resource_kind_edge_coverage").__setitem__("tuple_set_ids", ["project_wal_live_tuples"])),
+        ("success_history_selector_relation_rewrite", lambda value: (next(item for item in value["selectors"] if item["id"] == "success_history_gc_release_receipt").__setitem__("edge_ids", ["attempt_reserve"]), next(item for item in value["selectors"] if item["id"] == "success_history_gc_release_receipt").__setitem__("tuple_set_ids", ["project_wal_live_tuples"]))),
         ("edge_tuple_relation_rewrite", lambda value: next(item for item in value["edge_registry"] if item["id"] == "expiry_gc").__setitem__("tuple_set_ids", ["project_wal_live_tuples"])),
         ("duplicate_pair_id", lambda value: (value["live_scratch_pairs"][0].__setitem__("id", value["live_scratch_pairs"][1]["id"]), value["live_scratch_pair_sets"][0]["pair_ids"].remove("wal_alpha_a"))),
         ("incomplete_project_scenario", lambda value: next(item for item in value["root_capacity_scenarios"] if item["id"] == "project_alpha_live_scratch").__setitem__("required_full_component_ids", ["empty_root_manifest_alpha", "empty_root_checkpoint_alpha", "queue_metadata_alpha_a", "queue_metadata_alpha_b"])),
@@ -734,6 +743,7 @@ def self_test(model: dict[str, Any], schema: dict[str, Any]) -> int:
         ("queue_metadata_gap", lambda value: value["retain_zero_contract"]["empty_root_metadata_component_ids"].pop()),
         ("wal_target_fsync_gap", lambda value: next(item for item in value["selectors"] if item["id"] == "wal_compaction_capacity_transfer")["boundary_paths"][0]["nodes"].pop(2)),
         ("l1_early_credit", lambda value: next(node for node in next(item for item in value["selectors"] if item["id"] == "canonical_journal_l1_entitlement_capacity_one")["boundary_paths"][0]["nodes"] if node["id"] == "l1_exact_cleanup_durable").__setitem__("post_state", "released")),
+        ("journal_scratch_single_partition_bound", reduce_journal_scratch_capacity),
     ]
     for name, mutate in cases:
         candidate = copy.deepcopy(model)
@@ -750,7 +760,11 @@ def self_test(model: dict[str, Any], schema: dict[str, Any]) -> int:
     minimal_counts = validate_model(materialize_epoch(model, ["source_alpha"], ["project_alpha"]), schema)
     if minimal_counts["epoch_sources"] != 1 or minimal_counts["epoch_projects"] != 1:
         fail("self-test minimal_epoch_materialization: valid 1x1 epoch was not fully validated")
-    return len(cases)
+    try:
+        parse_json_strict('{"version":999,"version":1}')
+    except SchemaValidationError:
+        return len(cases) + 1
+    fail("self-test duplicate_json_key: invalid mutation was accepted")
 
 
 def format_counts(counts: dict[str, int]) -> str:
