@@ -31,7 +31,7 @@
       "items": {"$ref": "#/$defs/resource_kind"}
     },
     "exact_scopes": {
-      "type": "array", "minItems": 5, "uniqueItems": true,
+      "type": "array", "minItems": 3, "uniqueItems": true,
       "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}
     },
     "tuple_expansion_grammar": {"$ref": "#/$defs/tuple_expansion_grammar"},
@@ -282,7 +282,7 @@
       "required": ["payload_live_units_min", "empty_root_metadata_component_ids", "composite_receipt_sections"],
       "properties": {
         "payload_live_units_min": {"const": 0},
-        "empty_root_metadata_component_ids": {"type": "array", "minItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+        "empty_root_metadata_component_ids": {"type": "array", "minItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
         "composite_receipt_sections": {
           "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
           "items": {"enum": ["payload_accounting", "root_metadata_accounting"]}

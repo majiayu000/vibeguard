@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from json_schema_subset import SchemaValidationError, validate_schema_instance
-from resource_ledger_epoch import EpochModelError, positive_expansion_model, validate_epoch_instance
+from resource_ledger_epoch import EpochModelError, materialize_epoch, positive_expansion_model, validate_epoch_instance
 
 
 MODEL_PATH = Path(__file__).with_name("resource_ledger_model.json")
@@ -722,6 +722,9 @@ def self_test(model: dict[str, Any], schema: dict[str, Any]) -> int:
         ("selector_gap", lambda value: value["selectors"].pop()),
         ("coverage_edge_gap", lambda value: next(item for item in value["selectors"] if item["id"] == "resource_kind_edge_coverage")["edge_ids"].pop()),
         ("coverage_tuple_set_rewrite", lambda value: next(item for item in value["selectors"] if item["id"] == "resource_kind_edge_coverage").__setitem__("tuple_set_ids", ["project_wal_live_tuples"])),
+        ("edge_tuple_relation_rewrite", lambda value: next(item for item in value["edge_registry"] if item["id"] == "expiry_gc").__setitem__("tuple_set_ids", ["project_wal_live_tuples"])),
+        ("duplicate_pair_id", lambda value: (value["live_scratch_pairs"][0].__setitem__("id", value["live_scratch_pairs"][1]["id"]), value["live_scratch_pair_sets"][0]["pair_ids"].remove("wal_alpha_a"))),
+        ("incomplete_project_scenario", lambda value: next(item for item in value["root_capacity_scenarios"] if item["id"] == "project_alpha_live_scratch").__setitem__("required_full_component_ids", ["empty_root_manifest_alpha", "empty_root_checkpoint_alpha", "queue_metadata_alpha_a", "queue_metadata_alpha_b"])),
         ("retain_zero_metadata", lambda value: value["root_components"][24].__setitem__("max_physical_bytes", 0)),
         ("l1_intent_gap", lambda value: value["l1_materialized_recovery"]["prepared_intent_fields"].pop()),
         ("schema_pattern", lambda value: value["exact_scopes"].append("Bad Scope")),
@@ -744,6 +747,9 @@ def self_test(model: dict[str, Any], schema: dict[str, Any]) -> int:
     positive_counts = validate_model(positive, schema)
     if positive_counts["epoch_sources"] != 3 or positive_counts["epoch_projects"] != 3:
         fail("self-test positive_epoch_materialization: expanded epoch was not fully validated")
+    minimal_counts = validate_model(materialize_epoch(model, ["source_alpha"], ["project_alpha"]), schema)
+    if minimal_counts["epoch_sources"] != 1 or minimal_counts["epoch_projects"] != 1:
+        fail("self-test minimal_epoch_materialization: valid 1x1 epoch was not fully validated")
     return len(cases)
 
 

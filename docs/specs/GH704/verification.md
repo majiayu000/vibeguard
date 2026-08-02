@@ -77,9 +77,9 @@ python3 docs/specs/GH704/verify_resource_ledger_model.py --self-test
 expansion、finite exact tuples、same-root same-scope same-family live→scratch pairs、全部 versioned boundary DAG
 与三类 fault expected state，以及同一 physical root 上的 Cartesian full-capacity case 数。第二条必须证明
 unknown field/kind、boolean maximum、schema pattern、placeholder、pseudo-N/A、未展开 symbol、tuple rewrite、
-scratch-as-live attempt、cross-family pair、非 canonical exact argv selector command、resource-kind coverage 缺 edge/改 tuple set、缺 target-fsync/queue metadata、boundary
+scratch-as-live attempt、cross-family/duplicate-id pair、非 canonical exact argv selector command/transition owner、resource-kind coverage 缺 edge/改 tuple set/改单 edge relation、缺 target-fsync/queue metadata、boundary
 缺状态或 cycle、cross-root component、selector gap、retain-zero metadata gap、L1 prepared-intent gap 与 early
-credit 都 nonzero，并正向物化且通过整套 verifier 验证新增 finite source/project 的 tuples、components、roots、legal pairs 与 capacity scenarios。selector owner 后续实现仍须逐 exact tuple 执行 capacity=1/2、两个 source/
+credit、不完整 project capacity scenario 都 nonzero，并正向物化且通过整套 verifier 验证 1×1 与新增 finite source/project 的 tuples、components、roots、legal pairs 与 capacity scenarios。selector owner 后续实现仍须逐 exact tuple 执行 capacity=1/2、两个 source/
 reservation 与 `N >> capacity` long-run；WAL-full 必须保持 cache/provider/validator/reducer calls=0。
 
 Compaction 要分别核对 payload accounting 与 fixed empty-root manifest/checkpoint/queue A/B metadata accounting；payload

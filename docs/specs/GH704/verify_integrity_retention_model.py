@@ -26,6 +26,14 @@ EXPECTED_SELECTOR_IDS = {
     "hypothesis_observe", "attempt_observe", "failure_observe",
     "reset_observe", "retention_retire", "l1_evidence_publish",
 }
+EXPECTED_TRANSITION_SELECTORS = {
+    ("hypothesis_observe", "retain_hypothesis"): "hypothesis_observe",
+    ("attempt_observe", "retain_attempt"): "attempt_observe",
+    ("failure_observe", "retain_failure"): "failure_observe",
+    ("reset_observe", "retain_reset"): "reset_observe",
+    ("retention_retire", "retire_evidence"): "retention_retire",
+    ("l1_evidence_publish", "publish_l1_evidence"): "l1_evidence_publish",
+}
 SUPPORTED_SCHEMA_KEYWORDS = {
     "$schema", "$id", "$defs", "$ref", "title", "description", "type",
     "properties", "required", "additionalProperties", "items", "minItems",
@@ -302,6 +310,9 @@ def validate_edges_and_evidence(
             fail(f"model.edges.{edge_id}: unknown tuple templates {sorted(unknown_templates)}")
         transitions = unique_index(edge["transitions"], f"model.edges.{edge_id}.transitions")
         for transition_id, transition in transitions.items():
+            expected_selector = EXPECTED_TRANSITION_SELECTORS.get((edge_id, transition_id))
+            if expected_selector is None or transition["selector_id"] != expected_selector:
+                fail(f"model.edges.{edge_id}.{transition_id}: selector differs from the canonical owner")
             if transition["selector_id"] not in selectors:
                 fail(f"model.edges.{edge_id}.{transition_id}: unknown selector")
             if set(transition["from_states"]) - state_universe or transition["to_state"] not in state_universe:
@@ -399,6 +410,7 @@ def self_test(model: dict[str, Any], schema: dict[str, Any]) -> tuple[int, int]:
         ("unknown_project_source", lambda value: value["policy_epoch"]["projects"][0]["source_ids"].append("unknown_source")),
         ("inventory_digest_drift", lambda value: value["policy_epoch"]["source_ids"].append("source_gamma")),
         ("selector_comment_command", lambda value: value["selectors"][0].__setitem__("command", "true # hypothesis_observe")),
+        ("transition_selector_rewrite", lambda value: (value["edges"][0]["transitions"][0].__setitem__("selector_id", "attempt_observe"), value["evidence_bindings"][0].__setitem__("selector_id", "attempt_observe"))),
         ("missing_expanded_tuple", lambda value: value["tuples"].pop()),
         ("extra_expanded_tuple", lambda value: value["tuples"].append(copy.deepcopy(value["tuples"][0]))),
         ("missing_relation_binding", lambda value: value["evidence_bindings"].pop()),

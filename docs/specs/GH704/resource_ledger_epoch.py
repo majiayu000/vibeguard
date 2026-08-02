@@ -12,6 +12,31 @@ class EpochModelError(ValueError):
     """The sealed policy epoch does not materialize to the declared exact instance."""
 
 
+EXPECTED_EDGE_TUPLE_SETS = {
+    "reserve": ["all_exact_tuples"],
+    "activate_live": ["all_exact_tuples"],
+    "absence_release": ["all_exact_tuples"],
+    "materialized_retirement": ["all_exact_tuples"],
+    "transfer": ["reservation_bundle_tuples"],
+    "exact_split": ["all_compaction_tuples"],
+    "compaction_exchange": ["all_compaction_tuples"],
+    "metadata_root_publish": ["derived_log_tuples"],
+    "attempt_reserve": ["project_wal_live_tuples"],
+    "durable_abort": ["project_wal_live_tuples"],
+    "forward_recovery": ["project_wal_live_tuples"],
+    "l1_append_prepare": ["l1_floor_tuples"],
+    "l1_append_materialize": ["l1_floor_tuples"],
+    "l1_append_roll_forward": ["l1_floor_tuples"],
+    "l1_append_exact_cleanup": ["l1_floor_tuples"],
+    "bounded_backpressure": ["all_exact_tuples"],
+    "terminal_totality": ["reservation_bundle_tuples"],
+    "expiry_gc": ["success_history_tuples"],
+    "adopt_all_preflight": ["global_admin_tuples"],
+    "adopt_all_publish": ["global_admin_tuples"],
+    "adoption_retirement": ["global_admin_tuples"],
+}
+
+
 def canonical(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -264,6 +289,7 @@ def validate_pair_relations(model: dict[str, Any], tuples: dict[str, dict[str, A
         "derived_log_live": "derived_log_scratch",
         "canonical_journal_live": "canonical_journal_scratch",
     }
+    exact_index(model["live_scratch_pairs"], "live_scratch_pairs")
     seen: set[tuple[str, str]] = set()
     for pair in model["live_scratch_pairs"]:
         live = tuples.get(pair["live_tuple_id"])
@@ -308,6 +334,9 @@ def validate_resource_kind_coverage(model: dict[str, Any], tuples: dict[str, dic
     tuple_sets = exact_index(model["tuple_sets"], "tuple_sets")
     if selector is None or set(selector["edge_ids"]) != set(edges):
         raise EpochModelError("resource_kind_edge_coverage: must enumerate every edge exactly")
+    actual_edge_sets = {edge_id: edge["tuple_set_ids"] for edge_id, edge in edges.items()}
+    if actual_edge_sets != EXPECTED_EDGE_TUPLE_SETS:
+        raise EpochModelError("resource_kind_edge_coverage: per-edge tuple-set relation differs from the closed contract")
     if selector["tuple_set_ids"] != ["all_exact_tuples"]:
         raise EpochModelError("resource_kind_edge_coverage: must select the complete exact tuple inventory")
     covered_tuple_ids = {
@@ -405,12 +434,11 @@ def validate_epoch_instance(model: dict[str, Any]) -> dict[str, int]:
             raise EpochModelError(f"root {root['id']}: not the exact epoch component sum")
     if set(actual_roots) != set(expected_roots):
         raise EpochModelError("roots: extra or missing epoch root")
-    for project_id in epoch["project_ids"]:
-        short = project_id.removeprefix("project_")
-        required_metadata = {f"empty_root_manifest_{short}", f"empty_root_checkpoint_{short}", f"queue_metadata_{short}_a", f"queue_metadata_{short}_b"}
-        scenario = next((item for item in model["root_capacity_scenarios"] if item["root_id"] == f"{project_id}_storage_root"), None)
-        if scenario is None or not required_metadata <= set(scenario["required_full_component_ids"]):
-            raise EpochModelError(f"{project_id}: fixed project metadata absent from capacity scenario")
+    require_exact(
+        model["root_capacity_scenarios"],
+        materialize_scenarios(epoch),
+        "root_capacity_scenarios",
+    )
     return {
         "epoch_sources": len(epoch["source_ids"]),
         "epoch_projects": len(epoch["project_ids"]),
