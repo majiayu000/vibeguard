@@ -404,6 +404,10 @@ if ! ensure_setup_runtime_available >/dev/null 2>&1; then
   red "ERROR: vibeguard-runtime is required to safely remove managed high-context files"
   exit 1
 fi
+if ! pin_setup_runtime_for_clean; then
+  red "ERROR: failed to preserve vibeguard-runtime for the full clean lifecycle"
+  exit 1
+fi
 if ! setup_lock_acquire; then
   exit 1
 fi

@@ -344,6 +344,27 @@ setup_runtime_bootstrap_cleanup() {
   fi
 }
 
+pin_setup_runtime_for_clean() {
+  local runtime managed_root tmp dest
+  runtime="$(setup_runtime_path)" || return 1
+  managed_root="${HOME}/.vibeguard/installed"
+  case "${runtime}" in
+    "${managed_root}/"*) ;;
+    *) return 0 ;;
+  esac
+
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-runtime-clean_XXXXXX")"
+  dest="${tmp}/vibeguard-runtime"
+  if ! cp "${runtime}" "${dest}" || ! chmod +x "${dest}"; then
+    rm -rf "${tmp}"
+    return 1
+  fi
+  export VIBEGUARD_SETUP_RUNTIME="${dest}"
+  export VIBEGUARD_SETUP_RUNTIME_BOOTSTRAP_TMP="${tmp}"
+  trap setup_runtime_bootstrap_cleanup EXIT
+  setup_runtime_path >/dev/null 2>&1
+}
+
 ensure_setup_runtime_available() {
   local target tag tmp dest
   if setup_runtime_path >/dev/null 2>&1; then
