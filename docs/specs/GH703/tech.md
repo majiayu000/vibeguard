@@ -70,7 +70,7 @@ identity；H-003 必须附闭集 taxonomy snapshot；H-004 必须附 window/time
 `maximum_query_window_duration_seconds`、`maximum_catch_up_duration_seconds` 与 `max_source_files`、`max_uncompressed_bytes`、
 `max_snapshot_elapsed_ms`、`max_retained_archives`、`max_integrity_preflight_elapsed_ms`；H-005 必须附 share allowlist；H-007 必须附 scheduler/authority failure、recovery、
 clean policy、正整数 `retention_horizon_seconds`/`hard_history_cap_entries`/`hard_history_cap_bytes` 及
-retention backend policy，且 caps 必须包含 claim/receipt/lifecycle-terminal/pointer/checkpoint/orphan；选择 `capability_attested` 还须固定 backend identity/version/attestation contract。
+retention backend policy，且 caps 必须包含 claim/binding/receipt/lifecycle-terminal/pointer/checkpoint/orphan；选择 `capability_attested` 还须固定 backend identity/version/attestation contract。
 缺任一 selection-specific 字段时 spec 仍是 Draft。
 
 ### 2. 两个独立 schema 与 versioned taxonomy
@@ -244,14 +244,13 @@ fail-visible 行为，不能只验证新 weekly producer。
 - 自动 scheduler 不预先创建 shareable artifact；用户显式调用 export 后，才从
   已验证 current object 生成 allowlisted projection，并以 user-only 权限写入
   用户指定的新本地文件；
-- renderer bytes 物化前先提交绑定 exact identity/digests 与 entries/bytes 预留的 generation claim；再在
-  同一受限 parent 建 mode-0700 temp generation，fsync+verify renderer/manifest，receipt/pointer 各以 `linkat` atomic
-  no-replace hard link提交各自 prior-digest-linked final record并 fsync parent。recovery只接受 absent或完整 record并
+- 先以 cap-reserved singleton staging slot 建 mode-0700 空 temp generation 并取得 directory identity；任何 file bytes 物化前提交绑定该 identity、planned digests 与 entries/bytes 预留的 generation claim，fsync+verify renderer/manifest 后、公开目录/receipt 前再提交闭合 member-set/object-identity binding；atomic no-replace publish generation directory并 fsync parent 后，receipt/pointer 各以 `linkat` atomic
+  no-replace hard link提交各自 prior-digest-linked final record并 fsync parent。crash-before-claim 的 empty slot阻止第二次 staging；recovery只接受 absent或完整 record并
   幂等 adopt exact pending sequence；collision/foreign/invalid target保留旧 logical pointer并 stale，禁止跳号/append/replace；
 - scheduler attempt/success 只写 closed state/time/digest，不写 raw stderr、
   path、event 或 reason。
 
-每次 generation publish 还要按 coverage contract 在独立、versioned 的 claim/receipt/pointer/checkpoint chains
+每次 generation publish 还要按 coverage contract 在独立、versioned 的 claim/binding/receipt/lifecycle-terminal/pointer/checkpoint chains
 以 prepared record+dirfsync、commit marker+dirfsync逐条提交；各 chain 的 seq0 prior digest 必须 null，后续 exact
 连接前驱，reader 忽略 torn/uncommitted，lost-response 只 exact adopt。未来路径
 weekly-value ownership schema 约束 CSPRNG `artifact_generation_id`（同时嵌入 generation manifest）、
@@ -265,9 +264,9 @@ startup/runtime 证明 stable non-reusable object identity、atomic expected-ide
 no-overwrite private quarantine、crash recovery 与 replacement-race evidence 全部可用时才 auto-retire；attestation
 identity/version/digest写入 receipt，任一能力丢失立即降级且不得 pathname fallback。retention在 lifecycle lock内
 先验证 pointer chain并 pin exact current generation/receipt/object identities；current target永不进入 candidate。
-claim-only/pre-receipt/receipt-only orphan 和全部 audit metadata 均计入 hard caps；attested backend 只在
-authenticated checkpoint 后 atomic retire folded prefix/orphan，默认 backend 保留且 cap 前停止新 history。
-claim/receipt/pointer/checkpoint chain 损坏同样停止删除和新增 history，不改 `scheduler_state`。
+claim-only/unbound/pre-receipt/receipt-only orphan 和全部 audit metadata 均计入 hard caps；unbound materialization 永不 auto-retire；attested backend 只在
+authenticated checkpoint pin selected pointer+live authorization 后 atomic retire exact bound orphan/folded prefix，默认 backend 保留且 cap 前停止新 history。
+claim/binding/receipt/lifecycle-terminal/pointer/checkpoint chain 损坏同样停止删除和新增 history，不改 `scheduler_state`。
 
 ### 5. 独立 scheduler identity 与状态机
 
@@ -618,27 +617,27 @@ JSON：
 | B-019 share field allowlist | shareable schema projection | schema-valid key-set requires H-005-approved `generated_at` plus explicit `data_status` + closed `status_reason`, rejects missing/null/extra fields；digest verification binds stable status fields but excludes generated time |
 | B-020 sensitive fields absent | share privacy firewall | adversarial sentinel scan in `bash tests/test_observe.sh` and `bash tests/test_health_report_scheduler.sh` |
 | B-021 no automatic egress or clipboard | wrapper/runtime static and dynamic fixtures | `bash tests/test_payload.sh` PATH stubs fail on network/open/clipboard commands; explicit local writes still pass |
-| B-022 secure atomic local writes | atomic source/authority + claim/receipt/pointer chains | bootstrap/journal/claim/record/marker/pointer/checkpoint crash barriers、lost-response replay、collision/symlink fixtures ignore torn/uncommitted and never duplicate |
+| B-022 secure atomic local writes | atomic source/authority + claim/binding/receipt/pointer chains | journal-wide seq 独立于 heartbeat/attempt；single staged-record cap/recovery；bootstrap/claim/binding/record/marker/pointer/checkpoint crash barriers、lost-response replay、collision/symlink fixtures ignore torn/uncommitted and never duplicate |
 | B-023 health/value surfaces independent | wrapper/installer closed surface dispatch | `bash tests/test_health_report_scheduler.sh` installs/disables each identity independently and compares outputs |
-| B-024 bounded owned retention | claims + committed receipt/pointer checkpoints + caps | claim/pre-receipt/receipt-only orphan and audit metadata counted；attested prefix retirement；no-auto-delete cap-minus-one/cap/exceed stop |
+| B-024 bounded owned retention | claims/bindings + committed authorization/pointer checkpoints + caps | claim/unbound/pre-receipt/receipt-only orphan and audit metadata counted；checkpoint pins selected pointer/live auth；attested prefix retirement；no-auto-delete cap-minus-one/cap/exceed stop |
 | B-025 existing health job migration safety | migration detector | legacy launchd/cron fixtures remain byte-identical while new value state does not claim legacy consent |
 | B-026 disabled state survives upgrade | weekly-value state schema + setup migration | two-version install fixture keeps `disabled_by_user`; missing-field fixture follows approved visible migration |
 | B-027 legal transitions require probe | lifecycle transition gate | direct file injection/history-only/executable-only fixtures remain non-active; explicit enable + probe becomes active |
 | B-028 concurrent lifecycle/generation serialization | shared bounded lifecycle lock | install/upgrade/disable/clean racing generator/retention yields no late publish；upgrade success/rollback advances generation and stale actor visibly exits |
-| B-029 clean removes only owned control state | setup clean + installer remove | scheduled/manual quiesce/seal/stop proof后才 commit exact `no_current` with same-generation terminal authorization，forbids receipt/current fields，preserves audit/history/exports/third-party jobs |
+| B-029 clean removes only owned control state | setup clean + installer remove | active authority requires quiesce/seal/stop proof；no-active requires closed absence reason/proof；两者才可 commit exact `no_current`，forbids receipt/current fields，preserves audit/history/exports/third-party jobs |
 | B-030 doctor/verify orthogonal state truth | setup check four-dimension evaluator | matrix covers lifecycle × freshness/data × retention health，including active+no_data+blocked-retention，plus target/digest/ownership drift |
 | B-031 checkout/payload parity | payload manifest and no-clone smoke | `bash tests/test_payload.sh` exact schema/taxonomy/count/digest parity, no Python/network/checkout |
 | B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` maps unknown/incompatible evidence to closed partial reasons；real v1 missing identity is `legacy_evidence` partial，schema-v2 missing required identity is terminal `event_identity_missing`/no-publish，present-ID conflicting tuples are `event_identity_conflict` partial |
 | B-033 artifact evidence binding | stable content digest verifier + doctor/export | generated/attempt metadata changes preserve digest；tampered coverage/data/status reason/evidence/window/taxonomy changes alter/reject digest |
-| B-034 interruption recovery | pending claim + atomic publish/lifecycle recovery | kill at pre-claim/pre-receipt/pointer/checkpoint phases；retry exact-adopts once；all orphan reservations remain cap-accounted |
-| B-035 closed live+archive snapshot | coverage contract + real launchers/authority/reader | single-directory source bootstrap and record-per-file authority crash barriers；exact seq0；`test_precommit_authority.sh` proves reservation-before-guard/pre-slot rejection/one terminal；fan-out sibling isolation；segment cap/preflight |
+| B-034 interruption recovery | pending claim/binding + atomic publish/lifecycle recovery | kill at pre-claim/post-materialization/pre-binding/pre-receipt/pointer/checkpoint phases；retry exact-adopts once；unbound never retires and all orphan reservations remain cap-accounted |
+| B-035 closed live+archive snapshot | coverage contract + real launchers/authority/reader | single-directory bootstrap；journal-wide seq/genesis independent of heartbeat/attempt；single staged-record cap/recovery；`test_precommit_authority.sh` proves reservation-before-guard/pre-slot rejection/one terminal；fan-out sibling isolation；segment cap/preflight |
 | B-036 structured classification at creation | event schema v2 + producer registry + Rust/shell/Python writers | version+digest exact match and typed zero-match map `unclassified_event`；fixtures enforce v1 missing → `legacy_evidence` partial，v2 required-identity missing → terminal/no-publish，present-ID conflict → `event_identity_conflict` partial |
 | B-037 byte-stable event identity | writer-generated event ID + GC byte preservation | append→rotate→gzip→read preserves ID; copy dedupes, retry differs；duplicate-ID tuple permutations keep one deterministic conflict digest |
 | B-038 headline publication gate | summary schema + all renderers | empty/partial fixtures只接受 H-004 选中的 null 或 absent 形状且跨 renderer 一致；invalid evidence不发布；complete nonempty 可含真实零 |
 | B-039 stable summary digest | canonical stable-content projection + fixed status precedence | simultaneous-fact and duplicate-ID/full-tuple permutations keep reason/digest；generated/attempt/renderer metadata changes preserve digest；exact coverage/data/status reason/producer version/event/taxonomy/window changes differ |
 | B-040 orthogonal state dimensions | state schema + doctor/verify | exact 4 × 26 scheduler × artifact/data/retention table includes `invalid+null+not_initialized` and proves no dimension overwrites another；every omitted/extra/unknown combination fails visible |
 | B-041 generation/lifecycle exclusion | lifecycle fence + short source lock + async verifier | publish/retention races remain fenced；archive hashing never holds writer/GC lock；max-byte archive + GC contention keeps installed wrapper latency within gate；queued stale token exits zero-write |
-| B-042 current-object ownership | committed claim/receipt chain + pointer pin + checkpoints | ignores uncommitted/torn；claim-only/pre-receipt/receipt-only orphan counted；attested checkpoint retires exact prefix；default stops at cap |
+| B-042 current-object ownership | committed claim/binding/receipt chain + pointer/auth pin + checkpoints | ignores uncommitted/torn；unbound never retires；checkpoint embeds selected pointer and receipt or active/no-active terminal proof；attested retire exact bound prefix；default stops at cap |
 
 ## 数据流
 
@@ -736,7 +735,7 @@ bootstrap 边界，不属于 summary producer。
   authority expiry/recovery gap、verified no-spawn、source/bootstrap+authority-record crash barriers、prefix capacity+segment early seal、manual two-reason precedence、hook-decision preservation、
   live+gzip immutable snapshot、async hash/GC race、duplicate-ID tuple permutation、contract version+digest mismatch、
   zero taxonomy match、legacy identity、mixed categories、GH-706 protocol split、unknown host、no-data/partial、
-  old/invalid taxonomy、claim/receipt/pointer/checkpoint genesis+crash+cap parity、no-current terminal auth、pre-receipt orphan、all-retained preflight和 sentinel。
+  old/invalid taxonomy、journal-wide seq/staged-record、claim/binding/receipt/pointer/checkpoint genesis+crash+cap parity、active/no-active terminal auth、unbound/pre-receipt orphan、selected-pointer/live-auth checkpoint pin、all-retained preflight和 sentinel。
 - [ ] Launcher authority：Planned Changes Manifest 的 `test_precommit_authority.sh` entry 独占 installed Git pre-commit parent 的
   `git_pre_commit` wrapper→canonical parent→durable slot、reservation-before-guard、pre-slot nonzero/zero-write/
   `guard_started=false` 与同 token exactly-one terminal outcome；Claude、Codex outer normalizer+inner fan-out与 standalone
@@ -745,8 +744,8 @@ bootstrap 边界，不属于 summary producer。
   禁止 mock IPC/fsync。
 - [ ] Scheduler lifecycle：launchd/systemd heartbeat+weekly-output plan/apply/probe/rollback、legacy health
   preservation、authority state ownership、repeat/concurrent install、missed run、generation-vs-disable/clean/upgrade race、
-  current-target pin、claim/pre-receipt/receipt-only orphan+audit-prefix bounded accounting、same-path replacement、pre-clean/pre-upgrade queued generator fence、
-  scheduled/manual clean quiesce/seal/stop and resident-process proof fixture、interrupt recovery。
+  current-target pin、claim/unbound/pre-receipt/receipt-only orphan+audit-prefix bounded accounting、same-path replacement、pre-clean/pre-upgrade queued generator fence、
+  scheduled/manual clean active-authority quiesce/seal/stop与 no-active-authority absence-proof fixtures、interrupt recovery。
 - [ ] Setup lifecycle：默认 plan disclosure、H-002 cadence/jitter/expiry inequality/provider、
   `--no-weekly-value`、unsupported manual start/status/stop/sealed-generate、exact 4 × 26
   orthogonal-state doctor/verify matrix、clean/purge ownership。
