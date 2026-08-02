@@ -25,7 +25,7 @@ Authority mode closed 为 `scheduled|manual`：
   逐事件 coverage diagnostic；unsupported 平台必须展示 exact
   `vibeguard-runtime observe weekly-value manual-authority start|status|stop|generate`
   命令序列；`generate` 还必须携带第 3 节 CLI 的 exact window/timezone/scope/taxonomy 参数；
-- manual `stop` 必须先 quiesce parents 并 append+fsync terminal seal；`generate` 只读一个 exact sealed
+- manual `stop` 必须先 quiesce parents 并按本节 authority-record 原子提交合同提交 terminal seal；`generate` 只读一个 exact sealed
   manual epoch（active epoch 必须先 stop），接受任一通过第 3 节 CLI 语法、边界与 budget 校验的显式
   half-open window。只有被该 epoch 连续覆盖的 window 才能返回 `complete`；早于 `manual_enabled_at` 或
   在 seal 后结束的合法 window 分别固定为无 headline `manual_pre_start|manual_post_seal` partial；跨两边界时
@@ -39,7 +39,7 @@ heartbeat/slot 不能拼接。manual stop 先封闭 admission、等待 quiescenc
 
 clean 也是 authority terminator，而不只是 scheduler probe：在删除 control state 或提交
 `no_current` 前，必须对每个 active authority mode（包括 manual）执行相同的封闭 admission、等待所有
-registered parents quiescence、append+fsync terminal seal、停止 resident authority 与存活证明；scheduler
+registered parents quiescence、原子提交 terminal seal、停止 resident authority 与存活证明；scheduler
 inactive 不能替代 manual authority 的 quiesce/seal/stop。任一 proof 缺失、不确定或 resident process 仍在，
 clean 必须 nonzero、保留 control state、不得提交 `no_current` 或报告成功。
 
@@ -51,13 +51,28 @@ H-002 approval 必须固定正整数 seconds 的 `heartbeat_cadence_seconds`、
 
 ## 2. Heartbeat、ingress 与 standalone writer
 
-epoch activation 先在 writer lock内验证 source generation；仅 fresh、无任何 source ledger/history时可
-create+fsync空 log、parent与 ledger `empty_source_generation`，否则必须验证既有 log与 ledger exact匹配，
-任一曾登记 source缺失/不符都 fail activation而不得重建空源。随后 append+fsync genesis record：
+fresh source bootstrap 是一个单目录 transaction，不得先后暴露独立 log/ledger pathname。authority 先在
+writer lock 内证明无任何 source ledger/history，再于同 filesystem、mode 0700 staging directory 中创建
+空 log、`empty_source_generation` ledger 与绑定 transaction/source ID、restricted relative paths、length、digest 和
+no-follow object identities 的 manifest；全部 file+directory fsync 且重验后，以 Linux
+`renameat2(RENAME_NOREPLACE)` / macOS `renameatx_np(RENAME_EXCL)` atomic no-replace directory rename
+一次发布 `source-generations/<source-generation-id>/`，再 fsync parent。lifecycle pending state 在任何 bytes
+物化前预留该 transaction identity/entry/byte budget；crash retry 只可 exact-adopt 已完整发布且 manifest/
+identity/digest 全匹配的 generation，或在受限 staging identity 匹配时完成/清理未发布 transaction。
+不完整、外来或冲突 target 一律 fail activation；任一曾登记 source 缺失/不符都不得重建空源。
+
+所有 authority journal logical record（genesis、heartbeat、reservation、admission outcome、gap、terminal seal 与
+checkpoint）必须使用同一 crash-atomic primitive：先在 segment-private staging 中以 `O_CREAT|O_EXCL`
+写完整 length-bounded JCS record并 fsync，再以 atomic no-replace link 发布到
+`authority-journal/segments/<segment-id>/records/<sequence>-<record-id>.json` 并 fsync records directory。
+ack/续租/封闭只在 directory fsync 后生效；reader/recovery 忽略 staging，只 fold 从 exact genesis 开始的
+contiguous sequence+prior-digest chain。final pathname 必须 absent 或完整；truncated/多出/fork/gap record 使旧
+epoch 无法 active/renew，禁止 truncate-tail 后继续或将 partial bytes 当 gap proof。下文的 authority
+record “提交”均指这个 primitive。完整 source generation 发布后才提交 genesis record：
 `heartbeat_sequence=0`、`heartbeat_at=authority_epoch_started_at`、必需 `prior_digest=null`（禁止非 null
 predecessor），并绑定 source root、launcher generation、零 open slot与
 `expires_at=checked_add(authority_epoch_started_at,heartbeat_expiry_seconds)`；两者完成才可 active或 spawn。
-Authority 对每个 `n>=1` 在 cadence deadline 加获批 jitter bound 之前 durable append+fsync
+Authority 对每个 `n>=1` 在 cadence deadline 加获批 jitter bound 之前 durable commit
 digest-linked `{authority_id, authority_mode, authority_epoch, heartbeat_sequence,
 heartbeat_at, expires_at, prior_digest}`。`heartbeat_at` 只能来自 H-002 批准 provider 以同一 boot
 monotonic ordering约束的 trusted wall-clock anchor；host wall clock、scheduler enqueue time与 caller timestamp
@@ -103,14 +118,14 @@ generation，取得所有 registered parents 的 quiescence ack、最高 sequenc
 证据禁止续租。
 
 reservation request 在 slot open 之前被拒绝时不创建 slot，也不能伪装成
-`aborted_before_spawn`；authority 必须以 request identity append+fsync 独立的 closed admission outcome
+`aborted_before_spawn`；authority 必须以 request identity 原子提交独立的 closed admission outcome
 `reservation_rejected`，launcher 返回 nonzero 且不得启动 guard。`aborted_before_spawn` 只适用于已收到
 reservation ack、随后由 durable spawn outcome 证明 caller 从未启动的 slot。拒绝 outcome 本身无法 durable
 记录时，authority 必须 fail closed、保留不可证明状态并禁止 caller spawn；该 window 不得报告 complete。
 
 writer 把 reservation token 与 conservative half-open `coverage_interval` 写入 coverage ledger；
 主 ledger 不可写时写独立 spool。row append+fsync 后才能以 matching event identity/tail commit。
-ledger/spool 双失效时 reservation 保持 pending 并在 authority journal 写 `dual_channel_gap`；后续
+ledger/spool 双失效时 reservation 保持 pending 并在 authority journal 原子提交 `dual_channel_gap`；后续
 heartbeat 或重试不能抹去。caller 已启动后的 accounting failure 必须发 closed
 `coverage_recording_failed`，但不得改变原 guard decision、blocking 语义或 exit code。
 
@@ -232,37 +247,71 @@ canonical tuple UTF-8 bytes 排序。同一 ID 的相同 tuple 折叠；同一 I
 history/<window-id>/<artifact_generation_id>/summary.json
 history/<window-id>/<artifact_generation_id>/summary.md
 history/<window-id>/<artifact_generation_id>/generation.json
+generation-claims/records/<claim-sequence>-<claim-id>.json
+generation-claims/commits/<claim-sequence>-<claim-id>.commit
 ownership-receipts/records/<receipt-sequence>-<receipt-id>.json
 ownership-receipts/commits/<receipt-sequence>-<receipt-id>.commit
+lifecycle-terminals/records/<terminal-sequence>-<terminal-id>.json
+lifecycle-terminals/commits/<terminal-sequence>-<terminal-id>.commit
 current-pointers/<pointer-sequence>-<pointer-id>.json
+audit-checkpoints/<chain-kind>/<checkpoint-sequence>-<checkpoint-id>.{json,commit}
 ```
 
 producer 从同一 verified object 渲染 JSON/Markdown；`generation.json` 绑定 window、generation ID、
 两个 renderer 的 restricted relative path、length/digest、`summary_digest` 与 ownership receipt identity。
-发布顺序固定为 temp generation → renderer/manifest flush+fsync+verify → fsync generation parent → ownership
-record commit → pointer commit → success。receipt先在同 filesystem staging以 no-follow `O_CREAT|O_EXCL`准备完整
+发布前 producer 已在内存中得到 exact renderer bytes/digests，必须先以与 receipt 相同的 prepared
+record+commit-marker primitive 提交 generation claim；claim 绑定 transaction/generation ID、restricted paths、
+exact planned entry/byte counts、renderer/manifest lengths+digests 与 owner nonce，并在任何 generation bytes 物化前从
+hard caps 预留该份额。发布顺序固定为 committed claim → temp generation → renderer/manifest
+flush+fsync+verify → fsync generation parent → ownership receipt commit → pointer commit → success。receipt先在同
+filesystem staging以 no-follow `O_CREAT|O_EXCL`准备完整
 JCS bytes并 fsync，再以 `linkat` atomic no-replace发布 record、fsync records dir；随后同样准备完整 marker并 fsync，
 atomic no-replace发布绑定 record identity/digest/sequence的 commit marker，再 fsync commits dir。reader只 fold
 contiguous、digest-linked且 record+marker exact匹配的 committed receipts；忽略 unpaired、uncommitted或 torn
 record/marker/staging。lost-response retry以同一 transaction/sequence/ID重验并幂等 adopt exact pair；collision或
 内容不匹配 terminal fail，禁止 duplicate或跳号。
 
+receipt record 必需 `receipt_sequence,receipt_id,prior_receipt_digest,record_digest`；sequence 0 必需
+`prior_receipt_digest=null`，`n>0` 必须 exact 引用 `n-1` committed record digest。第一个 generation 不得
+从空字符串、零 digest 或隐式 predecessor 推导 genesis；gap/fork/unknown/extra 字段 terminal fail。
+generation-claim 与 lifecycle-terminal chains 分别使用同构的 `<kind>_sequence,<kind>_id,
+prior_<kind>_digest,record_digest` genesis/predecessor 规则，同样禁止隐式 genesis。lifecycle-terminal record
+还必须绑定 exact lifecycle generation、closed terminal reason、authority mode/epoch、parent quiescence root、
+terminal seal digest、resident stop proof root 和 installed snapshot digest；缺任一项都不能授权 pointer。
+
 pointer是以必需 `record_type` 为 discriminator 的 closed tagged union。两 variant共用
 `schema_version,pointer_sequence,pointer_id,lifecycle_generation,lifecycle_terminal,prior_pointer_digest,record_digest`：
-`current_generation` 要求 `lifecycle_terminal=false` 与
-`artifact_generation_id,ownership_receipt_id,summary_digest,object_identities`，禁止 `terminal_reason`；
-`no_current` 要求 `lifecycle_terminal=true` 与 closed `terminal_reason=disabled|cleaned`，禁止上述全部 generation/
-receipt/summary/object fields。sequence 0要求 `prior_pointer_digest=null`；`n>0` exact引用 `n-1` digest；
+`current_generation` 要求 `lifecycle_terminal=false,authorization_type=ownership_receipt` 与
+`artifact_generation_id,ownership_receipt_id,ownership_receipt_digest,summary_digest,object_identities`，禁止
+`terminal_reason,terminal_authorization_id,terminal_authorization_digest`；`no_current` 要求
+`lifecycle_terminal=true,authorization_type=lifecycle_terminal`、closed `terminal_reason=disabled|cleaned` 与 exact
+`terminal_authorization_id,terminal_authorization_digest`，后两者必须指向 lifecycle chain 中已 crash-atomic 提交、
+绑定同一 generation/terminal reason 且具备全 parent quiescence/seal/stop proof root 的 terminal record；该
+variant 禁止全部 generation/ownership-receipt/summary/object fields。sequence 0要求
+`prior_pointer_digest=null`；`n>0` exact引用 `n-1` digest；
 `record_digest=SHA-256(JCS(record without record_digest))`。unknown/extra、required/forbidden、lifecycle/terminal、
 predecessor/fork/gap任一违例 terminal fail。pointer record使用同 filesystem prepared complete inode+fsync+
 atomic no-replace link+dir fsync；lost response只可 exact adopt。consumer先 fold committed receipt chain，再 fold
-receipt-authorized pointer chain并选择最后 `current_generation`或 `no_current`；不得读取 orphan/partial generation。
+receipt/lifecycle-terminal-authorized pointer chain并选择最后 `current_generation`或 `no_current`；不得读取
+orphan/partial generation。clean/disable 不得复用旧 generation receipt 授权 `no_current`。
 
-任一 renderer、manifest、receipt或 pointer commit失败都保留旧 logical pointer、nonzero/stale。receipt-committed
-但 pointer未提交的 orphan在 `capability_attested` backend上也只有 atomic expected-identity claim与同 identity
-retire成功才可删除；默认 `no_auto_delete` backend只记录 orphan identity/bytes并计入 approved hard caps，不删除。
-capability缺失/失败时保留 orphan；下一 write将触及 entries/bytes cap前停止新增，保证 bounded accounting且不
-依赖原 pathname。share export同样只从 pointer chain选中的 verified object产生 H-005 allowlist projection。
+任一 renderer、manifest、receipt或 pointer commit失败都保留旧 logical pointer、nonzero/stale。committed claim
+未产生 matching receipt、或 receipt-committed 但 pointer未提交，都是 orphan；其 claim 预留额与实际可验证
+bytes/identities 必须计入 hard caps。`capability_attested` backend 也只有 atomic expected-identity claim与同
+identity retire 成功才可释放；默认 `no_auto_delete` 只保留并计数。未被 committed claim 预留的
+generation bytes 不得创建，因此 repeated pre-receipt crash 不能越过 cap。
+
+generation claims、receipts、lifecycle terminals 和 pointers 的 record/marker/checkpoint 全部计入 H-007 的
+`hard_history_cap_entries|bytes`，禁止把 audit metadata 排除于上限。每条 chain 在下一个 record 触及 cap 前，
+必须以同样 prepared-record+commit-marker primitive 提交 checkpoint，且每次 append 前必须从 cap 预留一个
+maximum-sized checkpoint record+marker；连预留都无法满足时在写当前 record 之前停止。checkpoint 绑定 exact folded sequence range、
+genesis/prior checkpoint digest、prefix Merkle root、last record digest、current pin、所有 live claims/receipts 与累计
+entry/byte accounting。reader 先验证 checkpoint chain 再继续 contiguous suffix；checkpoint/fork/gap失效停止 publish/
+retention。只有 `capability_attested` backend 可在 checkpoint commit+dirfsync 后对已 folded、非 pinned prefix 做
+atomic expected-identity retire，并将 checkpoint chain 保持为 latest+previous 两代，所以可持续发布；
+`no_auto_delete` 不删除 audit prefix，在下一 record 将触及 cap
+前 fail visible 并停止新 generation。两种 policy 都 bounded：不允许无上限增长，也不允许无 capability
+却为保持 availability 忽略 cap。share export同样只从 pointer chain选中的 verified object产生 H-005 allowlist projection。
 
 ## 8. Focused verification
 
@@ -274,5 +323,6 @@ capability缺失/失败时保留 orphan；下一 write将触及 entries/bytes ca
 - large archive async hashing 与 GC/writer contention 下的 exact installed wrapper P95 gate；
 - segment cap/early seal/reserved capacity；all-retained preflight mutation/incomplete terminal与后续 budget partial；
 - zero taxonomy match、version-match/digest-mismatch 与 duplicate-ID tuple permutation；
-- renderer/manifest、receipt record/marker、pointer各 crash barrier与 lost-response replay；pointer union
-  required/forbidden/JCS/predecessor/lifecycle/terminal mutation；consumer不读 torn/uncommitted/mixed generation。
+- source bootstrap directory、authority record、generation claim/renderer/manifest、receipt record/marker、pointer与
+  audit checkpoint 的每个 crash barrier/lost-response replay；receipt/pointer exact genesis；`no_current` lifecycle
+  authorization；pre-receipt orphan/cap-minus-one/cap/exceed；consumer不读 torn/uncommitted/mixed generation。

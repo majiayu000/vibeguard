@@ -31,7 +31,7 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 | H-004 | window、scope、catch-up 与 snapshot budgets | `previous_local_calendar_week_global`：用户本地时区、上一个完整周、global scope；首次不足整周标 `partial_coverage`，missed run 最多补一次；空 headline 的 `empty_counts_representation` Draft recommendation 为 `json_null`（备选 `field_absent`）；批准时还必须固定该选择及正整数 `maximum_query_window_duration_seconds`、`maximum_catch_up_duration_seconds`、`max_source_files`、`max_uncompressed_bytes`、`max_snapshot_elapsed_ms`、`max_retained_archives`、`max_integrity_preflight_elapsed_ms`，本 Draft 不替维护者填写数值 | rolling 7 days；per-project 周报；UTC calendar week；`field_absent`；不同 bounded duration/budget values | 未批准 |
 | H-005 | privacy 与 export | `allowlisted_local_export`：默认仅本地；分享文件只含闭集计数、窗口、coverage、`data_status`、`status_reason`、taxonomy version、`generated_at` 和摘要 digest；分享必须由用户显式导出，无网络/剪贴板副作用 | 不分享 `generated_at`；含 rule IDs 的扩展分享；显式上传集成 | 未批准 |
 | H-006 | 用户 surface | `separate_value_summary`：简洁 value summary 与完整 maintainer health report 分离，均支持 Markdown/JSON | 在完整 health report 顶部增加可分享 section；仅 Markdown | 未批准 |
-| H-007 | install/upgrade/disable/clean/retention 生命周期 | `transactional_owned_job`：只管理 VibeGuard-owned job 与独立 coverage-authority state，失败不报告安装完成，opt-out 跨升级保留，clean 移除 job 但默认保留报告；批准时还须固定正整数 `retention_horizon_seconds`、`hard_history_cap_entries`、`hard_history_cap_bytes` 及 `no_auto_delete|capability_attested` backend policy，本 Draft 不代填 | scheduler/authority 失败只降级为 warning；clean 默认删除报告；不同 retention/cap/backend policy | 未批准 |
+| H-007 | install/upgrade/disable/clean/retention 生命周期 | `transactional_owned_job`：只管理 VibeGuard-owned job 与独立 coverage-authority state，失败不报告安装完成，opt-out 跨升级保留，clean 移除 job 但默认保留报告；批准时还须固定正数 `retention_horizon_seconds`、`hard_history_cap_entries`、`hard_history_cap_bytes` 及 `no_auto_delete|capability_attested` backend policy，cap 必须包含 generation claims、receipts、lifecycle terminals、pointers、checkpoints 与 orphan bytes，本 Draft 不代填 | scheduler/authority 失败只降级为 warning；clean 默认删除报告；不同 retention/cap/backend policy | 未批准 |
 | H-008 | host coverage | `canonical_log_all_supported_hosts`：统计所有能写 canonical event log 的当前受支持 host，不等待 GH-701；未知/不兼容 host 不进入 headline | 仅 Claude/Codex；等待 GH-701 adapter registry | 未批准 |
 
 ## 目标
@@ -92,7 +92,7 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
    window；同一 window 重试必须按 B-039 的稳定内容身份确认并复用既有 valid owned
    artifact，不能因重试时间变化而重复累计事件或产生多个相互矛盾的摘要。
 10. B-010 `no_data` 只允许 coverage 已证明 complete 且窗口 event set 为空。authority activation必须在
-    sequence-0 genesis前 create+fsync并 ledger空 source generation，因此无 caller的新安装仍有可证明空源；任何
+    sequence-0 genesis前以单目录 crash-atomic transaction 提交 log+ledger 空 source generation，因此无 caller的新安装仍有可证明空源；任何
     activation后 event log/ledger/archive 缺失优先于空集并必须显示
     `partial_coverage`。两种状态的 headline counts 都必须为空，不得把缺证据渲染为
     0 次危险操作、0 次虚构 API 或“本周安全”。
@@ -124,6 +124,7 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     `summary_digest`；任何一个 renderer 不得自行重算分类。JSON 与 Markdown 必须先写入同一
     immutable generation，再用 JCS digest-linked closed pointer union `current_generation|no_current` 同时变为
     current/no-current；variant required/forbidden fields、genesis/predecessor、lifecycle/terminal必须 exact，
+    `current_generation` 由 committed ownership receipt 授权，`no_current` 由同 lifecycle generation 的 committed terminal proof 独立授权，
     consumer 不得分别解析两个可独立漂移的 current pointers。
 19. B-019 shareable projection 只能包含 H-005 批准的 allowlist 字段。字段缺失与
     空值必须保持可区分；`data_status` 与 closed `status_reason` 必须显式输出，使
@@ -139,7 +140,8 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 22. B-022 本地 generation、历史和 shareable artifacts 必须以 user-only 权限、
     temp-write + flush + safe atomic commit 写入；同一 generation 的 JSON/Markdown、manifest 与目录
     必须全部 fsync并验证后，ownership receipt与pointer分别经同 filesystem已 fsync staging inode + atomic
-    no-replace hard-link发布。crash后两条 chain的 final pathname只能 absent或包含完整可验证 record；partial
+    no-replace hard-link发布。source bootstrap、authority journal、generation claim、receipt、pointer 和 audit
+    checkpoint 必须分别使用规范定义的 crash-atomic commit；crash 后 final pathname只能 absent或包含完整可验证 record；partial
     generation或只完成一种 renderer不能成为 current；既有、symlink或 non-owned output不能被 replace/覆盖。
 23. B-023 简洁 value summary 与完整 maintainer health report 必须使用不同的
     surface identity；启用默认 value scheduler 不等于默认分享或默认调度完整
@@ -150,8 +152,9 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     标准 Linux/macOS 用户可写路径没有 atomic compare-by-identity unlink，默认不得 auto-delete。
     只有 H-007 明确批准且 runtime attestation 通过 B-042 完整 capability contract 的 backend 才能
     auto-retire；否则保留 candidate、fail visible，并在下一次写入将触及任一 hard cap 前停止新增
-    history。receipt必须以 prepared durable record + atomic no-replace + dirfsync + commit marker + dirfsync
-    逐条提交；reader忽略 torn/uncommitted，lost response exact replay不得重复。不删除 event logs、export或用户文件。
+    history。generation claim/receipt/pointer/checkpoint 元数据与所有 orphan 都计入同一 entries/bytes cap；
+    `capability_attested` 可在 authenticated checkpoint 后安全 retire folded prefix，`no_auto_delete` 必须在 cap 前停止新 generation，不得无界保留 audit chain。
+    reader 忽略 torn/uncommitted，lost response exact replay不得重复。不删除 event logs、export或用户文件。
 25. B-025 升级遇到 GH-556 已存在的 opt-in health scheduler 时，必须识别其
     surface、参数和 owner；不得静默把它替换成 value scheduler、创建重复 job，
     或把旧 opt-in 当成 H-001 的 consent evidence。
@@ -165,7 +168,8 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     与 retention 必须遵循 B-041 的同一 bounded synchronization contract；等待超时必须
     fail visible，不能让 lifecycle 操作报告成功后仍有旧 generator 发布 artifact。
 29. B-029 clean 只移除 VibeGuard-owned scheduler、state 和 current visibility（以 append-only
-    no-current tombstone提交，不删除 pointer audit chain）；
+    no-current tombstone提交，不删除 pointer audit chain）；no-current 必须绑定同 generation 的
+    crash-atomic terminal lifecycle authorization，禁止复用上一份 summary receipt；
     默认保留历史报告和显式 exports，只有获批 purge 动作才能删除 owned report
     data，第三方 scheduler 永远保留。为拒绝 clean 前已启动但尚未取得 lock 的 generator，
     clean 后必须保留最小、无报告内容的 lifecycle generation tombstone；它不是 active state。
@@ -188,7 +192,7 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     wrong-window 或 wrong-taxonomy artifact 不得被 doctor、export 或发布说明当作
     current evidence。
 34. B-034 生成或安装在中断后重试必须从已提交 state/current artifact 或明确的
-    pending 状态恢复；不得复用未验证 temp file、重复计数、留下 loaded-but-unowned
+    pending 状态恢复；生成 bytes 物化前必须提交预留 exact identity/entry/byte budget 的 generation claim，使 pre-receipt crash 也可识别并计入 hard caps。不得复用未验证 temp file、重复计数、留下 loaded-but-unowned
     job，或因取消而报告成功。
 35. B-035 `complete` coverage 必须证明获批 window 内 live canonical log 与所有可能
     含该 window 事件的 retained archives 来自一个一致、封闭的 source snapshot；archive
@@ -280,7 +284,9 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     只有 matching commit marker 的 receipt 才算已提交；record已写但 marker或 pointer未提交的 orphan
     不得凭 receipt/path删除：无 capability时保留并计入 entries/bytes
     hard caps，有 capability也须 atomic compare-by-identity claim/retire。capability缺失或失效即停止删除，并在
-    下一历史写将触及 cap前 fail visible、保留 current/candidate/orphan。ledger损坏同样停止删除和新增 history。
+    下一历史写将触及 cap前 fail visible、保留 current/candidate/orphan。每个 generation 还必须在
+    物化前有 committed generation claim；claim-only/pre-receipt orphan 与 receipt/pointer/checkpoint chain 均计入 cap。
+    ledger损坏同样停止删除和新增 history。
 
 ## 验收标准
 
@@ -297,7 +303,7 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 - [ ] live log 与跨月/当月 overflow archives 在同一 snapshot 中产生相同稳定 event set；
   durable coverage ledger 能发现 scan 前已丢失/过期的 archive；archive 缺失/损坏/竞态、
   带 event-time interval 的 writer gap、legacy identity 与 incomplete evidence 均不能发布数值 headline。
-  空 source bootstrap + 连续且未过期 heartbeat + 空 attempt set（或仅 verified no-spawn slots）可证明 complete-empty；caller 只在 parent ID 对应的
+  空 source bootstrap + 连续且未过期 heartbeat + 空 attempt set（或仅 verified no-spawn slots）可证明 complete-empty；bootstrap 和 authority record 的每个 crash barrier 只留 absent 或完整可折叠 record；caller 只在 parent ID 对应的
   authority-opened durable slot ack 后启动，dual ledger/spool loss 留下未闭合 sequence，两者都只能 partial；
   可信 suspend/boot fence 排除已证明的 host-unavailable 区间，缺 fence/open slot 才形成 recovery gap；
   opt-out/unsupported 默认没有 authority 或逐事件 diagnostic，unsupported 的显式 manual authority 在 stop seal
@@ -321,7 +327,7 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 - [ ] generation 与 disable/clean/upgrade 的 race 不产生 lifecycle 成功后的 late publish；
   clean 或 input-changing upgrade 前已启动但仍在等待 lock 的 generator 被旧 token 拒绝；
   retention 的 current-target pin与 capability-attested claim/delete barrier在 replacement时不删除 current或
-  不匹配对象；默认 backend保留 receipt-only orphan并计入 hard caps，缺保证时不 auto-delete且 cap前停止新增。
+  不匹配对象；默认 backend保留 claim-only/pre-receipt/receipt-only orphan 和 audit prefix 并计入 hard caps，缺保证时不 auto-delete且 cap前停止新增。
 - [ ] checkout 与 GH-699 payload/package-manager entry 的真实 smoke 输出同一
   taxonomy/version/count/digest，并证明 payload 运行不依赖 repository checkout。
 
