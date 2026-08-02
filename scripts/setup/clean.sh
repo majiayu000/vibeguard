@@ -408,6 +408,7 @@ if ! setup_lock_acquire; then
   exit 1
 fi
 trap cleanup_clean_lifecycle EXIT
+state_prepare_clean
 
 clean_repo_git_hooks
 clean_tracked_project_git_hooks
@@ -418,7 +419,11 @@ clean_scheduled_gc
 
 # Remove install state
 state_clean
-yellow "Removed install state"
+if [[ "${_VG_STATE_CLEAN_RESULT:-}" == "RETAINED" ]]; then
+  yellow "Retained install state for ${_VG_STATE_CLEAN_QUARANTINE_COUNT} disabled-skill quarantine(s): ${STATE_FILE}"
+else
+  yellow "Removed install state"
+fi
 
 setup_lock_release
 green "VibeGuard cleaned."

@@ -19,6 +19,13 @@ else
   PASS=$((PASS + 1))
   TOTAL=$((TOTAL + 1))
 fi
+gh719_reused_pid_home="${TMP_HOME}/gh719-reused-pid-home"
+mkdir -p "${gh719_reused_pid_home}/.vibeguard/setup.lock"
+printf 'pid=%s\nnonce=reused-fixture|linux-v1:00000000-0000-0000-0000-000000000000:1\n' "$$" \
+  > "${gh719_reused_pid_home}/.vibeguard/setup.lock/owner"
+assert_cmd "reused setup-lock PID is reclaimed by process birth identity" env \
+  HOME="${gh719_reused_pid_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  bash -c 'source "$1/scripts/setup/lib.sh"; setup_lock_acquire && setup_lock_release' _ "${REPO_DIR}"
 printf 'pid=99999999\nnonce=stale-fixture\n' > "${gh719_lock_home}/.vibeguard/setup.lock/owner"
 assert_cmd "stale setup lifecycle lock is reclaimed" env HOME="${gh719_lock_home}" \
   bash -c 'source "$1/scripts/setup/lib.sh"; setup_lock_acquire; setup_lock_release' _ "${REPO_DIR}"
@@ -270,8 +277,23 @@ gh719_retry_state_home="${TMP_HOME}/gh719-retry-state-home"
 mkdir -p "${gh719_retry_state_home}/.vibeguard"
 printf '%s\n' '{"version":1,"generation":4,"complete":true,"files":{"/managed/SKILL.md":{"source":"skills/plan-flow/SKILL.md","type":"copy","checksum":"sha256:5b4bc29f140e30c01417d810e700ecc54a84a0107566d84215b42e5742ef8d96"}}}' \
   > "${gh719_retry_state_home}/.vibeguard/install-state.previous.json"
-printf '%s\n' '{"version":1,"generation":5,"complete":false,"files":{}}' \
-  > "${gh719_retry_state_home}/.vibeguard/install-state.json"
+gh719_retry_dest="${gh719_retry_state_home}/.codex/skills/plan-flow"
+gh719_retry_quarantine="${gh719_retry_state_home}/.codex/skills/.plan-flow.vibeguard-quarantine.retry"
+gh719_retry_transaction="${gh719_retry_state_home}/.codex/skills/.plan-flow.vibeguard-transaction.retry.json"
+python3 - "${gh719_retry_state_home}/.vibeguard/install-state.json" \
+  "${gh719_retry_dest}" "${gh719_retry_quarantine}" "${gh719_retry_transaction}" <<'PY'
+import json, sys
+path, dest, quarantine, transaction = sys.argv[1:]
+record = {"version": 1, "quarantine": quarantine, "transaction": transaction,
+          "source_prefix": "skills/plan-flow", "tracked_digest": "sha256:" + "a" * 64,
+          "install_state_generation": 5, "nonce": "retry"}
+state = {"version": 1, "generation": 5, "complete": False,
+         "files": {dest + "/SKILL.md": {"source": "skills/plan-flow/SKILL.md", "type": "copy",
+                                         "checksum": "sha256:" + "b" * 64}},
+         "disabled_skill_quarantines": {dest: record}}
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(state, handle)
+PY
 gh719_last_complete_hash="$(shasum -a 256 "${gh719_retry_state_home}/.vibeguard/install-state.previous.json" | awk '{print $1}')"
 HOME="${gh719_retry_state_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c \
   'source "$1/scripts/lib/install-state.sh"; state_init core ""' _ "${REPO_DIR}"
@@ -279,8 +301,8 @@ assert_cmd "retry preserves the last complete ownership generation" test \
   "$(shasum -a 256 "${gh719_retry_state_home}/.vibeguard/install-state.previous.json" | awk '{print $1}')" = \
   "${gh719_last_complete_hash}"
 assert_cmd "retry reuses the interrupted next generation" python3 -c \
-  'import json,sys; d=json.load(open(sys.argv[1])); assert d["generation"] == 5 and d["complete"] is False' \
-  "${gh719_retry_state_home}/.vibeguard/install-state.json"
+  'import json,sys; d=json.load(open(sys.argv[1])); dest=sys.argv[2]; assert d["generation"] == 5 and d["complete"] is False; assert dest in d["disabled_skill_quarantines"] and dest + "/SKILL.md" in d["files"]' \
+  "${gh719_retry_state_home}/.vibeguard/install-state.json" "${gh719_retry_dest}"
 
 gh719_set_disabled() {
   python3 - "${gh719_config}" "$@" <<'PY'
@@ -405,6 +427,8 @@ assert_cmd "repeat reinstall retains the quarantine locator" python3 -c \
 gh719_check_out="$(HOME="${gh719_home}" bash "${REPO_DIR}/setup.sh" --check 2>&1)"
 assert_contains "${gh719_check_out}" "[DISABLED] plan-flow" "--check reports the skill as disabled"
 assert_not_contains "${gh719_check_out}" "[MISSING] plan-flow" "--check does not report a disabled skill as missing"
+assert_not_contains "${gh719_check_out}" "Run 'bash setup.sh' to repair drifted files" \
+  "--check treats quarantined skill bytes as the active tracked location"
 
 gh719_set_disabled
 gh719_setup >/dev/null 2>&1
@@ -420,6 +444,31 @@ assert_cmd "repeat disable after re-enable removes the public skill again" \
 gh719_set_disabled plan-flow
 VIBEGUARD_DISABLED_SKILLS='' gh719_setup >/dev/null 2>&1
 assert_cmd "explicit empty environment override re-enables the skill" test -d "${gh719_home}/.codex/skills/plan-flow"
+
+gh719_clean_quarantine_home="${TMP_HOME}/gh719-clean-quarantine-home"
+HOME="${gh719_clean_quarantine_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --profile core \
+  >/dev/null 2>&1
+mkdir -p "${gh719_clean_quarantine_home}/.vibeguard"
+printf '%s\n' '{"version":1,"disabled_skills":["plan-flow"]}' \
+  > "${gh719_clean_quarantine_home}/.vibeguard/config.json"
+HOME="${gh719_clean_quarantine_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --profile core \
+  >/dev/null 2>&1
+gh719_clean_quarantine_path="$(python3 -c \
+  'import json,sys; d=json.load(open(sys.argv[1])); print(next(iter(d["disabled_skill_quarantines"].values()))["quarantine"])' \
+  "${gh719_clean_quarantine_home}/.vibeguard/install-state.json")"
+gh719_clean_quarantine_out="$(HOME="${gh719_clean_quarantine_home}" \
+  VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash "${REPO_DIR}/setup.sh" --clean 2>&1)"
+assert_cmd "clean retains active quarantine bytes" test -f \
+  "${gh719_clean_quarantine_path}/SKILL.md"
+assert_cmd "clean retains quarantine ownership inventory" test -f \
+  "${gh719_clean_quarantine_home}/.vibeguard/install-state.json"
+assert_contains "${gh719_clean_quarantine_out}" "Retained install state for 1 disabled-skill quarantine" \
+  "clean reports retained quarantine ownership inventory"
+assert_cmd "clean uses preflight inventory after installed runtime removal" env \
+  HOME="${gh719_clean_quarantine_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  bash -c 'source "$1/scripts/setup/lib.sh"; source "$1/scripts/lib/install-state.sh"; state_prepare_clean; setup_runtime() { return 127; }; state_clean; test "$_VG_STATE_CLEAN_RESULT" = RETAINED' _ "${REPO_DIR}"
 
 printf '%s\n' '{"version":1,"disabled_skills":"plan-flow"}' > "${gh719_config}"
 gh719_before_hash="$(shasum -a 256 "${gh719_home}/.vibeguard/install-state.json" | awk '{print $1}')"

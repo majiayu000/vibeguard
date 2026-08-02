@@ -94,6 +94,7 @@ setup_runtime_supports() {
     setup-state-list-tracked-under \
     setup-state-verify-managed-tree \
     setup-state-quarantine-managed-tree \
+    setup-state-quarantine-count \
     setup-state-release-quarantined-tree \
     setup-state-generation \
     setup-state-mark-complete \
@@ -565,6 +566,9 @@ cleanup_retired_manifest_skill_links() {
 
 # shellcheck source=workflow-skills.sh
 source "${REPO_DIR}/scripts/setup/workflow-skills.sh"
+# shellcheck source=bootstrap_identity.sh
+source "${REPO_DIR}/scripts/setup/bootstrap_identity.sh"
+BOOTSTRAP_BIRTH_TOKEN_JXA="${REPO_DIR}/scripts/setup/bootstrap_birth_token.jxa"
 # shellcheck source=setup-lock.sh
 source "${REPO_DIR}/scripts/setup/setup-lock.sh"
 

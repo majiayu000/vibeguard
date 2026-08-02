@@ -49,6 +49,7 @@ mod setup_install_state;
 mod setup_managed_tree_remove;
 mod setup_manifest;
 mod setup_markdown;
+mod setup_quarantine_inventory;
 mod setup_support;
 mod time_utils;
 mod u16_baseline;
@@ -465,7 +466,7 @@ static COMMANDS: &[Command] = &[
     Command {
         name: "setup-state-check-drift",
         usage: "<state-file>  — check install-state drift",
-        handler: setup_install_state::check_drift,
+        handler: setup_quarantine_inventory::check_drift,
     },
     Command {
         name: "setup-state-list",
@@ -496,6 +497,11 @@ static COMMANDS: &[Command] = &[
         name: "setup-state-release-quarantined-tree",
         usage: "<state-file> <previous-state-file> <dest-dir> <source-prefix>  — release a retained quarantine after canonical re-enable",
         handler: setup_managed_tree_remove::release,
+    },
+    Command {
+        name: "setup-state-quarantine-count",
+        usage: "<state-file>  — count active disabled-skill quarantine records",
+        handler: setup_quarantine_inventory::count,
     },
     Command {
         name: "setup-state-remove-managed-tree",

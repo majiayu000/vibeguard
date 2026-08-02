@@ -1,3 +1,4 @@
+use crate::setup_quarantine_inventory::carry_incomplete_inventory;
 use crate::setup_support::{
     SetupResult, home_dir, sha256_file, write_json_atomic, write_text_atomic,
 };
@@ -33,7 +34,7 @@ pub fn init(args: &[String]) -> SetupResult<()> {
     if generation == 0 {
         return Err("install-state generation must be a positive integer".into());
     }
-    let state = json!({
+    let mut state = json!({
         "version": STATE_VERSION,
         "generation": generation,
         "complete": false,
@@ -43,6 +44,11 @@ pub fn init(args: &[String]) -> SetupResult<()> {
         "repo_dir": repo_dir,
         "files": {}
     });
+    if state_file.exists() {
+        let existing = read_state(state_file)?;
+        validate_state_for_preflight(&existing)?;
+        carry_incomplete_inventory(&existing, &mut state, generation)?;
+    }
     write_json_atomic(state_file, &state)?;
     Ok(())
 }
@@ -102,70 +108,6 @@ pub fn record_project_hook(args: &[String]) -> SetupResult<()> {
         .ok_or("install-state project_hooks must be an object")?
         .insert(args[2].clone(), Value::Object(entry));
     write_json_atomic(state_file, &state)?;
-    Ok(())
-}
-
-pub fn check_drift(args: &[String]) -> SetupResult<()> {
-    if args.len() != 1 {
-        return Err("Usage: vibeguard-runtime setup-state-check-drift <state-file>".into());
-    }
-    let state_file = Path::new(&args[0]);
-    if !state_file.exists() {
-        println!("NO_STATE");
-        return Ok(());
-    }
-    let state = read_state(state_file)?;
-    let version = state
-        .get("version")
-        .and_then(Value::as_i64)
-        .unwrap_or(STATE_VERSION);
-    if version != STATE_VERSION {
-        println!("UNSUPPORTED_STATE_VERSION: {version} (expected {STATE_VERSION})");
-        return Ok(());
-    }
-    let files = state
-        .get("files")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    let mut missing_count = 0usize;
-    let mut drift_count = 0usize;
-    for (dest, info) in &files {
-        let dest_path = expand_home(dest);
-        let install_type = info.get("type").and_then(Value::as_str).unwrap_or("");
-        if install_type == "symlink" {
-            match std::fs::symlink_metadata(&dest_path) {
-                Ok(meta) if meta.file_type().is_symlink() => {}
-                Ok(_) => {
-                    println!("DRIFT: {dest} (was symlink, now regular file)");
-                    drift_count += 1;
-                }
-                Err(_) => {
-                    println!("MISSING: {dest}");
-                    missing_count += 1;
-                }
-            }
-        } else if !dest_path.exists() {
-            println!("MISSING: {dest}");
-            missing_count += 1;
-        } else if let Some(expected) = info.get("checksum").and_then(Value::as_str) {
-            let actual = format!("sha256:{}", sha256_file(&dest_path)?);
-            if actual != expected {
-                println!("DRIFT: {dest} (checksum mismatch)");
-                drift_count += 1;
-            }
-        }
-    }
-    println!("---");
-    println!(
-        "Total tracked: {}, Missing: {missing_count}, Drifted: {drift_count}",
-        files.len()
-    );
-    if missing_count + drift_count == 0 {
-        println!("STATUS: CLEAN");
-    } else {
-        println!("STATUS: DRIFT ({drift_count} drifted, {missing_count} missing)");
-    }
     Ok(())
 }
 

@@ -42,10 +42,17 @@ issue 要修的缺陷类别（U-29）。
 的，因此「VibeGuard 是否装过这个 skill」等价于「该 skill 目录下是否有被跟踪路径」。
 既有的 `setup-state-list-symlinks-under` 只覆盖 symlink，无法回答 Codex 侧的拷贝。
 
-查询遇到 malformed/unsupported state 时非零退出。删除前再调用
+查询遇到 malformed/unsupported state 时非零退出。隔离前再调用
 `setup-state-verify-managed-tree <state-file> <dest-dir> <source-prefix>`：只有每个
 当前 leaf 都被跟踪、source prefix/type/checksum 一致、没有额外/缺失路径或 unsupported
 path type 时输出 `OWNED`；其他正常否定输出 `UNOWNED:<reason>`。
+
+`setup-state-quarantine-managed-tree` 在 rename 前持久化 intent，以 no-replace rename 把
+精确托管树移动到同父目录隐藏 quarantine，fsync 后发布 locator；任何失败都保留至少一份
+完整数据。`setup-state-release-quarantined-tree` 在 canonical source 重新安装后只释放
+active locator，先前 quarantine 与 terminal transaction 继续保留。扫描 transaction 时，
+active `intent`/`committed` 必须匹配当前 source prefix；`restored`/`released` 终态只验证
+自身结构与 sibling 路径，不能因 manifest 后续移动 source 而阻塞安装。
 
 ### 3. 安装与检查（shell）
 
@@ -54,14 +61,14 @@ path type 时输出 `OWNED`；其他正常否定输出 `UNOWNED:<reason>`。
 - `disabled_skills()` — 调用 `runtime-config-get-list`，结果缓存在
   `_VG_DISABLED_SKILLS_CACHE`。读取失败时返回非零并打印错误，调用方随之失败。
 - `skill_is_disabled <name>`
-- `remove_disabled_skill <dest> <name> <dest-dir> <source-prefix>` — 删除前用 `pwd -P`
-  校验父目录边界，并要求 runtime 对 current/previous state 至少一个给出精确 `OWNED`；
-  state 读取失败、ownership 否定或 `rm` 失败均非零返回。
+- `remove_disabled_skill <dest> <name> <dest-dir> <source-prefix>` — 隔离前用 `pwd -P`
+  校验父目录边界，并调用 runtime 的 durable quarantine 命令；state 读取失败、ownership
+  否定、rename/验证/locator 发布失败均非零返回且保留数据。
 - `report_skill_restore <dest> <name>` — 目标缺失但 install-state 中有跟踪记录时，
   输出 `RESTORING` 告警并指明如何持久禁用。
 
 `install_manifest_skills()` 用 target flag 只在 Codex 路径解析禁用列表，
-循环内先处理禁用分支（删除 + SKIP），再对未禁用的 skill 调用
+循环内先处理禁用分支（quarantine + SKIP），再对未禁用的 skill 调用
 `report_skill_restore` 后安装。
 
 `scripts/lib/install-state.sh` 的 state 读取错误不得吞掉。`state_init()` 在任何写入前
@@ -72,15 +79,27 @@ path type 时输出 `OWNED`；其他正常否定输出 `UNOWNED:<reason>`。
 而非落到 `[MISSING]`；Claude 检查与安装都不消费该字段。`status_report.sh` 把
 `[DISABLED]` 计入 summary/JSON event，但保持 healthy、quiet 中性。
 
-`scripts/setup/setup-lock.sh` 提供 HOME-scoped lifecycle lock。active owner 阻止第二个
-setup；只有 owner PID 已不存在且 metadata 合法时才回收 stale lock；release 必须匹配
-PID+nonce。`install.sh` 先在临时目录 stage runtime，再验证 `disabled_skills`，然后持锁
-覆盖 installed snapshot、install-state、Claude/Codex mutation 与最终验证。
+`scripts/setup/setup-lock.sh` 提供 HOME-scoped lifecycle lock。新 owner nonce 携带 Linux
+boot-id/start-ticks 或 Darwin 秒/微秒出生身份；PID 存活且身份相同才算 active，PID 被复用
+时可按 stale owner 回收，身份无法证明时 fail-closed。release 必须匹配 PID+nonce+出生身份。
+`install.sh` 先在临时目录 stage runtime，再验证 `disabled_skills`，然后持锁覆盖 installed
+snapshot、install-state、Claude/Codex mutation 与最终验证。
+
+clean 前调用 `setup-state-quarantine-count`。只要 current/previous install-state 仍含 active
+quarantine，`state_clean()` 就保留两个 generation 作为 ownership inventory，并输出 retained
+数量与 state 路径；没有 active quarantine 时才删除 install-state。
+
+`setup-state-check-drift` 把 active quarantine 覆盖的 public tracked path 映射到 quarantine
+locator 后再做 type/checksum 校验。`state_init()` 重试同一个 incomplete generation 时，新的
+profile/language state 保留其 quarantine records 以及对应 tracked file inventory，供 durable
+transaction recovery 精确匹配；不得在 recovery 前清空 locator。
 
 ### 4. 运行时能力探测
 
 `setup_runtime_supports()` 的子命令探测列表加入
-`setup-state-list-tracked-under`、`setup-state-verify-managed-tree` 与
+`setup-state-list-tracked-under`、`setup-state-verify-managed-tree`、
+`setup-state-quarantine-managed-tree`、`setup-state-release-quarantined-tree`、
+`setup-state-quarantine-count` 与
 `runtime-config-get-list`，并把 runtime 版本升到 `1.1.13`，避免选中一个缺少
 新命令的旧 runtime 后在安装中途失败（U-26）。
 
@@ -91,10 +110,12 @@ PID+nonce。`install.sh` 先在临时目录 stage runtime，再验证 `disabled_
 | `vibeguard-runtime/src/runtime_config_validation.rs` | `StringArray` 字段类型 + `disabled_skills` 声明 |
 | `vibeguard-runtime/src/runtime_config.rs` | `runtime_config_get_list` |
 | `vibeguard-runtime/src/setup_install_state.rs` | `list_tracked_under` |
-| `vibeguard-runtime/src/main.rs` | 两个新命令注册 |
+| `vibeguard-runtime/src/setup_managed_tree_remove.rs` | durable quarantine/release 与 terminal transaction recovery |
+| `vibeguard-runtime/src/setup_quarantine_inventory.rs` | active quarantine count、drift locator 映射与 incomplete retry inventory carry |
+| `vibeguard-runtime/src/main.rs` | runtime 命令注册 |
 | `scripts/setup/lib.sh` | source 专责模块、探测列表 |
-| `scripts/setup/workflow-skills.sh` | 禁用列表读取、Codex-only 跳过/删除/恢复告警 |
-| `scripts/setup/setup-lock.sh` | HOME-scoped lifecycle lock |
+| `scripts/setup/workflow-skills.sh` | 禁用列表读取、Codex-only 跳过/quarantine/恢复告警 |
+| `scripts/setup/setup-lock.sh` | 带进程出生身份的 HOME-scoped lifecycle lock |
 | `scripts/lib/install-state.sh` | fail-visible 查询、atomic previous snapshot、ownership 包装 |
 | `scripts/setup/targets/codex-home.sh` | `[DISABLED]` 检查分支 |
 | `scripts/setup/targets/claude-home.sh` | 明确不应用 Codex disabled list |
@@ -110,4 +131,4 @@ PID+nonce。`install.sh` 先在临时目录 stage runtime，再验证 `disabled_
 |---|---|---|
 | runtime 单测 | `cargo test` | `StringArray` 校验、schema/模板/注册表三方一致、非法形状拒绝 |
 | schema 契约 | `bash tests/test_runtime_config_schema.sh` | 数组类型、maxItems、minLength 边界 |
-| setup 回归 | `bash tests/test_setup.sh` | 删除→重装恢复；Codex-only 禁用；ownership 保留；atomic state；lock；`[DISABLED]`；非法配置 preflight |
+| setup 回归 | `bash tests/test_setup.sh` | 删除→重装恢复；durable quarantine；clean inventory retention；PID reuse；Codex-only 禁用；`[DISABLED]`；非法配置 preflight |

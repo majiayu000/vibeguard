@@ -48,17 +48,21 @@ VibeGuard 把 Codex workflow skills（`plan-flow`、`fixflow`、`optflow`、
 
 | 场景 | 行为 |
 |---|---|
-| skill 在禁用列表中，且已安装 | 安装时删除托管副本并输出 `REMOVED <skill> (disabled ...)` |
+| skill 在禁用列表中，且已安装 | 安装时把精确托管副本原子隔离并输出 `QUARANTINED <skill> at <path> (disabled ...)`；不自动删除隔离数据 |
 | skill 在禁用列表中，且不存在 | 安装时输出 `SKIP <skill> (disabled ...)`，不安装 |
 | skill 被用户手工删除，但未记录退出 | 恢复它，同时输出 `RESTORING <skill>` 并指明如何持久禁用 |
 | `--check`，skill 已禁用且不存在 | `[DISABLED] <skill> skill disabled in ~/.vibeguard/config.json` |
 | `--check`，skill 已禁用但仍存在 | 同上并追加提示重跑 `setup.sh` 以移除 |
-| 从列表中移除名字后重跑安装 | skill 重新安装 |
+| 从列表中移除名字后重跑安装 | skill 从 canonical source 重新安装；先前隔离副本继续保留并输出 `RE-ENABLED` |
 | `disabled_skills` 格式非法 | 安装与 `--check` 失败并报出带 JSON 路径的类型错误 |
 
 只有 install-state 的 source/type/checksum 与当前目录逐文件一致，且目录没有额外文件、
-symlink、特殊文件或空的用户目录时，安装器才可把它认定为托管副本并删除。ownership
-无法证明、state 损坏或删除失败时必须保留目录、非零退出，且不得输出 `REMOVED`。
+symlink、特殊文件或空的用户目录时，安装器才可把它认定为托管副本并原子隔离。
+ownership 无法证明、state 损坏或隔离失败时必须保留公开目录、非零退出，且不得输出
+`QUARANTINED`。`setup.sh --clean` 不自动删除隔离数据；存在 active quarantine 时必须保留
+install-state ownership inventory 并明确报告，不能在留下隐藏资产时声称状态已删除。
+drift 检查必须在 active quarantine locator 上验证原 tracked bytes，不能把按设计缺失的
+public path 报为损坏；中断的 incomplete generation 重试必须保留 locator 与 tracked inventory。
 
 `VIBEGUARD_DISABLED_SKILLS`（逗号分隔）可临时覆盖该列表，遵循用户配置既有的
 「环境变量 > JSON 配置 > 内置默认」优先级。显式空值表示本次临时启用全部 skill；
@@ -79,5 +83,5 @@ HOME-scoped lifecycle lock。
 - 重新启用是显式的。
 - 存在覆盖「删除/禁用 → 重装 → 仍保持禁用」的 setup 回归测试。
 - 托管 Codex skill 副本的行为与来源归属有文档说明。
-- 无法证明 ownership、损坏 state、并发 setup 与 removal 失败均 fail-visible，且不删除
-  用户内容。
+- 无法证明 ownership、损坏 state、并发 setup 与 quarantine 失败均 fail-visible，且不删除
+  用户内容；PID 复用不能把 stale setup lock 误判为当前 owner。

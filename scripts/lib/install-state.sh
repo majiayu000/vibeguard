@@ -254,7 +254,32 @@ state_list_project_hooks() {
   state_runtime setup-state-list-project-hooks "$STATE_FILE"
 }
 
-# Remove state file (used by clean.sh)
+state_prepare_clean() {
+  local current_count=0 previous_count=0 total_count
+  if [[ -f "$STATE_FILE" ]]; then
+    current_count="$(state_runtime setup-state-quarantine-count "$STATE_FILE")" || return 1
+  fi
+  if [[ -f "$STATE_PREVIOUS_FILE" ]]; then
+    previous_count="$(state_runtime setup-state-quarantine-count "$STATE_PREVIOUS_FILE")" || return 1
+  fi
+  [[ "$current_count" =~ ^[0-9]+$ && "$previous_count" =~ ^[0-9]+$ ]] || return 1
+  if [[ "$current_count" -gt 0 ]]; then
+    total_count="$current_count"
+  else
+    total_count="$previous_count"
+  fi
+  _VG_STATE_CLEAN_QUARANTINE_COUNT="$total_count"
+}
+
+# Remove state only after clean preflight has captured quarantine ownership.
 state_clean() {
+  [[ "${_VG_STATE_CLEAN_QUARANTINE_COUNT:-}" =~ ^[0-9]+$ ]] || return 1
+  local total_count="${_VG_STATE_CLEAN_QUARANTINE_COUNT}"
+  if [[ "$total_count" -gt 0 ]]; then
+    _VG_STATE_CLEAN_RESULT="RETAINED"
+    return 0
+  fi
   rm -f "$STATE_FILE" "$STATE_PREVIOUS_FILE"
+  _VG_STATE_CLEAN_RESULT="REMOVED"
+  _VG_STATE_CLEAN_QUARANTINE_COUNT=0
 }

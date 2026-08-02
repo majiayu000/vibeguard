@@ -68,9 +68,15 @@ impl Fixture {
     }
 
     fn run_command(&self, command: &str, env: &[(&str, &str)]) -> Output {
+        self.run_command_source(command, SOURCE, env)
+    }
+
+    fn run_command_source(&self, command: &str, source: &str, env: &[(&str, &str)]) -> Output {
         let mut process = bin();
+        let mut args = self.args_for(command);
+        *args.last_mut().expect("source argument should exist") = source.into();
         process
-            .args(self.args_for(command))
+            .args(args)
             .env("HOME", self.root.join("home"))
             .current_dir(&self.root);
         for (key, value) in env {
@@ -245,6 +251,34 @@ fn interrupted_reenable_release_is_retryable_without_data_loss() {
     assert!(fixture.record().is_none());
     assert!(fixture.skill.join("SKILL.md").is_file());
     assert!(fixture.quarantines()[0].join("SKILL.md").is_file());
+}
+
+#[test]
+fn released_transaction_from_old_source_does_not_block_new_source() {
+    let fixture = Fixture::new("quarantine-managed-tree-source-move");
+    let first = fixture.run(&[]);
+    assert_eq!(first.status.code(), Some(0), "{}", stderr(&first));
+    fs::create_dir_all(&fixture.skill).expect("public skill should be recreated");
+    fs::write(fixture.skill.join("SKILL.md"), "managed\n")
+        .expect("canonical public skill should be restored");
+    let released = fixture.run_command("setup-state-release-quarantined-tree", &[]);
+    assert_eq!(released.status.code(), Some(0), "{}", stderr(&released));
+
+    let moved = fixture.run_command_source(
+        "setup-state-quarantine-managed-tree",
+        "skills-v2/plan-flow",
+        &[],
+    );
+    assert_eq!(
+        moved.status.code(),
+        Some(1),
+        "test fixture should reach ownership validation"
+    );
+    assert!(
+        !stderr(&moved).contains("managed-tree transaction does not match request"),
+        "terminal old-source transaction must be ignored: {}",
+        stderr(&moved)
+    );
 }
 
 #[test]

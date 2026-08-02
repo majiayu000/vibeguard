@@ -158,7 +158,7 @@ pub fn release(args: &[String]) -> SetupResult<()> {
             &dest,
             parent,
             name,
-            &args[3],
+            Some(&args[3]),
         )?;
         if record_value(&transaction) != record {
             continue;
@@ -210,13 +210,15 @@ fn recover_or_find_committed(
     let mut committed = None;
     for transaction_path in transaction_paths(parent, name)? {
         let mut transaction = read_transaction(&transaction_path)?;
+        let expected_source = (!matches!(transaction.phase.as_str(), "restored" | "released"))
+            .then_some(source_prefix);
         validate_transaction(
             &transaction,
             &transaction_path,
             dest,
             parent,
             name,
-            source_prefix,
+            expected_source,
         )?;
         let record_matches = active_record
             .as_ref()
@@ -541,12 +543,12 @@ fn validate_transaction(
     dest: &Path,
     parent: &Path,
     name: &str,
-    source_prefix: &str,
+    source_prefix: Option<&str>,
 ) -> SetupResult<()> {
     if transaction.version != TRANSACTION_VERSION
         || transaction.dest != path_text(dest)
         || transaction.transaction != path_text(path)
-        || transaction.source_prefix != source_prefix
+        || source_prefix.is_some_and(|expected| transaction.source_prefix != expected)
         || !valid_digest(&Value::String(transaction.tracked_digest.clone()))
         || transaction.nonce.is_empty()
     {
