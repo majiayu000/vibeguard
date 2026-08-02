@@ -697,8 +697,12 @@ run_legacy_checks() {
   echo
   echo "Install State"
   echo "------------------------------"
-  drift_output=$(state_check_drift 2>/dev/null)
-  if [[ "$drift_output" == "NO_STATE" ]]; then
+  if ! drift_output="$(state_check_drift 2>&1)"; then
+    red "[FAIL] Install state drift check failed"
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] && red "  ${line}"
+    done <<< "${drift_output}"
+  elif [[ "$drift_output" == "NO_STATE" ]]; then
     yellow "[INFO] No install state found (re-run setup.sh to enable state tracking)"
   elif echo "$drift_output" | grep -q "STATUS: CLEAN"; then
     tracked=$(echo "$drift_output" | grep "Total tracked" | head -1)

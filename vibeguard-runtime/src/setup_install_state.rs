@@ -508,7 +508,7 @@ fn ensure_state_version(state: &Value) -> SetupResult<()> {
     Ok(())
 }
 
-fn validate_state_for_preflight(state: &Value) -> SetupResult<()> {
+pub(crate) fn validate_state_for_preflight(state: &Value) -> SetupResult<()> {
     crate::setup_managed_tree_remove::validate_state_metadata(state)?;
     let version = state
         .get("version")

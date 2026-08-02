@@ -26,6 +26,17 @@ printf 'pid=%s\nnonce=reused-fixture|linux-v1:00000000-0000-0000-0000-0000000000
 assert_cmd "reused setup-lock PID is reclaimed by process birth identity" env \
   HOME="${gh719_reused_pid_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
   bash -c 'source "$1/scripts/setup/lib.sh"; setup_lock_acquire && setup_lock_release' _ "${REPO_DIR}"
+assert_cmd "zombie setup-lock owner is classified stale" env \
+  HOME="${gh719_reused_pid_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  bash -c '
+    source "$1/scripts/setup/lib.sh"
+    bootstrap_strong_process_snapshot() {
+      BOOTSTRAP_PROCESS_STATE=Z
+      BOOTSTRAP_PROCESS_IDENTITY="linux-v1:00000000-0000-0000-0000-000000000000:1"
+      BOOTSTRAP_PROCESS_IDENTITY_STRENGTH=strong
+    }
+    [[ "$(setup_lock_owner_status "$$" "fixture|${BOOTSTRAP_PROCESS_IDENTITY:-linux-v1:00000000-0000-0000-0000-000000000000:1}")" == dead ]]
+  ' _ "${REPO_DIR}"
 printf 'pid=99999999\nnonce=stale-fixture\n' > "${gh719_lock_home}/.vibeguard/setup.lock/owner"
 assert_cmd "stale setup lifecycle lock is reclaimed" env HOME="${gh719_lock_home}" \
   bash -c 'source "$1/scripts/setup/lib.sh"; setup_lock_acquire; setup_lock_release' _ "${REPO_DIR}"
@@ -469,6 +480,25 @@ assert_contains "${gh719_clean_quarantine_out}" "Retained install state for 1 di
 assert_cmd "clean uses preflight inventory after installed runtime removal" env \
   HOME="${gh719_clean_quarantine_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
   bash -c 'source "$1/scripts/setup/lib.sh"; source "$1/scripts/lib/install-state.sh"; state_prepare_clean; setup_runtime() { return 127; }; state_clean; test "$_VG_STATE_CLEAN_RESULT" = RETAINED' _ "${REPO_DIR}"
+
+gh719_invalid_clean_home="${TMP_HOME}/gh719-invalid-clean-home"
+mkdir -p "${gh719_invalid_clean_home}/.vibeguard"
+printf '%s\n' '{"version":1,"files":[]}' \
+  > "${gh719_invalid_clean_home}/.vibeguard/install-state.json"
+printf '%s\n' 'must-survive' > "${gh719_invalid_clean_home}/.vibeguard/run-hook.sh"
+gh719_invalid_clean_state_hash="$(
+  shasum -a 256 "${gh719_invalid_clean_home}/.vibeguard/install-state.json" | awk '{print $1}'
+)"
+gh719_invalid_clean_rc=0
+HOME="${gh719_invalid_clean_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  bash "${REPO_DIR}/setup.sh" --clean >/dev/null 2>&1 || gh719_invalid_clean_rc=$?
+assert_cmd "clean rejects malformed full install-state before mutation" test \
+  "${gh719_invalid_clean_rc}" -ne 0
+assert_cmd "failed clean preserves malformed ownership inventory bytes" test \
+  "$(shasum -a 256 "${gh719_invalid_clean_home}/.vibeguard/install-state.json" | awk '{print $1}')" = \
+  "${gh719_invalid_clean_state_hash}"
+assert_cmd "failed clean preserves managed installation assets" test -f \
+  "${gh719_invalid_clean_home}/.vibeguard/run-hook.sh"
 
 printf '%s\n' '{"version":1,"disabled_skills":"plan-flow"}' > "${gh719_config}"
 gh719_before_hash="$(shasum -a 256 "${gh719_home}/.vibeguard/install-state.json" | awk '{print $1}')"

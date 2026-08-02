@@ -1,8 +1,10 @@
 use crate::setup_install_state::{expand_home, read_state, setup_absolute_path};
 use crate::setup_support::SetupResult;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
+
+use super::{TRANSACTION_VERSION, absolute, valid_digest, valid_text};
 
 pub(super) fn carry_tracked_files(
     target: &mut Value,
@@ -46,6 +48,55 @@ pub(super) fn carry_tracked_files(
         {
             return Err("current install state conflicts with quarantine inventory".into());
         }
+    }
+    Ok(())
+}
+
+pub(super) fn validate_record(dest: &str, record: &Map<String, Value>) -> SetupResult<()> {
+    let expected = [
+        "install_state_generation",
+        "nonce",
+        "quarantine",
+        "source_prefix",
+        "tracked_digest",
+        "transaction",
+        "version",
+    ];
+    if record.len() != expected.len() || expected.iter().any(|key| !record.contains_key(*key)) {
+        return Err("disabled skill quarantine record has unknown or missing fields".into());
+    }
+    if record["version"].as_u64() != Some(TRANSACTION_VERSION)
+        || record["install_state_generation"].as_u64().is_none()
+        || !valid_text(&record["nonce"])
+        || !valid_text(&record["source_prefix"])
+        || !valid_digest(&record["tracked_digest"])
+    {
+        return Err("disabled skill quarantine record has invalid scalar fields".into());
+    }
+    let dest = absolute(Path::new(dest));
+    let parent = dest
+        .parent()
+        .ok_or("quarantine record destination has no parent")?;
+    let name = dest
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .ok_or("quarantine record destination name must be non-empty UTF-8")?;
+    let nonce = record["nonce"]
+        .as_str()
+        .ok_or("quarantine record nonce must be a string")?;
+    let quarantine = record["quarantine"]
+        .as_str()
+        .map(Path::new)
+        .ok_or("quarantine locator must be a string")?;
+    let transaction = record["transaction"]
+        .as_str()
+        .map(Path::new)
+        .ok_or("quarantine locator must be a string")?;
+    if quarantine != parent.join(format!(".{name}.vibeguard-quarantine.{nonce}"))
+        || transaction != parent.join(format!(".{name}.vibeguard-transaction.{nonce}.json"))
+    {
+        return Err("quarantine locator does not match its nonce".into());
     }
     Ok(())
 }

@@ -24,6 +24,7 @@ PROJECT_HOOK_REPO=""
 STALE_RUNTIME_DIR=""
 SYSTEMD_CHECK_HOME=""
 INVALID_DISABLED_SKILLS_HOME=""
+INVALID_QUARANTINE_STATE_HOME=""
 
 cleanup() {
   if [[ -n "${AWK_PORTABILITY_FIXTURE}" ]]; then
@@ -55,6 +56,9 @@ cleanup() {
   fi
   if [[ -n "${INVALID_DISABLED_SKILLS_HOME}" ]]; then
     rm -rf "${INVALID_DISABLED_SKILLS_HOME}"
+  fi
+  if [[ -n "${INVALID_QUARANTINE_STATE_HOME}" ]]; then
+    rm -rf "${INVALID_QUARANTINE_STATE_HOME}"
   fi
 }
 trap cleanup EXIT
@@ -489,3 +493,19 @@ assert_eq "${invalid_disabled_verify_rc}" "2" \
 assert_contains "${invalid_disabled_verify_out}" \
   "[FAIL] Codex home installation check failed" \
   "invalid disabled-skills override: verify-install exposes the failure"
+
+INVALID_QUARANTINE_STATE_HOME="$(mktemp -d)"
+mkdir -p "${INVALID_QUARANTINE_STATE_HOME}/.vibeguard"
+printf '%s\n' '{"version":1,"files":{},"disabled_skill_quarantines":{"/tmp/plan-flow":{"version":1,"quarantine":7,"transaction":"/tmp/.plan-flow.vibeguard-transaction.nonce.json","source_prefix":"skills/plan-flow","tracked_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","install_state_generation":1,"nonce":"nonce"}}}' \
+  > "${INVALID_QUARANTINE_STATE_HOME}/.vibeguard/install-state.json"
+invalid_quarantine_json_rc=0
+invalid_quarantine_json="$(
+  HOME="${INVALID_QUARANTINE_STATE_HOME}" \
+    VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" --check --json 2>/dev/null
+)" || invalid_quarantine_json_rc=$?
+assert_eq "${invalid_quarantine_json_rc}" "2" \
+  "invalid quarantine state: JSON check exits broken"
+assert_json_path "${invalid_quarantine_json}" \
+  'any("Install state drift check failed" in event["message"] for event in d["events"])' \
+  "True" "invalid quarantine state: JSON exposes a FAIL event"

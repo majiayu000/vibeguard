@@ -1,4 +1,6 @@
-use crate::setup_install_state::{expand_home, read_state, setup_absolute_path};
+use crate::setup_install_state::{
+    expand_home, read_state, setup_absolute_path, validate_state_for_preflight,
+};
 use crate::setup_managed_tree_remove::validate_state_metadata;
 use crate::setup_support::{SetupResult, sha256_file};
 use serde_json::Value;
@@ -82,7 +84,7 @@ pub fn count(args: &[String]) -> SetupResult<()> {
         return Ok(());
     }
     let state = read_state(state_path)?;
-    validate_state_metadata(&state)?;
+    validate_state_for_preflight(&state)?;
     let count = state
         .get("disabled_skill_quarantines")
         .and_then(Value::as_object)

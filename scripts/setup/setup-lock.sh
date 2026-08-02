@@ -11,7 +11,7 @@ setup_lock_process_identity() {
 }
 
 setup_lock_owner_status() {
-  local pid="$1" nonce="$2" stored_identity current_identity
+  local pid="$1" nonce="$2" stored_identity current_identity current_state
   if ! kill -0 "$pid" 2>/dev/null; then
     printf 'dead\n'
     return 0
@@ -21,8 +21,15 @@ setup_lock_owner_status() {
     *) printf 'active\n'; return 0 ;;
   esac
   if ! bootstrap_process_identity_is_strong "$stored_identity" \
-    || ! current_identity="$(setup_lock_process_identity "$pid")"; then
+    || ! bootstrap_strong_process_snapshot "$pid" \
+    || ! bootstrap_process_identity_is_strong "${BOOTSTRAP_PROCESS_IDENTITY:-}"; then
     printf 'ambiguous\n'
+    return 0
+  fi
+  current_identity="${BOOTSTRAP_PROCESS_IDENTITY}"
+  current_state="${BOOTSTRAP_PROCESS_STATE:-}"
+  if [[ "$current_state" == "Z" ]]; then
+    printf 'dead\n'
   elif [[ "$current_identity" == "$stored_identity" ]]; then
     printf 'active\n'
   else

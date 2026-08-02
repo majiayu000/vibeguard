@@ -495,44 +495,7 @@ pub(crate) fn validate_state_metadata(state: &Value) -> SetupResult<()> {
         let record = record
             .as_object()
             .ok_or("disabled skill quarantine record must be an object")?;
-        validate_record(dest, record)?;
-    }
-    Ok(())
-}
-
-fn validate_record(dest: &str, record: &Map<String, Value>) -> SetupResult<()> {
-    let expected = [
-        "install_state_generation",
-        "nonce",
-        "quarantine",
-        "source_prefix",
-        "tracked_digest",
-        "transaction",
-        "version",
-    ];
-    if record.len() != expected.len() || expected.iter().any(|key| !record.contains_key(*key)) {
-        return Err("disabled skill quarantine record has unknown or missing fields".into());
-    }
-    if record["version"].as_u64() != Some(TRANSACTION_VERSION)
-        || record["install_state_generation"].as_u64().is_none()
-        || !valid_text(&record["nonce"])
-        || !valid_text(&record["source_prefix"])
-        || !valid_digest(&record["tracked_digest"])
-    {
-        return Err("disabled skill quarantine record has invalid scalar fields".into());
-    }
-    let dest = absolute(Path::new(dest));
-    let parent = dest
-        .parent()
-        .ok_or("quarantine record destination has no parent")?;
-    for key in ["quarantine", "transaction"] {
-        let path = record[key]
-            .as_str()
-            .map(Path::new)
-            .ok_or("quarantine locator must be a string")?;
-        if !path.is_absolute() || path.parent() != Some(parent) || path == dest {
-            return Err("quarantine locator must be an absolute destination sibling".into());
-        }
+        tree_state::validate_record(dest, record)?;
     }
     Ok(())
 }

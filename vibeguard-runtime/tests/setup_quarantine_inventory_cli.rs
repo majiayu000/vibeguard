@@ -66,6 +66,60 @@ fn quarantine_count_reports_missing_empty_and_active_inventory() {
 }
 
 #[test]
+fn quarantine_count_rejects_invalid_install_state_structure() {
+    let root = unique_temp_dir("quarantine-count-invalid-state");
+    let state = root.join("state.json");
+    write_json(&state, &json!({"version": 1, "files": []}));
+
+    let output = bin()
+        .args(["setup-state-quarantine-count", &path_text(&state)])
+        .output()
+        .expect("invalid state command should run");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("install-state files must be an object")
+    );
+    fs::remove_dir_all(root).expect("temp root should be removed");
+}
+
+#[test]
+fn drift_rejects_quarantine_locators_that_do_not_match_nonce() {
+    let root = unique_temp_dir("quarantine-drift-invalid-locator");
+    let state = root.join("state.json");
+    let dest = root.join("skills/plan-flow");
+    let parent = dest.parent().expect("destination should have parent");
+    write_json(
+        &state,
+        &json!({
+            "version": 1,
+            "files": {},
+            "disabled_skill_quarantines": {
+                path_text(&dest): {
+                    "version": 1,
+                    "quarantine": path_text(&parent.join(".plan-flow.vibeguard-quarantine.wrong")),
+                    "transaction": path_text(&parent.join(".plan-flow.vibeguard-transaction.wrong.json")),
+                    "source_prefix": "skills/plan-flow",
+                    "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+                    "install_state_generation": 1,
+                    "nonce": "expected"
+                }
+            }
+        }),
+    );
+
+    let output = bin()
+        .args(["setup-state-check-drift", &path_text(&state)])
+        .output()
+        .expect("invalid locator drift command should run");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("quarantine locator does not match its nonce")
+    );
+    fs::remove_dir_all(root).expect("temp root should be removed");
+}
+
+#[test]
 fn drift_checks_active_quarantine_bytes_instead_of_public_path() {
     let root = unique_temp_dir("quarantine-drift");
     let state = root.join("state.json");
