@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from typing import Any
@@ -96,6 +97,155 @@ def expand_metadata(model: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
+def expected_tuple_set_memberships(tuples: dict[str, dict[str, Any]]) -> dict[str, set[str]]:
+    kinds = lambda *values: {item["id"] for item in tuples.values() if item["resource_kind"] in values}
+    memberships = {
+        "all_exact_tuples": set(tuples),
+        "project_wal_live_tuples": kinds("project_wal_live"),
+        "project_wal_tuples": kinds("project_wal_live", "project_wal_scratch"),
+        "canonical_journal_tuples": kinds("canonical_journal_live", "canonical_journal_scratch"),
+        "l1_floor_tuples": {item["id"] for item in tuples.values() if item["quota_partition_id"] == "l1_floor"},
+        "derived_log_tuples": kinds("derived_log_live", "derived_log_scratch"),
+        "global_admin_tuples": kinds("global_admin"),
+        "success_history_tuples": kinds("success_history"),
+        "all_compaction_tuples": kinds(
+            "project_wal_live", "project_wal_scratch", "derived_log_live",
+            "derived_log_scratch", "canonical_journal_live", "canonical_journal_scratch",
+        ),
+    }
+    bundle_kinds = {
+        "registry_live_slot", "keyed_receipt_slot", "completed_index", "outbox",
+        "quarantine_frozen_lag", "success_history",
+    }
+    memberships["reservation_bundle_tuples"] = kinds(*bundle_kinds) | {"admin_live", "derived_live"}
+    return memberships
+
+
+def materialize_roots(components: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    roots: dict[str, dict[str, Any]] = {}
+    for component in components:
+        root = roots.setdefault(component["root_id"], {
+            "id": component["root_id"],
+            "physical_domain": component["physical_domain"],
+            "max_physical_bytes": 0,
+            "component_ids": [],
+        })
+        root["max_physical_bytes"] += component["max_physical_bytes"]
+        root["component_ids"].append(component["id"])
+    return list(roots.values())
+
+
+def materialize_scenarios(epoch: dict[str, Any]) -> list[dict[str, Any]]:
+    global_required = [
+        f"component_{prefix}{source_id}"
+        for prefix in ("registry_", "receipt_", "completed_", "outbox_", "quarantine_", "history_")
+        for source_id in sorted(epoch["source_ids"])
+    ] + ["component_admin_live", "global_root_fixed_a", "global_root_fixed_b"]
+    scenarios = [{
+        "id": "global_epoch_sources_admin_adoption",
+        "root_id": "global_control_root",
+        "required_full_component_ids": global_required,
+        "cartesian_axes": [{
+            "id": "adoption_generation",
+            "options": [["component_adoption_scratch_a"], ["component_adoption_scratch_b"]],
+        }],
+        "coverage": ["admin_adoption", "all_sources", "live_scratch_ab"],
+    }]
+    for project_id in sorted(epoch["project_ids"]):
+        short = project_id.removeprefix("project_")
+        scenarios.append({
+            "id": f"project_{short}_live_scratch",
+            "root_id": f"{project_id}_storage_root",
+            "required_full_component_ids": [
+                f"component_wal_live_{short}", f"component_journal_l1_{short}",
+                f"component_journal_semantic_{short}", f"empty_root_manifest_{short}",
+                f"empty_root_checkpoint_{short}", f"queue_metadata_{short}_a",
+                f"queue_metadata_{short}_b",
+            ],
+            "cartesian_axes": [
+                {"id": "wal_scratch_generation", "options": [
+                    [f"component_wal_scratch_{short}_a"], [f"component_wal_scratch_{short}_b"],
+                ]},
+                {"id": "journal_scratch_generation", "options": [
+                    [f"component_journal_scratch_{short}_a"], [f"component_journal_scratch_{short}_b"],
+                ]},
+            ],
+            "coverage": ["live_scratch_ab", "l1_semantic"],
+        })
+    scenarios.append({
+        "id": "allocator_live_scratch",
+        "root_id": "allocator_root",
+        "required_full_component_ids": [
+            "component_derived_live", "allocator_root_fixed_a", "allocator_root_fixed_b",
+        ],
+        "cartesian_axes": [{
+            "id": "derived_scratch_generation",
+            "options": [["component_derived_scratch_a"], ["component_derived_scratch_b"]],
+        }],
+        "coverage": ["live_scratch_ab"],
+    })
+    return scenarios
+
+
+def materialize_epoch(model: dict[str, Any], source_ids: list[str], project_ids: list[str]) -> dict[str, Any]:
+    candidate = copy.deepcopy(model)
+    epoch = candidate["policy_epoch"]
+    epoch["source_ids"] = sorted(source_ids)
+    epoch["project_ids"] = sorted(project_ids)
+    epoch["inventory_digest"] = resource_inventory_digest(epoch)
+    candidate["exact_scopes"] = ["global", *epoch["source_ids"], *epoch["project_ids"]]
+    candidate["tuples"] = expand_resource_tuples(candidate)
+    tuples = exact_index(candidate["tuples"], "materialized tuples")
+    memberships = expected_tuple_set_memberships(tuples)
+    tuple_order = list(tuples)
+    candidate["tuple_sets"] = [
+        {"id": set_id, "tuple_ids": [tuple_id for tuple_id in tuple_order if tuple_id in memberships[set_id]]}
+        for set_id in memberships
+    ]
+    old_pair_ids = {
+        (item["live_tuple_id"], item["scratch_tuple_id"]): item["id"]
+        for item in candidate["live_scratch_pairs"]
+    }
+    allowed_families = {
+        "project_wal_live": "project_wal_scratch",
+        "derived_log_live": "derived_log_scratch",
+        "canonical_journal_live": "canonical_journal_scratch",
+    }
+    pairs = []
+    for live in tuples.values():
+        for scratch in tuples.values():
+            relation = (live["id"], scratch["id"])
+            if allowed_families.get(live["resource_kind"]) != scratch["resource_kind"]:
+                continue
+            if any(live[field] != scratch[field] for field in ("root_id", "physical_domain", "scope_id")):
+                continue
+            pairs.append({
+                "id": old_pair_ids.get(relation, f"pair_{live['id']}_to_{scratch['id']}"),
+                "live_tuple_id": live["id"],
+                "scratch_tuple_id": scratch["id"],
+            })
+    candidate["live_scratch_pairs"] = pairs
+    candidate["live_scratch_pair_sets"] = [{
+        "id": "all_live_scratch_pairs", "pair_ids": [item["id"] for item in pairs],
+    }]
+    components = [{
+        "id": f"component_{item['id']}", "root_id": item["root_id"],
+        "physical_domain": item["physical_domain"], "component_type": "tuple",
+        "tuple_id": item["id"], "max_physical_bytes": item["maxima"]["physical_bytes"],
+    } for item in candidate["tuples"]] + expand_metadata(candidate)
+    candidate["root_components"] = components
+    candidate["roots"] = materialize_roots(components)
+    candidate["root_capacity_scenarios"] = materialize_scenarios(epoch)
+    candidate["retain_zero_contract"]["empty_root_metadata_component_ids"] = [
+        component["id"] for component in components
+        if component.get("metadata_role") in {
+            "empty_root_manifest", "empty_root_checkpoint",
+            "queue_metadata_generation_a", "queue_metadata_generation_b",
+        }
+    ]
+    return candidate
+
+
 def exact_index(items: list[dict[str, Any]], location: str) -> dict[str, dict[str, Any]]:
     result = {item["id"]: item for item in items}
     if len(result) != len(items):
@@ -147,22 +297,30 @@ def validate_pair_relations(model: dict[str, Any], tuples: dict[str, dict[str, A
 def validate_named_tuple_sets(model: dict[str, Any], tuples: dict[str, dict[str, Any]]) -> None:
     sets = exact_index(model["tuple_sets"], "tuple_sets")
     memberships = {set_id: set(item["tuple_ids"]) for set_id, item in sets.items()}
-    kinds = lambda *values: {item["id"] for item in tuples.values() if item["resource_kind"] in values}
-    expected = {
-        "all_exact_tuples": set(tuples),
-        "project_wal_live_tuples": kinds("project_wal_live"),
-        "project_wal_tuples": kinds("project_wal_live", "project_wal_scratch"),
-        "canonical_journal_tuples": kinds("canonical_journal_live", "canonical_journal_scratch"),
-        "l1_floor_tuples": {item["id"] for item in tuples.values() if item["quota_partition_id"] == "l1_floor"},
-        "derived_log_tuples": kinds("derived_log_live", "derived_log_scratch"),
-        "global_admin_tuples": kinds("global_admin"),
-        "success_history_tuples": kinds("success_history"),
-        "all_compaction_tuples": kinds("project_wal_live", "project_wal_scratch", "derived_log_live", "derived_log_scratch", "canonical_journal_live", "canonical_journal_scratch"),
-    }
-    bundle_kinds = {"registry_live_slot", "keyed_receipt_slot", "completed_index", "outbox", "quarantine_frozen_lag", "success_history"}
-    expected["reservation_bundle_tuples"] = kinds(*bundle_kinds) | {"admin_live", "derived_live"}
-    if memberships != expected:
+    if memberships != expected_tuple_set_memberships(tuples):
         raise EpochModelError("tuple_sets: named membership differs from epoch expansion")
+
+
+def validate_resource_kind_coverage(model: dict[str, Any], tuples: dict[str, dict[str, Any]]) -> None:
+    selectors = exact_index(model["selectors"], "selectors")
+    selector = selectors.get("resource_kind_edge_coverage")
+    edges = exact_index(model["edge_registry"], "edge_registry")
+    tuple_sets = exact_index(model["tuple_sets"], "tuple_sets")
+    if selector is None or set(selector["edge_ids"]) != set(edges):
+        raise EpochModelError("resource_kind_edge_coverage: must enumerate every edge exactly")
+    if selector["tuple_set_ids"] != ["all_exact_tuples"]:
+        raise EpochModelError("resource_kind_edge_coverage: must select the complete exact tuple inventory")
+    covered_tuple_ids = {
+        tuple_id
+        for edge in edges.values()
+        for set_id in edge["tuple_set_ids"]
+        for tuple_id in tuple_sets[set_id]["tuple_ids"]
+    }
+    if covered_tuple_ids != set(tuples):
+        raise EpochModelError("resource_kind_edge_coverage: edge registry leaves exact tuples uncovered")
+    covered_kinds = {tuples[tuple_id]["resource_kind"] for tuple_id in covered_tuple_ids}
+    if covered_kinds != set(model["resource_kinds"]):
+        raise EpochModelError("resource_kind_edge_coverage: edge registry leaves resource kinds uncovered")
 
 
 def reaches(nodes: dict[str, dict[str, Any]], predecessor: str, successor: str) -> bool:
@@ -227,6 +385,7 @@ def validate_epoch_instance(model: dict[str, Any]) -> dict[str, int]:
     require_exact(model["root_components"], expected_components, "root_components")
     validate_pair_relations(model, tuples)
     validate_named_tuple_sets(model, tuples)
+    validate_resource_kind_coverage(model, tuples)
     validate_boundary_contracts(model)
     component_index = exact_index(expected_components, "expanded components")
     expected_roots: dict[str, dict[str, Any]] = {}
@@ -262,13 +421,24 @@ def validate_epoch_instance(model: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def positive_expansion_counts(model: dict[str, Any]) -> tuple[int, int]:
-    candidate = json.loads(json.dumps(model))
-    candidate["policy_epoch"]["source_ids"].append("source_gamma")
-    candidate["policy_epoch"]["project_ids"].append("project_gamma")
-    expanded = expand_resource_tuples(candidate)
-    source_ids = {item["id"] for item in expanded if item["id"].endswith("source_gamma")}
-    project_tuples = [item for item in expanded if item["scope_id"] == "project_gamma"]
-    if len(source_ids) != 6 or len(project_tuples) != 7:
-        raise EpochModelError("positive epoch expansion did not materialize new source/project tuples")
-    return len(source_ids), len(project_tuples)
+def positive_expansion_model(model: dict[str, Any]) -> dict[str, Any]:
+    candidate = materialize_epoch(
+        model,
+        [*model["policy_epoch"]["source_ids"], "source_gamma"],
+        [*model["policy_epoch"]["project_ids"], "project_gamma"],
+    )
+    source_tuples = [item for item in candidate["tuples"] if item["id"].endswith("source_gamma")]
+    project_tuples = [item for item in candidate["tuples"] if item["scope_id"] == "project_gamma"]
+    project_components = [
+        item for item in candidate["root_components"]
+        if item["root_id"] == "project_gamma_storage_root"
+    ]
+    project_pairs = [
+        item for item in candidate["live_scratch_pairs"]
+        if "_gamma" in item["live_tuple_id"]
+    ]
+    if (len(source_tuples), len(project_tuples), len(project_components), len(project_pairs)) != (6, 7, 11, 6):
+        raise EpochModelError("positive epoch expansion did not materialize complete tuple/component/pair inventory")
+    if not any(item["id"] == "project_gamma_storage_root" for item in candidate["roots"]):
+        raise EpochModelError("positive epoch expansion did not materialize the new project root")
+    return candidate

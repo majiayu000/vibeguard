@@ -8,6 +8,7 @@ import copy
 import hashlib
 import json
 import re
+import shlex
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -20,6 +21,10 @@ REQUIRED_EVIDENCE_CASES = {
     "crash_before_each_step",
     "crash_after_each_step",
     "illegal_transition_each_state",
+}
+EXPECTED_SELECTOR_IDS = {
+    "hypothesis_observe", "attempt_observe", "failure_observe",
+    "reset_observe", "retention_retire", "l1_evidence_publish",
 }
 SUPPORTED_SCHEMA_KEYWORDS = {
     "$schema", "$id", "$defs", "$ref", "title", "description", "type",
@@ -277,9 +282,16 @@ def validate_edges_and_evidence(
     model: dict[str, Any], templates: dict[str, dict[str, Any]], tuples: dict[str, dict[str, Any]]
 ) -> tuple[int, int, int]:
     selectors = unique_index(model["selectors"], "model.selectors")
+    if set(selectors) != EXPECTED_SELECTOR_IDS:
+        fail("model.selectors: selector inventory is not the closed exact set")
     for selector_id, selector in selectors.items():
-        if selector_id not in selector["command"]:
-            fail(f"model.selectors.{selector_id}: command does not name its exact selector")
+        expected_argv = ("bash", "tests/hooks/test_runtime_rule_signals.sh", selector_id)
+        try:
+            actual_argv = tuple(shlex.split(selector["command"], posix=True))
+        except ValueError as exc:
+            fail(f"model.selectors.{selector_id}: command cannot be parsed: {exc}")
+        if actual_argv != expected_argv or selector["command"] != " ".join(expected_argv):
+            fail(f"model.selectors.{selector_id}: command differs from the canonical exact invocation")
     state_universe = set(model["state_universe"])
     edges = unique_index(model["edges"], "model.edges")
     transition_index: dict[tuple[str, str], dict[str, Any]] = {}
@@ -386,6 +398,7 @@ def self_test(model: dict[str, Any], schema: dict[str, Any]) -> tuple[int, int]:
         ("boolean_version", lambda value: value.__setitem__("version", True)),
         ("unknown_project_source", lambda value: value["policy_epoch"]["projects"][0]["source_ids"].append("unknown_source")),
         ("inventory_digest_drift", lambda value: value["policy_epoch"]["source_ids"].append("source_gamma")),
+        ("selector_comment_command", lambda value: value["selectors"][0].__setitem__("command", "true # hypothesis_observe")),
         ("missing_expanded_tuple", lambda value: value["tuples"].pop()),
         ("extra_expanded_tuple", lambda value: value["tuples"].append(copy.deepcopy(value["tuples"][0]))),
         ("missing_relation_binding", lambda value: value["evidence_bindings"].pop()),

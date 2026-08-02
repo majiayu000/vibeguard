@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from json_schema_subset import SchemaValidationError, validate_schema_instance
-from resource_ledger_epoch import EpochModelError, positive_expansion_counts, validate_epoch_instance
+from resource_ledger_epoch import EpochModelError, positive_expansion_model, validate_epoch_instance
 
 
 MODEL_PATH = Path(__file__).with_name("resource_ledger_model.json")
@@ -535,8 +535,8 @@ def validate_retain_zero(model: dict[str, Any], components: dict[str, Any], edge
         contract["empty_root_metadata_component_ids"],
         "model.retain_zero_contract.empty_root_metadata_component_ids",
     )
-    if len(metadata_ids) < 8:
-        fail("model.retain_zero_contract: manifest/checkpoint/queue A/B metadata are required for both projects")
+    if len(metadata_ids) != 4 * len(model["policy_epoch"]["project_ids"]):
+        fail("model.retain_zero_contract: manifest/checkpoint/queue A/B metadata are required for every project")
     roles: set[str] = set()
     roots: set[str] = set()
     for component_id in metadata_ids:
@@ -549,10 +549,7 @@ def validate_retain_zero(model: dict[str, Any], components: dict[str, Any], edge
     if roles != {
         "empty_root_manifest", "empty_root_checkpoint",
         "queue_metadata_generation_a", "queue_metadata_generation_b",
-    } or roots != {
-        "project_alpha_storage_root",
-        "project_beta_storage_root",
-    }:
+    } or roots != {f"{project_id}_storage_root" for project_id in model["policy_epoch"]["project_ids"]}:
         fail("model.retain_zero_contract: fixed project metadata coverage is incomplete")
     sections = set(unique_strings(contract["composite_receipt_sections"], "model.retain_zero_contract.composite_receipt_sections"))
     if sections != {"payload_accounting", "root_metadata_accounting"}:
@@ -723,6 +720,8 @@ def self_test(model: dict[str, Any], schema: dict[str, Any]) -> int:
         ("boundary_cycle", lambda value: value["selectors"][0]["boundary_paths"][0]["nodes"][0].__setitem__("depends_on", ["wal_final_exchange"])),
         ("cross_root_component", lambda value: value["root_capacity_scenarios"][1]["required_full_component_ids"].append("component_admin_live")),
         ("selector_gap", lambda value: value["selectors"].pop()),
+        ("coverage_edge_gap", lambda value: next(item for item in value["selectors"] if item["id"] == "resource_kind_edge_coverage")["edge_ids"].pop()),
+        ("coverage_tuple_set_rewrite", lambda value: next(item for item in value["selectors"] if item["id"] == "resource_kind_edge_coverage").__setitem__("tuple_set_ids", ["project_wal_live_tuples"])),
         ("retain_zero_metadata", lambda value: value["root_components"][24].__setitem__("max_physical_bytes", 0)),
         ("l1_intent_gap", lambda value: value["l1_materialized_recovery"]["prepared_intent_fields"].pop()),
         ("schema_pattern", lambda value: value["exact_scopes"].append("Bad Scope")),
@@ -741,7 +740,10 @@ def self_test(model: dict[str, Any], schema: dict[str, Any]) -> int:
         except ModelError:
             continue
         fail(f"self-test {name}: invalid mutation was accepted")
-    positive_expansion_counts(model)
+    positive = positive_expansion_model(model)
+    positive_counts = validate_model(positive, schema)
+    if positive_counts["epoch_sources"] != 3 or positive_counts["epoch_projects"] != 3:
+        fail("self-test positive_epoch_materialization: expanded epoch was not fully validated")
     return len(cases)
 
 
