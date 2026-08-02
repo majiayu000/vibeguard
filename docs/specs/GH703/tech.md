@@ -70,7 +70,8 @@ identity；H-003 必须附闭集 taxonomy snapshot；H-004 必须附 window/time
 `maximum_query_window_duration_seconds`、`maximum_catch_up_duration_seconds` 与 `max_source_files`、`max_uncompressed_bytes`、
 `max_snapshot_elapsed_ms`、`max_retained_archives`、`max_integrity_preflight_elapsed_ms`；H-005 必须附 share allowlist；H-007 必须附 scheduler/authority failure、recovery、
 clean policy、正整数 `retention_horizon_seconds`/`hard_history_cap_entries`/`hard_history_cap_bytes` 及
-retention backend policy，且 caps 必须包含 claim/binding/receipt/lifecycle-terminal/pointer/checkpoint/orphan；选择 `capability_attested` 还须固定 backend identity/version/attestation contract。
+retention backend policy，且 caps 必须包含 claim/binding/receipt/lifecycle-terminal/pointer/checkpoint/orphan 与完整
+`terminal_cleanup_reserve`，并证明 cap 大于 reserve 加一个最小 normal transaction；选择 `capability_attested` 还须固定 backend identity/version/attestation contract。
 缺任一 selection-specific 字段时 spec 仍是 Draft。
 
 ### 2. 两个独立 schema 与 versioned taxonomy
@@ -244,9 +245,7 @@ fail-visible 行为，不能只验证新 weekly producer。
 - 自动 scheduler 不预先创建 shareable artifact；用户显式调用 export 后，才从
   已验证 current object 生成 allowlisted projection，并以 user-only 权限写入
   用户指定的新本地文件；
-- 先以 cap-reserved singleton staging slot 建 mode-0700 空 temp generation 并取得 directory identity；任何 file bytes 物化前提交绑定该 identity、planned digests 与 entries/bytes 预留的 generation claim，fsync+verify renderer/manifest 后、公开目录/receipt 前再提交闭合 member-set/object-identity binding；atomic no-replace publish generation directory并 fsync parent 后，receipt/pointer 各以 `linkat` atomic
-  no-replace hard link提交各自 prior-digest-linked final record并 fsync parent。crash-before-claim 的 empty slot阻止第二次 staging；recovery只接受 absent或完整 record并
-  幂等 adopt exact pending sequence；collision/foreign/invalid target保留旧 logical pointer并 stale，禁止跳号/append/replace；
+- 安装时 identity-pin permanent generation staging root；先 commit绑定 restricted child name、planned digests与完整预算的 claim，再创建 transaction child/bytes，故 pre-claim 没有 transaction directory。fsync+verify renderer/manifest 后提交 member/object binding并 atomic publish generation；receipt/pointer/marker统一用 exclusive no-replace rename，成功不留 staging link。post-materialization/pre-binding固定 `retained_unbound` nonzero；collision/foreign/invalid target保留旧 logical pointer并 stale；
 - scheduler attempt/success 只写 closed state/time/digest，不写 raw stderr、
   path、event 或 reason。
 
@@ -264,8 +263,8 @@ startup/runtime 证明 stable non-reusable object identity、atomic expected-ide
 no-overwrite private quarantine、crash recovery 与 replacement-race evidence 全部可用时才 auto-retire；attestation
 identity/version/digest写入 receipt，任一能力丢失立即降级且不得 pathname fallback。retention在 lifecycle lock内
 先验证 pointer chain并 pin exact current generation/receipt/object identities；current target永不进入 candidate。
-claim-only/unbound/pre-receipt/receipt-only orphan 和全部 audit metadata 均计入 hard caps；unbound materialization 永不 auto-retire；attested backend 只在
-authenticated checkpoint pin selected pointer+live authorization 后 atomic retire exact bound orphan/folded prefix，默认 backend 保留且 cap 前停止新 history。
+claim-only/unbound/pre-receipt/receipt-only orphan 和全部 audit metadata 均计入 hard caps；normal admission先扣除完整 `terminal_cleanup_reserve`；unbound materialization永不 auto-retire；attested backend只在
+self-contained authenticated restart root pin selected pointer+live authorization 后 atomic retire exact bound orphan/folded prefix，默认 backend 保留且 cap 前停止新 history。
 claim/binding/receipt/lifecycle-terminal/pointer/checkpoint chain 损坏同样停止删除和新增 history，不改 `scheduler_state`。
 
 ### 5. 独立 scheduler identity 与状态机
@@ -613,23 +612,23 @@ JSON：
 | B-015 invented_apis exact mapping without text heuristic | approved taxonomy invented entries | `bash tests/test_observe.sh` uses identical free text with mapped/unmapped rule evidence and asserts only mapped event counts |
 | B-016 full block accounting and GH-706 separation | aggregate cross-check + weekly classifier | `cargo test --manifest-path vibeguard-runtime/Cargo.toml weekly_value_accounting`; `bash tests/test_observe.sh` parity |
 | B-017 stable canonical event identity dedupe | event v2 writer + live/archive reader | copied/rotated same `event_id` counts once; two writer-created retries count twice; path/offset changes do not affect identity |
-| B-018 cross-render parity | one object + pointer union | fixtures exhaust receipt/pointer genesis、both variants required/forbidden、JCS digest、current receipt auth/no-current terminal auth；crash never exposes mixed renderers |
+| B-018 cross-render parity | one object + pointer union | fixtures exhaust receipt/pointer genesis、both variants required/forbidden、common JCS digest projection、current receipt auth/no-current authority-state-dispatched terminal auth；crash never exposes mixed renderers |
 | B-019 share field allowlist | shareable schema projection | schema-valid key-set requires H-005-approved `generated_at` plus explicit `data_status` + closed `status_reason`, rejects missing/null/extra fields；digest verification binds stable status fields but excludes generated time |
 | B-020 sensitive fields absent | share privacy firewall | adversarial sentinel scan in `bash tests/test_observe.sh` and `bash tests/test_health_report_scheduler.sh` |
 | B-021 no automatic egress or clipboard | wrapper/runtime static and dynamic fixtures | `bash tests/test_payload.sh` PATH stubs fail on network/open/clipboard commands; explicit local writes still pass |
-| B-022 secure atomic local writes | atomic source/authority + claim/binding/receipt/pointer chains | journal-wide seq 独立于 heartbeat/attempt；single staged-record cap/recovery；bootstrap/claim/binding/record/marker/pointer/checkpoint crash barriers、lost-response replay、collision/symlink fixtures ignore torn/uncommitted and never duplicate |
+| B-022 secure atomic local writes | atomic source/authority + claim/binding/receipt/pointer chains | common digest projection/exclusive rename；journal-wide seq独立于 heartbeat/attempt；permanent staging root+claim-first transaction；crash/lost-response/collision fixtures ignore torn/uncommitted and never duplicate |
 | B-023 health/value surfaces independent | wrapper/installer closed surface dispatch | `bash tests/test_health_report_scheduler.sh` installs/disables each identity independently and compares outputs |
-| B-024 bounded owned retention | claims/bindings + committed authorization/pointer checkpoints + caps | claim/unbound/pre-receipt/receipt-only orphan and audit metadata counted；checkpoint pins selected pointer/live auth；attested prefix retirement；no-auto-delete cap-minus-one/cap/exceed stop |
+| B-024 bounded owned retention | claims/bindings + restart roots + caps | orphan/audit metadata counted；terminal cleanup reserve不可被 normal writes消费；restart root pins selected pointer/live auth；attested prefix retirement；no-auto-delete cap-minus-one/cap/exceed stop |
 | B-025 existing health job migration safety | migration detector | legacy launchd/cron fixtures remain byte-identical while new value state does not claim legacy consent |
 | B-026 disabled state survives upgrade | weekly-value state schema + setup migration | two-version install fixture keeps `disabled_by_user`; missing-field fixture follows approved visible migration |
 | B-027 legal transitions require probe | lifecycle transition gate | direct file injection/history-only/executable-only fixtures remain non-active; explicit enable + probe becomes active |
 | B-028 concurrent lifecycle/generation serialization | shared bounded lifecycle lock | install/upgrade/disable/clean racing generator/retention yields no late publish；upgrade success/rollback advances generation and stale actor visibly exits |
-| B-029 clean removes only owned control state | setup clean + installer remove | active authority requires quiesce/seal/stop proof；no-active requires closed absence reason/proof；两者才可 commit exact `no_current`，forbids receipt/current fields，preserves audit/history/exports/third-party jobs |
+| B-029 clean removes only owned control state | setup clean + installer remove | pointer authorization按 authority_state dispatch active quiesce/seal/stop或 no-active absence proof；reserved terminal+pointer+checkpoint transaction可在 cap边界 exact retry；preserves audit/history/exports/third-party jobs |
 | B-030 doctor/verify orthogonal state truth | setup check four-dimension evaluator | matrix covers lifecycle × freshness/data × retention health，including active+no_data+blocked-retention，plus target/digest/ownership drift |
 | B-031 checkout/payload parity | payload manifest and no-clone smoke | `bash tests/test_payload.sh` exact schema/taxonomy/count/digest parity, no Python/network/checkout |
 | B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` maps unknown/incompatible evidence to closed partial reasons；real v1 missing identity is `legacy_evidence` partial，schema-v2 missing required identity is terminal `event_identity_missing`/no-publish，present-ID conflicting tuples are `event_identity_conflict` partial |
 | B-033 artifact evidence binding | stable content digest verifier + doctor/export | generated/attempt metadata changes preserve digest；tampered coverage/data/status reason/evidence/window/taxonomy changes alter/reject digest |
-| B-034 interruption recovery | pending claim/binding + atomic publish/lifecycle recovery | kill at pre-claim/post-materialization/pre-binding/pre-receipt/pointer/checkpoint phases；retry exact-adopts once；unbound never retires and all orphan reservations remain cap-accounted |
+| B-034 interruption recovery | claim-first + atomic publish/lifecycle recovery | pre-claim leaves no transaction object；claim-only可 exact retry；post-materialization/pre-binding returns retained_unbound/nonzero and never adopts；later barriers exact-adopt committed identity once；all reservations remain accounted |
 | B-035 closed live+archive snapshot | coverage contract + real launchers/authority/reader | single-directory bootstrap；journal-wide seq/genesis independent of heartbeat/attempt；single staged-record cap/recovery；`test_precommit_authority.sh` proves reservation-before-guard/pre-slot rejection/one terminal；fan-out sibling isolation；segment cap/preflight |
 | B-036 structured classification at creation | event schema v2 + producer registry + Rust/shell/Python writers | version+digest exact match and typed zero-match map `unclassified_event`；fixtures enforce v1 missing → `legacy_evidence` partial，v2 required-identity missing → terminal/no-publish，present-ID conflict → `event_identity_conflict` partial |
 | B-037 byte-stable event identity | writer-generated event ID + GC byte preservation | append→rotate→gzip→read preserves ID; copy dedupes, retry differs；duplicate-ID tuple permutations keep one deterministic conflict digest |
@@ -637,7 +636,7 @@ JSON：
 | B-039 stable summary digest | canonical stable-content projection + fixed status precedence | simultaneous-fact and duplicate-ID/full-tuple permutations keep reason/digest；generated/attempt/renderer metadata changes preserve digest；exact coverage/data/status reason/producer version/event/taxonomy/window changes differ |
 | B-040 orthogonal state dimensions | state schema + doctor/verify | exact 4 × 26 scheduler × artifact/data/retention table includes `invalid+null+not_initialized` and proves no dimension overwrites another；every omitted/extra/unknown combination fails visible |
 | B-041 generation/lifecycle exclusion | lifecycle fence + short source lock + async verifier | publish/retention races remain fenced；archive hashing never holds writer/GC lock；max-byte archive + GC contention keeps installed wrapper latency within gate；queued stale token exits zero-write |
-| B-042 current-object ownership | committed claim/binding/receipt chain + pointer/auth pin + checkpoints | ignores uncommitted/torn；unbound never retires；checkpoint embeds selected pointer and receipt or active/no-active terminal proof；attested retire exact bound prefix；default stops at cap |
+| B-042 current-object ownership | committed claim/binding/receipt chain + pointer/auth pin + restart roots | ignores uncommitted/torn；unbound never retires；root embeds selected pointer and variant-correct terminal proof；attested retire exact bound prefix；default stops at cap |
 
 ## 数据流
 
@@ -656,8 +655,7 @@ JSON：
 6. producer 构造一个 schema-valid internal object，并从包含 coverage/data/status reason 的
    稳定内容投影计算 evidence/summary digests；generated/attempt/renderer metadata 不参与 identity。JSON、Markdown
    和后续显式 export 都从该 object 渲染。
-7. wrapper在 generation bytes 前先提交 cap-reserving claim，再提交 receipt 与 JCS tagged pointer；retention pin current，
-   checkpoint 全链并只在 attested backend retire exact prefix/orphan；默认保留且 cap 前停止。
+7. wrapper在 generation transaction object 前先提交 cap-reserving claim，再以 exclusive rename提交 receipt 与 JCS tagged pointer；retention pin current，以 self-contained restart root fold prefix并只在 attested backend retire exact bound data；normal writes不得消费 terminal cleanup reserve。
 8. doctor/verify 分别读取 scheduler lifecycle、artifact freshness、data status 与
    retention health，并
    重新验证 manager、target、state、taxonomy 和 current artifact；
@@ -735,7 +733,7 @@ bootstrap 边界，不属于 summary producer。
   authority expiry/recovery gap、verified no-spawn、source/bootstrap+authority-record crash barriers、prefix capacity+segment early seal、manual two-reason precedence、hook-decision preservation、
   live+gzip immutable snapshot、async hash/GC race、duplicate-ID tuple permutation、contract version+digest mismatch、
   zero taxonomy match、legacy identity、mixed categories、GH-706 protocol split、unknown host、no-data/partial、
-  old/invalid taxonomy、journal-wide seq/staged-record、claim/binding/receipt/pointer/checkpoint genesis+crash+cap parity、active/no-active terminal auth、unbound/pre-receipt orphan、selected-pointer/live-auth checkpoint pin、all-retained preflight和 sentinel。
+  old/invalid taxonomy、journal-wide seq/common digest、claim-first permanent staging、exclusive rename、claim/binding/receipt/pointer/restart-root crash+cap parity、authority-state terminal auth、retained-unbound、terminal cleanup reserve、selected-pointer/live-auth pin、all-retained preflight和 sentinel。
 - [ ] Launcher authority：Planned Changes Manifest 的 `test_precommit_authority.sh` entry 独占 installed Git pre-commit parent 的
   `git_pre_commit` wrapper→canonical parent→durable slot、reservation-before-guard、pre-slot nonzero/zero-write/
   `guard_started=false` 与同 token exactly-one terminal outcome；Claude、Codex outer normalizer+inner fan-out与 standalone

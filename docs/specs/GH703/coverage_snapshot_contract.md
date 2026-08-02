@@ -63,20 +63,21 @@ identity/digest 全匹配的 generation，或在受限 staging identity 匹配�
 
 所有 authority journal logical record（genesis、heartbeat、reservation、admission outcome、gap、terminal seal 与
 checkpoint）共用独立 journal-wide envelope：`journal_sequence,record_id,record_type,
-prior_journal_digest,record_digest,payload`。`journal_sequence=0` 仅允许 `record_type=genesis` 且
-`prior_journal_digest=null`；每个后续 logical record（不论 type）严格 `+1` 并 exact 引用前驱
-record digest。`heartbeat_sequence` 只是 heartbeat payload 的 cadence 序号，`attempt_sequence` 只是
-reservation payload 的 caller-attempt 序号；两者都不得用作 pathname/journal ordering。
+prior_journal_digest,record_digest,payload`。all chain envelopes compute
+`record_digest=SHA-256(JCS(envelope without record_digest))`：从 UTF-8 JCS object 只移除顶层
+`record_digest`，其余 discriminator、sequence、ID、prior digest 与 payload 全部参与 SHA-256；禁止 hash
+payload-only、marker 或含 digest 自身的 object。`journal_sequence=0` 仅允许 `record_type=genesis` 且
+`prior_journal_digest=null`；后续 record 严格 `+1` 并 exact 引用前驱 digest。`heartbeat_sequence` 与
+`attempt_sequence` 只表达 payload 语义，不得用于 pathname/journal ordering。
 
-提交使用同一 crash-atomic primitive：单写者 segment header 必须在 entry/byte caps 内始终预留
+提交使用同一 crash-atomic exclusive rename primitive：单写者 segment header 必须在 entry/byte caps 内始终预留
 一个 maximum-sized staged record，且每个 segment 最多一个 outstanding staging object。authority 先在
 segment-private staging 中以 `O_CREAT|O_EXCL` 写完整 length-bounded JCS record并 fsync，再以 Linux
 `renameat2(RENAME_NOREPLACE)` / macOS `renameatx_np(RENAME_EXCL)` atomic no-replace rename 发布到
 `authority-journal/segments/<segment-id>/records/<journal-sequence>-<record-id>.json` 并 fsync records directory。
-成功 rename 不留 staging link；crash-before-rename 的 staged inode 仍占用预留 entry/bytes，阻止创建第二个
-stage。recovery 只在 capability 能 atomic expected-identity adopt/retire 且完整 JCS/digest/owner nonce/
-next journal sequence/prior digest 全匹配时处理它；否则保留、seal/block 该 segment 并 fail visible。
-禁止 pathname compare-then-rename/unlink，也禁止忽略 staging accounting 后开新 segment。
+成功 rename 不留 staging link；禁止 hard-link publication 或 link+unlink 模拟。crash-before-rename 的 staged
+inode 仍占用预留 entry/bytes并阻止第二个 stage；recovery只可 exact adopt同 owner/sequence/predecessor/digest
+的 pending record，否则保留、seal/block并 fail visible。禁止 pathname compare-then-rename/unlink或忽略 staging accounting。
 
 ack/续租/封闭只在 records-directory fsync 后生效；reader/recovery 只 fold 从 exact genesis 开始的
 contiguous journal sequence+prior-digest chain。final pathname 必须 absent 或完整；truncated/多出/fork/gap
@@ -274,21 +275,23 @@ audit-checkpoints/<chain-kind>/<checkpoint-sequence>-<checkpoint-id>.{json,commi
 
 producer 从同一 verified object 渲染 JSON/Markdown；`generation.json` 绑定 window、generation ID、
 两个 renderer 的 restricted relative path、length/digest、`summary_digest` 与 ownership receipt identity。
-发布前 producer 已在内存中得到 exact renderer bytes/digests；hard caps 必须预留一个 singleton generation-staging
-slot，producer 才能在其中创建空 mode-0700 temp-generation directory 并取得 no-follow non-reusable directory identity，然后以与 receipt 相同的 prepared
-record+commit-marker primitive 提交 generation claim。claim 绑定 transaction/generation ID、temp-directory
-identity、restricted paths、exact planned entry/byte counts、renderer/manifest lengths+digests 与 owner nonce，并在任何
-generation file bytes 物化前从 hard caps 预留该份额。crash-before-claim 的 empty staging directory 仍占 singleton
-slot/entry budget并阻止第二次 staging；没有 durable identity claim 时不得 pathname-based auto-delete。
+安装时创建并 identity-pin 一个 permanent generation staging root；transaction 不创建第二个 staging root。
+发布前 producer 已在内存中得到 exact renderer bytes/digests，并先以 common exclusive rename primitive提交
+generation claim。committed claim precedes transaction directory creation，并绑定 CSPRNG transaction/generation ID、
+restricted child name、closed paths、planned entry/byte counts、renderer/manifest lengths+digests、owner nonce 与完整
+cap reservation；只有随后才可在 permanent root 下 `mkdirat` exact child 并写 bytes。故 crash-before-claim 不会留下
+transaction directory；claim后 directory absent可由同 transaction exact retry创建，present-but-unbound进入下述
+`retained_unbound`，不得 pathname adopt/delete或创建绕过 reservation 的 sibling transaction。
 
 renderer/manifest 全部 write+fsync 后、任何 receipt 或公开 generation directory 之前，producer 必须再提交
 generation binding；它 exact 绑定 claim ID/digest、temp-directory identity、闭合 member set、每个 member 的
 no-follow non-reusable object identity/length/digest 与 manifest digest。发布顺序固定为 committed claim →
 temp generation bytes → committed binding → atomic no-replace generation-directory publish+parent fsync →
 ownership receipt commit → pointer commit → success。receipt先在同
-filesystem staging以 no-follow `O_CREAT|O_EXCL`准备完整
-JCS bytes并 fsync，再以 `linkat` atomic no-replace发布 record、fsync records dir；随后同样准备完整 marker并 fsync，
-atomic no-replace发布绑定 record identity/digest/sequence的 commit marker，再 fsync commits dir。reader只 fold
+filesystem chain-private staging以 no-follow `O_CREAT|O_EXCL`准备完整
+JCS bytes并 fsync，再以 common exclusive rename发布 record、fsync records dir；随后同样准备完整 marker并 fsync，
+exclusive rename发布绑定 record identity/digest/sequence的 commit marker，再 fsync commits dir。成功 commit
+不留 staging pathname；每条 chain 的 crash-before-rename singleton stage计入 cap且必须先 exact recover或 fail closed。reader只 fold
 contiguous、digest-linked且 record+marker exact匹配的 committed receipts；忽略 unpaired、uncommitted或 torn
 record/marker/staging。lost-response retry以同一 transaction/sequence/ID重验并幂等 adopt exact pair；collision或
 内容不匹配 terminal fail，禁止 duplicate或跳号。
@@ -297,7 +300,7 @@ receipt record 必需 `receipt_sequence,receipt_id,prior_receipt_digest,record_d
 `prior_receipt_digest=null`，`n>0` 必须 exact 引用 `n-1` committed record digest。第一个 generation 不得
 从空字符串、零 digest 或隐式 predecessor 推导 genesis；gap/fork/unknown/extra 字段 terminal fail。
 generation-claim、generation-binding 与 lifecycle-terminal chains 分别使用同构的 `<kind>_sequence,<kind>_id,
-prior_<kind>_digest,record_digest` genesis/predecessor 规则，同样禁止隐式 genesis。lifecycle-terminal record
+prior_<kind>_digest,record_digest` genesis/predecessor 规则并使用上述统一 digest projection，同样禁止隐式 genesis。lifecycle-terminal record
 是以 `authority_state=active_authority|no_active_authority` 为 discriminator 的 closed union；共用 exact lifecycle
 generation、closed terminal reason 和 installed snapshot digest。`active_authority` 要求 authority mode/epoch、
 parent quiescence root、terminal seal digest 与 resident stop proof root，禁止 absence fields。
@@ -314,35 +317,42 @@ pointer是以必需 `record_type` 为 discriminator 的 closed tagged union。�
 `terminal_reason,terminal_authorization_id,terminal_authorization_digest`；`no_current` 要求
 `lifecycle_terminal=true,authorization_type=lifecycle_terminal`、closed `terminal_reason=disabled|cleaned` 与 exact
 `terminal_authorization_id,terminal_authorization_digest`，后两者必须指向 lifecycle chain 中已 crash-atomic 提交、
-绑定同一 generation/terminal reason 且具备全 parent quiescence/seal/stop proof root 的 terminal record；该
+绑定同一 generation/terminal reason 的 terminal record。reader必须 validate authorization by authority_state：
+`active_authority` exact验证 mode/epoch、parent quiescence、seal 与 resident-stop roots；`no_active_authority` exact验证
+closed absence reason/proof并拒绝任何 active-only root，禁止无条件要求 quiescence/seal/stop。该
 variant 禁止全部 generation/ownership-receipt/summary/object fields。sequence 0要求
 `prior_pointer_digest=null`；`n>0` exact引用 `n-1` digest；
 `record_digest=SHA-256(JCS(record without record_digest))`。unknown/extra、required/forbidden、lifecycle/terminal、
 predecessor/fork/gap任一违例 terminal fail。pointer record使用同 filesystem prepared complete inode+fsync+
-atomic no-replace link+dir fsync；lost response只可 exact adopt。consumer先 fold committed receipt chain，再 fold
+common exclusive rename+dir fsync；lost response只可 exact adopt。consumer先 fold committed receipt chain，再 fold
 receipt/lifecycle-terminal-authorized pointer chain并选择最后 `current_generation`或 `no_current`；不得读取
 orphan/partial generation。clean/disable 不得复用旧 generation receipt 授权 `no_current`。
 
 任一 renderer、manifest、binding、receipt或 pointer commit失败都保留旧 logical pointer、nonzero/stale。
 committed claim 未产生 matching receipt、或 receipt-committed 但 pointer未提交，都是 orphan；其 claim 预留额与
 实际可验证 bytes/identities 必须计入 hard caps。没有 committed binding 的 `unbound_materialization`
-在任何 backend 都禁止 auto-adopt/retire，只保留、计数并在 cap 前停止；有 binding 的 orphan 也只有
+在任何 backend 都进入 `retained_unbound`：retry必须 fail visible/nonzero、保留并计数，不能补造 binding、
+auto-adopt或 retire；有 binding 的 orphan也只有
 `capability_attested` backend 以 binding 中的 exact directory+member identities atomic claim 并全量重验后才可
 adopt/retire。默认 `no_auto_delete` 只保留并计数。未被 committed claim 预留的 generation bytes 不得
 创建，因此 repeated pre-receipt crash 不能越过 cap。
 
 generation claims/bindings、receipts、lifecycle terminals 和 pointers 的 record/marker/checkpoint 全部计入 H-007 的
-`hard_history_cap_entries|bytes`，禁止把 audit metadata 排除于上限。每条 chain 在下一个 record 触及 cap 前，
-必须以同样 prepared-record+commit-marker primitive 提交 checkpoint，且每次 append 前必须从 cap 预留一个
-maximum-sized checkpoint record+marker；连预留都无法满足时在写当前 record 之前停止。checkpoint 绑定 exact folded sequence range、
-genesis/prior checkpoint digest、prefix Merkle root、last record digest、累计 entry/byte accounting 与全部 live
+`hard_history_cap_entries|bytes`，禁止把 audit metadata 排除于上限。cap永久隔离 `terminal_cleanup_reserve`：它是
+worst-case lifecycle-terminal record+marker、`no_current` pointer+marker、两条 chain各一个 maximum checkpoint及其
+singleton stages 的 entries/bytes 总和；normal generation/history/checkpoint admission按扣除该 reserve后的余额判定，
+不得消费它。cleanup每成功提交一步才按固定 manifest释放对应份额，失败保留剩余 reserve供 exact retry。
+每条 chain 在下一个 normal record 触及可用余额前必须以 common primitive提交 checkpoint。checkpoint绑定 exact folded sequence range、
+prefix Merkle root、last record digest、累计 entry/byte accounting 与全部 live
 claims/bindings/receipts/terminal authorizations。它还必须嵌入并验证 selected pointer 的 exact
 sequence/body/digest/record_type 与对应 authorization：`current_generation` pin receipt+generation+object identities，
 `no_current` pin lifecycle-terminal record 的 exact body/digest/proof roots。selected pointer 及它的 live authorization 在新
 checkpoint 完整提交前不得进入 folded retirement prefix；checkpoint 不得只保留空 current pin。
-reader 先验证 checkpoint chain 再继续 contiguous suffix；checkpoint/fork/gap失效停止 publish/
-retention。只有 `capability_attested` backend 可在 checkpoint commit+dirfsync 后对已 folded、非 pinned prefix 做
-atomic expected-identity retire，并将 checkpoint chain 保持为 latest+previous 两代，所以可持续发布；
+每个 committed checkpoint 都是 self-contained `authenticated restart root`：marker exact绑定其 body/digest、
+`folded_through_sequence|digest`、prefix Merkle root、live pins 与 accounting；retire成功后 reader从最高 committed root
+开始验证 contiguous suffix，does not require a retired predecessor，禁止遍历已 folded 的 checkpoint/record。
+fork、同 sequence多 root、root/suffix gap或 digest不符均停止 publish/retention。只有 `capability_attested` backend 可在
+restart-root commit+dirfsync 后 atomic expected-identity retire已 folded、非 pinned prefix与旧 checkpoint；
 `no_auto_delete` 不删除 audit prefix，在下一 record 将触及 cap
 前 fail visible 并停止新 generation。两种 policy 都 bounded：不允许无上限增长，也不允许无 capability
 却为保持 availability 忽略 cap。share export同样只从 pointer chain选中的 verified object产生 H-005 allowlist projection。

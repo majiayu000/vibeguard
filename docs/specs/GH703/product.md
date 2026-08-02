@@ -31,7 +31,7 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 | H-004 | window、scope、catch-up 与 snapshot budgets | `previous_local_calendar_week_global`：用户本地时区、上一个完整周、global scope；首次不足整周标 `partial_coverage`，missed run 最多补一次；空 headline 的 `empty_counts_representation` Draft recommendation 为 `json_null`（备选 `field_absent`）；批准时还必须固定该选择及正整数 `maximum_query_window_duration_seconds`、`maximum_catch_up_duration_seconds`、`max_source_files`、`max_uncompressed_bytes`、`max_snapshot_elapsed_ms`、`max_retained_archives`、`max_integrity_preflight_elapsed_ms`，本 Draft 不替维护者填写数值 | rolling 7 days；per-project 周报；UTC calendar week；`field_absent`；不同 bounded duration/budget values | 未批准 |
 | H-005 | privacy 与 export | `allowlisted_local_export`：默认仅本地；分享文件只含闭集计数、窗口、coverage、`data_status`、`status_reason`、taxonomy version、`generated_at` 和摘要 digest；分享必须由用户显式导出，无网络/剪贴板副作用 | 不分享 `generated_at`；含 rule IDs 的扩展分享；显式上传集成 | 未批准 |
 | H-006 | 用户 surface | `separate_value_summary`：简洁 value summary 与完整 maintainer health report 分离，均支持 Markdown/JSON | 在完整 health report 顶部增加可分享 section；仅 Markdown | 未批准 |
-| H-007 | install/upgrade/disable/clean/retention 生命周期 | `transactional_owned_job`：只管理 VibeGuard-owned job 与独立 coverage-authority state，失败不报告安装完成，opt-out 跨升级保留，clean 移除 job 但默认保留报告；批准时还须固定正整数 `retention_horizon_seconds`、`hard_history_cap_entries`、`hard_history_cap_bytes` 及 `no_auto_delete|capability_attested` backend policy，cap 必须包含 generation claims/bindings、receipts、lifecycle terminals、pointers、checkpoints 与 orphan bytes，本 Draft 不代填 | scheduler/authority 失败只降级为 warning；clean 默认删除报告；不同 retention/cap/backend policy | 未批准 |
+| H-007 | install/upgrade/disable/clean/retention 生命周期 | `transactional_owned_job`：只管理 VibeGuard-owned job 与独立 coverage-authority state，失败不报告安装完成，opt-out 跨升级保留，clean 移除 job 但默认保留报告；批准时还须固定正整数 `retention_horizon_seconds`、`hard_history_cap_entries`、`hard_history_cap_bytes` 及 `no_auto_delete|capability_attested` backend policy，cap 必须包含 generation claims/bindings、receipts、lifecycle terminals、pointers、checkpoints、orphan bytes 与普通写不可消费的完整 terminal cleanup reserve，本 Draft 不代填 | scheduler/authority 失败只降级为 warning；clean 默认删除报告；不同 retention/cap/backend policy | 未批准 |
 | H-008 | host coverage | `canonical_log_all_supported_hosts`：统计所有能写 canonical event log 的当前受支持 host，不等待 GH-701；未知/不兼容 host 不进入 headline | 仅 Claude/Codex；等待 GH-701 adapter registry | 未批准 |
 
 ## 目标
@@ -154,7 +154,7 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     只有 H-007 明确批准且 runtime attestation 通过 B-042 完整 capability contract 的 backend 才能
     auto-retire；否则保留 candidate、fail visible，并在下一次写入将触及任一 hard cap 前停止新增
     history。generation claim/binding/receipt/lifecycle-terminal/pointer/checkpoint 元数据与所有 orphan 都计入同一 entries/bytes cap；
-    `capability_attested` 可在 authenticated checkpoint 后安全 retire folded prefix，`no_auto_delete` 必须在 cap 前停止新 generation，不得无界保留 audit chain。
+    普通写不得消费完整 terminal cleanup reserve；`capability_attested` 可在 self-contained authenticated restart root 后安全 retire folded prefix，`no_auto_delete` 必须在 cap 前停止新 generation，不得无界保留 audit chain。
     reader 忽略 torn/uncommitted，lost response exact replay不得重复。不删除 event logs、export或用户文件。
 25. B-025 升级遇到 GH-556 已存在的 opt-in health scheduler 时，必须识别其
     surface、参数和 owner；不得静默把它替换成 value scheduler、创建重复 job，
@@ -289,7 +289,7 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     hard caps，有 capability也须 atomic compare-by-identity claim/retire。capability缺失或失效即停止删除，并在
     下一历史写将触及 cap前 fail visible、保留 current/candidate/orphan。每个 generation 还必须在
     物化前有 committed generation claim，receipt 前有 exact post-materialization binding；claim-only/unbound/
-    pre-receipt orphan 与 receipt/terminal/pointer/checkpoint chain 均计入 cap，checkpoint 必须 pin selected pointer 及它的 live authorization。
+    pre-receipt orphan 与 receipt/terminal/pointer/checkpoint chain 均计入 cap，checkpoint 必须是 pin selected pointer/live authorization 的 self-contained restart root；post-materialization/pre-binding crash 固定 retained/nonzero，不得补造 binding。
     ledger损坏同样停止删除和新增 history。
 
 ## 验收标准
