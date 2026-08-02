@@ -238,3 +238,153 @@ jobs:
           gh release create "${TAG_NAME}" dist/vibeguard-runtime-* dist/vibeguard-payload-* dist/SHA256SUMS \
             --title "${TAG_NAME}" \
             --notes "VibeGuard runtime binaries, install payload, release manifest, and dependency metadata for ${TAG_NAME}."
+
+  no-clone-smoke:
+    name: No-clone install smoke (${{ matrix.os }})
+    needs: publish-release
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      attestations: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+          - os: ubuntu-latest
+
+    steps:
+      # Intentionally no actions/checkout step: this job proves that the
+      # immutable release is sufficient installation media on a fresh HOME.
+      - name: Install and verify from immutable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          VERSION="${TAG_NAME#v}"
+          ASSET="vibeguard-payload-${VERSION}.tar.gz"
+          DOWNLOAD_DIR="${RUNNER_TEMP}/vibeguard-release"
+          SEED_DIR="${RUNNER_TEMP}/vibeguard-bootstrap-seed"
+          FRESH_HOME="${RUNNER_TEMP}/vibeguard-fresh-home"
+          mkdir -p "${DOWNLOAD_DIR}" "${SEED_DIR}" "${FRESH_HOME}"
+
+          download_ok=0
+          for attempt in 1 2 3 4; do
+            if gh release download "${TAG_NAME}" \
+              --repo "${GH_REPO}" \
+              --pattern "${ASSET}" \
+              --pattern SHA256SUMS \
+              --dir "${DOWNLOAD_DIR}"; then
+              download_ok=1
+              break
+            fi
+            rm -f -- "${DOWNLOAD_DIR}/${ASSET}" "${DOWNLOAD_DIR}/SHA256SUMS"
+            sleep 5
+          done
+          if [[ "${download_ok}" != "1" ]]; then
+            echo "ERROR: release assets did not become readable after bounded retries" >&2
+            exit 1
+          fi
+          if [[ ! -f "${DOWNLOAD_DIR}/${ASSET}" \
+            || -L "${DOWNLOAD_DIR}/${ASSET}" \
+            || ! -f "${DOWNLOAD_DIR}/SHA256SUMS" \
+            || -L "${DOWNLOAD_DIR}/SHA256SUMS" ]]; then
+            echo "ERROR: release download did not produce regular payload and checksum files" >&2
+            exit 1
+          fi
+
+          expected="$(
+            awk -v file="${ASSET}" '
+              ($2 == file || $2 == "*" file) { count += 1; digest = $1 }
+              END { if (count == 1) print digest; else exit 1 }
+            ' "${DOWNLOAD_DIR}/SHA256SUMS"
+          )" || {
+            echo "ERROR: SHA256SUMS must contain exactly one payload entry" >&2
+            exit 1
+          }
+          if [[ ${#expected} -ne 64 || "${expected}" == *[!0-9a-f]* ]]; then
+            echo "ERROR: SHA256SUMS contains an invalid payload digest" >&2
+            exit 1
+          fi
+          sha256_file() {
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum "$1" | awk '{print $1}'
+            else
+              shasum -a 256 "$1" | awk '{print $1}'
+            fi
+          }
+          actual="$(sha256_file "${DOWNLOAD_DIR}/${ASSET}")"
+          if [[ "${actual}" != "${expected}" ]]; then
+            echo "ERROR: payload checksum verification failed" >&2
+            exit 1
+          fi
+
+          gh attestation verify "${DOWNLOAD_DIR}/${ASSET}" \
+            --repo "${GH_REPO}" \
+            --signer-workflow "github.com/${GH_REPO}/.github/workflows/release.yml" \
+            --source-ref "refs/tags/${TAG_NAME}" \
+            --deny-self-hosted-runners
+
+          archive_names="${RUNNER_TEMP}/vibeguard-payload-names"
+          archive_types="${RUNNER_TEMP}/vibeguard-payload-types"
+          LC_ALL=C tar -tzf "${DOWNLOAD_DIR}/${ASSET}" > "${archive_names}"
+          LC_ALL=C tar -tvzf "${DOWNLOAD_DIR}/${ASSET}" > "${archive_types}"
+          if ! awk '
+            {
+              name = $0
+              normalized = name
+              sub(/\/$/, "", normalized)
+              if (name == "" || normalized == "" || name ~ /^\// \
+                || name ~ /(^|\/)\.\.?($|\/)/ || name ~ /\/\//) bad = 1
+            }
+            END { exit bad }
+          ' "${archive_names}"; then
+            echo "ERROR: payload contains an unsafe archive path" >&2
+            exit 1
+          fi
+
+          bootstrap_files=(
+            scripts/setup/bootstrap.sh
+            scripts/setup/bootstrap-lib.sh
+            scripts/setup/bootstrap_identity.sh
+            scripts/setup/bootstrap_birth_token.jxa
+            scripts/setup/bootstrap_process.sh
+            scripts/setup/bootstrap_termination.sh
+            scripts/setup/bootstrap_lease_terminal.sh
+            scripts/setup/bootstrap_lease_retirement.sh
+            scripts/setup/bootstrap_state.sh
+          )
+          for member in "${bootstrap_files[@]}"; do
+            if [[ "$(grep -Fxc -- "${member}" "${archive_names}")" != "1" ]]; then
+              echo "ERROR: payload must contain exactly one regular ${member}" >&2
+              exit 1
+            fi
+            if ! awk -v file="${member}" '
+              $NF == file { count += 1; regular = substr($1, 1, 1) == "-" }
+              END { exit !(count == 1 && regular) }
+            ' "${archive_types}"; then
+              echo "ERROR: payload bootstrap member is not a unique regular file: ${member}" >&2
+              exit 1
+            fi
+          done
+          tar -xzf "${DOWNLOAD_DIR}/${ASSET}" -C "${SEED_DIR}" \
+            "${bootstrap_files[@]}"
+          for member in "${bootstrap_files[@]}"; do
+            if [[ ! -f "${SEED_DIR}/${member}" || -L "${SEED_DIR}/${member}" ]]; then
+              echo "ERROR: extracted bootstrap member is not a regular file: ${member}" >&2
+              exit 1
+            fi
+          done
+
+          HOME="${FRESH_HOME}" bash "${SEED_DIR}/scripts/setup/bootstrap.sh" \
+            --version "${VERSION}" --require-provenance -- --yes --require-provenance
+          HOME="${FRESH_HOME}" bash \
+            "${FRESH_HOME}/.vibeguard/dist/current/setup.sh" verify-install
+          test -x "${FRESH_HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+          test -d "${FRESH_HOME}/.vibeguard/installed/rules/claude-rules"
