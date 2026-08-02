@@ -1,0 +1,37 @@
+ObjC.import("Foundation");
+ObjC.bindFunction("proc_pidinfo", ["int", ["int", "int", "uint64", "void *", "int"]]);
+
+function u32(pointer, offset) {
+  return pointer[offset]
+    + pointer[offset + 1] * 256
+    + pointer[offset + 2] * 65536
+    + pointer[offset + 3] * 16777216;
+}
+
+function u64(pointer, offset) {
+  return u32(pointer, offset) + u32(pointer, offset + 4) * 4294967296;
+}
+
+function run(argv) {
+  if (argv.length !== 1 || !/^[1-9][0-9]*$/.test(argv[0])) {
+    throw new Error("expected one positive PID");
+  }
+  const requestedPid = Number(argv[0]);
+  const length = 136;
+  const data = $.NSMutableData.dataWithLength(length);
+  const bytes = $.proc_pidinfo(requestedPid, 3, 0, data.mutableBytes, length);
+  if (bytes !== length) {
+    throw new Error("short PROC_PIDTBSDINFO result");
+  }
+  const pointer = data.mutableBytes;
+  const status = u32(pointer, 4);
+  const pid = u32(pointer, 12);
+  const pgid = u32(pointer, 100);
+  const startSec = u64(pointer, 120);
+  const startUsec = u64(pointer, 128);
+  if (pid !== requestedPid || pgid < 1 || status < 1 || status > 5
+      || startSec < 1 || startUsec < 0 || startUsec >= 1000000) {
+    throw new Error("invalid PROC_PIDTBSDINFO fields");
+  }
+  return [pid, pgid, status, startSec, startUsec].join("\t");
+}

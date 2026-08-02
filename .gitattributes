@@ -1,7 +1,15 @@
 # Force LF line endings for scripts — prevents Windows CRLF breaking bash execution
+.gitattributes text eol=lf
 *.sh text eol=lf
 *.py text eol=lf
 *.bash text eol=lf
+*.jxa text eol=lf
+*.service text eol=lf
+*.timer text eol=lf
+hooks/git/pre-push text eol=lf
+scripts/release/payload-manifest.txt text eol=lf
+claude-md/** text eol=lf
+templates/** text eol=lf
 
 # Normalise all text files to LF in the repo; allow checkout to be OS-native for others
 * text=auto

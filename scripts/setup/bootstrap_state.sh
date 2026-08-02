@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Bootstrap payload integrity comparison and transaction-owned cleanup helpers.
-
 bootstrap_write_payload_entry_modes() {
   local root="$1" output="$2"
   if ! : > "${output}"; then
@@ -32,7 +31,6 @@ bootstrap_write_payload_entry_modes() {
     return 1
   fi
 }
-
 bootstrap_payload_entry_modes_match() {
   local staged_root="$1" retained_root="$2" work_root="$3"
   local staged_map="${work_root}/staged-entry-modes"
@@ -45,7 +43,6 @@ bootstrap_payload_entry_modes_match() {
     return 1
   fi
 }
-
 bootstrap_reap_transaction_write_temporaries() {
   local dist_root="$1" entries entry
   if ! entries="$(
@@ -110,7 +107,6 @@ bootstrap_reap_orphaned_work_directories() {
     fi
   done <<< "${entries}"
 }
-
 bootstrap_prepare_clean_plan() {
   local dist_root="$1" current_link="$2"
   local entries entry name version final_dir all_entries found index
@@ -196,7 +192,6 @@ bootstrap_prepare_clean_plan() {
     fi
   done <<< "${all_entries}"
 }
-
 bootstrap_apply_clean_plan() {
   local dist_root="$1" current_link="$2"
   local index=0 version final_dir transaction_file payload_sha256
