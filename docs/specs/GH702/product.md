@@ -350,8 +350,11 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     global registry 并选择 exact mode；no-block 不要求 attestation，只有 anchor host adapter 才在 Core hook 前验证 current attestation，其 closed
     body/digest/signature/quorum/backend identity/platform generation/current backend counter/monotonic floor/
     Core+adapter minimum version 任一无效或当前 binary/adapter 低于 floor 时，launch nonzero 且不得产生
-    decision。每次 launch 必须用 never-reused nonce + session 直接挑战 external backend；cached、predecessor
-    或仍未过期但非 current response 一律拒绝。通过后 runtime
+    decision；实测 binary digest+version 还必须 exact 匹配 H-010 获批 Core/adapter，只达到 minimum 不授权。
+    每次 launch 必须用 never-reused nonce + session + transaction 直接挑战 external backend；backend 在同一
+    nonrollback TCB 操作内 compare current state、永久消费 transaction 并暂停启动 exact process，adapter 验证签名
+    launch commit 后才恢复；cached、predecessor、无法线性化到 state 比较的 response，或仍未过期但已消费/
+    非 current response 一律在 Core hook 前拒绝。通过后 runtime
     才验证 global registry entry 与 release-pinned H-010 compatibility；terminal no-block
     expiry/pin mismatch 只保留 warn ceiling + stale/audit status。`anchor_block_v1` 在每次 enforcement
     接受 committed decision 前以 external per-leaf authorities 证明 policy/install pointer/floors current；

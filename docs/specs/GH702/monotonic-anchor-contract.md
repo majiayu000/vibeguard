@@ -285,7 +285,6 @@ H-010 获批后，下列 owner map 必须一一落到 `tech.md` planned-change m
 Platform service assets 只能为 anchor-block 进入 manifest 已预留的 setup directory；no-block inventory
 必须证明 backend/service absent。H-010 必须在 approved artifact 固定 selected inventory。在该 approval 前不得
 生成 `tasks.md` 或把 generic service module 冒充为 macOS/Linux/Windows availability。
-
 ## Verification manifest
 
 | Gate | Required fresh evidence |
@@ -306,14 +305,12 @@ Platform service assets 只能为 anchor-block 进入 manifest 已预留的 setu
 | `final_ci_authority_mode_branch` | anchor-block runs launch-authority + real hardware/service conformance；no-block runs zero-backend installed-hook/schema/status evidence and must not require hardware/service |
 | Identity mutation closure | generated `one_field_at_a_time` negatives cover every registered anchor/H-010 identity plus top-level/nested breach mirrors、budget/batch/domain/version/signature fields；registry coverage fails when a new identity is unlisted |
 | Packaging | anchor payload contains service/backend/provision assets；no-block omits them；fresh installs prove exact registry/profile branch inventory |
-
 ### Closed H-010 decision and result schemas
 
 所有对象使用 RFC 8785 JCS、closed fields、literal domain 和 semantic outer schema version；digest
 始终是 `sha256(JCS({digest_domain, schema_version, body}))`，只排除同 envelope 的 sibling digest 与
 signature，body 内不得反向包含自己的 digest。缺字段、unknown/duplicate key、wrong domain/version、
 非 canonical bytes 或 digest/signature mismatch 均 nonzero。
-
 ```text
 global_platform_registry_envelope = {
   digest_domain: "vibeguard.gh702.global-platform-registry.v1", schema_version,
@@ -334,13 +331,15 @@ launch_authority_profile_body = {
   },
   trusted_signers: [{signer_key_id, signature_algorithm, verification_key_digest}],
   signature_quorum, max_attestation_validity_ms,
-  freshness_protocol: "challenge_current_backend_state_v1"
+  freshness_protocol: "challenge_compare_and_launch_v1"
 }
 launch_authority_profile_digest =
   H("vibeguard.gh702.launch-authority-profile.v1", 1, launch_authority_profile_body)
 launch_policy_body = {
   schema_version: 1, launch_authority_profile_digest, platform_id,
   platform_profile_family_id, global_platform_registry_entry_digest,
+  approved_core_binary: {version, binary_digest},
+  approved_host_adapter_binary: {version, binary_digest},
   enforcement_stage: "before_any_core_hook_v1"
 }
 launch_policy_digest = H("vibeguard.gh702.launch-policy.v1", 1, launch_policy_body)
@@ -359,7 +358,8 @@ platform_launch_floor_attestation_envelope = {
   platform_launch_floor_attestation_body: {
     launch_authority_profile_digest, launch_policy_digest,
     platform_launch_current_state_body, platform_launch_current_state_digest,
-    launch_session_id, challenge_nonce, measured_core_binary_digest,
+    launch_session_id, challenge_nonce, launch_transaction_id, launch_commit_counter,
+    launched_process_identity_digest, measured_core_binary_digest,
     measured_host_adapter_binary_digest, requested_core_version,
     requested_host_adapter_version, issued_at, expires_at
   },
@@ -404,24 +404,27 @@ h010_decision_envelope = {
   signatures: [{signer_key_id, signature_algorithm, signature}]
 }
 ```
-
 `launch_authority_profile_body` 是 H-010 内唯一 signer trust source：`trusted_signers` 按 ID 严格排序且唯一，
 quorum 必须在 `1..=unique_signers`，max validity 必须为正；signer ID、algorithm、quorum 与
-provisioned public-key material 的 canonical digest 全部签入 H-010；adapter 必须把实际 verification key
-重算后 exact 匹配，不能只信 key ID。`launch_policy_body` exact 绑定该 profile、platform/family、registry
-entry 与 pre-hook stage；profile/policy body 与 digest 任一 mismatch 都不得请求或接受 attestation。
-每次 launch，adapter 必须生成 never-reused CSPRNG `challenge_nonce` 与唯一 `launch_session_id`，把自身
-测得的 Core/adapter binary digest + version 送给 Core 外 nonrollback backend，并取得直接针对该 challenge
-签发的 current-state response；缓存 response、调用者自报 binary identity 或无 challenge read 均不算 current。
-backend current read 返回 closed state/digest，counter、platform generation、launch floor、Core/adapter
-minimum 与 predecessor 只能单调前进。response 的 challenge/session、measured binary、requested version、
-profile/policy 与 current state 全部在 attestation signature preimage 内；validity interval 必须非空且不超过
-profile 的 `max_attestation_validity_ms`。signatures 按 signer ID 严格排序且唯一，并按 profile 的 exact key
-material/algorithm/quorum 验证。wrong nonce/session、replayed still-unexpired predecessor、non-current state、
-missing quorum、自签、expired 或任一 floor rollback 都必须在 Core 前 nonzero；host adapter 自身由同一
-外部 authority enforce adapter floor。accepted digest/current-state counter 进入 launch receipt、status 与
-anchor perf authority，Core/HOME/local file 不能替代。
-
+provisioned public-key material 的 canonical digest 全部签入 H-010；adapter 重算实际 verification key 后
+exact 匹配，不能只信 key ID。`launch_policy_body` exact 绑定 profile、platform/family、registry entry、
+pre-hook stage 与 approved Core/adapter exact version+binary digest；body/digest、实测 digest/version 任一 mismatch
+都不得请求或接受 attestation，只满足 minimum version 不算获批 binary。
+每次 launch，adapter 必须生成 never-reused CSPRNG `challenge_nonce`、唯一 `launch_session_id` 与
+`launch_transaction_id`，把自身测得的 exact binary digest+version 送给 Core 外 nonrollback backend。backend
+必须在同一 external-TCB atomic `compare_current_state_consume_and_launch` 操作内：比较 current-state digest/
+counter/floor，永久消费 transaction ID，并以暂停态启动 exact measured/approved Core process；该 compare+consume+
+process creation 是 launch linearization point。response 只能在此后签发，并绑定 challenge/session/transaction、
+monotonic `launch_commit_counter`、`launched_process_identity_digest`、measured binaries、requested versions、
+profile/policy 与 current state。adapter 验证该 exact response 后才能恢复已绑定 process，任一 Core hook 在此前
+都不得运行；不得把普通 current read 与本地 spawn 拼成等价实现。state 在 linearization 前推进必须使
+compare 失败；此后的推进不倒置已线性化启动，旧 attestation 也无法启动第二个 process，因为
+transaction ID 已消费且 process identity 必须 exact。缓存 response、caller 自报 identity、wrong nonce/session/
+transaction、predecessor、non-current state、missing quorum、自签、expired、floor rollback 或 replayed still-unexpired
+response 都必须在 Core 前 nonzero。validity interval 非空且不超过 profile max；signatures 按 signer ID
+严格排序且唯一，并按 exact key material/algorithm/quorum 验证。host adapter 由同一外部 authority
+enforce floor；accepted attestation/state/commit/process identities 进入 receipt、status 与 anchor perf authority，
+Core/HOME/local file 不能替代。
 `global_platform_registry_invariant` 是跨所有 Core releases 的 append-only canonical contract；signatures
 按 ID 严格排序且唯一，并 exact 匹配 repository maintainer trust keys/algorithms/quorum。entries 按
 `platform_id` byte order 严格递增且 `platform_id` 全历史唯一；successor 必须保留该 platform 的 exact
@@ -431,13 +434,10 @@ anchor-block。缺少 Core 外、pre-launch、不可由旧 binary/adapter 绕过
 的平台必须永久选择该 branch，禁止 maintainer migration 或 official block。
 `duplicate_platform_across_releases`、family rename/conflicting mode、registry predecessor/history drift 在 H-010
 selection 前拒绝；runtime/release validator 不得 first/last-wins。release pin 不参与该 invariant。
-
 `anchor_profile` 与 `no_block_profile` 是 closed mutually-exclusive branches。`authenticated_no_block_v1`
 只用于 registry 已永久声明 no conforming backend/no official block 的 family；它不伪造 backend identity：
-
 `platform_profiles` 必须按 canonical `platform_id` byte order 严格递增且 ID 唯一；duplicate、乱序或同一
 platform 同时出现两个 mode 在 mode selection 前拒绝，runtime 不得 first/last-wins。
-
 ```text
 release_pin_body = {schema_version: 1, platform_id, core_release_digest}
 release_pin_digest =
@@ -460,20 +460,17 @@ no_block_installation_binding_digest =
   H("vibeguard.gh702.authenticated-no-block-installation.v1", 1,
     no_block_installation_binding_body)
 ```
-
 global registry entry 是 terminality authority；per-release H-010/profile/pin 仅绑定该 release 的
 compatibility。runtime 要求 signed `core_release_digest` exact 等于 current verified release，并重算 pin；
 mismatch 显式 stale/nonzero，但不能改变已识别 no-block family 的 warn/off ceiling。每个 installation 从
 global entry + release profile 派生 binding；HOME 自报 generation/binding 无权改 mode。no-block 的
 backend/root/leaf 均为 `not_applicable`，不得 provision/restart/CAS/IPC 或把合法 warn/off/no-data 升为 denial。
-
 official block 只能在已由 external launch/version-floor TCB 管辖、且当前 attestation 证明 old
 Core/adapter 低于 floor 无法启动的平台 generation 上声明；new identity、maintainer authorization、
 backend proof 或 Core 内检查均不能替代 launch floor。no-block platform/family 没有 migration-to-block
 路径。active block platform 的 `two_release_whole_rollback` 必须使旧 binary/adapter 在任何 Core hook
 前 nonzero 拒绝（`old_binary_prelaunch_rejected`），不能执行旧 warn/off、产生 decision 或把 block
 receipt/profile 重解释成 no-block。launch authority/floor 失效时保持 pre-launch fail closed。
-
 `approved_h010_schema_version = h010_decision_envelope.schema_version`，后者是 universal envelope 的
 canonical outer key；`approved_h010_schema_version` 只是在 authority/result body 中引用该已验证值，
 不是可接受的 outer alias。
@@ -487,16 +484,13 @@ profile/policy 下 challenge-bound launch-floor attestation current 且 exact bi
 `expired_profile_no_block_ceiling_v1`：继续 warn/off/no-data，status stale/`audit_required`/nonzero；expired
 anchor profile 绝不能变成 no-block。expiry、pin mismatch 或 no-block profile mismatch 都不授予 block，
 也不解除 global ceiling；current valid profile 仍优先。
-
 `evaluation_policy_digest` 来自 authoritative active evaluation-policy envelope 的 literal
 `vibeguard.gh702.evaluation-policy.v1` domain + schema version + policy body digest；其 body 必须引用 exact
 `h010_decision_artifact_digest`。`authoritative_policy_generation` 来自 external policy leaf attestation，
 `policy_validity_evidence_digest` 来自该 policy 的 closed signed validity-evidence envelope。三者在运行前/
 后 under policy lock exact 相等，不能从 result、budget 或 wall clock推导。
-
 仅 `anchor_block_v1` 的 anchor-enabled fixture 按无环顺序构造下列对象；no-block branch 不得伪造
 `backend_profile_id`、anchor budget/result 或 CAS sample：
-
 ```text
 authority_base_body = {
   approved_h010_schema_version, h010_decision_artifact_digest,
@@ -537,6 +531,8 @@ result_body = {
   decision_body, decision_artifact_digest,
   initial: batch_body(phase=initial), initial_digest: batch_digest(initial),
   initial_breaches: initial.ordered_breaches,
+  confirmation_applicability:
+    required_numeric_breach|not_applicable_no_initial_breach|not_applicable_initial_error,
   confirmation: batch_body(phase=confirmation)|null,
   confirmation_digest: batch_digest(confirmation)|null,
   confirmation_breaches: confirmation.ordered_breaches|[],
@@ -545,9 +541,7 @@ result_body = {
 result_body_digest = H("vibeguard.gh702.anchor-perf-result.v1", schema_version, result_body)
 result_envelope = {digest_domain, schema_version, result_body, result_body_digest}
 ```
-
 `authenticated_no_block_v1` 使用另一组 closed schemas；它们不复用 anchor authority/budget/batch/result：
-
 ```text
 no_block_authority_base_body = {
   approved_h010_schema_version, h010_decision_artifact_digest,
@@ -602,7 +596,6 @@ no_block_result_envelope = {
   no_block_result_body, no_block_result_body_digest
 }
 ```
-
 no-block budget/batch/result 只允许 `hook_e2e_*`、`hook_e2e_ms`、sample error 与 breach
 字段；`backend_profile_id`、CAS/IPC/queue/contention metric、timeout/count/budget、successor baseline
 等 anchor 字段必须 absent，不能填 null 或 zero。initial 无 error 且无 numeric breach 时
@@ -613,7 +606,6 @@ no-block budget/batch/result 只允许 `hook_e2e_*`、`hook_e2e_ms`、sample err
 `cleared_transient`，仍 breach 为 `confirmed_regression`，confirmation sample error 为
 `confirmation_error`。initial/confirmation breach mirrors 必须分别 exact 等于其 batch
 `ordered_breaches`；任何 applicability/body/digest/breach 组合不一致都 nonzero。
-
 这里 `H(domain, version, body)` 是上述 named closed object 的 JCS digest，不是位置字符串拼接。
 `budget_body` 必须逐字段重构自 signed H-010 中 exact selected platform/fixture budget，不能接受 result
 echo 或 CLI override；`successor_baseline = {from_leaf_state, target_leaf_counter,
@@ -626,7 +618,6 @@ confirmation body/digest/`ordered_breaches`。`initial`/
 所以 swap/relabel batch、budget 或 authority 会改变 result digest。`decision_artifact_digest` 的唯一来源
 是 literal `vibeguard.gh702.anchor-perf-decision.v1` fixture decision body，不是 H-010 artifact 的 alias，
 也不进入自己的 preimage。
-
 ### Latency result and decision contract
 
 每个 H-010 approved anchor-enabled fixture 产生一个 closed result。identity fields 至少是 `fixture_id`、
@@ -638,24 +629,24 @@ confirmation body/digest/`ordered_breaches`。`initial`/
 evaluation decision 为该 fixture 批准的
 `hook_e2e_{p50,p95,p99,max}_ms`、`cas_timeout_ms`、`ipc_timeout_ms`、`queue_wait_budget_ms`、
 `contention_total_budget_ms`、`contention_retry_limit_count`。
-
 `initial` 与非空 `confirmation` 使用同一 closed shape：`hook_e2e_ms`、`anchor_cas_ms`、
 `anchor_ipc_ms`、`anchor_queue_wait_ms`、`anchor_contention_total_ms` 各含 integer
 `p50/p95/p99/max`，`anchor_contention_retry_count` 含 integer `p50/p95/p99/max`；另存
 `cas_timeout_count`、`ipc_timeout_count`、`sample_error_count`。result 还必须保存按 exact field path
 排序的 `initial_breaches`、`confirmation_breaches` 与 `decision`，不得用一个 P95 status 代表其他项。
-
-initial 的 hook 四分位/max 分别比较同名预算；CAS/IPC max 分别比较 timeout，queue/contention max
-分别比较其 millisecond budget，contention retry max 比较 count limit。任一 numeric breach 触发同一
-fixture identity、inputs、runs、backend/profile 与 workload schedule 的完整 confirmation batch；每批
-使用记录的 successor baseline/non-overlapping leaf，禁止为“相同状态” rollback external root。confirmation 必须重测
-并保留全部 fields，只有全部回到预算内才是 `cleared_transient`，任一项仍超限即
-`confirmed_regression` 并使 CI nonzero。missing/null/non-integer、identity/budget drift、sample error 或
-任何 timeout count 非零是 `confirmation_error` 并立即 nonzero，不得用 confirmation 清除。result、budget、
+initial 的 hook 四分位/max 分别比较同名预算；CAS/IPC max 比较 timeout，queue/contention max 比较
+millisecond budget，contention retry max 比较 count limit。initial 无 error 且无 numeric breach 时必须是
+`not_applicable_no_initial_breach` + null confirmation/digest + empty breaches + `pass`；initial sample error 或任一
+timeout count 非零时必须是 `not_applicable_initial_error` + 同一 null/empty 组合 + `confirmation_error`。
+只有 numeric breach 可使用 `required_numeric_breach`，并触发同一 fixture identity/inputs/runs/backend/profile/
+workload schedule 的完整 confirmation batch；每批使用记录的 successor baseline/non-overlapping leaf，禁止为
+“相同状态” rollback external root。confirmation 必须重测并保留全部 fields；全部回到预算内才是
+`cleared_transient`，任一项仍超限即 `confirmed_regression` 并使 CI nonzero，confirmation sample error 则
+`confirmation_error`。任一 applicability/body/digest/breach/decision 组合不一致、missing/null/non-integer 或
+identity/budget drift 都立即 nonzero，不得用 confirmation 清除。result、budget、
 initial、confirmation 与运行前/运行后 authoritative policy read 必须 exact 同一上述 identity；H-010/
 policy/budget rotation、generation/validity/decision artifact drift 或任一 mismatch 都立即 nonzero，旧
 result 不得 grandfather、重标或由 confirmation 清除，只能用新 identity 重跑全部 fixture。
-
 `tests/test_hook_perf_contract.sh` 必须按 authority mode 分别验证两套 closed shape/units、budget echo、
 initial/confirmation/applicability、breach path 与 blocking decision；anchor 对 P50/P95/P99/max、CAS、IPC、queue、
 contention-time、retry-count 分别注入唯一 breach 并要求 gate nonzero；还要逐一 mutate H-010、policy、
@@ -663,17 +654,14 @@ generation、validity evidence、decision artifact 与 budget echo identity 并�
 且 confirmation 全字段通过时才清除。no-block 对四个 hook fields、sample error、三种 applicability、
 null/empty breach mirror 和任一 forbidden backend field 注入负例；每个 claimed installed fixture ID 在
 runner/H-010/CI/result 中各恰好一次，anchor 用 service sentinel，no-block 用 zero-backend sentinel。
-
 schema registry 必须导出下列 exhaustive identity field sets，且每项使用 schema 的 canonical exact
 field name/path；consumer 不得将 alias 归一化成 canonical field。fixture generator 以
 `one_field_at_a_time` 对每个 field 执行 change/delete/cross-record-swap/alias mutation，并证明所有
 consumer nonzero；新增 identity field 却未进入 registry 本身也是 contract failure。result body 的真实字段
 只叫 `decision`；任何替代名称都是 unknown alias，必须拒绝：
-
 Registry entries are unique RFC 6901 schema JSON Pointers；array element schemas use the literal
 `items` node, never an instance index or wildcard. Duplicate strings are invalid, and every pointer must resolve to
 one closed leaf—not an object/array parent:
-
 ```text
 anchor_identity_schema_pointers = [
   "/anchor/backend_identity/backend_kind", "/anchor/backend_identity/backend_instance_id",
@@ -710,7 +698,8 @@ h010_identity_schema_pointers = [
   "/launch_authority_profile_body/signature_quorum", "/launch_authority_profile_body/max_attestation_validity_ms",
   "/launch_authority_profile_body/freshness_protocol", "/launch_policy_body/schema_version", "/launch_policy_digest", "/launch_policy_body/platform_id",
   "/launch_policy_body/platform_profile_family_id", "/launch_policy_body/global_platform_registry_entry_digest",
-  "/launch_policy_body/launch_authority_profile_digest", "/launch_policy_body/enforcement_stage",
+  "/launch_policy_body/launch_authority_profile_digest", "/launch_policy_body/approved_core_binary/version", "/launch_policy_body/approved_core_binary/binary_digest",
+  "/launch_policy_body/approved_host_adapter_binary/version", "/launch_policy_body/approved_host_adapter_binary/binary_digest", "/launch_policy_body/enforcement_stage",
   "/platform_launch_floor_attestation_envelope/digest_domain", "/platform_launch_floor_attestation_envelope/schema_version", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_digest", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launch_authority_profile_digest",
   "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launch_policy_digest",
   "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/schema_version", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/launch_authority_backend_identity/backend_kind",
@@ -726,6 +715,9 @@ h010_identity_schema_pointers = [
   "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_digest",
   "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launch_session_id",
   "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/challenge_nonce",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launch_transaction_id",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launch_commit_counter",
+  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_digest",
   "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/measured_core_binary_digest",
   "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/measured_host_adapter_binary_digest",
   "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/requested_core_version",
@@ -760,33 +752,42 @@ h010_identity_schema_pointers = [
   "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/fixture_budgets/items/hook_e2e_p95_ms", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/fixture_budgets/items/hook_e2e_p99_ms",
   "/h010_decision_envelope/h010_decision_body/platform_profiles/items/no_block_profile/fixture_budgets/items/hook_e2e_max_ms", "/h010_decision_envelope/signatures/items/signer_key_id",
   "/h010_decision_envelope/signatures/items/signature_algorithm", "/h010_decision_envelope/signatures/items/signature",
-  "/perf/authority_base/evaluation_policy_digest", "/perf/authority_base/authoritative_policy_generation",
-  "/perf/authority_base/policy_validity_evidence_digest", "/perf/authority_base/authority_base_digest",
-  "/perf/anchor/platform_launch_floor_attestation_digest", "/perf/anchor/platform_launch_current_state_digest",
-  "/perf/anchor/current_platform_generation", "/perf/anchor/backend_state_counter", "/perf/anchor/monotonic_launch_floor",
-  "/perf/no_block/no_block_release_profile_digest", "/perf/no_block/no_block_installation_binding_digest",
-  "/perf/no_block/no_block_authority_base_digest", "/perf/no_block/no_block_budget_digest",
-  "/perf/no_block/no_block_decision_artifact_digest", "/perf/no_block/no_block_batch_digest",
-  "/perf/no_block/no_block_result_body_digest", "/perf/no_block/confirmation_applicability",
-  "/perf/result/initial_digest", "/perf/result/initial_breaches", "/perf/result/confirmation_digest",
-  "/perf/result/confirmation_breaches", "/perf/result/decision", "/perf/result/result_body_digest"
+  "/perf/anchor/authority_base_body/approved_h010_schema_version", "/perf/anchor/authority_base_body/h010_decision_artifact_digest", "/perf/anchor/authority_base_body/evaluation_policy_digest", "/perf/anchor/authority_base_body/authoritative_policy_generation", "/perf/anchor/authority_base_body/policy_validity_evidence_digest",
+  "/perf/anchor/authority_base_body/platform_launch_floor_attestation_digest", "/perf/anchor/authority_base_body/platform_launch_current_state_digest", "/perf/anchor/authority_base_body/current_platform_generation", "/perf/anchor/authority_base_body/backend_state_counter", "/perf/anchor/authority_base_body/monotonic_launch_floor", "/perf/anchor/authority_base_body/allowed_core_min_version", "/perf/anchor/authority_base_body/allowed_host_adapter_min_version", "/perf/anchor/authority_base_digest",
+  "/perf/anchor/budget_body/authority_base_digest", "/perf/anchor/budget_body/fixture_id", "/perf/anchor/budget_body/platform_id", "/perf/anchor/budget_body/backend_profile_id", "/perf/anchor/budget_body/host_kind", "/perf/anchor/budget_body/installed_wrapper_path", "/perf/anchor/budget_body/workload_schedule_digest", "/perf/anchor/budget_body/runs", "/perf/anchor/budget_body/hook_e2e_p50_ms", "/perf/anchor/budget_body/hook_e2e_p95_ms", "/perf/anchor/budget_body/hook_e2e_p99_ms", "/perf/anchor/budget_body/hook_e2e_max_ms", "/perf/anchor/budget_body/cas_timeout_ms", "/perf/anchor/budget_body/ipc_timeout_ms", "/perf/anchor/budget_body/queue_wait_budget_ms", "/perf/anchor/budget_body/contention_total_budget_ms", "/perf/anchor/budget_body/contention_retry_limit_count", "/perf/anchor/budget_digest",
+  "/perf/anchor/decision_body/authority_base_digest", "/perf/anchor/decision_body/budget_digest", "/perf/anchor/decision_body/fixture_id", "/perf/anchor/decision_body/anchor_enabled", "/perf/anchor/decision_body/surface", "/perf/anchor/decision_body/confirmation_policy", "/perf/anchor/decision_artifact_digest",
+  "/perf/anchor/batch_body/phase", "/perf/anchor/batch_body/authority_base_digest", "/perf/anchor/batch_body/budget_digest", "/perf/anchor/batch_body/decision_artifact_digest", "/perf/anchor/batch_body/fixture_id", "/perf/anchor/batch_body/platform_id", "/perf/anchor/batch_body/backend_profile_id", "/perf/anchor/batch_body/host_kind", "/perf/anchor/batch_body/installed_wrapper_path", "/perf/anchor/batch_body/anchor_enabled", "/perf/anchor/batch_body/surface", "/perf/anchor/batch_body/runs", "/perf/anchor/batch_body/workload_schedule_digest", "/perf/anchor/batch_body/successor_baseline/from_leaf_state/per_leaf_authority_id", "/perf/anchor/batch_body/successor_baseline/from_leaf_state/leaf_counter", "/perf/anchor/batch_body/successor_baseline/from_leaf_state/leaf_value_digest", "/perf/anchor/batch_body/successor_baseline/target_leaf_counter", "/perf/anchor/batch_body/successor_baseline/target_leaf_digest", "/perf/anchor/batch_digest",
+  "/perf/anchor/result_body/authority_base_body/approved_h010_schema_version", "/perf/anchor/result_body/authority_base_body/h010_decision_artifact_digest", "/perf/anchor/result_body/authority_base_body/evaluation_policy_digest", "/perf/anchor/result_body/authority_base_body/authoritative_policy_generation", "/perf/anchor/result_body/authority_base_body/policy_validity_evidence_digest", "/perf/anchor/result_body/authority_base_body/platform_launch_floor_attestation_digest", "/perf/anchor/result_body/authority_base_body/platform_launch_current_state_digest", "/perf/anchor/result_body/authority_base_body/current_platform_generation", "/perf/anchor/result_body/authority_base_body/backend_state_counter", "/perf/anchor/result_body/authority_base_body/monotonic_launch_floor", "/perf/anchor/result_body/authority_base_body/allowed_core_min_version", "/perf/anchor/result_body/authority_base_body/allowed_host_adapter_min_version", "/perf/anchor/result_body/authority_base_digest",
+  "/perf/anchor/result_body/budget_body/authority_base_digest", "/perf/anchor/result_body/budget_body/fixture_id", "/perf/anchor/result_body/budget_body/platform_id", "/perf/anchor/result_body/budget_body/backend_profile_id", "/perf/anchor/result_body/budget_body/host_kind", "/perf/anchor/result_body/budget_body/installed_wrapper_path", "/perf/anchor/result_body/budget_body/workload_schedule_digest", "/perf/anchor/result_body/budget_body/runs", "/perf/anchor/result_body/budget_body/hook_e2e_p50_ms", "/perf/anchor/result_body/budget_body/hook_e2e_p95_ms", "/perf/anchor/result_body/budget_body/hook_e2e_p99_ms", "/perf/anchor/result_body/budget_body/hook_e2e_max_ms", "/perf/anchor/result_body/budget_body/cas_timeout_ms", "/perf/anchor/result_body/budget_body/ipc_timeout_ms", "/perf/anchor/result_body/budget_body/queue_wait_budget_ms", "/perf/anchor/result_body/budget_body/contention_total_budget_ms", "/perf/anchor/result_body/budget_body/contention_retry_limit_count", "/perf/anchor/result_body/budget_digest",
+  "/perf/anchor/result_body/decision_body/authority_base_digest", "/perf/anchor/result_body/decision_body/budget_digest", "/perf/anchor/result_body/decision_body/fixture_id", "/perf/anchor/result_body/decision_body/anchor_enabled", "/perf/anchor/result_body/decision_body/surface", "/perf/anchor/result_body/decision_body/confirmation_policy", "/perf/anchor/result_body/decision_artifact_digest",
+  "/perf/anchor/result_body/initial/phase", "/perf/anchor/result_body/initial/authority_base_digest", "/perf/anchor/result_body/initial/budget_digest", "/perf/anchor/result_body/initial/decision_artifact_digest", "/perf/anchor/result_body/initial/fixture_id", "/perf/anchor/result_body/initial/platform_id", "/perf/anchor/result_body/initial/backend_profile_id", "/perf/anchor/result_body/initial/host_kind", "/perf/anchor/result_body/initial/installed_wrapper_path", "/perf/anchor/result_body/initial/anchor_enabled", "/perf/anchor/result_body/initial/surface", "/perf/anchor/result_body/initial/runs", "/perf/anchor/result_body/initial/workload_schedule_digest", "/perf/anchor/result_body/initial/successor_baseline/from_leaf_state/per_leaf_authority_id", "/perf/anchor/result_body/initial/successor_baseline/from_leaf_state/leaf_counter", "/perf/anchor/result_body/initial/successor_baseline/from_leaf_state/leaf_value_digest", "/perf/anchor/result_body/initial/successor_baseline/target_leaf_counter", "/perf/anchor/result_body/initial/successor_baseline/target_leaf_digest", "/perf/anchor/result_body/initial_digest", "/perf/anchor/result_body/initial_breaches",
+  "/perf/anchor/result_body/confirmation_applicability", "/perf/anchor/result_body/confirmation/phase", "/perf/anchor/result_body/confirmation/authority_base_digest", "/perf/anchor/result_body/confirmation/budget_digest", "/perf/anchor/result_body/confirmation/decision_artifact_digest", "/perf/anchor/result_body/confirmation/fixture_id", "/perf/anchor/result_body/confirmation/platform_id", "/perf/anchor/result_body/confirmation/backend_profile_id", "/perf/anchor/result_body/confirmation/host_kind", "/perf/anchor/result_body/confirmation/installed_wrapper_path", "/perf/anchor/result_body/confirmation/anchor_enabled", "/perf/anchor/result_body/confirmation/surface", "/perf/anchor/result_body/confirmation/runs", "/perf/anchor/result_body/confirmation/workload_schedule_digest", "/perf/anchor/result_body/confirmation/successor_baseline/from_leaf_state/per_leaf_authority_id", "/perf/anchor/result_body/confirmation/successor_baseline/from_leaf_state/leaf_counter", "/perf/anchor/result_body/confirmation/successor_baseline/from_leaf_state/leaf_value_digest", "/perf/anchor/result_body/confirmation/successor_baseline/target_leaf_counter", "/perf/anchor/result_body/confirmation/successor_baseline/target_leaf_digest", "/perf/anchor/result_body/confirmation_digest", "/perf/anchor/result_body/confirmation_breaches", "/perf/anchor/result_body/decision", "/perf/anchor/result_body_digest",
+  "/perf/no_block/authority_base_body/approved_h010_schema_version", "/perf/no_block/authority_base_body/h010_decision_artifact_digest", "/perf/no_block/authority_base_body/global_platform_registry_entry_digest", "/perf/no_block/authority_base_body/no_block_release_profile_digest", "/perf/no_block/authority_base_body/no_block_installation_binding_digest", "/perf/no_block/authority_base_body/evaluation_policy_digest", "/perf/no_block/authority_base_body/authoritative_policy_generation", "/perf/no_block/authority_base_body/policy_validity_evidence_digest", "/perf/no_block/authority_base_digest",
+  "/perf/no_block/budget_body/no_block_authority_base_digest", "/perf/no_block/budget_body/fixture_id", "/perf/no_block/budget_body/platform_id", "/perf/no_block/budget_body/host_kind", "/perf/no_block/budget_body/installed_wrapper_path", "/perf/no_block/budget_body/workload_schedule_digest", "/perf/no_block/budget_body/runs", "/perf/no_block/budget_body/hook_e2e_p50_ms", "/perf/no_block/budget_body/hook_e2e_p95_ms", "/perf/no_block/budget_body/hook_e2e_p99_ms", "/perf/no_block/budget_body/hook_e2e_max_ms", "/perf/no_block/budget_digest",
+  "/perf/no_block/decision_body/no_block_authority_base_digest", "/perf/no_block/decision_body/no_block_budget_digest", "/perf/no_block/decision_body/fixture_id", "/perf/no_block/decision_body/authority_mode", "/perf/no_block/decision_body/anchor_enabled", "/perf/no_block/decision_body/surface", "/perf/no_block/decision_body/confirmation_policy", "/perf/no_block/decision_artifact_digest",
+  "/perf/no_block/batch_body/phase", "/perf/no_block/batch_body/no_block_authority_base_digest", "/perf/no_block/batch_body/no_block_budget_digest", "/perf/no_block/batch_body/no_block_decision_artifact_digest", "/perf/no_block/batch_body/fixture_id", "/perf/no_block/batch_body/platform_id", "/perf/no_block/batch_body/host_kind", "/perf/no_block/batch_body/installed_wrapper_path", "/perf/no_block/batch_body/authority_mode", "/perf/no_block/batch_body/anchor_enabled", "/perf/no_block/batch_body/surface", "/perf/no_block/batch_body/runs", "/perf/no_block/batch_body/workload_schedule_digest", "/perf/no_block/batch_digest",
+  "/perf/no_block/result_body/authority_base_body/approved_h010_schema_version", "/perf/no_block/result_body/authority_base_body/h010_decision_artifact_digest", "/perf/no_block/result_body/authority_base_body/global_platform_registry_entry_digest", "/perf/no_block/result_body/authority_base_body/no_block_release_profile_digest", "/perf/no_block/result_body/authority_base_body/no_block_installation_binding_digest", "/perf/no_block/result_body/authority_base_body/evaluation_policy_digest", "/perf/no_block/result_body/authority_base_body/authoritative_policy_generation", "/perf/no_block/result_body/authority_base_body/policy_validity_evidence_digest", "/perf/no_block/result_body/authority_base_digest",
+  "/perf/no_block/result_body/budget_body/no_block_authority_base_digest", "/perf/no_block/result_body/budget_body/fixture_id", "/perf/no_block/result_body/budget_body/platform_id", "/perf/no_block/result_body/budget_body/host_kind", "/perf/no_block/result_body/budget_body/installed_wrapper_path", "/perf/no_block/result_body/budget_body/workload_schedule_digest", "/perf/no_block/result_body/budget_body/runs", "/perf/no_block/result_body/budget_body/hook_e2e_p50_ms", "/perf/no_block/result_body/budget_body/hook_e2e_p95_ms", "/perf/no_block/result_body/budget_body/hook_e2e_p99_ms", "/perf/no_block/result_body/budget_body/hook_e2e_max_ms", "/perf/no_block/result_body/budget_digest",
+  "/perf/no_block/result_body/decision_body/no_block_authority_base_digest", "/perf/no_block/result_body/decision_body/no_block_budget_digest", "/perf/no_block/result_body/decision_body/fixture_id", "/perf/no_block/result_body/decision_body/authority_mode", "/perf/no_block/result_body/decision_body/anchor_enabled", "/perf/no_block/result_body/decision_body/surface", "/perf/no_block/result_body/decision_body/confirmation_policy", "/perf/no_block/result_body/decision_artifact_digest",
+  "/perf/no_block/result_body/initial/phase", "/perf/no_block/result_body/initial/no_block_authority_base_digest", "/perf/no_block/result_body/initial/no_block_budget_digest", "/perf/no_block/result_body/initial/no_block_decision_artifact_digest", "/perf/no_block/result_body/initial/fixture_id", "/perf/no_block/result_body/initial/platform_id", "/perf/no_block/result_body/initial/host_kind", "/perf/no_block/result_body/initial/installed_wrapper_path", "/perf/no_block/result_body/initial/authority_mode", "/perf/no_block/result_body/initial/anchor_enabled", "/perf/no_block/result_body/initial/surface", "/perf/no_block/result_body/initial/runs", "/perf/no_block/result_body/initial/workload_schedule_digest", "/perf/no_block/result_body/initial_digest", "/perf/no_block/result_body/initial_breaches",
+  "/perf/no_block/result_body/confirmation_applicability", "/perf/no_block/result_body/confirmation/phase", "/perf/no_block/result_body/confirmation/no_block_authority_base_digest", "/perf/no_block/result_body/confirmation/no_block_budget_digest", "/perf/no_block/result_body/confirmation/no_block_decision_artifact_digest", "/perf/no_block/result_body/confirmation/fixture_id", "/perf/no_block/result_body/confirmation/platform_id", "/perf/no_block/result_body/confirmation/host_kind", "/perf/no_block/result_body/confirmation/installed_wrapper_path", "/perf/no_block/result_body/confirmation/authority_mode", "/perf/no_block/result_body/confirmation/anchor_enabled", "/perf/no_block/result_body/confirmation/surface", "/perf/no_block/result_body/confirmation/runs", "/perf/no_block/result_body/confirmation/workload_schedule_digest", "/perf/no_block/result_body/confirmation_digest", "/perf/no_block/result_body/confirmation_breaches", "/perf/no_block/result_body/decision", "/perf/no_block/result_body_digest"
 ]
 ```
-
 negative corpus 还必须逐项 mutate 每个 budget value、batch phase/runs/metric/timeout/error/breach path、
 literal domain、outer schema version、signature/key 与 from/target leaf pairing。breach mirror fixtures
 `one_sided_breach_change`、`one_sided_breach_delete`、`one_sided_breach_swap` 必须分别只改 top-level
 或 nested `ordered_breaches` 并 nonzero；`nonempty_confirmation_breaches_with_null_confirmation` 也必须
 nonzero。另覆盖 `refreshed_proof_same_state`、valid `unrelated_leaf_advance`、same-leaf unexpected successor
 （`needs_repair`）、`forbidden_cross_release_mode_transition`、`duplicate_platform_across_releases`、
-`two_release_whole_rollback`、`old_binary_prelaunch_rejected`、`still_unexpired_attestation_replay_after_floor_advance`
-与 launch profile/policy/key/quorum/challenge/session/predecessor/current-state mutations。fixture 必须证明 replay
-的旧 nonce/session 或 lower backend counter/floor 即使 signature/expiry 仍有效也在 pre-hook 拒绝；no-block family 永远 warn/off且禁止 migration；active block platform rollback
+`two_release_whole_rollback`、`old_binary_prelaunch_rejected`、`unapproved_binary_above_minimum_rejected`、
+`state_advance_before_atomic_launch_commit`、`replayed_consumed_launch_transaction` 与
+`still_unexpired_attestation_replay_after_floor_advance`，并 mutate launch profile/policy/key/quorum/challenge/session/
+transaction/commit/process/predecessor/current-state。fixture 必须证明旧 nonce/session/transaction 或 lower backend
+counter/floor 即使 signature/expiry 仍有效也在 pre-hook 拒绝；no-block family 永远 warn/off且禁止 migration；active block platform rollback
 到旧 Core/adapter 时在任何 hook 前 nonzero，不能执行 warn/off 或产生 decision。另须拒绝
 duplicate/unsorted current profiles、pin mismatch、outer schema alias；
 `no_block_status_without_backend` 断言 backend/root/leaf=`not_applicable`、global generation/install binding/
 warn ceiling/stale 与 no-block result/CI identity 齐全，且 backend budget/provision/restart/CAS/IPC fields 全部 absent。
-
 planned **tests/test_guard_pack_anchor.sh** owns schema/IPC/lifecycle/crash/concurrency fixtures；planned
 **tests/perf_guard_pack_anchor.sh** 可保留 anchor fault attribution 专项，但不得自建发布 SLA gate。
 canonical distribution/budget evidence 必须接入 `tests/bench_hook_latency.sh`，并由
@@ -794,7 +795,6 @@ canonical distribution/budget evidence 必须接入 `tests/bench_hook_latency.sh
 `final_ci_authority_mode_branch` 要求 anchor-block 在每个 claimed platform 验证 pre-Core launch floor 并
 运行真实 backend 或获批 fail-closed hardware/service fixture；no-block 只运行真实 installed zero-backend
 hook、独立 schema/result/status gates，backend/hardware/service evidence 为 `not_applicable` 且不得成为 CI 前提。
-
 本文不规定 backend 实现、平台支持集合、provision/reinstall/device-replacement policy、IPC peer
 authentication 或 latency budget；这些必须由 product spec 的未批准 H-010 决定，并由
 `tech.md` 的 manifest/verification matrix 证明后才可实现。

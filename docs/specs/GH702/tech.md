@@ -538,7 +538,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "vibeguard-runtime/src/guard_pack/transaction.rs",
     "vibeguard-runtime/src/guard_pack/runtime_guard.rs",
     "vibeguard-runtime/src/guard_pack/render.rs",
-    "vibeguard-runtime/src/guard_pack/anchor/", "vibeguard-runtime/src/guard_pack/anchor/global_registry.rs", "vibeguard-runtime/src/guard_pack/anchor/launch_adapter.rs",
+    "vibeguard-runtime/src/guard_pack/anchor/", "vibeguard-runtime/src/guard_pack/anchor/global_registry.rs", "vibeguard-runtime/src/guard_pack/anchor/h010.rs", "vibeguard-runtime/src/guard_pack/anchor/launch_adapter.rs",
     "schemas/guard-pack.schema.json", "schemas/guard-pack-index.schema.json",
     "schemas/guard-pack-registry-event.schema.json", "schemas/guard-pack-capability.schema.json",
     "schemas/guard-pack-precision.schema.json", "schemas/guard-pack-policy.schema.json",
@@ -560,7 +560,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "setup.sh",
     "data/guard-pack-policy.json",
     "data/guard-pack-index.json",
-    "data/guard-pack-registry-events.json", "data/guard-pack-global-platform-registry.json",
+    "data/guard-pack-registry-events.json", "data/guard-pack-global-platform-registry.json", "data/guard-pack-h010-decision.json",
     "data/guard-pack-capabilities.json",
     "tests/test_guard_packs.sh",
     "tests/test_guard_pack_supply_chain.sh",
@@ -596,10 +596,10 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | Capability/host | planned **guard_pack/capability.rs**; consume approved GH-701 registry when available | Claude/Codex/unknown/incompatible/unsupported fixture matrix |
 | Transaction/receipt | planned **guard_pack/transaction.rs**, receipt/transaction schemas | crash-at-every-stage, concurrent lock, drift, rollback, recovery and canary tests |
 | Precision/runtime policy | planned **guard_pack/precision.rs**, **runtime_guard**, precision/policy/override/runtime-state schemas, `scripts/precision-tracker.py` | exhaustive eligibility truth table + binding/freshness/override/policy-rotation/clock-rollback negatives |
-| Monotonic anchor | planned **anchor/global_registry.rs**, **launch_adapter.rs** + shipped global registry artifact/profile/H-010/perf schemas | mode-first selection、pre-Core floor/replay、terminal no-block、independent result/CI、per-leaf/JCS gates |
+| Monotonic anchor | planned **anchor/global_registry.rs**, **anchor/h010.rs**, **launch_adapter.rs** + shipped global registry/H-010 artifacts and profile/perf schemas | planned **anchor/h010.rs** loads and verifies the signed H-010 body; release payload publishes the exact planned **data/guard-pack-h010-decision.json**；mode-first selection、atomic compare-and-launch、terminal no-block、independent result/CI、per-leaf/JCS gates |
 | Author publish | planned **scripts/lib/guard_pack_manifest.py**, **guard_pack_publish.py**, **scripts/ci/validate-guard-pack-publish.py** | two-build digest equality; half-publish/index-CAS/revoke/yank fixtures |
 | Legacy migration | `scripts/lib/guard_packs.py`, `scripts/lib/guard_pack_receipts.py`, `packs/safe-bash/` | existing 623-case shell surface remains green plus migration ownership sentinels |
-| Release distribution | `scripts/release/payload-manifest.txt`, `scripts/setup/guard-packs.sh`, `setup.sh`, `tests/test_payload.sh`, `tests/test_release_workflow.sh` | GH-699 actual no-clone launcher invokes Rust client; payload tamper fails closed |
+| Release distribution | `scripts/release/payload-manifest.txt`, planned signed **data/guard-pack-h010-decision.json**, `scripts/setup/guard-packs.sh`, `setup.sh`, `tests/test_payload.sh`, `tests/test_release_workflow.sh` | release payload contains the byte-exact H-010 artifact consumed by planned **anchor/h010.rs**; GH-699 no-clone launcher invokes Rust client; payload tamper fails closed |
 | Docs | `README.md`, `docs/README_CN.md`, planned **docs/how/guard-packs.md** | generated command/status examples; doc path and command validators |
 
 ## Product-to-Test Mapping
