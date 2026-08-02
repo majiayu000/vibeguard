@@ -13,9 +13,11 @@ typed receipt、nested capsule/KMS、replay及 DAG digest重算为零 mismatch�
 replay object均 closed；unknown/extra/alias/cross-method/null-not-declared一律 invalid_request，
 不得由本文或调用方补充兼容 spelling。
 
-registry exact 为 17 个 client method；实现须读 x-gh700-method-registry，并要求 method、
-request_ref、success_ref、authorization ref、frontier profile、error set、replay class与 positive
-model一一对应且无 duplicate/dangling ref。request envelope exact 由 client_request_envelope 定义，
+registry matrix exact 为 17 个 client method；实现须读 `x-gh700-method-registry.rows`，并要求 method、
+request_ref、success_ref、authorization ref、frontier profile、error set、replay class与全部 model profile
+一一对应且无 duplicate/dangling/omitted/unknown row、model、profile、relation或 path。`profiles`是 request、
+authorization、time-bound、secret-channel、result与 response binding 的唯一 machine source，不得另建 method switch。
+request envelope exact 由 client_request_envelope 定义，
 包含 deployment policy_binding、authenticated principal、canonical 32-byte unpadded-base64url
 request_nonce、两个显式 frontier-or-null 与 body。success/error分别只接受 client_success/client_error；
 两者均回显 request digest及 client_request_nonce_digest并携 fresh response nonce，且不得
@@ -154,7 +156,7 @@ checkpoint/anchor不等或任一 cycle未确认均 `internal_durability_failure`
 
 machine registry exact 5 methods为 prepare_bootstrap_trusted_time、bootstrap、migrate、recover、ready；
 每项的 request/success ref、role、policy branch、body CAS、error set与 replay class均由
-[publication_authority_api.schema.json](publication_authority_api.schema.json) x-gh700-method-registry唯一拥有。
+[publication_authority_api.schema.json](publication_authority_api.schema.json) `x-gh700-method-registry.rows`唯一拥有。
 control envelope包含 canonical 32-byte request nonce、authenticated principal与 repo identity。
 control request/operation/result/response digest不在本文复制公式；exact surface domain、preimage与 consumer
 同样只读 schema digest metadata并由 semantic verifier逐个重算。

@@ -256,7 +256,13 @@ request/context/blob/attestation/set-digest drift；generated-PR nullability与 
    substitution分别生成独立 negatives；
 6. 对 `x-gh700-digest-dag`验证 node unique、edge endpoint declared且拓扑排序完整；
    `publication_digest_domains.py`须持有每个 node的 exact concrete runtime-domain set，并与 schema完整集合相等；
-   每个 node的 added/removed/replaced domain mutation都必须使 verifier失败，禁止回边、自 digest或未声明 digest source。
+   每个 node的 added/removed/replaced domain mutation都必须使 verifier失败；client/control request/result/response
+   必须额外执行“全局允许但当前 surface 错误”的 contextual-domain mutation，禁止回边、自 digest或未声明 digest source；
+7. 对 sole binding matrix执行 missing/duplicate/unknown row、model、profile、relation/operator/path/alias mutation，
+   并证明 22 个 operation与 35 个 positive model exact-once；每条 active relation都生成 one-end mutation并拒绝；
+8. capsule-bearing model逐个重算 nested GenerateDataKey request/response attestation、manifest binding与 receipt digest，
+   ARN、KeyMaterialId、manifest binding任一 substitution均拒绝；delivery state须 exact 映射 receipt kind/nullability；
+9. release attestation/proof使用 typed interval，允许等边界，但拒绝倒置及 containment 越界；host-time alias不存在。
 
 spec-local verifier不得把 root `oneOf`验证当成 per-method验证的替代：每个 materialized positive（含同
 method的 auxiliary branch model）必须重新查 exact `(surface,method)` registry row，并同时通过该 row的
@@ -271,8 +277,8 @@ forbidden alias、wrong method/result、same-shape nonce substitution、response
 P/B CAS flip；结构类 mutation必须由 exact request/success schema自身拒绝，禁止用 stale digest失败代替 closure证据。对
 `x-gh700-digest-dag.nodes` 每个 node逐一执行 added、removed及replaced runtime-domain mutation，并证明 exact-set验证
 fail closed；只替换一个当前允许值不得作为“没有额外允许值”的证据。
-最终成功摘要必须分别报告 closed `unevaluatedProperties` 数、per-positive mutation数、物化 uint64 mutation数与
-digest-node mutation数；任一集合为空、未覆盖全部正例或未覆盖全部 digest node都失败。
+最终成功摘要必须分别报告 closed `unevaluatedProperties`、per-relation、matrix closure、contextual domain、nested KMS、
+物化 uint64与 digest-node mutation数；任一集合为空、未覆盖全部正例或未覆盖全部 digest node都失败。
 
 九个 review finding cluster与 machine ownership exact 映射如下；architecture omission不得藏入 prose-only例外：
 

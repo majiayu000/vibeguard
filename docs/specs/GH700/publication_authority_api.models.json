@@ -41,6 +41,16 @@
       "object_kind": "publication_intent",
       "object_digest": { "$fixture": "digest" }
     },
+    "release_identity_attestation": {
+      "schema_version":"GH700:release-identity-attestation:v1", "release_identity_digest":{"$fixture":"digest"},
+      "process_identity_digest":{"$fixture":"digest"}, "signing_key_id":"release-key-1",
+      "signing_key_material_id":{"$fixture":"key_material_id"}, "valid_from_unix_seconds":1700000000,
+      "valid_until_unix_seconds":1800000000, "attestation_digest":{"$fixture":"digest"}
+    },
+    "initial_time_proof_bundle": {
+      "schema_version":"GH700:initial-time-proof-bundle:v1", "release_identity_attestation_digest":{"$fixture":"digest"},
+      "trusted_lower_bound":1700000000, "trusted_upper_bound":1800000000, "trusted_time_proof_digest":{"$fixture":"digest"}
+    },
     "ledger_object": {
       "schema_version": "GH700:ledger-object-ref:v1",
       "object_kind": "blocked_attempt_record",
@@ -64,7 +74,7 @@
     "bootstrap_control_receipt": { "receipt_version":"GH700:control-receipt:v1", "receipt_kind":"bootstrap_committed", "authority_id":"authority-gh700", "repo_node_id":"R_GH700", "method":"bootstrap", "operation_id":{"$context":"operation_id"}, "outcome_digest":{"$fixture":"digest"}, "policy_binding_digest":{"$fixture":"digest"}, "receipt_digest":{"$derive":"receipt_digest"} },
     "migration_control_receipt": { "receipt_version":"GH700:control-receipt:v1", "receipt_kind":"migration_committed", "authority_id":"authority-gh700", "repo_node_id":"R_GH700", "method":"migrate", "operation_id":{"$context":"operation_id"}, "outcome_digest":{"$fixture":"digest"}, "policy_binding_digest":{"$fixture":"digest"}, "receipt_digest":{"$derive":"receipt_digest"} },
     "recovery_control_receipt": { "receipt_version":"GH700:control-receipt:v1", "receipt_kind":"recovery_committed", "authority_id":"authority-gh700", "repo_node_id":"R_GH700", "method":"recover", "operation_id":{"$context":"operation_id"}, "outcome_digest":{"$fixture":"digest"}, "policy_binding_digest":{"$fixture":"digest"}, "receipt_digest":{"$derive":"receipt_digest"} },
-    "capsule_read_receipt": { "receipt_version":"GH700:capsule-read-receipt:v1", "receipt_kind":"capsule_read_confirmed", "authority_id":"authority-gh700", "repo_node_id":"R_GH700", "method":"read_secret_capsule", "source_request_id":{"$fixture":"digest"}, "read_challenge_digest":{"$fixture":"digest"}, "secret_channel_binding_digest":{"$fixture":"digest"}, "receipt_digest":{"$derive":"receipt_digest"} },
+    "capsule_read_receipt": { "receipt_version":"GH700:capsule-read-receipt:v1", "receipt_kind":"capsule_read_confirmed", "authority_id":"authority-gh700", "repo_node_id":"R_GH700", "method":"read_secret_capsule", "source_request_id":{"$fixture":"digest"}, "read_challenge_digest":{"$fixture":"digest"}, "secret_channel_binding_digest":{"$context":"secret_channel_binding_digest"}, "receipt_digest":{"$derive":"receipt_digest"} },
     "key_attestation": { "schema_version":"GH700:authority-capsule-key-attestation:v1", "kms_key_arn":"arn:aws:kms:us-east-1:111122223333:key/12345678-1234-1234-1234-123456789abc", "kms_key_material_id":{"$fixture":"key_material_id"}, "kms_key_material_id_source":"authenticated_GenerateDataKey_KeyMaterialId", "manifest_key_binding_digest":"sha256:7a1fe4197c3361e6cf1099826571a790f560e25d821b5c1e7e4731f78ac9a738", "key_material_attestation_digest":"sha256:b5afc1d45eef75083d5b9903ff65cdcc8b88e32e4fe5575eab2c7f3a29a285ab", "generate_data_key_request":{"key_id":"arn:aws:kms:us-east-1:111122223333:key/12345678-1234-1234-1234-123456789abc","key_spec":"AES_256","encryption_context_digest":"sha256:079ee76d54788ac0d5eada31916688af564d414fae68e22136b9ad4d590867bb"}, "generate_data_key_request_digest":"sha256:7e74bb7ea96f2ea8777955578369a8c49085003c53dca8f91951f1e4c218191c", "generate_data_key_response":{"key_id":"arn:aws:kms:us-east-1:111122223333:key/12345678-1234-1234-1234-123456789abc","key_material_id":{"$fixture":"key_material_id"},"aws_request_id":"aws-request-1","ciphertext_blob_digest":{"$fixture":"digest"}} },
     "authority_kms_manifest": { "schema_version":"GH700:authority-kms-manifest:v1", "kms_key_arn":"arn:aws:kms:us-east-1:111122223333:key/12345678-1234-1234-1234-123456789abc", "kms_key_material_id":{"$fixture":"key_material_id"}, "kms_key_material_id_source":"authenticated_DescribeKey_KeyMaterialId", "describe_key_response":{"key_id":"arn:aws:kms:us-east-1:111122223333:key/12345678-1234-1234-1234-123456789abc","key_material_id":{"$fixture":"key_material_id"},"aws_request_id":"aws-describe-request-1"}, "key_material_attestation_digest":"sha256:0f0d81a0ea18ff5dd3ad56cb41061340dcad98be1e5590dd1ce5e3476c43967e", "manifest_key_binding_digest":"sha256:7a1fe4197c3361e6cf1099826571a790f560e25d821b5c1e7e4731f78ac9a738" },
     "deployment_manifest": { "schema_version":"GH700:authority-deployment-manifest:v1", "manifest_identity":{"$fixture":"history_object"}, "deployment_policy":{"$fixture":"deployment_policy_binding"}, "authority_kms":{"$fixture":"authority_kms_manifest"} },
@@ -77,7 +87,7 @@
       "key_attestation": { "$fixture":"key_attestation" },
       "key_attestation_digest": { "$derive":"key_attestation_digest" },
       "issuance_operation_id": { "$context":"operation_id" },
-      "issuance_secret_channel_binding_digest": { "$fixture": "digest" },
+      "issuance_secret_channel_binding_digest": { "$context": "secret_channel_binding_digest" },
       "capsule_receipt_digest": { "$derive":"capsule_receipt_digest" }
     },
     "time_bound_intent": {
@@ -104,12 +114,14 @@
       "authority_id": "authority-gh700",
       "repo_node_id": "R_GH700",
       "method": "claim_publication_owner",
-      "secret_channel_request_core_digest": { "$fixture": "digest" },
+      "secret_channel_request_core_digest": { "$derive": "secret_channel_request_core_digest" },
       "peer_identity_digest": { "$fixture": "digest" },
       "server_identity_digest": { "$fixture": "digest" },
-      "tls_exporter_context_digest": { "$fixture": "digest" },
-      "tls_exporter_keying_material_digest": { "$fixture": "digest" },
-      "secret_slot_ids": ["draft_claim_nonce"]
+      "tls_exporter_context_digest": { "$derive": "tls_exporter_context_digest" },
+      "tls_exporter_keying_material_b64u": { "$fixture": "nonce_b" },
+      "tls_exporter_keying_material_digest": { "$derive": "tls_exporter_keying_material_digest" },
+      "secret_slot_ids": ["draft_claim_nonce"],
+      "secret_channel_binding_digest": { "$derive": "secret_channel_binding_digest" }
     },
     "secret_plan": {
       "schema_version": "GH700:secret-channel-binding:v1",
@@ -117,12 +129,14 @@
       "authority_id": "authority-gh700",
       "repo_node_id": "R_GH700",
       "method": "plan_release_mutation",
-      "secret_channel_request_core_digest": { "$fixture": "digest" },
+      "secret_channel_request_core_digest": { "$derive": "secret_channel_request_core_digest" },
       "peer_identity_digest": { "$fixture": "digest" },
       "server_identity_digest": { "$fixture": "digest" },
-      "tls_exporter_context_digest": { "$fixture": "digest" },
-      "tls_exporter_keying_material_digest": { "$fixture": "digest" },
-      "secret_slot_ids": ["mutation_nonce"]
+      "tls_exporter_context_digest": { "$derive": "tls_exporter_context_digest" },
+      "tls_exporter_keying_material_b64u": { "$fixture": "nonce_b" },
+      "tls_exporter_keying_material_digest": { "$derive": "tls_exporter_keying_material_digest" },
+      "secret_slot_ids": ["mutation_nonce"],
+      "secret_channel_binding_digest": { "$derive": "secret_channel_binding_digest" }
     },
     "secret_read": {
       "schema_version": "GH700:secret-channel-binding:v1",
@@ -130,12 +144,24 @@
       "authority_id": "authority-gh700",
       "repo_node_id": "R_GH700",
       "method": "read_secret_capsule",
-      "secret_channel_request_core_digest": { "$fixture": "digest" },
+      "secret_channel_request_core_digest": { "$derive": "secret_channel_request_core_digest" },
       "peer_identity_digest": { "$fixture": "digest" },
       "server_identity_digest": { "$fixture": "digest" },
-      "tls_exporter_context_digest": { "$fixture": "digest" },
-      "tls_exporter_keying_material_digest": { "$fixture": "digest" },
-      "secret_slot_ids": ["mutation_nonce"]
+      "tls_exporter_context_digest": { "$derive": "tls_exporter_context_digest" },
+      "tls_exporter_keying_material_b64u": { "$fixture": "nonce_b" },
+      "tls_exporter_keying_material_digest": { "$derive": "tls_exporter_keying_material_digest" },
+      "secret_slot_ids": ["mutation_nonce"],
+      "secret_channel_binding_digest": { "$derive": "secret_channel_binding_digest" }
+    },
+    "secret_read_claim": {
+      "schema_version":"GH700:secret-channel-binding:v1", "channel_kind":"authority_mtls_exporter_v1",
+      "authority_id":"authority-gh700", "repo_node_id":"R_GH700", "method":"read_secret_capsule",
+      "secret_channel_request_core_digest":{"$derive":"secret_channel_request_core_digest"},
+      "peer_identity_digest":{"$fixture":"digest"}, "server_identity_digest":{"$fixture":"digest"},
+      "tls_exporter_context_digest":{"$derive":"tls_exporter_context_digest"},
+      "tls_exporter_keying_material_b64u":{"$fixture":"nonce_b"},
+      "tls_exporter_keying_material_digest":{"$derive":"tls_exporter_keying_material_digest"},
+      "secret_slot_ids":["draft_claim_nonce"], "secret_channel_binding_digest":{"$derive":"secret_channel_binding_digest"}
     },
     "lease_claim": {
       "schema_version": "GH700:publication-lease-authorization:v1",
@@ -345,6 +371,7 @@
     { "model_id":"client.append_publication_transition", "surface":"client", "method":"append_publication_transition", "request_base":"client_request_base", "request_patch":{"method":"append_publication_transition","expected_publication_frontier_or_null":{"$fixture":"publication_frontier"},"body":{"intent":{"$fixture":"history_object"},"append_authorization":{"$fixture":"append_authorization"}}}, "success_base":"client_success_base", "success_patch":{"method":"append_publication_transition","result":{"transition_receipt":{"$fixture":"transition_receipt"}}} },
     { "model_id":"client.plan_release_mutation", "surface":"client", "method":"plan_release_mutation", "request_base":"client_request_base", "request_patch":{"method":"plan_release_mutation","expected_publication_frontier_or_null":{"$fixture":"publication_frontier"},"body":{"intent":{"$fixture":"history_object"},"append_authorization":{"$fixture":"append_auth_plan_release"},"secret_channel_binding":{"$fixture":"secret_plan"}}}, "success_base":"client_success_base", "success_patch":{"method":"plan_release_mutation","result":{"planned_transition_receipt":{"$fixture":"transition_receipt"},"mutation_capsule_receipt":{"$fixture":"capsule_receipt"}}} },
     { "model_id":"client.deliver_release_mutation", "surface":"client", "method":"deliver_release_mutation", "request_base":"client_request_base", "request_patch":{"method":"deliver_release_mutation","expected_publication_frontier_or_null":{"$fixture":"publication_frontier"},"body":{"planned_operation_id":{"$fixture":"digest"},"broker_delivery_id":{"$derive":"broker_delivery_id"},"delivery_authorization":{"$fixture":"delivery_authorization"}}}, "success_base":"client_success_base", "success_patch":{"method":"deliver_release_mutation","result":{"delivery_state":"bound","transition_receipt":{"$fixture":"transition_receipt"},"send_once_audit_digest":{"$fixture":"digest"}}} },
+    { "model_id":"client.deliver_release_mutation.recovery_pending", "surface":"client", "method":"deliver_release_mutation", "request_base":"client_request_base", "request_patch":{"method":"deliver_release_mutation","expected_publication_frontier_or_null":{"$fixture":"publication_frontier"},"body":{"planned_operation_id":{"$fixture":"digest"},"broker_delivery_id":{"$derive":"broker_delivery_id"},"delivery_authorization":{"$fixture":"delivery_authorization"}}}, "success_base":"client_success_base", "success_patch":{"method":"deliver_release_mutation","result":{"delivery_state":"recovery_pending","transition_receipt":{"$fixture":"transition_receipt_observed"},"send_once_audit_digest":{"$fixture":"digest"}}} },
     { "model_id":"client.recover_release_mutation", "surface":"client", "method":"recover_release_mutation", "request_base":"client_request_base", "request_patch":{"method":"recover_release_mutation","expected_publication_frontier_or_null":{"$fixture":"publication_frontier"},"body":{"planned_operation_id":{"$fixture":"digest"},"recovery_query_digest":{"$derive":"recovery_query_digest"},"append_authorization":{"$fixture":"append_auth_recover_release"}}}, "success_base":"client_success_base", "success_patch":{"method":"recover_release_mutation","result":{"recovery_state":"bound","transition_receipt":{"$fixture":"transition_receipt"}}} },
     { "model_id":"client.plan_generated_pr", "surface":"client", "method":"plan_generated_pr", "request_base":"client_request_base", "request_patch":{"method":"plan_generated_pr","expected_publication_frontier_or_null":{"$fixture":"publication_frontier"},"body":{"intent":{"$fixture":"history_object"},"append_authorization":{"$fixture":"append_auth_plan_pr"}}}, "success_base":"client_success_base", "success_patch":{"method":"plan_generated_pr","result":{"planned_transition_receipt":{"$fixture":"transition_receipt"},"generated_pr_delivery_id":{"$context":"generated_pr_delivery_id"}}} },
     { "model_id":"client.deliver_generated_pr", "surface":"client", "method":"deliver_generated_pr", "request_base":"client_request_base", "request_patch":{"method":"deliver_generated_pr","expected_publication_frontier_or_null":{"$fixture":"publication_frontier"},"body":{"planned_operation_id":{"$fixture":"digest"},"generated_pr_delivery_id":{"$derive":"generated_pr_delivery_id"},"delivery_authorization":{"$fixture":"delivery_auth_pr"}}}, "success_base":"client_success_base", "success_patch":{"method":"deliver_generated_pr","result":{"delivery_state":"bound","transition_receipt":{"$fixture":"generated_pr_bound_receipt"},"send_once_audit_digest":{"$fixture":"digest"}}} },
@@ -355,8 +382,8 @@
     { "model_id":"client.commit_reconciliation_watermark", "surface":"client", "method":"commit_reconciliation_watermark", "request_base":"client_request_base", "request_patch":{"method":"commit_reconciliation_watermark","expected_blocked_attempt_frontier_or_null":{"$fixture":"blocked_frontier"},"body":{"reconciliation_watermark":{"$fixture":"ledger_object"},"terminal_listing_proof":{"$fixture":"ledger_object"},"ledger_append_authorization":{"$fixture":"ledger_auth_watermark"}}}, "success_base":"client_success_base", "success_patch":{"method":"commit_reconciliation_watermark","result":{"watermark_receipt":{"$fixture":"ledger_receipt"},"blocked_attempt_frontier_receipt":{"$fixture":"blocked_frontier_receipt"}}} },
     { "model_id":"client.get_blocked_attempt_frontier", "surface":"client", "method":"get_blocked_attempt_frontier", "request_base":"client_request_base", "request_patch":{"method":"get_blocked_attempt_frontier","body":{}}, "success_base":"client_success_base", "success_patch":{"method":"get_blocked_attempt_frontier","result":{"blocked_attempt_frontier_receipt":{"$fixture":"blocked_frontier_receipt"}}} },
     { "model_id":"client.read_secret_capsule", "surface":"client", "method":"read_secret_capsule", "request_base":"client_request_base", "request_patch":{"method":"read_secret_capsule","expected_publication_frontier_or_null":{"$fixture":"publication_frontier"},"body":{"capsule_source":{"source_method":"plan_release_mutation","source_operation_id":{"$fixture":"digest"},"source_request_id":{"$derive":"source_request_id"},"secret_slot_id":"mutation_nonce"},"read_challenge":{"$fixture":"nonce_b"},"secret_channel_binding":{"$fixture":"secret_read"}}}, "success_base":"client_success_base", "success_patch":{"method":"read_secret_capsule","result":{"capsule_receipt":{"$fixture":"capsule_receipt"},"capsule_read_confirmation":{"$fixture":"capsule_read_receipt"}}}, "coverage_tags":["capsule_source_plan"] },
-    { "model_id":"control.prepare_bootstrap_trusted_time", "surface":"control", "method":"prepare_bootstrap_trusted_time", "request_base":"control_request_base", "request_patch":{"method":"prepare_bootstrap_trusted_time","policy_binding":{"$fixture":"prebootstrap_policy_binding"},"requested_peer_role":"prebootstrap_time_operator","body":{"control_operation_id":{"$derive":"control_operation_id"},"bootstrap_time_manifest_projection":{"$fixture":"history_object"},"prebootstrap_time_approval":{"$fixture":"history_object"},"release_identity_attestation":{"$fixture":"history_object"}}}, "success_base":"control_success_base", "success_patch":{"method":"prepare_bootstrap_trusted_time","policy_binding":{"$fixture":"prebootstrap_policy_binding"},"result":{"prebootstrap_time_ceremony_receipt":{"$fixture":"prebootstrap_control_receipt"},"initial_time_proof_bundle":{"$fixture":"prebootstrap_control_receipt"}}}, "coverage_tags":["prebootstrap_policy"] },
-    { "model_id":"control.bootstrap", "surface":"control", "method":"bootstrap", "request_base":"control_request_base", "request_patch":{"method":"bootstrap","requested_peer_role":"bootstrap_operator","body":{"control_operation_id":{"$derive":"control_operation_id"},"deployment_manifest":{"$fixture":"deployment_manifest"},"bootstrap_approval":{"$fixture":"history_object"},"release_identity_attestation":{"$fixture":"history_object"},"prebootstrap_time_ceremony_id":{"$fixture":"digest"},"prebootstrap_time_ceremony_receipt_digest":{"$fixture":"digest"}}}, "success_base":"control_success_base", "success_patch":{"method":"bootstrap","result":{"control_operation_receipt":{"$fixture":"bootstrap_control_receipt"},"bootstrap_receipt":{"$fixture":"bootstrap_control_receipt"},"ready_receipt":{"$fixture":"control_receipt"}}}, "coverage_tags":["genesis"] },
+    { "model_id":"control.prepare_bootstrap_trusted_time", "surface":"control", "method":"prepare_bootstrap_trusted_time", "request_base":"control_request_base", "request_patch":{"method":"prepare_bootstrap_trusted_time","policy_binding":{"$fixture":"prebootstrap_policy_binding"},"requested_peer_role":"prebootstrap_time_operator","body":{"control_operation_id":{"$derive":"control_operation_id"},"bootstrap_time_manifest_projection":{"$fixture":"history_object"},"prebootstrap_time_approval":{"$fixture":"history_object"},"release_identity_attestation":{"$fixture":"release_identity_attestation"}}}, "success_base":"control_success_base", "success_patch":{"method":"prepare_bootstrap_trusted_time","policy_binding":{"$fixture":"prebootstrap_policy_binding"},"result":{"prebootstrap_time_ceremony_receipt":{"$fixture":"prebootstrap_control_receipt"},"initial_time_proof_bundle":{"$fixture":"initial_time_proof_bundle"}}}, "coverage_tags":["prebootstrap_policy"] },
+    { "model_id":"control.bootstrap", "surface":"control", "method":"bootstrap", "request_base":"control_request_base", "request_patch":{"method":"bootstrap","requested_peer_role":"bootstrap_operator","body":{"control_operation_id":{"$derive":"control_operation_id"},"deployment_manifest":{"$fixture":"deployment_manifest"},"bootstrap_approval":{"$fixture":"history_object"},"release_identity_attestation":{"$fixture":"release_identity_attestation"},"prebootstrap_time_ceremony_id":{"$fixture":"digest"},"prebootstrap_time_ceremony_receipt_digest":{"$fixture":"digest"}}}, "success_base":"control_success_base", "success_patch":{"method":"bootstrap","result":{"control_operation_receipt":{"$fixture":"bootstrap_control_receipt"},"bootstrap_receipt":{"$fixture":"bootstrap_control_receipt"},"ready_receipt":{"$fixture":"control_receipt"}}}, "coverage_tags":["genesis"] },
     { "model_id":"control.migrate", "surface":"control", "method":"migrate", "request_base":"control_request_base", "request_patch":{"method":"migrate","requested_peer_role":"migration_operator","body":{"control_operation_id":{"$derive":"control_operation_id"},"target_deployment_manifest":{"$fixture":"history_object"},"migration_plan":{"$fixture":"history_object"},"migration_approval":{"$fixture":"history_object"},"expected_schema_version":"schema-v2","expected_publication_frontier":{"$fixture":"publication_frontier"},"expected_blocked_attempt_frontier":{"$fixture":"blocked_frontier"}}}, "success_base":"control_success_base", "success_patch":{"method":"migrate","result":{"control_operation_receipt":{"$fixture":"migration_control_receipt"},"migration_receipt":{"$fixture":"migration_control_receipt"},"ready_receipt":{"$fixture":"control_receipt"}}} },
     { "model_id":"control.recover", "surface":"control", "method":"recover", "request_base":"control_request_base", "request_patch":{"method":"recover","requested_peer_role":"recovery_operator","body":{"control_operation_id":{"$derive":"control_operation_id"},"selector":"database","selector_id":"database-primary","recovery_request":{"$fixture":"history_object"},"expected_publication_frontier":{"$fixture":"publication_frontier"},"expected_blocked_attempt_frontier":{"$fixture":"blocked_frontier"}}}, "success_base":"control_success_base", "success_patch":{"method":"recover","result":{"control_operation_receipt":{"$fixture":"recovery_control_receipt"},"recovery_receipt":{"$fixture":"recovery_control_receipt"},"ready_receipt":{"$fixture":"control_receipt"}}}, "coverage_tags":["recover_selector_database"] },
     { "model_id":"control.ready", "surface":"control", "method":"ready", "request_base":"control_request_base", "request_patch":{"method":"ready","requested_peer_role":"readiness_observer","body":{"minimum_schema_version":"schema-v1","expected_policy_epoch_or_null":1}}, "success_base":"control_success_base", "success_patch":{"method":"ready","result":{"ready_result":{"$fixture":"control_receipt"}}} },
@@ -371,7 +398,7 @@
     { "model_id":"client.recover_generated_pr.not_applied", "surface":"client", "method":"recover_generated_pr", "request_base":"client_request_base", "request_patch":{"method":"recover_generated_pr","expected_publication_frontier_or_null":{"$fixture":"publication_frontier"},"body":{"planned_operation_id":{"$fixture":"digest"},"recovery_query_digest":{"$derive":"recovery_query_digest"},"append_authorization":{"$fixture":"append_auth_recover_pr"}}}, "success_base":"client_success_base", "success_patch":{"method":"recover_generated_pr","result":{"recovery_state":"not_applied","transition_receipts":[{"$fixture":"generated_pr_not_applied_receipt"}]}}, "coverage_tags":["generated_pr_not_applied"] },
     { "model_id":"client.recover_generated_pr.blocked", "surface":"client", "method":"recover_generated_pr", "request_base":"client_request_base", "request_patch":{"method":"recover_generated_pr","expected_publication_frontier_or_null":{"$fixture":"publication_frontier"},"body":{"planned_operation_id":{"$fixture":"digest"},"recovery_query_digest":{"$derive":"recovery_query_digest"},"append_authorization":{"$fixture":"append_auth_recover_pr"}}}, "success_base":"client_success_base", "success_patch":{"method":"recover_generated_pr","result":{"recovery_state":"blocked","transition_receipts":[{"$fixture":"generated_pr_blocked_receipt"}]}}, "coverage_tags":["generated_pr_blocked"] },
     { "model_id":"client.deliver_generated_pr.recovery_required", "surface":"client", "method":"deliver_generated_pr", "request_base":"client_request_base", "request_patch":{"method":"deliver_generated_pr","expected_publication_frontier_or_null":{"$fixture":"publication_frontier"},"body":{"planned_operation_id":{"$fixture":"digest"},"generated_pr_delivery_id":{"$derive":"generated_pr_delivery_id"},"delivery_authorization":{"$fixture":"delivery_auth_pr"}}}, "success_base":"client_success_base", "success_patch":{"method":"deliver_generated_pr","result":{"delivery_state":"recovery_required","transition_receipt":null,"send_once_audit_digest":{"$fixture":"digest"}}}, "coverage_tags":["delivery_recovery_required"] },
-    { "model_id":"client.read_secret_capsule.claim", "surface":"client", "method":"read_secret_capsule", "request_base":"client_request_base", "request_patch":{"method":"read_secret_capsule","expected_publication_frontier_or_null":{"$fixture":"publication_frontier"},"body":{"capsule_source":{"source_method":"claim_publication_owner","source_operation_id":{"$fixture":"digest"},"source_request_id":{"$derive":"source_request_id"},"secret_slot_id":"draft_claim_nonce"},"read_challenge":{"$fixture":"nonce_b"},"secret_channel_binding":{"$fixture":"secret_read"}}}, "success_base":"client_success_base", "success_patch":{"method":"read_secret_capsule","result":{"capsule_receipt":{"$fixture":"capsule_receipt"},"capsule_read_confirmation":{"$fixture":"capsule_read_receipt"}}}, "coverage_tags":["capsule_source_claim"] }
+    { "model_id":"client.read_secret_capsule.claim", "surface":"client", "method":"read_secret_capsule", "request_base":"client_request_base", "request_patch":{"method":"read_secret_capsule","expected_publication_frontier_or_null":{"$fixture":"publication_frontier"},"body":{"capsule_source":{"source_method":"claim_publication_owner","source_operation_id":{"$fixture":"digest"},"source_request_id":{"$derive":"source_request_id"},"secret_slot_id":"draft_claim_nonce"},"read_challenge":{"$fixture":"nonce_b"},"secret_channel_binding":{"$fixture":"secret_read_claim"}}}, "success_base":"client_success_base", "success_patch":{"method":"read_secret_capsule","result":{"capsule_receipt":{"$fixture":"capsule_receipt"},"capsule_read_confirmation":{"$fixture":"capsule_read_receipt"}}}, "coverage_tags":["capsule_source_claim"] }
   ],
   "auxiliary_positive_instances": [
     {

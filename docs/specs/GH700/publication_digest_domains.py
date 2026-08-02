@@ -19,6 +19,10 @@ CANONICAL_RUNTIME_DOMAIN_SETS = {
     "delivery_scope_digest": frozenset({"GH700:delivery-scope:v1"}),
     "recovery_query_digest": frozenset({"GH700:recovery-query:v1"}),
     "capsule_source_request_id": frozenset({"GH700:capsule-source-request-id:v1"}),
+    "secret_channel_request_core_digest": frozenset({"GH700:secret-channel-request-core:v1"}),
+    "tls_exporter_context_digest": frozenset({"GH700:tls-exporter-context:v1"}),
+    "tls_exporter_keying_material_digest": frozenset({None}),
+    "secret_channel_binding_digest": frozenset({"GH700:secret-channel-binding-digest:v1"}),
     "operation_request_digest": frozenset({
         "GH700:client-operation-request:v1", "GH700:control-operation-request:v1",
     }),
@@ -88,11 +92,47 @@ def allowed_domains(schema, node):
     return set(CANONICAL_RUNTIME_DOMAIN_SETS[node])
 
 
-def require_domain(schema, node, domain, error_type=ValueError):
+def require_domain(schema, node, domain, error_type=ValueError, context=None):
     try:
         validate_domain_sets(schema, error_type)
     except KeyError as exc:
         raise error_type(f"{node}: missing digest domain declaration") from exc
     if node not in CANONICAL_RUNTIME_DOMAIN_SETS or domain not in CANONICAL_RUNTIME_DOMAIN_SETS[node]:
         raise error_type(f"{node}: runtime domain is not schema-owned")
+    contextual = {
+        "operation_request_digest": f"GH700:{context}-operation-request:v1",
+        "result_digest": f"GH700:{context}-result:v1",
+        "response_nonce_digest": f"GH700:{context}-response-nonce:v1",
+        "response_digest": f"GH700:{context}-response:v1",
+    }
+    if node in contextual:
+        if context not in {"client", "control"} or domain != contextual[node]:
+            raise error_type(f"{node}: contextual surface domain mismatch")
+    if node == "authorization_signing_preimage_digest":
+        expected = context.replace(":v1", ":signing-preimage:v1") if isinstance(context, str) else None
+        if domain != expected:
+            raise error_type(f"{node}: contextual authorization domain mismatch")
+    if node == "receipt_digest" and domain != context:
+        raise error_type(f"{node}: contextual receipt domain mismatch")
     return domain
+
+
+def check_contextual_domain_rejections(schema, error_type=ValueError):
+    count = 0
+    suffixes = {
+        "operation_request_digest": "operation-request",
+        "result_digest": "result",
+        "response_nonce_digest": "response-nonce",
+        "response_digest": "response",
+    }
+    for node, suffix in suffixes.items():
+        for surface, wrong_surface in (("client", "control"), ("control", "client")):
+            try:
+                require_domain(
+                    schema, node, f"GH700:{wrong_surface}-{suffix}:v1", error_type, surface,
+                )
+            except error_type:
+                count += 1
+                continue
+            raise error_type(f"{node}: cross-surface domain accepted for {surface}")
+    return count

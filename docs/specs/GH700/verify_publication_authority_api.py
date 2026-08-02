@@ -11,16 +11,24 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from publication_authorization_semantics import AUTH_KEYS, validate_authorization_bindings, wrong_principal_mutations
-from publication_digest_domains import allowed_domains, require_domain, validate_domain_sets
+from publication_authorization_semantics import (
+    AUTH_KEYS, check_binding_matrix_mutations, derive_authorization_fields, relation_mutations, row_for_model,
+    validate_binding_matrix, validate_common_bindings, validate_pair_bindings,
+)
+from publication_digest_domains import allowed_domains, check_contextual_domain_rejections, require_domain, validate_domain_sets
+from publication_typed_contracts import (
+    check_nested_kms_mutations, materialize_kms_manifest, validate_nested_capsules,
+)
 
 SAFE_MAX = 9_007_199_254_740_991
 U64_MAX = 18_446_744_073_709_551_615
 CLIENT = ("get_publication_head", "claim_publication_owner", "renew_publication_owner", "takeover_publication_owner", "append_publication_transition", "plan_release_mutation", "deliver_release_mutation", "recover_release_mutation", "plan_generated_pr", "deliver_generated_pr", "recover_generated_pr", "append_blocked_attempt", "bind_blocked_attempt", "list_blocked_attempts", "commit_reconciliation_watermark", "get_blocked_attempt_frontier", "read_secret_capsule")
 CONTROL = ("prepare_bootstrap_trusted_time", "bootstrap", "migrate", "recover", "ready")
 COVERAGE = {"source_binding", "genesis", "key_attestation", "client_replay", "control_replay", "terminal_binding", "snapshot_binding", "merged_existing_receipts", "recover_selector_database", "recover_selector_backup", "recover_selector_anchor", "control_not_found", "prebootstrap_policy", "release_recovery_pending", "release_not_applied", "release_compensated", "release_blocked", "generated_pr_not_applied", "generated_pr_blocked", "delivery_recovery_required", "capsule_source_plan", "capsule_source_claim"}
-REQUIRED_DIGEST_NODES = {"authorization_signing_preimage_digest", "signature_digest", "client_request_nonce_digest", "control_request_nonce_digest", "time_bound_request_id", "execution_identity_digest", "operation_id", "release_broker_delivery_id", "generated_pr_delivery_id", "delivery_scope_digest", "recovery_query_digest", "capsule_source_request_id", "operation_request_digest", "receipt_digest", "result_digest", "response_nonce_digest", "response_digest", "prior_anchor_binding_digest", "backup_aad_digest", "describe_key_material_attestation_digest", "manifest_key_binding_digest", "generate_data_key_request_digest", "generate_data_key_material_attestation_digest", "key_attestation_digest", "capsule_receipt_digest", "replay_row_digest"}
+REQUIRED_DIGEST_NODES = {"authorization_signing_preimage_digest", "signature_digest", "client_request_nonce_digest", "control_request_nonce_digest", "time_bound_request_id", "execution_identity_digest", "operation_id", "release_broker_delivery_id", "generated_pr_delivery_id", "delivery_scope_digest", "recovery_query_digest", "capsule_source_request_id", "secret_channel_request_core_digest", "tls_exporter_context_digest", "tls_exporter_keying_material_digest", "secret_channel_binding_digest", "operation_request_digest", "receipt_digest", "result_digest", "response_nonce_digest", "response_digest", "prior_anchor_binding_digest", "backup_aad_digest", "describe_key_material_attestation_digest", "manifest_key_binding_digest", "generate_data_key_request_digest", "generate_data_key_material_attestation_digest", "key_attestation_digest", "capsule_receipt_digest", "replay_row_digest"}
 DIGEST_SCHEMA = None
+KMS_MANIFEST = None
+BINDING_MATRIX = None
 
 
 class ContractError(Exception):
@@ -66,10 +74,11 @@ def sha(raw):
     return "sha256:" + hashlib.sha256(raw).hexdigest()
 
 
-def dg(node, domain, preimage, schema=None):
+def dg(node, domain, preimage, schema=None, context=None):
     if not isinstance(preimage, dict) or "v" in preimage:
         raise ContractError("digest preimage must be an object without a caller-supplied v")
-    return sha(jcs({"v": require_domain(schema or DIGEST_SCHEMA, node, domain, ContractError), **preimage}))
+    owned = require_domain(schema or DIGEST_SCHEMA, node, domain, ContractError, context)
+    return sha(jcs({"v": owned, **preimage}))
 
 
 def b64u(raw):
@@ -263,7 +272,7 @@ def strip_ids(value):
         return [strip_ids(item) for item in value]
     if not isinstance(value, dict):
         return value
-    omitted = set(AUTH_KEYS) | {"time_bound_request_id", "control_operation_id", "broker_delivery_id", "generated_pr_delivery_id", "recovery_query_digest"}
+    omitted = set(AUTH_KEYS) | {"time_bound_request_id", "control_operation_id", "broker_delivery_id", "generated_pr_delivery_id", "recovery_query_digest", "secret_channel_binding"}
     return {key: strip_ids(item) for key, item in value.items() if key not in omitted}
 
 
@@ -279,7 +288,11 @@ def auth_digest(auth, label):
     raw_signature = decode_b64u(auth["signature_b64u"], 64, f"{label}.signature_b64u")
     require_domain(DIGEST_SCHEMA, "signature_digest", None, ContractError); derive(auth, "signature_digest", sha(raw_signature), label)
     preimage = {key: item for key, item in auth.items() if key not in {"signing_preimage_digest", "signature_b64u", "signature_digest"}}
-    derive(auth, "signing_preimage_digest", dg("authorization_signing_preimage_digest", auth["schema_version"].replace(":v1", ":signing-preimage:v1"), preimage), label)
+    derive(auth, "signing_preimage_digest", dg(
+        "authorization_signing_preimage_digest",
+        auth["schema_version"].replace(":v1", ":signing-preimage:v1"), preimage,
+        context=auth["schema_version"],
+    ), label)
 
 
 def receipt_digests(value, label="result"):
@@ -292,7 +305,7 @@ def receipt_digests(value, label="result"):
     for key, item in value.items():
         receipt_digests(item, f"{label}.{key}")
     if "receipt_version" in value:
-        derive(value, "receipt_digest", dg("receipt_digest", value["receipt_version"], {key: item for key, item in value.items() if key != "receipt_digest"}), label)
+        derive(value, "receipt_digest", dg("receipt_digest", value["receipt_version"], {key: item for key, item in value.items() if key != "receipt_digest"}, context=value["receipt_version"]), label)
     if "capsule_receipt_version" in value:
         derive(value, "key_attestation_digest", dg("key_attestation_digest", "GH700:authority-capsule-key-attestation-digest:v1", value["key_attestation"]), label)
         derive(value, "capsule_receipt_digest", dg("capsule_receipt_digest", value["capsule_receipt_version"], {key: item for key, item in value.items() if key != "capsule_receipt_digest"}), label)
@@ -319,35 +332,60 @@ def request_digests(request, surface):
     if "capsule_source" in body:
         source = body["capsule_source"]
         derive(source, "source_request_id", dg("capsule_source_request_id", "GH700:capsule-source-request-id:v1", {key: source[key] for key in ("source_method", "source_operation_id", "secret_slot_id")}), method)
-    validate_authorization_bindings(request, body, op_id, derive, dg, ContractError)
+    derive_authorization_fields(body, op_id, method, derive, dg)
     for key in AUTH_KEYS:
         auth = body.get(key)
-        if not isinstance(auth, dict):
-            continue
-        auth_digest(auth, f"{method}.{key}")
-    derive(request, "operation_request_digest", dg("operation_request_digest", f"GH700:{surface}-operation-request:v1", {key: item for key, item in request.items() if key != "operation_request_digest"}), method)
+        if isinstance(auth, dict):
+            auth_digest(auth, f"{method}.{key}")
+    channel = body.get("secret_channel_binding")
+    if isinstance(channel, dict):
+        core_body = {key: item for key, item in body.items() if key != "secret_channel_binding"}
+        core = {key: item for key, item in request.items() if key not in {"operation_request_digest", "body"}}
+        core["body"] = core_body
+        derive(channel, "secret_channel_request_core_digest", dg(
+            "secret_channel_request_core_digest", "GH700:secret-channel-request-core:v1", core,
+        ), method)
+        exporter_context = {key: channel[key] for key in (
+            "authority_id", "repo_node_id", "method", "secret_channel_request_core_digest",
+            "peer_identity_digest", "server_identity_digest", "secret_slot_ids",
+        )}
+        derive(channel, "tls_exporter_context_digest", dg(
+            "tls_exporter_context_digest", "GH700:tls-exporter-context:v1", exporter_context,
+        ), method)
+        keying = decode_b64u(channel["tls_exporter_keying_material_b64u"], 32, f"{method}.tls_exporter")
+        require_domain(DIGEST_SCHEMA, "tls_exporter_keying_material_digest", None, ContractError)
+        derive(channel, "tls_exporter_keying_material_digest", sha(keying), method)
+        derive(channel, "secret_channel_binding_digest", dg(
+            "secret_channel_binding_digest", "GH700:secret-channel-binding-digest:v1",
+            {key: item for key, item in channel.items() if key != "secret_channel_binding_digest"},
+        ), method)
+    derive(request, "operation_request_digest", dg("operation_request_digest", f"GH700:{surface}-operation-request:v1", {key: item for key, item in request.items() if key != "operation_request_digest"}, context=surface), method)
     nonce_digest = dg(f"{surface}_request_nonce_digest", f"GH700:{surface}-request-nonce:v1", {"authority_id": request["authority_id"], "repo_node_id": request["repo_node_id"], "authenticated_principal_digest": request["authenticated_principal_digest"], "request_nonce": b64u(nonce)})
     return op_id, nonce_digest
 
 
 def response_digests(response, request, surface, op_id, nonce_digest):
     method = request["method"]
+    if BINDING_MATRIX is not None:
+        validate_common_bindings(request, response, BINDING_MATRIX, ContractError)
     if response["method"] != method or response["operation_request_digest"] != request["operation_request_digest"]:
         raise ContractError(f"{method}: response request binding mismatch")
     derive(response, f"{surface}_request_nonce_digest", nonce_digest, method)
     response_nonce = decode_b64u(response["response_nonce"], 32, f"{method}.response_nonce")
     if "result" in response:
+        validate_nested_capsules(response["result"], KMS_MANIFEST, derive, dg, ContractError)
         receipt_digests(response["result"])
-        derive(response, "result_digest", dg("result_digest", f"GH700:{surface}-result:v1", response["result"]), method)
+        derive(response, "result_digest", dg("result_digest", f"GH700:{surface}-result:v1", response["result"], context=surface), method)
     preimage = {key: item for key, item in response.items() if key != "response_digest"}
-    preimage["response_nonce_digest"] = dg("response_nonce_digest", f"GH700:{surface}-response-nonce:v1", {"response_nonce": b64u(response_nonce)})
-    derive(response, "response_digest", dg("response_digest", f"GH700:{surface}-response:v1", preimage), method)
+    preimage["response_nonce_digest"] = dg("response_nonce_digest", f"GH700:{surface}-response-nonce:v1", {"response_nonce": b64u(response_nonce)}, context=surface)
+    derive(response, "response_digest", dg("response_digest", f"GH700:{surface}-response:v1", preimage, context=surface), method)
 
 
 def materialize(model, fixtures):
     request = {**expand({"$fixture": model["request_base"]}, fixtures), **expand(model["request_patch"], fixtures)}
     op_id, nonce_digest = request_digests(request, model["surface"])
-    values = {"method": request["method"], "operation_id": op_id, "operation_request_digest": request["operation_request_digest"], "generated_pr_delivery_id": dg("generated_pr_delivery_id", "GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": op_id}), "publication_frontier": request.get("expected_publication_frontier_or_null"), "blocked_frontier": request.get("expected_blocked_attempt_frontier_or_null")}
+    channel = request["body"].get("secret_channel_binding", {})
+    values = {"method": request["method"], "operation_id": op_id, "operation_request_digest": request["operation_request_digest"], "generated_pr_delivery_id": dg("generated_pr_delivery_id", "GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": op_id}), "publication_frontier": request.get("expected_publication_frontier_or_null"), "blocked_frontier": request.get("expected_blocked_attempt_frontier_or_null"), "secret_channel_binding_digest": channel.get("secret_channel_binding_digest")}
     response = context({**expand({"$fixture": model["success_base"]}, fixtures), **expand(model["success_patch"], fixtures)}, values)
     response_digests(response, request, model["surface"], op_id, nonce_digest)
     if any(isinstance(item, dict) and ({"$derive", "$context"} & set(item)) for item in walk((request, response))):
@@ -483,34 +521,10 @@ def check_dag(schema):
     return len(nodes), len(dag["edges"])
 
 
-def check_kms(schema, fixtures):
-    manifest = expand({"$fixture": "authority_kms_manifest"}, fixtures)
-    attestation = expand({"$fixture": "key_attestation"}, fixtures)
-    validate(manifest, pointer(schema, "#/$defs/authority_kms_manifest"), schema)
-    validate(attestation, pointer(schema, "#/$defs/authority_capsule_key_attestation"), schema)
-    describe = manifest["describe_key_response"]
-    generate = attestation["generate_data_key_response"]
-    identity = (manifest["kms_key_arn"], manifest["kms_key_material_id"])
-    if identity != (describe["key_id"], describe["key_material_id"]) or identity != (attestation["kms_key_arn"], attestation["kms_key_material_id"]) or identity != (generate["key_id"], generate["key_material_id"]):
-        raise ContractError("KMS ARN/KeyMaterialId attestation mismatch")
-    derive(manifest, "key_material_attestation_digest", dg("describe_key_material_attestation_digest", "GH700:describe-key-material-attestation:v1", describe), "KMS manifest")
-    derive(manifest, "manifest_key_binding_digest", dg("manifest_key_binding_digest", "GH700:authority-kms-manifest-key-binding:v1", {key: item for key, item in manifest.items() if key != "manifest_key_binding_digest"}), "KMS manifest")
-    derive(attestation, "generate_data_key_request_digest", dg("generate_data_key_request_digest", "GH700:generate-data-key-request:v1", attestation["generate_data_key_request"]), "GenerateDataKey")
-    derive(attestation, "key_material_attestation_digest", dg("generate_data_key_material_attestation_digest", "GH700:generate-data-key-material-attestation:v1", generate), "GenerateDataKey")
-    if attestation["manifest_key_binding_digest"] != manifest["manifest_key_binding_digest"]:
-        raise ContractError("capsule attestation is not bound to deployment KMS manifest")
-    return 4
-
-
 def semantic_pair(request, response, model):
     method = model["method"]
     if request["method"] != method or response["method"] != method:
         raise ContractError(f"{model['model_id']}: method mismatch")
-    if method == "takeover_publication_owner":
-        intent = request["body"]["time_bound_intent"]
-        core, identity = intent["client_payload_core"], intent["execution_identity"]
-        if (core["new_owner_run_id"], core["new_owner_run_attempt"]) != (identity["run_id"], identity["run_attempt"]):
-            raise ContractError("takeover run tuple mismatch")
     if method == "recover_generated_pr":
         result = response["result"]
         if len(result["transition_receipts"]) != (2 if result["recovery_state"] == "merged_existing" else 1):
@@ -529,6 +543,7 @@ def verify_pair(request, response, model, registry_row, schema):
     validate(response, pointer(schema, registry_row["success_ref"]), schema)
     validate(request, schema, schema)
     validate(response, schema, schema)
+    validate_pair_bindings(request, response, BINDING_MATRIX, registry_row, model["model_id"], ContractError)
     semantic_pair(request, response, model)
     checked_request = copy.deepcopy(request)
     op_id, nonce_digest = request_digests(checked_request, model["surface"])
@@ -556,66 +571,6 @@ def expect_pair_rejected(label, request, response, model, registry_row, schema):
 def other_method(surface, method):
     methods = CLIENT if surface == "client" else CONTROL
     return next(candidate for candidate in methods if candidate != method)
-
-
-def check_positive_mutations(pairs, models, registry_by_method, schema, fixtures):
-    count = 0
-    publication_frontier = expand({"$fixture": "publication_frontier"}, fixtures)
-    blocked_frontier = expand({"$fixture": "blocked_frontier"}, fixtures)
-    for model in models:
-        row = registry_by_method[(model["surface"], model["method"])]
-        request, response = pairs[model["model_id"]]
-        mutations = []
-        for side, key in (("request", "body"), ("response", "result")):
-            mutated_request, mutated_response = copy.deepcopy((request, response))
-            target = mutated_request if side == "request" else mutated_response
-            target.pop(key)
-            mutations.append((f"{model['model_id']}.{side}.missing_{key}", mutated_request, mutated_response))
-            mutated_request, mutated_response = copy.deepcopy((request, response))
-            target = mutated_request if side == "request" else mutated_response
-            target[key] = None
-            mutations.append((f"{model['model_id']}.{side}.null_{key}", mutated_request, mutated_response))
-            mutated_request, mutated_response = copy.deepcopy((request, response))
-            target = mutated_request if side == "request" else mutated_response
-            target["reviewer_unknown_top_level"] = True
-            mutations.append((f"{model['model_id']}.{side}.extra", mutated_request, mutated_response))
-            mutated_request, mutated_response = copy.deepcopy((request, response))
-            target = mutated_request if side == "request" else mutated_response
-            target["method"] = other_method(model["surface"], model["method"])
-            mutations.append((f"{model['model_id']}.{side}.wrong_method", mutated_request, mutated_response))
-        mutated_request, mutated_response = copy.deepcopy((request, response))
-        mutated_response["error"] = {"code": "invalid_request"}
-        mutations.append((f"{model['model_id']}.response.error_result_collision", mutated_request, mutated_response))
-        for side in ("request", "response"):
-            mutated_request, mutated_response = copy.deepcopy((request, response))
-            target = mutated_request["body"] if side == "request" else mutated_response["result"]
-            target["append_auth"] = {}
-            mutations.append((f"{model['model_id']}.{side}.forbidden_alias", mutated_request, mutated_response))
-        for label, key, mutated_request, mutated_response in wrong_principal_mutations(request, response, model["model_id"]):
-            auth_digest(mutated_request["body"][key], f"{model['method']}.{key}")
-            op_id = operation_id(mutated_request, model["surface"])
-            derive(mutated_request, "operation_request_digest", dg("operation_request_digest", f"GH700:{model['surface']}-operation-request:v1", {key: item for key, item in mutated_request.items() if key != "operation_request_digest"}), model["method"])
-            mutated_response["operation_request_digest"] = mutated_request["operation_request_digest"]
-            nonce_digest = mutated_response[f"{model['surface']}_request_nonce_digest"]
-            response_digests(mutated_response, mutated_request, model["surface"], op_id, nonce_digest)
-            mutations.append((label, mutated_request, mutated_response))
-        mutated_request, mutated_response = copy.deepcopy((request, response))
-        mutated_request["request_nonce"] = b64u(b"\xff" * 32)
-        if mutated_request["request_nonce"] == request["request_nonce"]:
-            mutated_request["request_nonce"] = b64u(bytes(32))
-        mutations.append((f"{model['model_id']}.request.same_shape_nonce_substitution", mutated_request, mutated_response))
-        if model["surface"] == "client":
-            for key, replacement in (
-                ("expected_publication_frontier_or_null", publication_frontier),
-                ("expected_blocked_attempt_frontier_or_null", blocked_frontier),
-            ):
-                mutated_request, mutated_response = copy.deepcopy((request, response))
-                mutated_request[key] = replacement if request[key] is None else None
-                mutations.append((f"{model['model_id']}.{key}.cas_flip", mutated_request, mutated_response))
-        for label, mutated_request, mutated_response in mutations:
-            expect_pair_rejected(label, mutated_request, mutated_response, model, row, schema)
-            count += 1
-    return count
 
 
 def applicable_semantic_paths(value, schema, root, path=()):
@@ -651,6 +606,20 @@ def replace_path(value, path, replacement):
     for step in path[:-1]:
         target = target[step]
     target[path[-1]] = replacement
+
+
+def mutate_binding_value(value, kind):
+    if kind == "digest": return "sha256:" + ("e" if value != "sha256:" + "e" * 64 else "f") * 64
+    if kind == "id": return f"{value}-mutation"
+    if kind == "uint64": return uint64(value, kind) + 1
+    if kind == "frontier":
+        mutated = copy.deepcopy(value); mutated["full_prefix_digest"] = "sha256:" + "e" * 64; return mutated
+    if kind == "policy":
+        mutated = copy.deepcopy(value); key = "policy_bundle_digest" if "policy_bundle_digest" in mutated else "projection_digest"; mutated[key] = "sha256:" + "e" * 64; return mutated
+    if kind == "slots": return ["mutation_nonce"] if value != ["mutation_nonce"] else ["draft_claim_nonce"]
+    if kind in {"method", "state", "receipt_kind"}: return f"{value}_mutation"
+    if kind == "nullability": return {"mutation": True}
+    raise ContractError(f"unknown binding mutation kind: {kind}")
 
 
 def check_uint64_instance_mutations(pairs, models, registry_by_method, schema):
@@ -731,31 +700,45 @@ def negative(case, pairs, schema):
 
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent); parser.add_argument("--emit-materialized", type=Path); args = parser.parse_args()
+    global BINDING_MATRIX, KMS_MANIFEST
     root = args.root.resolve(); schema = load(root / "publication_authority_api.schema.json"); models = load(root / "publication_authority_api.models.json")
-    refs, unevaluated = check_schema(schema, root); dag_nodes, dag_edges = check_dag(schema); digest_mutations = check_digest_node_mutations(schema); kms_digests = check_kms(schema, models["fixtures"])
-    registry = schema["x-gh700-method-registry"]; rows = [(row["surface"], row["method"]) for row in registry]
-    if rows != [("client", method) for method in CLIENT] + [("control", method) for method in CONTROL] or len(set(rows)) != 22:
-        raise ContractError("registry is not exact unique 17+5")
+    refs, unevaluated = check_schema(schema, root); dag_nodes, dag_edges = check_dag(schema); digest_mutations = check_digest_node_mutations(schema)
+    KMS_MANIFEST, kms_digests = materialize_kms_manifest(schema, models["fixtures"], expand, validate, pointer, derive, dg, ContractError)
+    expected_rows = [("client", method) for method in CLIENT] + [("control", method) for method in CONTROL]
+    BINDING_MATRIX = validate_binding_matrix(
+        schema, models["models"], expected_rows, pointer, ContractError,
+    )
+    matrix_mutations = check_binding_matrix_mutations(schema, models["models"], expected_rows, pointer, ContractError)
+    contextual_domain_mutations = check_contextual_domain_rejections(schema, ContractError)
+    registry = BINDING_MATRIX["rows"]
     error_sets = {row["method"]: set(row["error_codes"]) for row in registry if row["surface"] == "control"}
     if "not_found" not in error_sets["recover"] or "not_found" in error_sets["ready"]:
         raise ContractError("control not_found registry partition mismatch")
-    by_id = {model["model_id"]: model for model in models["models"]}
-    if len(by_id) != len(models["models"]): raise ContractError("duplicate model_id")
     registry_by_method = {(row["surface"], row["method"]): row for row in registry}
-    for row in registry:
-        pointer(schema, row["request_ref"]); pointer(schema, row["success_ref"])
-        model = by_id.get(row["positive_model_id"])
-        if model is None or (model["surface"], model["method"]) != (row["surface"], row["method"]): raise ContractError(f"registry model mismatch: {row['method']}")
     pairs, coverage, digest_count = {}, set(), 0
     for model in models["models"]:
         request, response = materialize(model, models["fixtures"])
-        verify_pair(request, response, model, registry_by_method[(model["surface"], model["method"])], schema)
+        row = row_for_model(BINDING_MATRIX, model, ContractError)
+        verify_pair(request, response, model, row, schema)
         pairs[model["model_id"]] = (request, response); coverage.update(model.get("coverage_tags", ()))
         digests = [item for item in walk((request, response)) if isinstance(item, str) and item.startswith("sha256:")]
         if not digests or "sha256:" + "0" * 64 in digests: raise ContractError(f"{model['model_id']}: missing/zero digest")
         digest_count += len(digests)
     if len(models["models"]) < 22: raise ContractError("fewer than 22 positive models")
-    positive_mutations = check_positive_mutations(pairs, models["models"], registry_by_method, schema, models["fixtures"])
+    positive_mutations = 0
+    for model in models["models"]:
+        row = row_for_model(BINDING_MATRIX, model, ContractError)
+        request, response = pairs[model["model_id"]]
+        for label, bad_request, bad_response in relation_mutations(
+            request, response, BINDING_MATRIX, row, model["model_id"], mutate_binding_value, ContractError,
+        ):
+            try:
+                validate_pair_bindings(bad_request, bad_response, BINDING_MATRIX, row, model["model_id"], ContractError)
+            except ContractError:
+                positive_mutations += 1
+            else:
+                raise ContractError(f"binding mutation accepted: {label}")
+    kms_mutations = check_nested_kms_mutations(pairs, KMS_MANIFEST, derive, dg, ContractError)
     uint64_mutations = check_uint64_instance_mutations(pairs, models["models"], registry_by_method, schema)
     auxiliary = models.get("auxiliary_positive_instances", ())
     for item in auxiliary:
@@ -785,7 +768,7 @@ def main():
         args.emit_materialized.mkdir(parents=True, exist_ok=True)
         for model_id, (request, response) in pairs.items():
             (args.emit_materialized / f"{model_id}.request.json").write_bytes(jcs(request)); (args.emit_materialized / f"{model_id}.response.json").write_bytes(jcs(response))
-    print(f"PUBLICATION_AUTHORITY_API_OK registry=17+5 models={len(models['models'])} auxiliary={len(auxiliary)} errors={len(errors)} refs={refs} unevaluated={unevaluated} digests={digest_count}+{kms_digests}kms mismatches=0 dag={dag_nodes}/{dag_edges} positive_mutations={positive_mutations} uint64_mutations={uint64_mutations} digest_mutations={digest_mutations} negatives={len(negatives)} coverage={len(coverage)}")
+    print(f"PUBLICATION_AUTHORITY_API_OK registry=17+5 models={len(models['models'])} auxiliary={len(auxiliary)} errors={len(errors)} refs={refs} unevaluated={unevaluated} digests={digest_count}+{kms_digests}kms mismatches=0 dag={dag_nodes}/{dag_edges} positive_mutations={positive_mutations} matrix_mutations={matrix_mutations} contextual_domain_mutations={contextual_domain_mutations} kms_mutations={kms_mutations} uint64_mutations={uint64_mutations} digest_mutations={digest_mutations} negatives={len(negatives)} coverage={len(coverage)}")
 
 
 if __name__ == "__main__":
