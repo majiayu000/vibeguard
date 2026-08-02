@@ -6,8 +6,9 @@ GH-702
 
 ## Status
 
-Draft。本文是 [`product.md`](product.md) 与 [`tech.md`](tech.md) 的 supporting contract；
-它不批准任何 backend、平台、provisioning 或 trust 选择，也不创建 implementation tasks。
+Draft。本文是 [`product.md`](product.md) 与 [`tech.md`](tech.md) 的 supporting contract；atomic launch
+wire/process-template 子合同只由 [`atomic-launch-machine-contract.md`](atomic-launch-machine-contract.md)
+定义。本文不批准 backend、平台、provisioning 或 trust 选择，也不创建 implementation tasks。
 
 ## Scope
 
@@ -305,6 +306,9 @@ Platform service assets 只能为 anchor-block 进入 manifest 已预留的 setu
 | `final_ci_authority_mode_branch` | anchor-block runs launch-authority + real hardware/service conformance；no-block runs zero-backend installed-hook/schema/status evidence and must not require hardware/service |
 | Identity mutation closure | generated `one_field_at_a_time` negatives cover every registered anchor/H-010 identity plus top-level/nested breach mirrors、budget/batch/domain/version/signature fields；registry coverage fails when a new identity is unlisted |
 | Packaging | anchor payload contains service/backend/provision assets；no-block omits them；fresh installs prove exact registry/profile branch inventory |
+| Atomic launch closure | atomic-annex owner digest + all named request/response schemas；missing/unknown/conditional fields、peer/request mismatch、lost response and terminal respawn fail closed |
+| Process-template closure | six canonical body/domain/preimage mutation corpus；environment collision/order、cwd object、principal/sandbox/IPC drift fail before transaction consumption |
+| Tombstone retention | timeout/abort/create failure produce signed terminal tombstone；detail compaction/restart/old adapter cannot bypass permanent nonrollback transaction reuse guard |
 ### Closed H-010 decision and result schemas
 
 所有对象使用 RFC 8785 JCS、closed fields、literal domain 和 semantic outer schema version；digest
@@ -334,57 +338,16 @@ launch_authority_profile_body = {
 }
 launch_authority_profile_digest =
   H("vibeguard.gh702.launch-authority-profile.v1", 1, launch_authority_profile_body)
-launch_policy_body = {
-  schema_version: 1, launch_authority_profile_digest, platform_id,
-  platform_profile_family_id, global_platform_registry_entry_digest,
-  approved_core_binary: {version, binary_digest},
-  approved_host_adapter_binary: {version, binary_digest},
-  approved_core_process_template: {schema_version: 1, entrypoint_id, argv_digest, environment_digest, working_directory_digest, principal_identity_digest, sandbox_profile_digest, ipc_profile_digest},
-  enforcement_stage: "before_any_core_hook_v1"
-}
-launch_policy_digest = H("vibeguard.gh702.launch-policy.v1", 1, launch_policy_body)
-approved_core_process_template_digest = H("vibeguard.gh702.approved-core-process-template.v1", 1, launch_policy_body.approved_core_process_template)
-platform_launch_current_state_body = {
-  schema_version: 1, launch_authority_backend_identity,
-  current_platform_generation, backend_state_counter,
-  previous_attestation_digest|null, monotonic_launch_floor,
-  allowed_core_min_version, allowed_host_adapter_min_version
-}
-platform_launch_current_state_digest =
-  H("vibeguard.gh702.platform-launch-current-state.v1", 1,
-    platform_launch_current_state_body)
-launched_process_identity_body = {schema_version: 1, launch_authority_backend_identity, launch_policy_digest, platform_launch_current_state_digest, launch_session_id, challenge_nonce, launch_transaction_id, backend_process_instance_id, approved_core_process_template_digest, measured_core_binary_digest, requested_core_version, initial_process_state: "suspended_before_core_entry_v1"}
-launched_process_identity_digest = H("vibeguard.gh702.launched-process-identity.v1", 1, launched_process_identity_body)
-suspended_process_handle_digest = sha256(BASE64URL_DECODE_CANONICAL(suspended_process_handle))
-resume_token_digest = sha256(BASE64URL_DECODE_CANONICAL(resume_token))
-platform_launch_floor_attestation_envelope = {
-  digest_domain: "vibeguard.gh702.platform-launch-floor-attestation.v1",
-  schema_version: 1,
-  platform_launch_floor_attestation_body: {
-    launch_authority_profile_digest, launch_policy_digest,
-    platform_launch_current_state_body, platform_launch_current_state_digest,
-    launch_session_id, challenge_nonce, launch_transaction_id, launch_commit_counter,
-    launched_process_identity_body, launched_process_identity_digest, suspended_process_handle_digest,
-    resume_token_digest, resume_protocol: "single_use_external_tcb_resume_v1", measured_core_binary_digest,
-    measured_host_adapter_binary_digest, requested_core_version,
-    requested_host_adapter_version, issued_at, expires_at
-  },
-  platform_launch_floor_attestation_digest,
-  signatures: [{signer_key_id, signature_algorithm, signature}]
-}
-platform_launch_floor_attestation_digest =
-  H("vibeguard.gh702.platform-launch-floor-attestation.v1", 1,
-    platform_launch_floor_attestation_body)
-compare_current_state_consume_and_launch_response = {platform_launch_floor_attestation_envelope, suspended_process_handle, resume_token}
-recover_launch_handoff_request = {launch_session_id, challenge_nonce, launch_transaction_id}
-resume_suspended_process_request = {launch_session_id, launch_transaction_id, platform_launch_floor_attestation_digest, suspended_process_handle, resume_token}
-resume_commit_receipt_envelope = {digest_domain: "vibeguard.gh702.resume-commit-receipt.v1", schema_version: 1, resume_commit_receipt_body: {schema_version: 1, launch_session_id, launch_transaction_id, launched_process_identity_digest, suspended_process_handle_digest, launch_commit_counter, resume_state: "resumed"}, resume_commit_receipt_digest, signatures}
-query_or_abort_suspended_process_request = {action: query|abort, launch_session_id, launch_transaction_id, platform_launch_floor_attestation_digest, suspended_process_handle}; response = {state: pending|resumed|aborted, resume_commit_receipt_envelope|null, abort_reason|null}
+launch_policy_body、六个 process-template subdigest bodies/domains/preimages、current/process/attestation
+identities，以及 named compare/recover/resume/query-or-abort messages 和 terminal tombstone/reuse guard，全部
+由 [`atomic-launch-machine-contract.md`](atomic-launch-machine-contract.md) 唯一定义。本文不得重声明匿名
+response、缩短 request 或为 platform 创建 alias；H-010 必须 exact 绑定该 annex digest。
 h010_decision_envelope = {
   digest_domain: "vibeguard.gh702.h010-decision.v1",
   schema_version,
   h010_decision_body: {
     product_spec_digest, tech_spec_digest, anchor_contract_digest,
+    atomic_launch_machine_contract_digest,
     approved_by: [maintainer_id], approved_at, expires_at,
     global_platform_registry_digest,
     platform_profiles: [{
@@ -416,11 +379,13 @@ h010_decision_envelope = {
 }
 ```
 `launch_authority_profile_body` 是 H-010 内唯一 signer trust source：`trusted_signers` 按 ID 严格排序且唯一，quorum 必须在 `1..=unique_signers`，attestation/suspended lifetime 与 token entropy bounds 必须为正；signer ID、algorithm、quorum 与 provisioned public-key material 的 canonical digest 全部签入 H-010；adapter 重算 verification key 后 exact 匹配。
-`launch_policy_body` exact 绑定 profile、platform/family、registry entry、pre-hook stage、approved Core/adapter binary，以及 canonical Core process template；template 的 entrypoint/argv/environment/cwd/principal/sandbox/IPC digests 任一 mismatch 都不得请求或接受 attestation，只满足 minimum version 不算获批 process。
-每次 launch，adapter 生成 never-reused CSPRNG `challenge_nonce`、唯一 `launch_session_id` 与 `launch_transaction_id`，把实测 adapter/Core identity 和 expected current state 送给 Core 外 backend。backend 必须在一个 external-TCB atomic `compare_current_state_consume_and_launch` 内比较 current-state digest/counter/floor、永久消费 transaction ID，并以 `suspended_before_core_entry_v1` 创建 exact approved process；这是唯一 launch linearization point，禁止 current read + local spawn。
-backend-assigned process instance ID 与 template/state/policy/session/challenge/transaction 构成 canonical `launched_process_identity_body`，adapter 必须重算其 digest。closed IPC response 还返回 opaque `suspended_process_handle` 与单次 `resume_token`；attestation 签入二者的 byte digest 与 resume protocol，raw handle/token 不得进入 HOME、log、receipt 或 status。
-response 丢失时，仅同一 authenticated adapter peer 可用 exact session/challenge/transaction 调用 `recover_launch_handoff`；backend 必须返回同一 suspended process/attestation/handoff，不得创建第二个 process。adapter 先验证 response 的 body/digest/signature/quorum/current state、handle/token digest 与 approved template，再调用 `resume_suspended_process`；backend 原子核对 pending handle、单次 token、attestation/process identity 后消费 token并恢复该 exact process。
-resume response 丢失只能 `query_or_abort_suspended_process`：`resumed` 返回同一 commit receipt，`pending` 可重试同一 resume，`aborted` 永不复活；adapter/IPC 失联或 attestation 到期时 backend bounded terminate pending process、持久化 consumed transaction tombstone。任一验证失败先 abort/terminate，任一 Core hook 在 signed resume commit 前不得运行。
+`launch_policy_body` exact 绑定 profile、platform/family、registry entry、pre-hook stage、approved binaries、
+canonical Core process template 与 tombstone retention digest；atomic annex 的六个 body/domain/preimage 任一
+mismatch 都不得消费 transaction 或接受 attestation，只满足 minimum version 不算获批 process。
+每次 launch 必须使用 annex 的 named request；backend 在一个 external-TCB linearization point compare exact
+current state、永久消费 transaction 并创建 suspended exact process。recover 只向原 authenticated peer 返回
+同一 handoff；resume/query/abort 使用 named conditional responses，pending timeout/失败形成 signed tombstone，
+detail compaction 后仍永久保留 nonrollback reuse guard。任一 Core hook 在 signed resume receipt 前不得运行。
 state 在线性化前推进使 compare 失败；其后推进不倒置已启动 process。cached/caller-reported/wrong nonce/session/transaction、predecessor/non-current state、missing quorum、自签、expired、floor rollback 或 replayed response 全部在 Core 前 nonzero。accepted state/commit/process identities 进入 receipt/status/perf authority；Core/HOME/local file 不能替代 external TCB。
 `global_platform_registry_invariant` 是跨所有 Core releases 的 append-only canonical contract；signatures
 按 ID 严格排序且唯一，并 exact 匹配 repository maintainer trust keys/algorithms/quorum。entries 按
@@ -693,42 +658,9 @@ h010_identity_schema_pointers = [
   "/launch_authority_profile_body/launch_authority_backend_identity/protocol_version", "/launch_authority_profile_body/trusted_signers/items/signer_key_id",
   "/launch_authority_profile_body/trusted_signers/items/signature_algorithm", "/launch_authority_profile_body/trusted_signers/items/verification_key_digest",
   "/launch_authority_profile_body/signature_quorum", "/launch_authority_profile_body/max_attestation_validity_ms", "/launch_authority_profile_body/resume_token_min_entropy_bits", "/launch_authority_profile_body/max_suspended_lifetime_ms",
-  "/launch_authority_profile_body/freshness_protocol", "/launch_authority_profile_body/resume_protocol", "/launch_policy_body/schema_version", "/launch_policy_digest", "/launch_policy_body/platform_id",
-  "/launch_policy_body/platform_profile_family_id", "/launch_policy_body/global_platform_registry_entry_digest",
-  "/launch_policy_body/launch_authority_profile_digest", "/launch_policy_body/approved_core_binary/version", "/launch_policy_body/approved_core_binary/binary_digest",
-  "/launch_policy_body/approved_host_adapter_binary/version", "/launch_policy_body/approved_host_adapter_binary/binary_digest", "/launch_policy_body/approved_core_process_template/schema_version", "/launch_policy_body/approved_core_process_template/entrypoint_id",
-  "/launch_policy_body/approved_core_process_template/argv_digest", "/launch_policy_body/approved_core_process_template/environment_digest", "/launch_policy_body/approved_core_process_template/working_directory_digest", "/launch_policy_body/approved_core_process_template/principal_identity_digest", "/launch_policy_body/approved_core_process_template/sandbox_profile_digest", "/launch_policy_body/approved_core_process_template/ipc_profile_digest", "/launch_policy_body/enforcement_stage",
-  "/platform_launch_floor_attestation_envelope/digest_domain", "/platform_launch_floor_attestation_envelope/schema_version", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_digest", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launch_authority_profile_digest",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launch_policy_digest",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/schema_version", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/launch_authority_backend_identity/backend_kind",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/launch_authority_backend_identity/backend_instance_id",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/launch_authority_backend_identity/device_key_digest",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/launch_authority_backend_identity/protocol_version",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/current_platform_generation",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/backend_state_counter",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/previous_attestation_digest",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/monotonic_launch_floor",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/allowed_core_min_version",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_body/allowed_host_adapter_min_version",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/platform_launch_current_state_digest",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launch_session_id",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/challenge_nonce",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launch_transaction_id",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launch_commit_counter",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/schema_version", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/launch_authority_backend_identity/backend_kind", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/launch_authority_backend_identity/backend_instance_id", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/launch_authority_backend_identity/device_key_digest", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/launch_authority_backend_identity/protocol_version", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/launch_policy_digest", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/platform_launch_current_state_digest",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/launch_session_id", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/challenge_nonce", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/launch_transaction_id", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/backend_process_instance_id", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/approved_core_process_template_digest", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/measured_core_binary_digest", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/requested_core_version", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_body/initial_process_state", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/launched_process_identity_digest", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/suspended_process_handle_digest", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/resume_token_digest", "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/resume_protocol",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/measured_core_binary_digest",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/measured_host_adapter_binary_digest",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/requested_core_version",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/requested_host_adapter_version",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/issued_at",
-  "/platform_launch_floor_attestation_envelope/platform_launch_floor_attestation_body/expires_at",
-  "/platform_launch_floor_attestation_envelope/signatures/items/signer_key_id",
-  "/platform_launch_floor_attestation_envelope/signatures/items/signature_algorithm",
-  "/platform_launch_floor_attestation_envelope/signatures/items/signature",
-  "/resume_commit_receipt_envelope/digest_domain", "/resume_commit_receipt_envelope/schema_version", "/resume_commit_receipt_envelope/resume_commit_receipt_body/schema_version", "/resume_commit_receipt_envelope/resume_commit_receipt_body/launch_session_id", "/resume_commit_receipt_envelope/resume_commit_receipt_body/launch_transaction_id", "/resume_commit_receipt_envelope/resume_commit_receipt_body/launched_process_identity_digest", "/resume_commit_receipt_envelope/resume_commit_receipt_body/suspended_process_handle_digest", "/resume_commit_receipt_envelope/resume_commit_receipt_body/launch_commit_counter", "/resume_commit_receipt_envelope/resume_commit_receipt_body/resume_state", "/resume_commit_receipt_envelope/resume_commit_receipt_digest", "/resume_commit_receipt_envelope/signatures/items/signer_key_id", "/resume_commit_receipt_envelope/signatures/items/signature_algorithm", "/resume_commit_receipt_envelope/signatures/items/signature",
+  "/launch_authority_profile_body/freshness_protocol", "/launch_authority_profile_body/resume_protocol",
   "/h010_decision_envelope/digest_domain", "/h010_decision_envelope/schema_version", "/h010_decision_envelope/h010_decision_artifact_digest", "/h010_decision_envelope/h010_decision_body/product_spec_digest", "/h010_decision_envelope/h010_decision_body/tech_spec_digest",
-  "/h010_decision_envelope/h010_decision_body/anchor_contract_digest", "/h010_decision_envelope/h010_decision_body/approved_by/items",
+  "/h010_decision_envelope/h010_decision_body/anchor_contract_digest", "/h010_decision_envelope/h010_decision_body/atomic_launch_machine_contract_digest", "/h010_decision_envelope/h010_decision_body/approved_by/items",
   "/h010_decision_envelope/h010_decision_body/approved_at", "/h010_decision_envelope/h010_decision_body/expires_at",
   "/h010_decision_envelope/h010_decision_body/global_platform_registry_digest", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/platform_id",
   "/h010_decision_envelope/h010_decision_body/platform_profiles/items/platform_profile_family_id", "/h010_decision_envelope/h010_decision_body/platform_profiles/items/global_profile_generation",
@@ -772,6 +704,8 @@ h010_identity_schema_pointers = [
   "/perf/no_block/result_body/initial/phase", "/perf/no_block/result_body/initial/no_block_authority_base_digest", "/perf/no_block/result_body/initial/no_block_budget_digest", "/perf/no_block/result_body/initial/no_block_decision_artifact_digest", "/perf/no_block/result_body/initial/fixture_id", "/perf/no_block/result_body/initial/platform_id", "/perf/no_block/result_body/initial/host_kind", "/perf/no_block/result_body/initial/installed_wrapper_path", "/perf/no_block/result_body/initial/authority_mode", "/perf/no_block/result_body/initial/anchor_enabled", "/perf/no_block/result_body/initial/surface", "/perf/no_block/result_body/initial/runs", "/perf/no_block/result_body/initial/workload_schedule_digest", "/perf/no_block/result_body/initial_digest", "/perf/no_block/result_body/initial_breaches",
   "/perf/no_block/result_body/confirmation_applicability", "/perf/no_block/result_body/confirmation/phase", "/perf/no_block/result_body/confirmation/no_block_authority_base_digest", "/perf/no_block/result_body/confirmation/no_block_budget_digest", "/perf/no_block/result_body/confirmation/no_block_decision_artifact_digest", "/perf/no_block/result_body/confirmation/fixture_id", "/perf/no_block/result_body/confirmation/platform_id", "/perf/no_block/result_body/confirmation/host_kind", "/perf/no_block/result_body/confirmation/installed_wrapper_path", "/perf/no_block/result_body/confirmation/authority_mode", "/perf/no_block/result_body/confirmation/anchor_enabled", "/perf/no_block/result_body/confirmation/surface", "/perf/no_block/result_body/confirmation/runs", "/perf/no_block/result_body/confirmation/workload_schedule_digest", "/perf/no_block/result_body/confirmation_digest", "/perf/no_block/result_body/confirmation_breaches", "/perf/no_block/result_body/decision", "/perf/no_block/result_body_digest"
 ]
+all_identity_schema_pointers = exact_set_union(anchor_identity_schema_pointers,
+  h010_identity_schema_pointers, atomic_annex.generated_atomic_launch_identity_schema_pointers)
 ```
 negative corpus 还必须逐项 mutate 每个 budget value、batch phase/runs/metric/timeout/error/breach path、
 literal domain、outer schema version、signature/key 与 from/target leaf pairing。breach mirror fixtures
@@ -781,8 +715,9 @@ nonzero。另覆盖 `refreshed_proof_same_state`、valid `unrelated_leaf_advance
 （`needs_repair`）、`forbidden_cross_release_mode_transition`、`duplicate_platform_across_releases`、
 `two_release_whole_rollback`、`old_binary_prelaunch_rejected`、`unapproved_binary_above_minimum_rejected`、
 `state_advance_before_atomic_launch_commit`、`replayed_consumed_launch_transaction` 与
-`still_unexpired_attestation_replay_after_floor_advance`，并 mutate launch profile/policy/key/quorum/challenge/session/
-transaction/commit/process/predecessor/current-state。fixture 必须证明旧 nonce/session/transaction 或 lower backend
+`still_unexpired_attestation_replay_after_floor_advance`，并递归 mutate atomic annex 的六个 subdigest/domain/preimage、
+named request/response conditional fields、tombstone retention/reuse guard 及 launch profile/policy/key/quorum/current-state。
+fixture 必须证明旧 nonce/session/transaction 或 lower backend
 counter/floor 即使 signature/expiry 仍有效也在 pre-hook 拒绝；no-block family 永远 warn/off且禁止 migration；active block platform rollback
 到旧 Core/adapter 时在任何 hook 前 nonzero，不能执行 warn/off 或产生 decision。另须拒绝
 duplicate/unsorted current profiles、pin mismatch、outer schema alias；

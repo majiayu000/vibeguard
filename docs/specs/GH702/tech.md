@@ -8,14 +8,14 @@ GH-702
 
 [`product.md`](product.md)
 
-External monotonic persistence 与 crash recovery 的 canonical contract 是
-[`monotonic-anchor-contract.md`](monotonic-anchor-contract.md)；本文件只引用，不另建第二套状态机。
+External monotonic persistence/crash recovery 由 [`monotonic-anchor-contract.md`](monotonic-anchor-contract.md) 定义；
+atomic launch wire/process-template 只由 [`atomic-launch-machine-contract.md`](atomic-launch-machine-contract.md) 定义，本文件不另建 alias。
 
 ## Spec 状态与实施门
 
 本文件是 Draft design，不是 approved implementation plan。H-001–H-010 仍是未批准的
 human decisions；以下 v2 结构用于证明这些选择可形成一致、可测试的方案。实现前必须有
-一个 maintainer-approved decision artifact，绑定 product/tech/supporting spec digests 和十项选择。
+一个 maintainer-approved decision artifact，绑定 product/tech/anchor/atomic-launch annex digests 和十项选择。
 若选择改变 planned paths、trust root、capability 边界、precision policy 或 host contract，
 必须先更新本 spec，再生成 `tasks.md`。
 
@@ -58,6 +58,8 @@ policy_role = publication | evaluation
 gh702_policy_version
 product_spec_digest
 tech_spec_digest
+anchor_contract_digest
+atomic_launch_machine_contract_digest
 H-001 ... H-010 selections
 approved_by
 approved_at
@@ -259,12 +261,11 @@ validity evidence、previous/target generation；再 CAS+fsync external floor，
 无效。pack/environment/CLI/publication artifact 均不能改写。每个 active generation 有独立
 closed、Core-owned runtime-state entry，
 绑定 installation generation、committed policy exact identity、`clock_epoch`、sequence、high-water、latch 与 deterministic time-leaf state；
-fresh proof 只认证 state且 refresh 不改变 equality。anchor host adapter 每次 pre-hook 生成唯一 CSPRNG
-nonce/session/transaction，向 external backend 发起 supporting contract 的 atomic
-`compare_current_state_consume_and_launch`，不得先 read current proof 再 local spawn。response 必须同时提供 canonical
-process identity preimage、signed attestation 与 digest-bound opaque suspended handle/single-use resume token；adapter
-验证全部 profile/policy/template/key/quorum/current-state/version 后调用 `resume_suspended_process`，丢 response 只按
-同一 transaction recover/query/abort，不得 respawn。之后 runtime 才验证 registry + release H-010；no-block 零 backend。
+fresh proof 只认证 state且 refresh 不改变 equality。anchor adapter 按 atomic-launch annex 的 named closed request
+生成唯一 nonce/session/transaction，把 exact current state、实测 binary/peer 与六个 canonical input bodies 送入
+external backend atomic `compare_current_state_consume_and_launch`，不得 read current 再 local spawn。response exact
+绑定 request/process/attestation/opaque handle/single-use token；全量验证后才 resume，丢 response 只同 peer/transaction
+recover/query/abort，timeout/abort 写 signed tombstone + permanent reuse guard，绝不 respawn；之后才验证 H-010 runtime。
 合法 warn/off/no-data 跳过 time leaf；block candidate 才锁 runtime-state 推进 high-water并锁存 fallback。
 新进程继承 durable high-water，不得以启动时间
 重置。同 epoch 的 audit 不得降低它；显式 trusted-clock reconciliation 必须验证 Core-approved
@@ -584,7 +585,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
   ],
   "spec_refs": [
     "docs/specs/GH702/product.md",
-    "docs/specs/GH702/tech.md", "docs/specs/GH702/monotonic-anchor-contract.md",
+    "docs/specs/GH702/tech.md", "docs/specs/GH702/monotonic-anchor-contract.md", "docs/specs/GH702/atomic-launch-machine-contract.md",
     "docs/specs/GH702/tasks.md"
   ]
 }
@@ -598,7 +599,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | Capability/host | planned **guard_pack/capability.rs**; consume approved GH-701 registry when available | Claude/Codex/unknown/incompatible/unsupported fixture matrix |
 | Transaction/receipt | planned **guard_pack/transaction.rs**, receipt/transaction schemas | crash-at-every-stage, concurrent lock, drift, rollback, recovery and canary tests |
 | Precision/runtime policy | planned **guard_pack/precision.rs**, **runtime_guard**, precision/policy/override/runtime-state schemas, `scripts/precision-tracker.py` | exhaustive eligibility truth table + binding/freshness/override/policy-rotation/clock-rollback negatives |
-| Monotonic anchor | planned **anchor/global_registry.rs**, **anchor/h010.rs**, **launch_adapter.rs** + shipped global registry/H-010 artifacts and profile/perf schemas | planned **anchor/h010.rs** loads and verifies the signed H-010 body; release payload publishes the exact planned **data/guard-pack-h010-decision.json**；mode-first selection、atomic compare-and-launch、terminal no-block、independent result/CI、per-leaf/JCS gates |
+| Monotonic anchor | planned **anchor/global_registry.rs**, **anchor/h010.rs**, **launch_adapter.rs** + shipped global registry/H-010 artifacts and profile/perf schemas | planned **anchor/h010.rs** verifies owner+atomic-annex digests；mode-first selection、named atomic request/responses、six subdigest preimages、terminal tombstone/reuse guard、terminal no-block、per-leaf/JCS gates |
 | Author publish | planned **scripts/lib/guard_pack_manifest.py**, **guard_pack_publish.py**, **scripts/ci/validate-guard-pack-publish.py** | two-build digest equality; half-publish/index-CAS/revoke/yank fixtures |
 | Legacy migration | `scripts/lib/guard_packs.py`, `scripts/lib/guard_pack_receipts.py`, `packs/safe-bash/` | existing 623-case shell surface remains green plus migration ownership sentinels |
 | Release distribution | `scripts/release/payload-manifest.txt`, planned signed **data/guard-pack-h010-decision.json**, `scripts/setup/guard-packs.sh`, `setup.sh`, `tests/test_payload.sh`, `tests/test_release_workflow.sh` | release payload contains the byte-exact H-010 artifact consumed by planned **anchor/h010.rs**; GH-699 no-clone launcher invokes Rust client; payload tamper fails closed |
@@ -634,7 +635,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | External launch adapter + policy/global registry | atomic compare+consume+create-suspended rejects read+spawn；canonical process preimage + handle/token digest + resume/recover/query/abort fixtures reject old Core/adapter, wrong process, replay and lost responses；no TCB means permanent no-block/no migration |
+| B-027 policy-owned thresholds | External launch adapter + policy/global registry | named compare/recover/resume/query-or-abort schemas reject missing/anonymous/conditional drift；six canonical subdigest mutation fixtures bind exact process；timeout tombstone compaction still leaves permanent transaction reuse guard；no TCB means permanent no-block/no migration |
 | B-028 insufficient evidence degrades | Generation-scoped runtime guard | no-block hook-only result and expiry/pin fallback；anchor launch/state failure denies；block fallback latches time |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
@@ -648,7 +649,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-038 GH-701 interface boundary | Host adapter compatibility layer | merged-Draft-only fixture stays fixed Claude/Codex；only decisions + merged implementation + compatibility/native proof accepts registry IDs；reject second registry/early third-host active claim |
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds under the same publication policy match digest；evaluation-policy rotation does not rebuild；publish failures never create resolvable partial entry |
-| B-041 truthful list/status/audit | Shared renderer | no-block renders global binding/ceiling/stale + hook-only result/CI + not_applicable anchors；anchor renders launch floor/backend/budgets |
+| B-041 truthful list/status/audit | Shared renderer | no-block renders global binding/ceiling/stale + hook-only result/CI + not_applicable anchors；anchor renders launch floor/backend/budgets plus non-secret pending/resume-committed/resumed/not-consumed/terminal handoff state and request/process/handle/receipt/tombstone digests，never raw handle/token |
 | B-042 offline runtime stability | Launch/runtime/registry gates | whole-release old binary + still-valid attestation replay prelaunch reject、floor/transition fixtures + mode-specific schemas/CI |
 
 ## 数据流
@@ -743,7 +744,7 @@ confirmation 声明。runtime enforcement、list local state 和 remove 已安�
   - tamper/rollback/freeze/yank/revoke/offline/unsafe archive；
   - failure/cancel/crash at every transaction stage + recovery；
   - parallel target lock、user/other-pack canaries、legacy safe-bash migration；
-  - runtime sentinels、refreshed proof、atomic read+spawn negative、process-preimage/handle/token/resume lost-response、two-release rollback/duplicate/transition、old-binary prelaunch floor、
+  - runtime sentinels、refreshed proof、atomic read+spawn negative、six-subdigest/domain/preimage mutation、named request/response loss、handle/token/double-resume、timeout tombstone/reuse-after-compaction、two-release rollback/duplicate/transition、old-binary prelaunch floor、
     no-block independent budget/batch/result/status/CI、breach/policy/clock mutations和 feedback redaction。
 - [ ] Release contract:
   - verified payload包含 client/schemas/policy；

@@ -7,7 +7,9 @@ GH-702
 ## Supporting Contract
 
 [`monotonic-anchor-contract.md`](monotonic-anchor-contract.md) 定义 external CAS、本地两代 mirror、
-commit journal 与 barrier recovery；其 backend/platform 选择仍须维护者批准。
+commit journal 与 barrier recovery；[`atomic-launch-machine-contract.md`](atomic-launch-machine-contract.md)
+唯一地定义 H-010 request/response、process-template preimage 与 consumed-transaction lifecycle。
+两者的 backend/platform 选择仍须维护者批准，owner/annex digests 必须一起绑定到 decision artifact。
 
 ## 当前事实
 
@@ -354,14 +356,17 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     body/digest/signature/quorum/backend identity/platform generation/current backend counter/monotonic floor/
     Core+adapter minimum version 任一无效或当前 binary/adapter 低于 floor 时，launch nonzero 且不得产生
     decision；实测 binary digest+version 还必须 exact 匹配 H-010 获批 Core/adapter，只达到 minimum 不授权。
-    每次 launch 必须用 never-reused nonce + session + transaction 直接挑战 external backend；backend 在同一
-    nonrollback TCB `compare_current_state_consume_and_launch` 操作内 compare current state、永久消费 transaction 并按 H-010 canonical template 创建
+    每次 launch 必须按 [`atomic-launch-machine-contract.md`](atomic-launch-machine-contract.md) 的 named
+    request/response 与六个 canonical subdigest preimage，用 never-reused nonce + session + transaction
+    直接挑战 external backend；backend 在同一 nonrollback TCB
+    `compare_current_state_consume_and_launch` 操作内 compare current state、永久消费 transaction 并按 H-010 canonical template 创建
     `suspended_before_core_entry_v1` exact process，禁止 current read + local spawn。signed response 必须绑定可重算的
     launched-process identity body/digest、opaque suspended handle 与 single-use resume token digests；raw handle/token
     只经 authenticated IPC 交给 adapter，不落 HOME/log/receipt/status。adapter 验证全部 identity 后调用
     `resume_suspended_process`；response 丢失只允许同一 peer/transaction 的 `recover_launch_handoff` 或
-    `query_or_abort_suspended_process`，不得创建第二 process。pending timeout/验证失败必须 external-TCB terminate
-    并保留 consumed transaction tombstone；cached、predecessor、wrong process/handle/token、无法线性化到 state
+    `query_or_abort_suspended_process`，不得创建第二 process。pending timeout/验证失败必须 external-TCB terminate，
+    保留 closed signed tombstone，并把 reuse guard 永久写入 nonrollback consumed-transaction set；cached、
+    predecessor、wrong process/handle/token、无法线性化到 state
     compare 的 response，或仍未过期但已消费/非 current response 一律在 Core hook 前拒绝。通过后 runtime
     才验证 global registry entry 与 release-pinned H-010 compatibility；terminal no-block
     expiry/pin mismatch 只保留 warn ceiling + stale/audit status。`anchor_block_v1` 在每次 enforcement
@@ -506,7 +511,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     generation/floor、runtime-state sequence/latch、authority mode、source-applicable `override_valid_until`；
     no-block 显示 global profile generation/install binding/warn ceiling/stale、独立 hook-only
     budget/batch/result/CI identity，且 backend/root/leaf=`not_applicable`；anchor-block 显示 launch-floor
-    attestation/current floor、selected backend/root/per-leaf authority/counter 与 anchor budget/availability；
+    attestation/current floor、selected backend/root/per-leaf authority/counter、anchor budget/availability，以及
+    non-secret handoff state、request/process/handle digest、pending deadline、resume receipt/not-consumed/tombstone digest；
     trusted-time high-water 与 `clock_epoch`，并以
     nonzero 区分 `{invalid, incompatible, revoked, needs_repair, protection_suspended,
     runtime_guard_unavailable}`；任何 `audit_required` 或 active protection 降级/暂停也必须
@@ -543,8 +549,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 - [ ] H-001–H-010 均有 maintainer 选择与 security review evidence，未选择时 official
       publish/install/default-block gate 明确阻断。
 - [ ] `two_release_whole_rollback`、`old_binary_prelaunch_rejected`、仍未过期旧 attestation 在 floor advance 后
-      replay、read-current+local-spawn、process-template/preimage/handle/token mutation、compare/launch/resume response
-      loss、pending timeout/abort、launch profile/policy/key/quorum/challenge/current-state mutation、
+      replay、read-current+local-spawn、六个 process-template subdigest/domain/preimage 与 handle/token mutation、
+      named compare/recover/resume/query-or-abort response loss、prelinearization not-consumed cancel、resume receipt
+      durable-before-runnable、pending timeout/abort/tombstone compaction 后 transaction reuse、handoff status secret
+      canary、launch profile/policy/key/quorum/challenge/current-state mutation、
       `duplicate_platform_across_releases` 与 `forbidden_cross_release_mode_transition` fixtures 证明 old Core
       在 active block platform 上于 hook 前 nonzero；`no_block_status_without_backend` 证明独立
       hook-only budget/batch/result、mode-specific lifecycle/status 与 no-hardware/service CI branch。
