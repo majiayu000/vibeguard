@@ -256,6 +256,20 @@ request/context/blob/attestation/set-digest drift；generated-PR nullability与 
 6. 对 `x-gh700-digest-dag`验证 node unique、edge endpoint declared且拓扑排序完整；逐 digest node mutation必须只使
    downstream verifier失败，禁止回边、自 digest或未声明 digest source。
 
+spec-local verifier不得把 root `oneOf`验证当成 per-method验证的替代：每个 materialized positive（含同
+method的 auxiliary branch model）必须重新查 exact `(surface,method)` registry row，并同时通过该 row的
+`request_ref`、`success_ref`与 root schema。Draft 2020-12 `unevaluatedProperties:false`必须传播同一 instance上
+`$ref`、`allOf`、成功 `anyOf`/唯一 `oneOf`及选中 `then`/`else`产生的 evaluated-property annotations；未知
+semantic validator标记、closed wire extra/alias或 `$ref` sibling遗漏均 fail closed。
+
+`$defs.uint64.x-gh700-semantic-validator=uint64` 是 decimal-string上界的 machine binding：所有物化正例中
+每个适用 uint64 instance都须生成 `2^64` overflow mutation，并经同一个 full pair verifier拒绝，禁止仅对
+独立 scalar sample调用 helper后宣称 wire coverage。runner还须对每个正例逐一执行 missing、extra、null、
+forbidden alias、wrong method/result、same-shape nonce substitution、response error/result collision及 applicable
+P/B CAS flip；对 `x-gh700-digest-dag.nodes` 每个 node逐一执行 formula mutation并证明 `check_dag` fail closed。
+最终成功摘要必须分别报告 closed `unevaluatedProperties` 数、per-positive mutation数、物化 uint64 mutation数与
+digest-node mutation数；任一集合为空、未覆盖全部正例或未覆盖全部 digest node都失败。
+
 九个 review finding cluster与 machine ownership exact 映射如下；architecture omission不得藏入 prose-only例外：
 
 | finding cluster | authoritative machine/protocol location |

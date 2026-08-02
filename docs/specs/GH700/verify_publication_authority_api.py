@@ -129,24 +129,41 @@ def valid(value, schema, root):
 
 def validate(value, schema, root, path="$"):
     if schema is True:
-        return
+        return set()
     if schema is False or not isinstance(schema, dict):
         raise ContractError(f"{path}: invalid/false schema")
+    evaluated = set()
     if "$ref" in schema:
-        validate(value, pointer(root, schema["$ref"]), root, path)
-        return
+        evaluated.update(validate(value, pointer(root, schema["$ref"]), root, path))
     for child in schema.get("allOf", ()):
-        validate(value, child, root, path)
-    if "anyOf" in schema and not any(valid(value, child, root) for child in schema["anyOf"]):
-        raise ContractError(f"{path}: no anyOf branch")
-    if "oneOf" in schema and sum(valid(value, child, root) for child in schema["oneOf"]) != 1:
-        raise ContractError(f"{path}: oneOf cardinality mismatch")
+        evaluated.update(validate(value, child, root, path))
+    if "anyOf" in schema:
+        matches = []
+        for child in schema["anyOf"]:
+            try:
+                matches.append(validate(value, child, root, path))
+            except ContractError:
+                continue
+        if not matches:
+            raise ContractError(f"{path}: no anyOf branch")
+        for annotations in matches:
+            evaluated.update(annotations)
+    if "oneOf" in schema:
+        matches = []
+        for child in schema["oneOf"]:
+            try:
+                matches.append(validate(value, child, root, path))
+            except ContractError:
+                continue
+        if len(matches) != 1:
+            raise ContractError(f"{path}: oneOf cardinality mismatch")
+        evaluated.update(matches[0])
     if "not" in schema and valid(value, schema["not"], root):
         raise ContractError(f"{path}: forbidden by not")
     if "if" in schema:
         branch = schema.get("then") if valid(value, schema["if"], root) else schema.get("else")
         if branch is not None:
-            validate(value, branch, root, path)
+            evaluated.update(validate(value, branch, root, path))
     if "const" in schema and value != schema["const"]:
         raise ContractError(f"{path}: const mismatch")
     if "enum" in schema and value not in schema["enum"]:
@@ -164,8 +181,23 @@ def validate(value, schema, root, path="$"):
         for key, item in value.items():
             if key in props:
                 validate(item, props[key], root, f"{path}.{key}")
-            elif schema.get("additionalProperties") is False:
-                raise ContractError(f"{path}: additional property {key}")
+                evaluated.add(key)
+        if "additionalProperties" in schema:
+            additional = set(value) - set(props)
+            additional_schema = schema["additionalProperties"]
+            if additional_schema is False and additional:
+                raise ContractError(f"{path}: additional properties {sorted(additional)}")
+            for key in additional:
+                validate(value[key], additional_schema, root, f"{path}.{key}")
+            evaluated.update(additional)
+        if "unevaluatedProperties" in schema:
+            unevaluated = set(value) - evaluated
+            unevaluated_schema = schema["unevaluatedProperties"]
+            if unevaluated_schema is False and unevaluated:
+                raise ContractError(f"{path}: unevaluated properties {sorted(unevaluated)}")
+            for key in unevaluated:
+                validate(value[key], unevaluated_schema, root, f"{path}.{key}")
+            evaluated.update(unevaluated)
     if isinstance(value, list):
         if len(value) < schema.get("minItems", 0) or len(value) > schema.get("maxItems", len(value)):
             raise ContractError(f"{path}: array cardinality")
@@ -182,6 +214,12 @@ def validate(value, schema, root, path="$"):
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         if value < schema.get("minimum", value) or value > schema.get("maximum", value):
             raise ContractError(f"{path}: numeric range")
+    semantic_validator = schema.get("x-gh700-semantic-validator")
+    if semantic_validator == "uint64":
+        uint64(value, path)
+    elif semantic_validator is not None:
+        raise ContractError(f"{path}: unknown semantic validator {semantic_validator}")
+    return evaluated
 
 
 def expand(value, fixtures, stack=()):
@@ -368,6 +406,15 @@ def check_schema(schema, root):
             pointer(schema, item["$ref"])
     check_scalars(schema)
     defs = schema["$defs"]
+    if defs["uint64"].get("x-gh700-semantic-validator") != "uint64":
+        raise ContractError("uint64 semantic validator binding missing")
+    unevaluated_count = sum(
+        item.get("unevaluatedProperties") is False
+        for item in walk(schema)
+        if isinstance(item, dict)
+    )
+    if unevaluated_count == 0:
+        raise ContractError("closed allOf wire schemas missing unevaluatedProperties")
     methods = {"client": CLIENT, "control": CONTROL}
     for name, surface in (("client_request_envelope", "client"), ("client_success_envelope", "client"), ("control_request_envelope", "control"), ("control_success_envelope", "control")):
         if tuple(defs[name]["properties"]["method"].get("enum", ())) != methods[surface]:
@@ -415,7 +462,7 @@ def check_schema(schema, root):
     for marker in ('"schema_version":"GH700:append-authorization:v1"', '"schema_version":"GH700:delivery-authorization:v1"', '"schema_version":"GH700:ledger-append-authorization:v1"', '"receipt_version":"GH700:'):
         if marker in compact:
             raise ContractError(f"duplicate prose wire owner: {marker}")
-    return len(refs)
+    return len(refs), unevaluated_count
 
 
 def check_dag(schema):
@@ -483,6 +530,160 @@ def semantic_pair(request, response, model):
         raise ContractError("unknown recovery selector")
 
 
+def verify_pair(request, response, model, registry_row, schema):
+    if (model["surface"], model["method"]) != (registry_row["surface"], registry_row["method"]):
+        raise ContractError(f"{model['model_id']}: registry row mismatch")
+    validate(request, pointer(schema, registry_row["request_ref"]), schema)
+    validate(response, pointer(schema, registry_row["success_ref"]), schema)
+    validate(request, schema, schema)
+    validate(response, schema, schema)
+    semantic_pair(request, response, model)
+    checked_request = copy.deepcopy(request)
+    op_id, nonce_digest = request_digests(checked_request, model["surface"])
+    checked_response = copy.deepcopy(response)
+    response_digests(
+        checked_response, checked_request, model["surface"], op_id, nonce_digest
+    )
+
+
+def expect_pair_rejected(label, request, response, model, registry_row, schema):
+    try:
+        verify_pair(request, response, model, registry_row, schema)
+    except ContractError:
+        return
+    raise ContractError(f"positive mutation accepted: {label}")
+
+
+def other_method(surface, method):
+    methods = CLIENT if surface == "client" else CONTROL
+    return next(candidate for candidate in methods if candidate != method)
+
+
+def check_positive_mutations(pairs, models, registry_by_method, schema, fixtures):
+    count = 0
+    publication_frontier = expand({"$fixture": "publication_frontier"}, fixtures)
+    blocked_frontier = expand({"$fixture": "blocked_frontier"}, fixtures)
+    for model in models:
+        row = registry_by_method[(model["surface"], model["method"])]
+        request, response = pairs[model["model_id"]]
+        mutations = []
+        for side, key in (("request", "body"), ("response", "result")):
+            mutated_request, mutated_response = copy.deepcopy((request, response))
+            target = mutated_request if side == "request" else mutated_response
+            target.pop(key)
+            mutations.append((f"{model['model_id']}.{side}.missing_{key}", mutated_request, mutated_response))
+            mutated_request, mutated_response = copy.deepcopy((request, response))
+            target = mutated_request if side == "request" else mutated_response
+            target[key] = None
+            mutations.append((f"{model['model_id']}.{side}.null_{key}", mutated_request, mutated_response))
+            mutated_request, mutated_response = copy.deepcopy((request, response))
+            target = mutated_request if side == "request" else mutated_response
+            target["reviewer_unknown_top_level"] = True
+            mutations.append((f"{model['model_id']}.{side}.extra", mutated_request, mutated_response))
+            mutated_request, mutated_response = copy.deepcopy((request, response))
+            target = mutated_request if side == "request" else mutated_response
+            target["method"] = other_method(model["surface"], model["method"])
+            mutations.append((f"{model['model_id']}.{side}.wrong_method", mutated_request, mutated_response))
+        mutated_request, mutated_response = copy.deepcopy((request, response))
+        mutated_response["error"] = {"code": "invalid_request"}
+        mutations.append((f"{model['model_id']}.response.error_result_collision", mutated_request, mutated_response))
+        for side in ("request", "response"):
+            mutated_request, mutated_response = copy.deepcopy((request, response))
+            target = mutated_request["body"] if side == "request" else mutated_response["result"]
+            target["append_auth"] = {}
+            mutations.append((f"{model['model_id']}.{side}.forbidden_alias", mutated_request, mutated_response))
+        mutated_request, mutated_response = copy.deepcopy((request, response))
+        mutated_request["request_nonce"] = b64u(b"\xff" * 32)
+        if mutated_request["request_nonce"] == request["request_nonce"]:
+            mutated_request["request_nonce"] = b64u(bytes(32))
+        mutations.append((f"{model['model_id']}.request.same_shape_nonce_substitution", mutated_request, mutated_response))
+        if model["surface"] == "client":
+            for key, replacement in (
+                ("expected_publication_frontier_or_null", publication_frontier),
+                ("expected_blocked_attempt_frontier_or_null", blocked_frontier),
+            ):
+                mutated_request, mutated_response = copy.deepcopy((request, response))
+                mutated_request[key] = replacement if request[key] is None else None
+                mutations.append((f"{model['model_id']}.{key}.cas_flip", mutated_request, mutated_response))
+        for label, mutated_request, mutated_response in mutations:
+            expect_pair_rejected(label, mutated_request, mutated_response, model, row, schema)
+            count += 1
+    return count
+
+
+def applicable_semantic_paths(value, schema, root, path=()):
+    paths = set()
+    if not isinstance(schema, dict):
+        return paths
+    if schema.get("x-gh700-semantic-validator") == "uint64":
+        paths.add(path)
+    if "$ref" in schema:
+        paths.update(applicable_semantic_paths(value, pointer(root, schema["$ref"]), root, path))
+    for child in schema.get("allOf", ()):
+        paths.update(applicable_semantic_paths(value, child, root, path))
+    for keyword in ("anyOf", "oneOf"):
+        for child in schema.get(keyword, ()):
+            if valid(value, child, root):
+                paths.update(applicable_semantic_paths(value, child, root, path))
+    if "if" in schema:
+        branch = schema.get("then") if valid(value, schema["if"], root) else schema.get("else")
+        if branch is not None:
+            paths.update(applicable_semantic_paths(value, branch, root, path))
+    if isinstance(value, dict):
+        for key, child in schema.get("properties", {}).items():
+            if key in value:
+                paths.update(applicable_semantic_paths(value[key], child, root, path + (key,)))
+    if isinstance(value, list) and "items" in schema:
+        for index, item in enumerate(value):
+            paths.update(applicable_semantic_paths(item, schema["items"], root, path + (index,)))
+    return paths
+
+
+def replace_path(value, path, replacement):
+    target = value
+    for step in path[:-1]:
+        target = target[step]
+    target[path[-1]] = replacement
+
+
+def check_uint64_instance_mutations(pairs, models, registry_by_method, schema):
+    count = 0
+    for model in models:
+        row = registry_by_method[(model["surface"], model["method"])]
+        request, response = pairs[model["model_id"]]
+        for side, value, schema_ref in (
+            ("request", request, row["request_ref"]),
+            ("response", response, row["success_ref"]),
+        ):
+            for path in applicable_semantic_paths(value, pointer(schema, schema_ref), schema):
+                mutated_request, mutated_response = copy.deepcopy((request, response))
+                replace_path(mutated_request if side == "request" else mutated_response, path, str(U64_MAX + 1))
+                expect_pair_rejected(
+                    f"{model['model_id']}.{side}.{'.'.join(map(str, path))}.uint64_overflow",
+                    mutated_request, mutated_response, model, row, schema,
+                )
+                count += 1
+    if count == 0:
+        raise ContractError("no materialized uint64 instances were mutation-tested")
+    return count
+
+
+def check_digest_node_mutations(schema):
+    count = 0
+    for node in schema["x-gh700-digest-dag"]["nodes"]:
+        mutated = copy.deepcopy(schema)
+        mutated["x-gh700-digest-formulas"][node]["domain"] = ""
+        try:
+            check_dag(mutated)
+        except ContractError:
+            count += 1
+            continue
+        raise ContractError(f"digest node mutation accepted: {node}")
+    if count != len(REQUIRED_DIGEST_NODES):
+        raise ContractError("digest mutation matrix is incomplete")
+    return count
+
+
 def negative(case, pairs, schema):
     kind = case["mutation"]
     scalar_bad = {"nonce_padding": lambda: decode_b64u("A" * 43 + "=", 32, kind), "nonce_noncanonical_last_char": lambda: decode_b64u("A" * 42 + "B", 32, kind), "uint64_leading_zero": lambda: uint64("01", kind), "uint64_overflow": lambda: uint64(str(U64_MAX + 1), kind)}
@@ -521,7 +722,7 @@ def negative(case, pairs, schema):
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent); parser.add_argument("--emit-materialized", type=Path); args = parser.parse_args()
     root = args.root.resolve(); schema = load(root / "publication_authority_api.schema.json"); models = load(root / "publication_authority_api.models.json")
-    refs = check_schema(schema, root); dag_nodes, dag_edges = check_dag(schema); kms_digests = check_kms(schema, models["fixtures"])
+    refs, unevaluated = check_schema(schema, root); dag_nodes, dag_edges = check_dag(schema); digest_mutations = check_digest_node_mutations(schema); kms_digests = check_kms(schema, models["fixtures"])
     registry = schema["x-gh700-method-registry"]; rows = [(row["surface"], row["method"]) for row in registry]
     if rows != [("client", method) for method in CLIENT] + [("control", method) for method in CONTROL] or len(set(rows)) != 22:
         raise ContractError("registry is not exact unique 17+5")
@@ -530,18 +731,22 @@ def main():
         raise ContractError("control not_found registry partition mismatch")
     by_id = {model["model_id"]: model for model in models["models"]}
     if len(by_id) != len(models["models"]): raise ContractError("duplicate model_id")
+    registry_by_method = {(row["surface"], row["method"]): row for row in registry}
     for row in registry:
         pointer(schema, row["request_ref"]); pointer(schema, row["success_ref"])
         model = by_id.get(row["positive_model_id"])
         if model is None or (model["surface"], model["method"]) != (row["surface"], row["method"]): raise ContractError(f"registry model mismatch: {row['method']}")
     pairs, coverage, digest_count = {}, set(), 0
     for model in models["models"]:
-        request, response = materialize(model, models["fixtures"]); validate(request, schema, schema); validate(response, schema, schema); semantic_pair(request, response, model)
+        request, response = materialize(model, models["fixtures"])
+        verify_pair(request, response, model, registry_by_method[(model["surface"], model["method"])], schema)
         pairs[model["model_id"]] = (request, response); coverage.update(model.get("coverage_tags", ()))
         digests = [item for item in walk((request, response)) if isinstance(item, str) and item.startswith("sha256:")]
         if not digests or "sha256:" + "0" * 64 in digests: raise ContractError(f"{model['model_id']}: missing/zero digest")
         digest_count += len(digests)
     if len(models["models"]) < 22: raise ContractError("fewer than 22 positive models")
+    positive_mutations = check_positive_mutations(pairs, models["models"], registry_by_method, schema, models["fixtures"])
+    uint64_mutations = check_uint64_instance_mutations(pairs, models["models"], registry_by_method, schema)
     auxiliary = models.get("auxiliary_positive_instances", ())
     for item in auxiliary:
         value = expand(item["value"], models["fixtures"])
@@ -570,7 +775,7 @@ def main():
         args.emit_materialized.mkdir(parents=True, exist_ok=True)
         for model_id, (request, response) in pairs.items():
             (args.emit_materialized / f"{model_id}.request.json").write_bytes(jcs(request)); (args.emit_materialized / f"{model_id}.response.json").write_bytes(jcs(response))
-    print(f"PUBLICATION_AUTHORITY_API_OK registry=17+5 models={len(models['models'])} auxiliary={len(auxiliary)} errors={len(errors)} refs={refs} digests={digest_count}+{kms_digests}kms mismatches=0 dag={dag_nodes}/{dag_edges} negatives={len(negatives)} coverage={len(coverage)}")
+    print(f"PUBLICATION_AUTHORITY_API_OK registry=17+5 models={len(models['models'])} auxiliary={len(auxiliary)} errors={len(errors)} refs={refs} unevaluated={unevaluated} digests={digest_count}+{kms_digests}kms mismatches=0 dag={dag_nodes}/{dag_edges} positive_mutations={positive_mutations} uint64_mutations={uint64_mutations} digest_mutations={digest_mutations} negatives={len(negatives)} coverage={len(coverage)}")
 
 
 if __name__ == "__main__":
