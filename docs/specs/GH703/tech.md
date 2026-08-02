@@ -12,6 +12,14 @@ GH-703
 
 [`coverage_snapshot_contract.md`](coverage_snapshot_contract.md)
 
+## Normative Operation Matrix
+
+[`operation_matrix.json`](operation_matrix.json) is the sole source of truth for every
+operation's allowed/required chains, commit marker policy, publishability, reserve/capacity,
+authority and recovery terminal. Product, tech and coverage prose may reference and validate
+those facts but must not redefine them. Every contract change must pass
+`python3 docs/specs/GH703/verify_operation_matrix.py --self-test`.
+
 ## Draft Gate
 
 本文件描述 H-001 至 H-008 的 Draft recommendation 对应设计，不代表维护者已经
@@ -123,19 +131,12 @@ envelope：
 }
 ```
 
-`data_status` closed 为 `ok`、`no_data`、`partial_coverage`；`status_reason` closed 为
-`complete_nonempty|complete_empty|source_missing|ledger_gap|ledger_corrupt|
-writer_coverage_unavailable|manual_pre_start|manual_post_seal|archive_missing|archive_tombstoned|
-event_identity_conflict|incompatible_host|unknown_host|
-unclassified_event|legacy_evidence|snapshot_changed|budget_exceeded`，禁止 free text 或扩展值。
-`archive_corrupt|integrity_preflight_incomplete` 是 generator/state 的 closed terminal diagnostics，不是 summary schema
-可发布 `status_reason`；命中时必须 nonzero、保留旧 current 并标 stale。`event_identity_missing` 同样只作为
-schema-v2 required identity 缺失时的 closed terminal diagnostic，不在可发布 `status_reason` enum 中。
-producer 必须先完成 candidate fact collection，再从所有适用的 partial reasons 按固定高到低顺序
-`ledger_corrupt > writer_coverage_unavailable > manual_pre_start > manual_post_seal > ledger_gap > source_missing >
-archive_missing > archive_tombstoned > event_identity_conflict > incompatible_host > unknown_host >
-unclassified_event > legacy_evidence > snapshot_changed > budget_exceeded`
-选择唯一 `status_reason`；扫描/枚举/错误发现顺序不得改变选择。`complete_empty` 或
+`data_status` closed 为 `ok`、`no_data`、`partial_coverage`。可发布 `status_reason`、terminal
+no-publish diagnostic 与 partial precedence 必须逐项从 operation matrix 的 `status_reasons` 生成并做 closed-enum
+validation，禁止 prose、free text 或 schema 单独扩展。特别是 `ledger_corrupt` 只属于
+`terminal_no_publish`；它与其他 terminal diagnostic 命中时必须 nonzero、保留旧 current 并标 stale，绝不进入
+summary schema 或 partial precedence。producer 必须先完成 candidate fact collection，再按 matrix 的
+`publishable_precedence` 选择唯一 `status_reason`；扫描/枚举/错误发现顺序不得改变选择。`complete_empty` 或
 `complete_nonempty` 只在 candidate set 没有任何 partial reason 且 coverage complete 时选择。
 映射固定为 unknown host → `unknown_host`、known host/incompatible contract → `incompatible_host`、
 schema-valid v2 `unclassified` → `unclassified_event`、同一 `event_id`对应不同 canonical tuple →
@@ -238,20 +239,22 @@ fail-visible 行为，不能只验证新 weekly producer。
   runtime/taxonomy paths；
 - value artifacts 与 current visibility 必须使用 coverage contract 的
   `history/<window-id>/<artifact_generation_id>/{summary.json,summary.md,generation.json}` 和
-  `current-pointers/<pointer-sequence>-<pointer-id>.json` append-only chain；不得独立替换
+  operation matrix `current_pointer` chain 的 record+commit-marker paths；只有 exact pair 才可见，且不得独立替换
   `current.json`/`current.md`或覆盖任何 existing pointer record。pointer schema是 JCS digest-linked
-  `record_type=current_generation|no_current` closed union，exact固定 variant fields/predecessor/lifecycle/terminal；current
-  由 committed receipt 授权，no-current 由同 generation 的 committed lifecycle-terminal proof 独立授权；
+  `record_type=current_generation|no_current` closed union；variant 的 authority 必须 exact 验证 matrix 对应 operation row；
 - 自动 scheduler 不预先创建 shareable artifact；用户显式调用 export 后，才从
   已验证 current object 生成 allowlisted projection，并以 user-only 权限写入
   用户指定的新本地文件；
-- 安装时 identity-pin permanent generation staging root；先 commit绑定 restricted child name、planned digests与完整预算的 claim，再创建 transaction child/bytes，故 pre-claim 没有 transaction directory。fsync+verify renderer/manifest 后提交 member/object binding并 atomic publish generation；receipt/pointer/marker统一用 exclusive no-replace rename，成功不留 staging link。post-materialization/pre-binding固定 `retained_unbound` nonzero；collision/foreign/invalid target保留旧 logical pointer并 stale；
+- 安装时 identity-pin permanent generation staging root；publish/recovery 必须执行 operation matrix 的
+  `current_generation_publish` row，并用 matrix 的 common commit primitive；post-materialization/pre-binding固定
+  `retained_unbound` nonzero；collision/foreign/invalid target保留旧 logical pointer并 stale；
 - scheduler attempt/success 只写 closed state/time/digest，不写 raw stderr、
   path、event 或 reason。
 
-每次 generation publish 还要按 coverage contract 在独立、versioned 的 claim/binding/receipt/lifecycle-terminal/pointer/checkpoint chains
-以 prepared record+dirfsync、commit marker+dirfsync逐条提交；各 chain 的 seq0 prior digest 必须 null，后续 exact
-连接前驱，reader 忽略 torn/uncommitted，lost-response 只 exact adopt。未来路径
+每次普通 generation publish 必须只执行 operation matrix 的 `current_generation_publish.required_chain_order`；
+`lifecycle_terminal` 与 `audit_checkpoint` 是该 operation 的 forbidden chains，不是普通 publish 的成功条件。
+disable/clean 与 checkpoint 分别执行它们自己的 matrix row，不得把不同 operation 的 chain 合并。
+各 chain 的 seq0 prior digest 必须 null，后续 exact连接前驱，reader 忽略 torn/uncommitted，lost-response 只 exact adopt。未来路径
 weekly-value ownership schema 约束 CSPRNG `artifact_generation_id`（同时嵌入 generation manifest）、
 两个 renderer 的受限相对路径、创建时 schema/version、各 artifact digest/length、publish 后由 no-follow opened handle 取得的
 versioned file identity（platform file ID + device/inode/birth marker）、owner nonce 与 ledger
@@ -584,9 +587,11 @@ JSON：
   ],
   "spec_refs": [
     "docs/specs/GH703/coverage_snapshot_contract.md",
+    "docs/specs/GH703/operation_matrix.json",
     "docs/specs/GH703/product.md",
     "docs/specs/GH703/tech.md",
-    "docs/specs/GH703/tasks.md"
+    "docs/specs/GH703/tasks.md",
+    "docs/specs/GH703/verify_operation_matrix.py"
   ]
 }
 ```

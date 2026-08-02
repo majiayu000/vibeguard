@@ -59,6 +59,15 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 - 不在本 spec 中实现 GH-699 剩余 bootstrap、Homebrew、npm/bunx 或发布工作；
   只定义周报在这些安装入口中的一致合同。
 
+## 规范性 Operation Matrix
+
+[`operation_matrix.json`](operation_matrix.json) 是各 operation 的 allowed/required chain、
+commit marker、publishability、reserve/capacity、authority 与 recovery terminal 的唯一规范来源。
+本文件、[`tech.md`](tech.md) 与
+[`coverage_snapshot_contract.md`](coverage_snapshot_contract.md) 只描述产品结果、schema 或算法，
+不得复制或覆盖 matrix 中的 operation facts。任何修改必须先通过
+`python3 docs/specs/GH703/verify_operation_matrix.py --self-test`；文档与 matrix 冲突时阻止实现。
+
 ## Behavior Invariants
 
 1. B-001 H-001 至 H-008 必须各有且只有一个维护者批准值；推荐文本、issue 标题、
@@ -97,9 +106,11 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     `partial_coverage`。两种状态的 headline counts 都必须为空，不得把缺证据渲染为
     0 次危险操作、0 次虚构 API 或“本周安全”。
 11. B-011 事件、retained archive、taxonomy、install state 或既有摘要损坏、schema 不合法、
-    字段类型错误或读取失败时，生成必须 nonzero 且不发布新的 current/shareable artifact；
+    字段类型错误或读取失败时，生成必须按 operation matrix 的 `integrity_failure` nonzero，
+    且不发布新的 current/shareable artifact；`ledger_corrupt` 与 matrix 的其他
+    `terminal_no_publish` reasons 绝不进入可发布 `status_reason`；
     query budget 前必须对所有 bounded retained archive完成 root/header/digest integrity preflight；
-    `archive_corrupt|integrity_preflight_incomplete` 只能作为 closed terminal diagnostic/state reason。preflight
+    terminal diagnostics 只能来自 matrix 的 closed set。preflight
     成功后的 content `budget_exceeded` 才可发布无 headline partial；旧 valid artifact保留但标 stale。
 12. B-012 每个 value summary 必须携带 closed `taxonomy_version` 和 closed
     category set。未知 category、缺版本或 taxonomy 与 producer 不匹配时不得生成
@@ -139,9 +150,9 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     后续显式调用获批 export 动作。
 22. B-022 本地 generation、历史和 shareable artifacts 必须以 user-only 权限、
     temp-write + flush + safe atomic commit 写入；同一 generation 的 JSON/Markdown、manifest 与目录
-    必须全部 fsync并验证后，ownership receipt与pointer分别经同 filesystem已 fsync staging inode + atomic
-    no-replace hard-link发布。source bootstrap、authority journal、generation claim/binding、receipt、lifecycle terminal、pointer 和 audit
-    checkpoint 必须分别使用规范定义的 crash-atomic commit；authority 用独立 journal-wide sequence，且单一 staged
+    必须全部 fsync并验证后，所有 record/marker 只能使用 operation matrix 的 common
+    `exclusive_no_replace_rename` primitive 发布；matrix 明确禁止 hard-link、link+unlink、replace-existing 与
+    compare-then-rename。各 operation 必须 exact 使用 matrix 指定的 chain/marker；authority 用独立 journal-wide sequence，且单一 staged
     record 必须预留/计入主动 journal cap；crash 后 final pathname只能 absent或包含完整可验证 record；partial
     generation或只完成一种 renderer不能成为 current；既有、symlink或 non-owned output不能被 replace/覆盖。
 23. B-023 简洁 value summary 与完整 maintainer health report 必须使用不同的
@@ -204,7 +215,8 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     的 writer/GC coverage ledger、writer side-channel spool，以及与两者分离的单写者 local
     coverage authority：authority必须先提交空/现有 source root与 sequence-0 genesis，再以 H-002 获批的有界
     cadence/expiry持久化连续 heartbeat；seq0时间必须 exact等于 epoch start且 predecessor为 null，后续才用
-    deadline公式。active journal须保留 4ad 的 terminal-prefix reserved capacity，并按获批 entry/byte/segment
+    deadline公式。active journal须按 operation matrix 的 `authority_journal_append.reserve_capacity.required_capacity`
+    exact 保留一个 open-slot terminal record 与下一 heartbeat record 的 entry/byte capacity，并按获批 entry/byte/segment
     limits在 cadence内 early seal/new segment，且 retained总量有硬界，
     并在每次 canonical writer attempt 的任何 event 工作之前 durable 分配严格递增的
     `attempt_sequence`。只枚举当前仍存在的文件或只看“没有 event”不能证明没有 writer attempt。

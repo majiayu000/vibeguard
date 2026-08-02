@@ -12,6 +12,11 @@ implementation。若本文与 product invariant 冲突，以 product invariant �
 2. live log/retained archive 的 immutable source generation 与 bounded verification；
 3. JSON/Markdown history/current 的单一 generation commit。
 
+所有 operation 的 chain、marker、publishability、reserve/capacity、authority 与 recovery terminal
+只由 [`operation_matrix.json`](operation_matrix.json) 定义。本文只定义 record schema、digest、fsync 与
+recovery validation；实现与 review 必须运行
+`python3 docs/specs/GH703/verify_operation_matrix.py --self-test`，不得从本文另造 operation table。
+
 ## 1. Authority mode 与 epoch
 
 Authority mode closed 为 `scheduled|manual`：
@@ -269,9 +274,15 @@ ownership-receipts/records/<receipt-sequence>-<receipt-id>.json
 ownership-receipts/commits/<receipt-sequence>-<receipt-id>.commit
 lifecycle-terminals/records/<terminal-sequence>-<terminal-id>.json
 lifecycle-terminals/commits/<terminal-sequence>-<terminal-id>.commit
-current-pointers/<pointer-sequence>-<pointer-id>.json
-audit-checkpoints/<chain-kind>/<checkpoint-sequence>-<checkpoint-id>.{json,commit}
+current-pointers/records/<pointer-sequence>-<pointer-id>.json
+current-pointers/commits/<pointer-sequence>-<pointer-id>.commit
+audit-checkpoints/<chain-kind>/records/<checkpoint-sequence>-<checkpoint-id>.json
+audit-checkpoints/<chain-kind>/commits/<checkpoint-sequence>-<checkpoint-id>.commit
 ```
+
+上列 audit path 是 operation matrix `chains` registry 的可读投影，不构成第二份 operation
+定义。实现必须从 matrix 选择 operation row，并拒绝 record/marker namespace cross-pair、缺 marker、
+unknown chain、duplicate operation 与 required-chain omission。
 
 producer 从同一 verified object 渲染 JSON/Markdown；`generation.json` 绑定 window、generation ID、
 两个 renderer 的 restricted relative path、length/digest、`summary_digest` 与 ownership receipt identity。
@@ -285,9 +296,9 @@ transaction directory；claim后 directory absent可由同 transaction exact ret
 
 renderer/manifest 全部 write+fsync 后、任何 receipt 或公开 generation directory 之前，producer 必须再提交
 generation binding；它 exact 绑定 claim ID/digest、temp-directory identity、闭合 member set、每个 member 的
-no-follow non-reusable object identity/length/digest 与 manifest digest。发布顺序固定为 committed claim →
-temp generation bytes → committed binding → atomic no-replace generation-directory publish+parent fsync →
-ownership receipt commit → pointer commit → success。receipt先在同
+no-follow non-reusable object identity/length/digest 与 manifest digest。普通 publish 的允许 chain、required order、
+forbidden chain 与成功 publishability 只读 operation matrix `current_generation_publish` row；不得从本段推导或
+合并 lifecycle-terminal/checkpoint。receipt先在同
 filesystem chain-private staging以 no-follow `O_CREAT|O_EXCL`准备完整
 JCS bytes并 fsync，再以 common exclusive rename发布 record、fsync records dir；随后同样准备完整 marker并 fsync，
 exclusive rename发布绑定 record identity/digest/sequence的 commit marker，再 fsync commits dir。成功 commit
@@ -323,8 +334,9 @@ closed absence reason/proof并拒绝任何 active-only root，禁止无条件要
 variant 禁止全部 generation/ownership-receipt/summary/object fields。sequence 0要求
 `prior_pointer_digest=null`；`n>0` exact引用 `n-1` digest；
 `record_digest=SHA-256(JCS(record without record_digest))`。unknown/extra、required/forbidden、lifecycle/terminal、
-predecessor/fork/gap任一违例 terminal fail。pointer record使用同 filesystem prepared complete inode+fsync+
-common exclusive rename+dir fsync；lost response只可 exact adopt。consumer先 fold committed receipt chain，再 fold
+predecessor/fork/gap任一违例 terminal fail。pointer record 与 matrix-required marker 分别使用同 filesystem
+prepared complete inode+fsync + common exclusive rename+dir fsync；缺少或不匹配 marker 的 pointer 不可见，
+lost response只可 exact adopt。consumer先 fold committed receipt chain，再 fold
 receipt/lifecycle-terminal-authorized pointer chain并选择最后 `current_generation`或 `no_current`；不得读取
 orphan/partial generation。clean/disable 不得复用旧 generation receipt 授权 `no_current`。
 
@@ -338,10 +350,9 @@ adopt/retire。默认 `no_auto_delete` 只保留并计数。未被 committed cla
 创建，因此 repeated pre-receipt crash 不能越过 cap。
 
 generation claims/bindings、receipts、lifecycle terminals 和 pointers 的 record/marker/checkpoint 全部计入 H-007 的
-`hard_history_cap_entries|bytes`，禁止把 audit metadata 排除于上限。cap永久隔离 `terminal_cleanup_reserve`：它是
-worst-case lifecycle-terminal record+marker、`no_current` pointer+marker、两条 chain各一个 maximum checkpoint及其
-singleton stages 的 entries/bytes 总和；normal generation/history/checkpoint admission按扣除该 reserve后的余额判定，
-不得消费它。cleanup每成功提交一步才按固定 manifest释放对应份额，失败保留剩余 reserve供 exact retry。
+`hard_history_cap_entries|bytes`，禁止把 audit metadata 排除于上限。每个 operation 的 reserve class、required
+capacity 与是否可消费 `terminal_cleanup_reserve` 只读 matrix row；normal publish、disable/clean 与 checkpoint
+不得共享或推导彼此的 capacity。cleanup每成功提交一步才按固定 manifest释放对应份额，失败保留剩余 reserve供 exact retry。
 每条 chain 在下一个 normal record 触及可用余额前必须以 common primitive提交 checkpoint。checkpoint绑定 exact folded sequence range、
 prefix Merkle root、last record digest、累计 entry/byte accounting 与全部 live
 claims/bindings/receipts/terminal authorizations。它还必须嵌入并验证 selected pointer 的 exact
