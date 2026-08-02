@@ -266,7 +266,8 @@ semantic validator标记、closed wire extra/alias或 `$ref` sibling遗漏均 fa
 每个适用 uint64 instance都须生成 `2^64` overflow mutation，并经同一个 full pair verifier拒绝，禁止仅对
 独立 scalar sample调用 helper后宣称 wire coverage。runner还须对每个正例逐一执行 missing、extra、null、
 forbidden alias、wrong method/result、same-shape nonce substitution、response error/result collision及 applicable
-P/B CAS flip；对 `x-gh700-digest-dag.nodes` 每个 node逐一执行 formula mutation并证明 `check_dag` fail closed。
+P/B CAS flip；结构类 mutation必须由 exact request/success schema自身拒绝，禁止用 stale digest失败代替 closure证据。对
+`x-gh700-digest-dag.nodes` 每个 node逐一改成不同的 nonempty runtime domain，并证明 downstream digest计算 fail closed。
 最终成功摘要必须分别报告 closed `unevaluatedProperties` 数、per-positive mutation数、物化 uint64 mutation数与
 digest-node mutation数；任一集合为空、未覆盖全部正例或未覆盖全部 digest node都失败。
 

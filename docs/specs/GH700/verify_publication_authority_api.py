@@ -10,6 +10,8 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent)); from publication_digest_domains import allowed_domains, require_domain
+
 SAFE_MAX = 9_007_199_254_740_991
 U64_MAX = 18_446_744_073_709_551_615
 CLIENT = ("get_publication_head", "claim_publication_owner", "renew_publication_owner", "takeover_publication_owner", "append_publication_transition", "plan_release_mutation", "deliver_release_mutation", "recover_release_mutation", "plan_generated_pr", "deliver_generated_pr", "recover_generated_pr", "append_blocked_attempt", "bind_blocked_attempt", "list_blocked_attempts", "commit_reconciliation_watermark", "get_blocked_attempt_frontier", "read_secret_capsule")
@@ -17,6 +19,7 @@ CONTROL = ("prepare_bootstrap_trusted_time", "bootstrap", "migrate", "recover", 
 AUTH_KEYS = ("publication_lease_authorization", "append_authorization", "delivery_authorization", "ledger_append_authorization")
 COVERAGE = {"source_binding", "genesis", "key_attestation", "client_replay", "control_replay", "terminal_binding", "snapshot_binding", "merged_existing_receipts", "recover_selector_database", "recover_selector_backup", "recover_selector_anchor", "control_not_found", "prebootstrap_policy", "release_recovery_pending", "release_not_applied", "release_compensated", "release_blocked", "generated_pr_not_applied", "generated_pr_blocked", "delivery_recovery_required", "capsule_source_plan", "capsule_source_claim"}
 REQUIRED_DIGEST_NODES = {"authorization_signing_preimage_digest", "signature_digest", "client_request_nonce_digest", "control_request_nonce_digest", "time_bound_request_id", "execution_identity_digest", "operation_id", "release_broker_delivery_id", "generated_pr_delivery_id", "delivery_scope_digest", "recovery_query_digest", "capsule_source_request_id", "operation_request_digest", "receipt_digest", "result_digest", "response_nonce_digest", "response_digest", "prior_anchor_binding_digest", "backup_aad_digest", "describe_key_material_attestation_digest", "manifest_key_binding_digest", "generate_data_key_request_digest", "generate_data_key_material_attestation_digest", "key_attestation_digest", "capsule_receipt_digest", "replay_row_digest"}
+DIGEST_SCHEMA = None
 
 
 class ContractError(Exception):
@@ -62,10 +65,10 @@ def sha(raw):
     return "sha256:" + hashlib.sha256(raw).hexdigest()
 
 
-def dg(domain, preimage):
+def dg(node, domain, preimage, schema=None):
     if not isinstance(preimage, dict) or "v" in preimage:
         raise ContractError("digest preimage must be an object without a caller-supplied v")
-    return sha(jcs({"v": domain, **preimage}))
+    return sha(jcs({"v": require_domain(schema or DIGEST_SCHEMA, node, domain, ContractError), **preimage}))
 
 
 def b64u(raw):
@@ -264,7 +267,7 @@ def strip_ids(value):
 
 
 def operation_id(request, surface):
-    return dg("GH700:operation-id:v1", {
+    return dg("operation_id", "GH700:operation-id:v1", {
         "surface": surface, "method": request["method"], "authority_id": request["authority_id"], "repo_node_id": request["repo_node_id"],
         "expected_publication_frontier_or_null": request.get("expected_publication_frontier_or_null"),
         "expected_blocked_attempt_frontier_or_null": request.get("expected_blocked_attempt_frontier_or_null"), "subject": strip_ids(request["body"]),
@@ -273,9 +276,9 @@ def operation_id(request, surface):
 
 def auth_digest(auth, label):
     raw_signature = decode_b64u(auth["signature_b64u"], 64, f"{label}.signature_b64u")
-    derive(auth, "signature_digest", sha(raw_signature), label)
+    require_domain(DIGEST_SCHEMA, "signature_digest", None, ContractError); derive(auth, "signature_digest", sha(raw_signature), label)
     preimage = {key: item for key, item in auth.items() if key not in {"signing_preimage_digest", "signature_b64u", "signature_digest"}}
-    derive(auth, "signing_preimage_digest", dg(auth["schema_version"].replace(":v1", ":signing-preimage:v1"), preimage), label)
+    derive(auth, "signing_preimage_digest", dg("authorization_signing_preimage_digest", auth["schema_version"].replace(":v1", ":signing-preimage:v1"), preimage), label)
 
 
 def receipt_digests(value, label="result"):
@@ -288,10 +291,10 @@ def receipt_digests(value, label="result"):
     for key, item in value.items():
         receipt_digests(item, f"{label}.{key}")
     if "receipt_version" in value:
-        derive(value, "receipt_digest", dg(value["receipt_version"], {key: item for key, item in value.items() if key != "receipt_digest"}), label)
+        derive(value, "receipt_digest", dg("receipt_digest", value["receipt_version"], {key: item for key, item in value.items() if key != "receipt_digest"}), label)
     if "capsule_receipt_version" in value:
-        derive(value, "key_attestation_digest", dg("GH700:authority-capsule-key-attestation-digest:v1", value["key_attestation"]), label)
-        derive(value, "capsule_receipt_digest", dg(value["capsule_receipt_version"], {key: item for key, item in value.items() if key != "capsule_receipt_digest"}), label)
+        derive(value, "key_attestation_digest", dg("key_attestation_digest", "GH700:authority-capsule-key-attestation-digest:v1", value["key_attestation"]), label)
+        derive(value, "capsule_receipt_digest", dg("capsule_receipt_digest", value["capsule_receipt_version"], {key: item for key, item in value.items() if key != "capsule_receipt_digest"}), label)
 
 
 def request_digests(request, surface):
@@ -299,22 +302,22 @@ def request_digests(request, surface):
     nonce = decode_b64u(request["request_nonce"], 32, f"{method}.request_nonce")
     op_id = operation_id(request, surface)
     if "time_bound_request_id" in body:
-        time_id = dg("GH700:time-bound-request-id:v1", body["time_bound_intent"])
+        time_id = dg("time_bound_request_id", "GH700:time-bound-request-id:v1", body["time_bound_intent"])
         derive(body, "time_bound_request_id", time_id, method)
         auth = body["publication_lease_authorization"]
         derive(auth, "authorized_time_bound_request_id", time_id, method)
-        derive(auth, "execution_identity_digest", dg("GH700:execution-identity:v1", body["time_bound_intent"]["execution_identity"]), method)
+        derive(auth, "execution_identity_digest", dg("execution_identity_digest", "GH700:execution-identity:v1", body["time_bound_intent"]["execution_identity"]), method)
     if "control_operation_id" in body:
         derive(body, "control_operation_id", op_id, method)
     if "broker_delivery_id" in body:
-        derive(body, "broker_delivery_id", dg("GH700:release-broker-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": body["planned_operation_id"]}), method)
+        derive(body, "broker_delivery_id", dg("release_broker_delivery_id", "GH700:release-broker-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": body["planned_operation_id"]}), method)
     if "generated_pr_delivery_id" in body:
-        derive(body, "generated_pr_delivery_id", dg("GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": body["planned_operation_id"]}), method)
+        derive(body, "generated_pr_delivery_id", dg("generated_pr_delivery_id", "GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": body["planned_operation_id"]}), method)
     if "recovery_query_digest" in body:
-        derive(body, "recovery_query_digest", dg("GH700:recovery-query:v1", {"method": method, "planned_operation_id": body["planned_operation_id"]}), method)
+        derive(body, "recovery_query_digest", dg("recovery_query_digest", "GH700:recovery-query:v1", {"method": method, "planned_operation_id": body["planned_operation_id"]}), method)
     if "capsule_source" in body:
         source = body["capsule_source"]
-        derive(source, "source_request_id", dg("GH700:capsule-source-request-id:v1", {key: source[key] for key in ("source_method", "source_operation_id", "secret_slot_id")}), method)
+        derive(source, "source_request_id", dg("capsule_source_request_id", "GH700:capsule-source-request-id:v1", {key: source[key] for key in ("source_method", "source_operation_id", "secret_slot_id")}), method)
     for key in AUTH_KEYS:
         auth = body.get(key)
         if not isinstance(auth, dict):
@@ -334,10 +337,10 @@ def request_digests(request, surface):
             derive(auth, "delivery_id", delivery, method)
             if auth["planned_operation_id"] != body["planned_operation_id"]:
                 raise ContractError(f"{method}: delivery binding mismatch")
-            derive(auth, "delivery_scope_digest", dg("GH700:delivery-scope:v1", {"method": method, "planned_operation_id": body["planned_operation_id"], "delivery_id": delivery}), method)
+            derive(auth, "delivery_scope_digest", dg("delivery_scope_digest", "GH700:delivery-scope:v1", {"method": method, "planned_operation_id": body["planned_operation_id"], "delivery_id": delivery}), method)
         auth_digest(auth, f"{method}.{key}")
-    derive(request, "operation_request_digest", dg(f"GH700:{surface}-operation-request:v1", {key: item for key, item in request.items() if key != "operation_request_digest"}), method)
-    nonce_digest = dg(f"GH700:{surface}-request-nonce:v1", {"authority_id": request["authority_id"], "repo_node_id": request["repo_node_id"], "authenticated_principal_digest": request["authenticated_principal_digest"], "request_nonce": b64u(nonce)})
+    derive(request, "operation_request_digest", dg("operation_request_digest", f"GH700:{surface}-operation-request:v1", {key: item for key, item in request.items() if key != "operation_request_digest"}), method)
+    nonce_digest = dg(f"{surface}_request_nonce_digest", f"GH700:{surface}-request-nonce:v1", {"authority_id": request["authority_id"], "repo_node_id": request["repo_node_id"], "authenticated_principal_digest": request["authenticated_principal_digest"], "request_nonce": b64u(nonce)})
     return op_id, nonce_digest
 
 
@@ -349,16 +352,16 @@ def response_digests(response, request, surface, op_id, nonce_digest):
     response_nonce = decode_b64u(response["response_nonce"], 32, f"{method}.response_nonce")
     if "result" in response:
         receipt_digests(response["result"])
-        derive(response, "result_digest", dg(f"GH700:{surface}-result:v1", response["result"]), method)
+        derive(response, "result_digest", dg("result_digest", f"GH700:{surface}-result:v1", response["result"]), method)
     preimage = {key: item for key, item in response.items() if key != "response_digest"}
-    preimage["response_nonce_digest"] = dg(f"GH700:{surface}-response-nonce:v1", {"response_nonce": b64u(response_nonce)})
-    derive(response, "response_digest", dg(f"GH700:{surface}-response:v1", preimage), method)
+    preimage["response_nonce_digest"] = dg("response_nonce_digest", f"GH700:{surface}-response-nonce:v1", {"response_nonce": b64u(response_nonce)})
+    derive(response, "response_digest", dg("response_digest", f"GH700:{surface}-response:v1", preimage), method)
 
 
 def materialize(model, fixtures):
     request = {**expand({"$fixture": model["request_base"]}, fixtures), **expand(model["request_patch"], fixtures)}
     op_id, nonce_digest = request_digests(request, model["surface"])
-    values = {"method": request["method"], "operation_id": op_id, "operation_request_digest": request["operation_request_digest"], "generated_pr_delivery_id": dg("GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": op_id}), "publication_frontier": request.get("expected_publication_frontier_or_null"), "blocked_frontier": request.get("expected_blocked_attempt_frontier_or_null")}
+    values = {"method": request["method"], "operation_id": op_id, "operation_request_digest": request["operation_request_digest"], "generated_pr_delivery_id": dg("generated_pr_delivery_id", "GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": op_id}), "publication_frontier": request.get("expected_publication_frontier_or_null"), "blocked_frontier": request.get("expected_blocked_attempt_frontier_or_null")}
     response = context({**expand({"$fixture": model["success_base"]}, fixtures), **expand(model["success_patch"], fixtures)}, values)
     response_digests(response, request, model["surface"], op_id, nonce_digest)
     if any(isinstance(item, dict) and ({"$derive", "$context"} & set(item)) for item in walk((request, response))):
@@ -397,6 +400,7 @@ def check_scalars(schema):
 
 
 def check_schema(schema, root):
+    global DIGEST_SCHEMA; DIGEST_SCHEMA = schema
     if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
         raise ContractError("Draft 2020-12 declaration missing")
     refs = []
@@ -406,6 +410,7 @@ def check_schema(schema, root):
             pointer(schema, item["$ref"])
     check_scalars(schema)
     defs = schema["$defs"]
+    if any(item.get("x-gh700-semantic-validator") != "uint64" for item in walk(schema) if isinstance(item, dict) and "x-gh700-semantic-validator" in item): raise ContractError("unknown semantic validator in schema")
     if defs["uint64"].get("x-gh700-semantic-validator") != "uint64":
         raise ContractError("uint64 semantic validator binding missing")
     unevaluated_count = sum(
@@ -501,10 +506,10 @@ def check_kms(schema, fixtures):
     identity = (manifest["kms_key_arn"], manifest["kms_key_material_id"])
     if identity != (describe["key_id"], describe["key_material_id"]) or identity != (attestation["kms_key_arn"], attestation["kms_key_material_id"]) or identity != (generate["key_id"], generate["key_material_id"]):
         raise ContractError("KMS ARN/KeyMaterialId attestation mismatch")
-    derive(manifest, "key_material_attestation_digest", dg("GH700:describe-key-material-attestation:v1", describe), "KMS manifest")
-    derive(manifest, "manifest_key_binding_digest", dg("GH700:authority-kms-manifest-key-binding:v1", {key: item for key, item in manifest.items() if key != "manifest_key_binding_digest"}), "KMS manifest")
-    derive(attestation, "generate_data_key_request_digest", dg("GH700:generate-data-key-request:v1", attestation["generate_data_key_request"]), "GenerateDataKey")
-    derive(attestation, "key_material_attestation_digest", dg("GH700:generate-data-key-material-attestation:v1", generate), "GenerateDataKey")
+    derive(manifest, "key_material_attestation_digest", dg("describe_key_material_attestation_digest", "GH700:describe-key-material-attestation:v1", describe), "KMS manifest")
+    derive(manifest, "manifest_key_binding_digest", dg("manifest_key_binding_digest", "GH700:authority-kms-manifest-key-binding:v1", {key: item for key, item in manifest.items() if key != "manifest_key_binding_digest"}), "KMS manifest")
+    derive(attestation, "generate_data_key_request_digest", dg("generate_data_key_request_digest", "GH700:generate-data-key-request:v1", attestation["generate_data_key_request"]), "GenerateDataKey")
+    derive(attestation, "key_material_attestation_digest", dg("generate_data_key_material_attestation_digest", "GH700:generate-data-key-material-attestation:v1", generate), "GenerateDataKey")
     if attestation["manifest_key_binding_digest"] != manifest["manifest_key_binding_digest"]:
         raise ContractError("capsule attestation is not bound to deployment KMS manifest")
     return 4
@@ -547,6 +552,13 @@ def verify_pair(request, response, model, registry_row, schema):
 
 
 def expect_pair_rejected(label, request, response, model, registry_row, schema):
+    if any(marker in label for marker in (".missing_", ".null_", ".extra", ".wrong_method", ".forbidden_alias", ".error_result_collision")):
+        try:
+            validate(request, pointer(schema, registry_row["request_ref"]), schema)
+            validate(response, pointer(schema, registry_row["success_ref"]), schema)
+        except ContractError:
+            return
+        raise ContractError(f"structural positive mutation accepted: {label}")
     try:
         verify_pair(request, response, model, registry_row, schema)
     except ContractError:
@@ -671,10 +683,11 @@ def check_uint64_instance_mutations(pairs, models, registry_by_method, schema):
 def check_digest_node_mutations(schema):
     count = 0
     for node in schema["x-gh700-digest-dag"]["nodes"]:
+        runtime_domain = next(iter(allowed_domains(schema, node)))
         mutated = copy.deepcopy(schema)
-        mutated["x-gh700-digest-formulas"][node]["domain"] = ""
+        mutated["x-gh700-digest-formulas"][node]["domain"] = f"GH700:mutation:{node}:v1"
         try:
-            check_dag(mutated)
+            dg(node, runtime_domain, {}, mutated)
         except ContractError:
             count += 1
             continue
@@ -753,9 +766,9 @@ def main():
         if item["schema_ref"].endswith("replay_row"):
             surface = "client" if "client_" in item["schema_ref"] else "control"
             nonce = decode_b64u(value["request_nonce"], 32, item["model_id"])
-            nonce_digest = dg(f"GH700:{surface}-request-nonce:v1", {"authority_id": value["authority_id"], "repo_node_id": value["repo_node_id"], "authenticated_principal_digest": value["authenticated_principal_digest"], "request_nonce": b64u(nonce)})
+            nonce_digest = dg(f"{surface}_request_nonce_digest", f"GH700:{surface}-request-nonce:v1", {"authority_id": value["authority_id"], "repo_node_id": value["repo_node_id"], "authenticated_principal_digest": value["authenticated_principal_digest"], "request_nonce": b64u(nonce)})
             derive(value, f"{surface}_request_nonce_digest", nonce_digest, item["model_id"])
-            derive(value, "replay_row_digest", dg("GH700:api-replay-row:v1", {key: child for key, child in value.items() if key != "replay_row_digest"}), item["model_id"])
+            derive(value, "replay_row_digest", dg("replay_row_digest", "GH700:api-replay-row:v1", {key: child for key, child in value.items() if key != "replay_row_digest"}), item["model_id"])
         validate(value, pointer(schema, item["schema_ref"]), schema); coverage.update(item.get("coverage_tags", ()))
     errors = models.get("error_models", ())
     for item in errors:
