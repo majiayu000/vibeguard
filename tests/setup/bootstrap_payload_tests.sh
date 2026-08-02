@@ -2,18 +2,52 @@ header "pinned payload bootstrap"
 
 BOOTSTRAP="${REPO_DIR}/scripts/setup/bootstrap.sh"
 BOOTSTRAP_LIB="${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+BOOTSTRAP_IDENTITY_LIB="${REPO_DIR}/scripts/setup/bootstrap_identity.sh"
+BOOTSTRAP_BIRTH_TOKEN_JXA="${REPO_DIR}/scripts/setup/bootstrap_birth_token.jxa"
+BOOTSTRAP_LEASE_RETIREMENT_LIB="${REPO_DIR}/scripts/setup/bootstrap_lease_retirement.sh"
+BOOTSTRAP_LEASE_TERMINAL_LIB="${REPO_DIR}/scripts/setup/bootstrap_lease_terminal.sh"
+BOOTSTRAP_PROCESS_LIB="${REPO_DIR}/scripts/setup/bootstrap_process.sh"
+BOOTSTRAP_TERMINATION_LIB="${REPO_DIR}/scripts/setup/bootstrap_termination.sh"
+BOOTSTRAP_STATE_LIB="${REPO_DIR}/scripts/setup/bootstrap_state.sh"
 BOOTSTRAP_VERSION="$(tr -d '[:space:]' < "${REPO_DIR}/vibeguard-runtime/VERSION")"
 BOOTSTRAP_ASSET="vibeguard-payload-${BOOTSTRAP_VERSION}.tar.gz"
 BOOTSTRAP_RELEASE="${TMP_HOME}/bootstrap-release-good"
 
 assert_cmd "bootstrap entrypoint exists and is executable" test -x "${BOOTSTRAP}"
 assert_cmd "bootstrap helper exists" test -f "${BOOTSTRAP_LIB}"
+assert_cmd "bootstrap identity helper exists" test -f "${BOOTSTRAP_IDENTITY_LIB}"
+assert_cmd "bootstrap Darwin birth-token helper exists" test -f "${BOOTSTRAP_BIRTH_TOKEN_JXA}"
+assert_cmd "bootstrap lease retirement helper exists" test -f "${BOOTSTRAP_LEASE_RETIREMENT_LIB}"
+assert_cmd "bootstrap lease terminal helper exists" test -f "${BOOTSTRAP_LEASE_TERMINAL_LIB}"
+assert_cmd "bootstrap process helper exists" test -f "${BOOTSTRAP_PROCESS_LIB}"
+assert_cmd "bootstrap termination helper exists" test -f "${BOOTSTRAP_TERMINATION_LIB}"
+assert_cmd "bootstrap state helper exists" test -f "${BOOTSTRAP_STATE_LIB}"
 assert_cmd "bootstrap entrypoint syntax is correct" bash -n "${BOOTSTRAP}"
 assert_cmd "bootstrap helper syntax is correct" bash -n "${BOOTSTRAP_LIB}"
+assert_cmd "bootstrap identity helper syntax is correct" bash -n "${BOOTSTRAP_IDENTITY_LIB}"
+assert_cmd "bootstrap lease retirement helper syntax is correct" \
+  bash -n "${BOOTSTRAP_LEASE_RETIREMENT_LIB}"
+assert_cmd "bootstrap lease terminal helper syntax is correct" \
+  bash -n "${BOOTSTRAP_LEASE_TERMINAL_LIB}"
+assert_cmd "bootstrap process helper syntax is correct" bash -n "${BOOTSTRAP_PROCESS_LIB}"
+assert_cmd "bootstrap termination helper syntax is correct" bash -n "${BOOTSTRAP_TERMINATION_LIB}"
+assert_cmd "bootstrap state helper syntax is correct" bash -n "${BOOTSTRAP_STATE_LIB}"
 assert_cmd "bootstrap entrypoint stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 600' _ "${BOOTSTRAP}"
 assert_cmd "bootstrap helper stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 600' _ "${BOOTSTRAP_LIB}"
+assert_cmd "bootstrap identity helper stays below focused limit" bash -c \
+  'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_IDENTITY_LIB}"
+assert_cmd "bootstrap lease retirement helper stays below focused limit" bash -c \
+  'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_LEASE_RETIREMENT_LIB}"
+assert_cmd "bootstrap lease terminal helper stays below focused limit" bash -c \
+  'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_LEASE_TERMINAL_LIB}"
+assert_cmd "bootstrap process helper stays below focused limit" bash -c \
+  'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_PROCESS_LIB}"
+assert_cmd "bootstrap termination helper stays below focused limit" bash -c \
+  'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_TERMINATION_LIB}"
+assert_cmd "bootstrap state helper stays below focused limit" bash -c \
+  'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_STATE_LIB}"
 
 busybox_mv_bin="${TMP_HOME}/bootstrap-busybox-mv-bin"
 busybox_mv_marker="${TMP_HOME}/bootstrap-busybox-mv.marker"
@@ -384,6 +418,12 @@ if kind == "interrupt":
     setup = b"#!/usr/bin/env bash\nkill -TERM $$\n"
 elif kind == "handoff":
     setup = b"#!/usr/bin/env bash\nprintf 'EXPECTED_FINAL_SETUP path=%s\\n' \"$0\"\n"
+elif kind == "counted-handoff":
+    setup = b"""#!/usr/bin/env bash
+set -euo pipefail
+printf 'setup\\n' >> "${VIBEGUARD_TEST_SETUP_COUNT:?}"
+printf 'COUNTED_SETUP_SUCCEEDED\\n'
+"""
 elif kind == "fail-once":
     setup = b"""#!/usr/bin/env bash
 set -euo pipefail
@@ -415,10 +455,68 @@ elif kind == "wait":
 set -euo pipefail
 ready="${VIBEGUARD_TEST_SETUP_READY:?}"
 continue_fifo="${VIBEGUARD_TEST_SETUP_CONTINUE_FIFO:?}"
-: > "${ready}"
+printf '%s\\n' "$$" > "${ready}"
 IFS= read -r signal < "${continue_fifo}"
 [[ "${signal}" == "continue" ]]
 printf 'WAIT_SETUP_SUCCEEDED\\n'
+"""
+elif kind == "interactive":
+    setup = b"""#!/usr/bin/env bash
+set -euo pipefail
+read -r pid pgid tpgid < <(LC_ALL=C ps -p $$ -o pid= -o pgid= -o tpgid=)
+printf 'INTERACTIVE_READY pid=%s pgid=%s tpgid=%s\\n' "${pid}" "${pgid}" "${tpgid}"
+[[ "${pgid}" == "${tpgid}" ]]
+IFS= read -r answer
+[[ "${answer}" == "confirmed" ]]
+printf 'INTERACTIVE_SETUP_SUCCEEDED\\n'
+"""
+elif kind == "interactive-signal-ignore":
+    setup = b"""#!/usr/bin/env bash
+set -euo pipefail
+trap '' INT
+read -r pid pgid tpgid < <(LC_ALL=C ps -p $$ -o pid= -o pgid= -o tpgid=)
+printf 'INTERACTIVE_IGNORE_READY pid=%s pgid=%s tpgid=%s\\n' "${pid}" "${pgid}" "${tpgid}"
+[[ "${pgid}" == "${tpgid}" ]]
+while :; do sleep 1; done
+"""
+elif kind == "signal-wait":
+    setup = b"""#!/usr/bin/env bash
+set -euo pipefail
+ready="${VIBEGUARD_TEST_SETUP_READY:?}"
+marker="${VIBEGUARD_TEST_SIGNAL_MARKER:?}"
+child=""
+leader_signal() {
+  local signal="$1" status="$2"
+  trap - INT TERM HUP
+  printf 'leader:%s\\n' "${signal}" >> "${marker}"
+  [[ -z "${child}" ]] || wait "${child}" 2>/dev/null || true
+  exit "${status}"
+}
+trap 'leader_signal INT 130' INT
+trap 'leader_signal TERM 143' TERM
+trap 'leader_signal HUP 129' HUP
+(
+  trap 'printf "child:INT\\\\n" >> "${marker}"; exit 130' INT
+  trap 'printf "child:TERM\\\\n" >> "${marker}"; exit 143' TERM
+  trap 'printf "child:HUP\\\\n" >> "${marker}"; exit 129' HUP
+  while :; do sleep 1; done
+) &
+child=$!
+printf '%s %s\\n' "$$" "${child}" > "${ready}"
+wait "${child}"
+"""
+elif kind == "signal-ignore":
+    setup = b"""#!/usr/bin/env bash
+set -euo pipefail
+ready="${VIBEGUARD_TEST_SETUP_READY:?}"
+trap '' INT TERM HUP
+(
+  trap '' INT TERM HUP
+  while :; do sleep 1; done
+) &
+child=$!
+printf '%s %s\n' "$$" "${child}" > "${ready}"
+wait "${child}"
 """
 elif kind == "foreign-owner":
     setup = b"""#!/usr/bin/env bash

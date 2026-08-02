@@ -125,7 +125,8 @@ CURRENT_SWITCHED=0
 TRANSACTION_COMMITTED=0
 LOCK_OWNER_PID=""
 LOCK_OWNER_NONCE=""
-
+BOOTSTRAP_SETUP_LEASE_FILE="" BOOTSTRAP_SETUP_LEASE_HELD=0
+BOOTSTRAP_SETUP_LEADER_PID="" BOOTSTRAP_SETUP_PGID="" BOOTSTRAP_SETUP_LEADER_IDENTITY="" BOOTSTRAP_SETUP_LAUNCHING=0 BOOTSTRAP_SETUP_PENDING_SIGNAL="" BOOTSTRAP_SETUP_PENDING_STATUS="" BOOTSTRAP_SETUP_TERMINATION_FAILED=0
 bootstrap_reap_existing_lock() {
   local legacy_owner
 
@@ -172,6 +173,9 @@ bootstrap_reap_existing_lock() {
       return 73
       ;;
   esac
+  bootstrap_setup_lease_clear_inactive \
+    "${DIST_ROOT}/.bootstrap.lock.lease.${BOOTSTRAP_LOCK_READ_NONCE}" \
+    "${BOOTSTRAP_LOCK_READ_PID}" "${BOOTSTRAP_LOCK_READ_NONCE}" || return 73
   bootstrap_lock_reap_exact_owner \
     "${LOCK_DIR}" "${DIST_ROOT}" \
     "${BOOTSTRAP_LOCK_READ_PID}" "${BOOTSTRAP_LOCK_READ_NONCE}" \
@@ -276,9 +280,18 @@ bootstrap_restore_previous_current() {
   CURRENT_SWITCHED=0
   return 0
 }
-
-bootstrap_cleanup() {
-  local status=$?
+bootstrap_cleanup() { local status=$?
+  if [[ "${BOOTSTRAP_SETUP_TERMINATION_FAILED:-0}" == "1" ]]; then bootstrap_error \
+    "setup termination is unproven; preserving lease, lock, payload, and worktree evidence."; return 73; fi
+  if [[ "${BOOTSTRAP_SETUP_LEASE_HELD}" == "1" ]]; then
+    if ! bootstrap_setup_lease_clear_inactive "${BOOTSTRAP_SETUP_LEASE_FILE}" \
+      "${LOCK_OWNER_PID}" "${LOCK_OWNER_NONCE}"; then
+      bootstrap_error "active setup lease prevents unsafe bootstrap cleanup."
+      return 1
+    fi
+    BOOTSTRAP_SETUP_LEASE_HELD=0
+    BOOTSTRAP_SETUP_LEASE_FILE=""
+  fi
   if [[ -n "${LOCK_OWNER_TMP}" ]]; then
     rm -f -- "${LOCK_OWNER_TMP}" 2>/dev/null || status=1
   fi
@@ -323,12 +336,8 @@ bootstrap_cleanup() {
 }
 
 bootstrap_run_setup_script() {
-  local setup_path="$1"
-  if [[ "${SETUP_ARG_COUNT}" -eq 0 ]]; then
-    PYTHONDONTWRITEBYTECODE=1 bash "${setup_path}"
-  else
-    PYTHONDONTWRITEBYTECODE=1 bash "${setup_path}" "${SETUP_ARGS[@]}"
-  fi
+  bootstrap_run_setup_with_lease "$1" "${DIST_ROOT}" \
+    "${LOCK_OWNER_PID}" "${LOCK_OWNER_NONCE}" "${SETUP_ARGS[@]}"
 }
 
 bootstrap_finish_cleanup() {
@@ -338,9 +347,9 @@ bootstrap_finish_cleanup() {
   return "${cleanup_rc}"
 }
 trap bootstrap_cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-trap 'exit 129' HUP
+trap 'bootstrap_cancel_setup INT 130' INT
+trap 'bootstrap_cancel_setup TERM 143' TERM
+trap 'bootstrap_cancel_setup HUP 129' HUP
 
 if [[ -L "${VIBEGUARD_HOME}" || (-e "${VIBEGUARD_HOME}" && ! -d "${VIBEGUARD_HOME}") ]]; then
   bootstrap_error "${VIBEGUARD_HOME} must be a real directory, not a link or file."
