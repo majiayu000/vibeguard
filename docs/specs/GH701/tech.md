@@ -418,36 +418,35 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
 
 ### 4. Transactional and verified host lifecycle
 
-以下 1–8 适用于 `versioned_host_storage_v1`；`verified_file_setup_v1` 走人工分支。Claude/Codex 必须 dispatch 到 `legacy_json_compat_v1` 保持自动安装，且不得生成第三 host proof。
+两种新 lifecycle 都实现 appendix §3 的 `recoverable_host_transaction_v1` 闭集；
+Claude/Codex 仍 dispatch 到 `legacy_json_compat_v1`，不得生成第三 host proof。
 
-1. `discover`：只读解析 executable/version/config/permissions，输出当前 digest；
-2. `plan`：生成 exact target/operations/preserved entries/candidate digest，并证明
-   host storage API 有 versioned CAS + exclusive lease；所选 lifecycle 缺 capability
-   时零 mutation、`partial/needs_human`，不得继续 snapshot；
-3. `lock`：按 canonical absolute path 排序取得 bounded exclusive locks；超时可见；
-4. `snapshot`：持锁后重新读取并验证 plan base digest，保存原始 bytes、mode 与
-   digest，写并 fsync `pending` journal；TOCTOU drift 立即停止；
-5. `apply`：durable 写入 target/base version/candidate/lease token 与 `applying`；
-   同一 host API linearization point 先验证 lease+version 并排斥所有 writer，再
-   commit candidate，返回新 version。普通 JSON rename、advisory lock、mtime 或
-   exclusive claim 无法排除任意延迟 old-FD write，禁止自动 mutation。成功后
-   API 重读 candidate/version，再 durable 记 `applied`；多 target 逐步 durable；
-6. `probe`：重新读取 candidate，校验 semantic ownership、host protocol 与一次
-   bounded native probe；
-7. `commit`：仅 probe 成功后原子写 install evidence/committed marker，再删除
-   snapshot/journal 并释放 locks；
-8. `rollback`：任一 apply/probe 失败时，用 journal lease token 查询同一 API；只有 token 仍归属本 transaction、current version 精确等于 apply 返回的 version 且 digest 等于 candidate，
-   才以 version CAS 恢复 snapshot。token/version/digest 任一 drift（含 byte-identical newer version）都保留当前内容并输出 `broken/needs_human`、snapshot path/version/digest。
+1. `discover/plan`：只读解析 host/version/config/capability。operation 闭集为
+   install/update/clean/disable/reverse/supersede；缺 version-CAS+exclusive-lease 时零 mutation。
+2. `lock/lease`：canonical path 顺序取得 bounded local locks，再向 host API 取得 lease；
+   durable journal fsync transaction、operation、managed identity、sealed token digest、owner/expiry。
+3. `base_bound`：lease 内 fresh-read current version+digest。install/update 只替换 exact
+   VibeGuard entry；clean/disable 从此 fresh current 删除 exact owned entry，保留全部当前第三方
+   entry/order，绝不复用 install snapshot。owned entry 被改写/碰撞则 needs-human。
+4. `apply`：先 durable mutation intent，再由 host API 在一个 linearization point 校验
+   lease+current version/digest 并 CAS candidate；返回 version 后重读 exact candidate 并 fsync result。
+   rename/advisory lock/mtime/exclusive claim 不能冒充该 capability；多 target 逐项 durable。
+5. `probe/commit`：bounded native probe 分别验证 registration 或 unregistration；成功才 durable
+   写 operation-specific evidence/commit。`active` 在 terminal lease-release receipt 前不可见。
+6. `abort/rollback`：仅当 token 仍属于 transaction 且 current exact-equal apply 返回的
+   candidate version+digest，才 version-CAS 回该 operation 的 fresh base；clean 不得回 install base。
+   token/version/digest drift（含 byte-identical newer version）保留当前内容并 needs-human。
+7. `release`：success/abort/needs-human 都先 durable 写 release operation ID，再幂等
+   release/revoke API lease并 fsync signed result；之后才释放 local locks。owner-death/expiry必须返回
+   同 transaction/token-digest 的 durable revoke receipt，unknown/not-found 不能自行视为 released。
+8. `recover/gc`：按 transaction/release ID 查询 API，精确区分 CAS 前、CAS 后、commit 后和
+   release 后 crash，恢复下一个缺失 transition。只有 `lease_released` 可删 local journal；
+   needs-human 保留 journal/sealed recovery，release-before-fsync 重放 receipt而不重复 mutation。
 
-versioned crash recovery 仍以 journal lease/version CAS 判定 rollback；普通 file digest 不能替代 storage capability。`verified_file_setup_v1` 完整实现 appendix §3：H-001-selected provider 在
-same-user trust domain 外持有 journal/signing root、sealed recovery payload、CAS/lease；本地
-0600/0700 files 仅 untrusted cache，每次授权 exact-match fresh signed snapshot。closed success
-为 planned→activating→publishing→completed→consumed + terminal aborted；present base 由用户恢复
-exact bytes/semantics，absent base 删除并验证 stable absence/unregistration。identity/digest/event
-drift 均 `needs_human`。provider kind/version、transition/CAS/lease policy、caller-auth policy 与 journal
-root 全部 exact-bind H-001。publication abort 保留 sealed reverse、`reverse_status: pending` 且禁止 retire；
-仅 atomic verified reverse 可授权 retire，`rollback_required: false` 不能替代或授权 retirement。
-host use 在 tuple read 前另取 exclusion，至 exact loaded-byte acquisition+post-load barrier 后 atomic use-release；consume tx intent/commit，supersession multi-record CAS N/N+1；`active`/skip invalid。
+`verified_file_setup_v1` 的 target mutation 仍由用户执行；protected provider 在 same-user
+trust domain 外拥有 journal/CAS/lease。publication abort 的 verified reverse 必须在同一
+multi-record CAS 把 current tombstone 恢复成 exact predecessor completed pointer，或原子发布
+等价新 generation；exact absence 保持不可 use。任何 pointer/identity drift 都完成零效果。
 
 ### 5. Deterministic README claim evidence
 
@@ -631,8 +630,8 @@ config/payload/log content。
 | B-022 | v2 top-level hosts/per-hook mappings/non-host entries | `bash tests/test_manifest_contract.sh`；`bash scripts/ci/validate-hooks-manifest.sh` 的 key-set、non-host、contradiction negative fixtures |
 | B-023 | v1 compatibility/deprecation | `bash tests/test_manifest_contract.sh`：v1 read+warning、v1 third-host reject、v2-only writer 与 v1/v2 Claude/Codex golden parity |
 | B-024 | complete unknown matrix | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml` 分别固定 contract/discovery/protocol/runtime outcomes |
-| B-025 | versioned transaction + protected-journal verified-file lifecycle | setup tests 覆盖 same-user mirror/IPC forgery、H-001 provider/transition/caller-auth drift、publication-aborted pending reverse→atomic verified retire、`rollback_required: false` bypass rejection、consume/N+1 CAS、H-001 publish/abort/use；appendix §3 |
-| B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
+| B-025 | recoverable host transaction + protected-journal verified-file lifecycle | setup tests 覆盖 closed phases、same-user forgery、publication-aborted tombstone→predecessor pointer restore、consume/N+1 CAS、lease-release-before-GC；appendix §3 |
+| B-026 | versioned install/clean CAS + crash/drift recovery | `bash tests/test_setup.sh`：fresh-current owned-entry removal/third-party preservation、clean rollback base、token/version/digest drift、commit/release/fsync crash 与 durable revoke receipt |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
 | B-028 | H-001-bound proof/witness and trusted time | harness 验证 H-001 high-side supervisor/policy/output schema、trusted clock source/mapping + run/event/issuer time+300s skew、journal provider/root/use subjects、relocation/page equality；replay/substitution/write/trace gap 均 nonzero；appendix §§2–3 |
 | B-029 | stale branch closure gate | protected GitHub ruleset API fixture：deleted allowed；readonly retain 仅 exact head/owner/unexpired/exact-target update+delete deny/zero bypass allowed；retain→delete without fresh H-003、`ls-remote` only、rule/head drift/new push blocked |

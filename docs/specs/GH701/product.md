@@ -213,8 +213,10 @@ GH-701 已完成。
     error；discovery 遇到未知 executable 为 `unsupported` 且零写入；known host
     + unknown protocol 为 `incompatible`；blocking adapter runtime 收到未知
     event/payload 为 fail-closed。四类不得互相降级成 pass/active。
-25. B-025 proof host/新增 v2 host 的自动 config 更新必须遵守
-    `discover → plan → lock → snapshot → apply → probe → commit/rollback`；
+25. B-025 proof host/新增 v2 host 的 install/update/clean/disable/reverse/supersede
+    必须全部投影为 appendix §3 的 `recoverable_host_transaction_v1` 闭集；
+    versioned branch 遵守 `discover → plan → lock/lease → fresh base → apply →
+    probe → commit/rollback → durable lease release/revoke → journal retirement`；
     任一步失败、中断或超时都不得写 committed/active evidence，plan 之后的配置
     digest 漂移必须停止而不是覆盖并发更改。自动写入仅支持 host storage API
     提供的 versioned CAS/lease：同一服务端 linearization point 验证 version，
@@ -252,7 +254,9 @@ GH-701 已完成。
     必须 atomic abort-release-record 后解锁；activating/publishing abort 必须留下
     `publication_aborted + reverse_status: pending + retirement_allowed: false` 和 sealed reverse
     payload。terminal/local tombstone 不证明回滚；只有 fresh exclusion 内 provider atomic
-    verified reverse/retirement commit 后才可退休；`rollback_required: false` 不得替代该
+    verified reverse/retirement commit 同时把 tombstone CAS 回 exact predecessor completed
+    pointer（或原子发布等价新 generation；初始 absence 保持不可 use）后才可退休；
+    `rollback_required: false` 不得替代该
     commit。owner-death/有界 expiry 保证 fail-closed
     但不永久锁 host。
     reverse/clean 必须在 fresh exclusion 内把 final barrier+identity/bytes/absence re-read、
@@ -273,8 +277,12 @@ GH-701 已完成。
     按 canonical path 排序取锁避免死锁。进程崩溃后下一次运行必须识别 pending
     transaction；普通失败与崩溃恢复都只有在 lease token 仍归属本 transaction、
     API current version 精确等于 apply 返回的 version 且 digest 等于 candidate 时
-    才可 version-CAS rollback。任一 token/version/digest drift（包括 bytes 相同但
-    version 更新）都保留当前内容并进入 `broken/needs_human`。
+    才可 version-CAS rollback。clean/disable 必须在 lease 内 fresh-read current version，
+    只删除 exact VibeGuard managed identity并保留此刻全部第三方 entry；失败只可回滚到
+    本次 clean fresh base，禁止恢复旧 install snapshot。任一 token/version/digest drift
+    （包括 bytes 相同但 version 更新）都保留当前内容并进入 `broken/needs_human`。
+    success/abort/needs-human 的 API lease 都必须有 durable release/revoke receipt；
+    crash reconciliation 按 transaction/release ID 幂等查询，未取得 receipt 不得删除 journal。
 27. B-027 GH-699 install claim 与 GH-700 benchmark claim 必须分别有固定 schema、
     固定 evidence path 与同一个离线 README-claim validator；validator 绑定 claim
     类型、issue、release、source HEAD、exact producer SHA/argv、输入/输出 digest、
@@ -448,7 +456,10 @@ GH-701 已完成。
 - [ ] manifest v2、v1 compatibility/deprecation、non-host entries 与完整 unknown
   matrix 有 schema-valid positive/negative fixtures。
 - [ ] config transaction 的 versioned CAS/lease、lock contention、TOCTOU drift、
-  每个 phase failure、API-based crash recovery/safe rollback 均有确定性证据；
+  每个 phase failure、API-based crash recovery/safe rollback 均有确定性证据；clean/disable
+  从 fresh current version 只删除 managed identity，保留 install 后新增/重排的第三方 entry，
+  rollback 不复用 install snapshot；所有 terminal path 在 journal GC 前有 durable lease
+  release/revoke receipt，commit-before-release 与 release-before-fsync crash 可幂等恢复；
   普通文件自动路径与 delayed old-FD fixtures 必须零写入；verified-file fixture
   只有用户应用 exact diff、probe 前后 candidate bytes/metadata、同一 target inode/file
   identity 与 parent-directory identity 均匹配，watcher epoch 零 mutation 且 native probe
@@ -470,7 +481,9 @@ GH-701 已完成。
   provider kind/version/transition/caller-auth policy drift、stale snapshot/signature/journal root
   均不得产生 completed/use/consume/retire。每个
   publication-aborted crash window 保留 sealed reverse payload 与 retirement-disabled；
-  只有 atomic verified reverse commit 才授权退休，`rollback_required: false` 不构成替代授权。
+  只有把 current tombstone 与 exact predecessor completed pointer（或同事务等价新 generation）
+  一起 CAS 的 atomic verified reverse commit 才授权退休；restored bytes + stale tombstone、
+  exact-absence 被误授权 use、`rollback_required: false` 均为 negative fixture。
 - [ ] 每次 verified-file host use 在 completed tuple read 前取得 H-001-bound exclusion，
   exact loaded-byte acquisition ack 后 drain post-load barrier 并 CAS re-read pointer，再 atomic
   use-release；ack/release exact bytes 必须是 manifest+attestation authenticated proof subjects，

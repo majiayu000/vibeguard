@@ -177,9 +177,74 @@ protected gate time; a later witness cannot refresh an old run. Missing time aut
 future/skewed candidate time, delayed replay, archived subjects with a fresh witness, or
 clock disagreement fails closed.
 
-## 3. Verified-file identity and receipt state machine (B-025)
+## 3. Recoverable host transaction and verified-file identity state machine (B-025/B-026)
 
-### 3.1 Identity model
+### 3.1 Shared recoverable host transaction
+
+Both `versioned_host_storage_v1` and `verified_file_setup_v1` project every
+install, update, clean, disable, failure-reverse, and supersession operation into one
+`recoverable_host_transaction_v1`. The authoritative transaction record is closed and
+binds `transaction_id`, lifecycle/operation kind, target and managed-entry identity,
+starting version+digest or pointer generation+digest/absence, predecessor completed
+pointer or exact absence, candidate version+digest or verified-file observation roots,
+sealed lease token digest, lease owner/expiry, release operation ID, current phase,
+outcome, and journal-retirement state. A raw lease token exists only in provider-sealed
+recovery state. Reusing an install snapshot for a later clean transaction is forbidden.
+
+The only normal phase sequences are:
+
+- success: `planned → lease_acquired → base_bound → mutation_pending →
+  mutation_observed → verified → commit_recorded → lease_release_pending →
+  lease_released → journal_retired`;
+- reversible failure: any pre-commit phase after `lease_acquired → abort_pending →
+  no_mutation|rollback_verified|predecessor_restored → abort_recorded →
+  lease_release_pending → lease_released → journal_retired`;
+- drift/unknown: any active phase → `needs_human_pending_release →
+  lease_release_pending → needs_human_released`, with the journal and sealed recovery
+  payload retained until a later authenticated recovery transaction resolves it.
+
+Each arrow is an authenticated durable transition before its named side effect. A
+provider cannot skip, alias, repeat with different bytes, or infer a phase from target
+bytes. `commit_recorded` and `abort_recorded` are logical outcomes, not permission to
+delete recovery state. Every terminal path must idempotently release or revoke the host
+storage/provider lease and durably persist its exact result before local locks are
+released or a journal is marked retirable. `not_found`, expiry, or owner death counts
+only when the provider returns a signed release/revocation receipt bound to this
+transaction and lease token digest. Unknown release outcome stays fail-closed and keeps
+the journal; journal deletion before `lease_released` is an invalid transition.
+`journal_retired` removes only the operation-local recovery journal/sealed rollback
+payload after its retention rule is satisfied. Authenticated append-only provider records,
+release/revocation receipts, and required signed retirement tombstones are never deleted.
+
+Recovery queries the authoritative provider by transaction and release-operation IDs,
+then resumes the next missing transition. It never guesses from a missing local journal.
+If mutation linearized, recovery exact-matches returned/current version+digest or pointer
+generation+digest before resume or rollback; any mismatch preserves current third-party
+state and enters `needs_human_pending_release`. If release linearized but local fsync did
+not, recovery imports the signed release receipt and only then retires the journal. If
+the owner dies, bounded provider expiry performs the same durable revoke-and-record
+transition, so recovery retains both the token binding and the proof that no lease remains.
+
+For `versioned_host_storage_v1`, install/update derives its candidate from the fresh
+leased current version by replacing only the exact VibeGuard managed identity. Clean or
+disable is a new transaction that fresh-reads current version+digest, verifies the exact
+managed identity/ownership receipt, and derives `candidate = current - managed_entry`;
+all third-party entries and their current order/semantics are copied from that fresh
+snapshot. The candidate is committed by version CAS under the same lease and native
+unregistration is verified. Failure rollback may CAS only from this transaction's exact
+returned candidate version+digest to this transaction's fresh starting version+digest;
+it must never restore the historical install snapshot. An absent or already-clean exact
+managed identity is an idempotent verified no-op; an altered/colliding identity is
+`needs_human_pending_release`, not a broad removal.
+
+For `verified_file_setup_v1`, the same phase/outcome/lease-retirement rules govern the
+provider journal while target mutation remains user-owned. A publication abort that
+replaced an N+1 publishing pointer with a tombstone carries the immutable predecessor
+pointer expectation into the later verified reverse transaction. Restoring bytes without
+restoring that authoritative pointer is not `predecessor_restored` and cannot authorize
+host use or retirement.
+
+### 3.2 Identity model
 
 Every receipt records `base_presence` as the closed enum `present | absent`. It also
 records a canonical component-walk result and a no-follow parent-directory identity:
@@ -206,7 +271,7 @@ zero-mutation watcher sequence/root, and the pre/post/final reads. It is point-i
 evidence: check, doctor, runtime use, and proof collection start a new zero-mutation
 epoch and revalidate identity and digest before relying on it.
 
-### 3.2 Receipt states
+### 3.3 Receipt states
 
 The H-001-selected lifecycle provider runs outside the same-user process trust domain
 and owns the authoritative append-only journal, monotonic generations, transaction CAS,
@@ -399,11 +464,18 @@ linearization point. For a native-probe failure, which never creates a completed
 CASes the exact `planned` failure receipt to terminal `aborted` and persists the verified
 reverse/abort commit receipt with `reverse_status: verified`. For publication-aborted
 receipts, atomic `aborted_reverse_release_and_record` exact-matches the authoritative
-`aborted` record with pending reverse, persists the same verified evidence and a durable
-retirement authorization, invalidates candidate evidence, and releases exclusion while
-the lifecycle state remains terminal `aborted`. Neither path can use `consumed` or
-authorize host use. Only an exact verified commit may report `restored`/`not_installed`
-and later retire sealed receipt data; the signed retirement tombstone remains.
+`aborted` record with pending reverse, its current tombstone, and the immutable predecessor
+expectation. When that predecessor is completed N, the same multi-record CAS restores the
+current pointer to N's exact completed generation+digest; an equivalent newly verified
+generation may replace N only if it is published in this same transaction with inherited
+clean ancestry. When the predecessor is exact absence, the transaction commits exact
+absence and cannot authorize host use. It also persists the verified reverse evidence,
+durable retirement authorization and release receipt, invalidates candidate evidence,
+and releases exclusion while the aborted receipt remains terminal `aborted`. A stale or
+missing tombstone/predecessor completes none of those effects. Neither path can use
+`consumed` or authorize the aborted generation. Only an exact verified commit with the
+restored predecessor pointer/absence may report `restored`/`not_installed` and later retire
+sealed receipt data; the signed retirement tombstone remains.
 
 Recovery queries the provider journal by transaction ID. Before linearization, any event,
 denied attempt, gap, drift, recreation, remaining registration, stale CAS, crash, or
@@ -434,7 +506,7 @@ multi-record new-completion transaction; it does not require N to remain the cur
 Direct publishing/abort-to-consumed, missing successor
 ancestry, replay, or consuming the predecessor before successor completion is rejected.
 
-### 3.3 Required fixtures
+### 3.4 Required fixtures
 
 Positive fixtures cover present-base install/failure reverse/clean, absent-base fresh
 install/failure deletion/clean deletion, completed receipt retention, and safe update
@@ -464,7 +536,17 @@ also reject missing/untrusted schema paths, schema-byte drift, wrong H-001 diges
 non-fragment/cross-document reference, and any resolver I/O.
 Publication-abort fixtures keep sealed reverse data and retirement disabled through every
 denied/gap/stale/crash phase, then require atomic verified reverse before retirement and
-reject `rollback_required: false` as a bypass.
+reject `rollback_required: false` as a bypass. Update-abort fixtures require the exact
+tombstone→predecessor completed-pointer CAS (or one atomic equivalent new generation),
+reject restored bytes with a tombstone still current, and keep exact-absence restores
+non-usable. Shared-transaction fixtures cover every closed phase and crash edge for
+install/update/clean/disable, including third-party edits between install and clean,
+clean candidate CAS from the fresh version, clean rollback to that fresh snapshot rather
+than the install snapshot, altered managed identity, commit-before-release crash,
+release-before-journal-fsync crash, release/revoke timeout, owner-death expiry receipt,
+and attempted journal deletion before durable `lease_released`. Every successful fixture
+preserves third-party entries; every drift/unknown fixture releases or revokes the lease
+but retains authenticated recovery state as `needs_human_released`.
 Authority fixtures let a same-user attacker replace/replay/delete every local mirror and
 call provider IPC with arbitrary payloads; no forged completed/use/consume/retire result
 is accepted without the H-001-pinned provider kind/version, transition and caller-auth
