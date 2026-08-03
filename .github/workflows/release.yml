@@ -158,11 +158,13 @@ jobs:
         with:
           subject-path: dist/${{ matrix.target }}/vibeguard-runtime-${{ matrix.target }}
 
-  publish-release:
-    name: Publish release assets
+  stage-release:
+    name: Stage release assets
     runs-on: ubuntu-latest
     needs: build-runtime
     timeout-minutes: 10
+    outputs:
+      release_id: ${{ steps.stage-release.outputs.release_id }}
     permissions:
       contents: write
       id-token: write
@@ -248,14 +250,28 @@ jobs:
         with:
           subject-path: dist/vibeguard-payload-*.tar.gz
 
-      - name: Publish GitHub Release
+      - name: Stage draft GitHub Release
+        id: stage-release
         env:
           EVENT_SHA: ${{ github.sha }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+          set -euo pipefail
+          release_created=0
+          cleanup_failed_draft() {
+            status=$?
+            if [[ "${status}" -ne 0 && "${release_created}" == "1" ]]; then
+              if ! gh release delete "${TAG_NAME}" --repo "${GH_REPO}" --yes; then
+                echo "ERROR: failed to delete incomplete draft release ${TAG_NAME}" >&2
+              fi
+            fi
+            exit "${status}"
+          }
+          trap cleanup_failed_draft EXIT
+
+          if gh release view "${TAG_NAME}" --repo "${GH_REPO}" >/dev/null 2>&1; then
             echo "ERROR: release ${TAG_NAME} already exists; refusing to mutate release assets" >&2
             exit 1
           fi
@@ -264,15 +280,38 @@ jobs:
             echo "ERROR: release tag ${TAG_NAME} moved from event commit ${EVENT_SHA} to ${remote_tag_commit}" >&2
             exit 1
           fi
-          gh release create "${TAG_NAME}" dist/vibeguard-runtime-* dist/vibeguard-payload-* dist/SHA256SUMS \
+          gh release create "${TAG_NAME}" \
+            --repo "${GH_REPO}" \
+            --draft \
             --verify-tag \
             --target "${EVENT_SHA}" \
             --title "${TAG_NAME}" \
             --notes "VibeGuard runtime binaries, install payload, release manifest, and dependency metadata for ${TAG_NAME}."
+          release_created=1
+          gh release upload "${TAG_NAME}" \
+            --repo "${GH_REPO}" \
+            dist/vibeguard-runtime-* dist/vibeguard-payload-* dist/SHA256SUMS
+
+          release_json="$(gh release view "${TAG_NAME}" --repo "${GH_REPO}" \
+            --json databaseId,isDraft,tagName)"
+          release_id="$(jq -er --arg tag "${TAG_NAME}" '
+            select(.isDraft == true and .tagName == $tag) | .databaseId
+          ' <<< "${release_json}")"
+          if [[ ! "${release_id}" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: staged release did not return an exact numeric release id" >&2
+            exit 1
+          fi
+          staged_tag_commit="$(gh api "repos/${GH_REPO}/commits/${TAG_NAME}" --jq .sha)"
+          if [[ "${staged_tag_commit}" != "${EVENT_SHA}" ]]; then
+            echo "ERROR: release tag ${TAG_NAME} moved while staging draft assets" >&2
+            exit 1
+          fi
+          printf 'release_id=%s\n' "${release_id}" >> "${GITHUB_OUTPUT}"
+          trap - EXIT
 
   no-clone-smoke:
     name: No-clone install smoke (${{ matrix.os }})
-    needs: publish-release
+    needs: stage-release
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     permissions:
@@ -296,6 +335,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ github.ref_name }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
+          RELEASE_ID: ${{ needs.stage-release.outputs.release_id }}
         run: |
           set -euo pipefail
           umask 077
@@ -305,12 +345,25 @@ jobs:
             echo "ERROR: event and signer workflow digests must be exact lowercase commit SHAs" >&2
             exit 1
           fi
+          if [[ ! "${GH_REPO}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ \
+            || ! "${RELEASE_ID}" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: repository identity and staged release id must be exact trusted inputs" >&2
+            exit 1
+          fi
           VERSION="${TAG_NAME#v}"
           ASSET="vibeguard-payload-${VERSION}.tar.gz"
           DOWNLOAD_DIR="${RUNNER_TEMP}/vibeguard-release"
           SEED_DIR="${RUNNER_TEMP}/vibeguard-bootstrap-seed"
           FRESH_HOME="${RUNNER_TEMP}/vibeguard-fresh-home"
           mkdir -p "${DOWNLOAD_DIR}" "${SEED_DIR}" "${FRESH_HOME}"
+
+          release_json="$(gh api "repos/${GH_REPO}/releases/${RELEASE_ID}")"
+          if ! jq -e --arg tag "${TAG_NAME}" --argjson id "${RELEASE_ID}" '
+            .id == $id and .draft == true and .tag_name == $tag
+          ' <<< "${release_json}" >/dev/null; then
+            echo "ERROR: no-clone smoke is not bound to the expected draft release" >&2
+            exit 1
+          fi
 
           tag_commit="$(gh api "repos/${GH_REPO}/commits/${TAG_NAME}" --jq .sha)"
           if [[ "${tag_commit}" != "${EVENT_SHA}" ]]; then
@@ -453,6 +506,20 @@ jobs:
             fi
           done
 
+          # The canonical source keeps an upstream default for ordinary installs.
+          # This release smoke replaces that single trusted default with an explicit
+          # repository input after the payload has passed checksum and attestation.
+          ruby - "${SEED_DIR}/scripts/setup/bootstrap.sh" <<'RUBY'
+          path = ARGV.fetch(0)
+          text = File.binread(path)
+          pattern = /^RELEASE_REPO="[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+"$/
+          matches = text.scan(pattern)
+          raise "bootstrap must expose exactly one release repository default" unless matches.length == 1
+          replacement = 'RELEASE_REPO="${VIBEGUARD_RELEASE_REPO:?VIBEGUARD_RELEASE_REPO must be set}"'
+          text.sub!(pattern, replacement)
+          File.binwrite(path, text)
+          RUBY
+
           # Audit the bootstrap's independent release download without replacing it:
           # the wrapper validates repository/tag arguments, calls the real gh binary,
           # and retains only the downloaded payload plus non-secret identity evidence.
@@ -508,6 +575,7 @@ jobs:
           export VIBEGUARD_SMOKE_REAL_GH="${REAL_GH}"
 
           HOME="${FRESH_HOME}" PATH="${AUDIT_BIN}:${PATH}" \
+            VIBEGUARD_RELEASE_REPO="${GH_REPO}" \
             bash "${SEED_DIR}/scripts/setup/bootstrap.sh" \
             --version "${VERSION}" --require-provenance -- --yes --require-provenance
           test "$(grep -Fxc -- "repo=${GH_REPO}" "${AUDIT_DIR}/download.identity")" = "1"
@@ -542,3 +610,114 @@ jobs:
           fi
           test -x "${FRESH_HOME}/.vibeguard/installed/bin/vibeguard-runtime"
           test -d "${FRESH_HOME}/.vibeguard/installed/rules/claude-rules"
+
+  publish-release:
+    name: Publish release assets
+    runs-on: ubuntu-latest
+    needs:
+      - stage-release
+      - no-clone-smoke
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      attestations: read
+
+    steps:
+      - name: Finalize and publish verified draft
+        env:
+          EVENT_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          RELEASE_ID: ${{ needs.stage-release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          if [[ ${#EVENT_SHA} -ne 40 || "${EVENT_SHA}" == *[!0-9a-f]* \
+            || ${#WORKFLOW_SHA} -ne 40 || "${WORKFLOW_SHA}" == *[!0-9a-f]* \
+            || ! "${GH_REPO}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ \
+            || ! "${RELEASE_ID}" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: final release identities are malformed" >&2
+            exit 1
+          fi
+
+          release_json="$(gh api "repos/${GH_REPO}/releases/${RELEASE_ID}")"
+          if ! jq -e --arg tag "${TAG_NAME}" --argjson id "${RELEASE_ID}" '
+            .id == $id and .draft == true and .tag_name == $tag
+          ' <<< "${release_json}" >/dev/null; then
+            echo "ERROR: final publication target is not the expected draft release" >&2
+            exit 1
+          fi
+
+          audit_dir="${RUNNER_TEMP}/vibeguard-final-release-audit"
+          mkdir -p "${audit_dir}"
+          gh release download "${TAG_NAME}" --repo "${GH_REPO}" --dir "${audit_dir}"
+          expected_assets=(
+            SHA256SUMS
+            "vibeguard-payload-${TAG_NAME#v}.tar.gz"
+            vibeguard-runtime-aarch64-apple-darwin
+            vibeguard-runtime-aarch64-unknown-linux-musl
+            vibeguard-runtime-dependency-metadata.json
+            vibeguard-runtime-releases.json
+            vibeguard-runtime-x86_64-apple-darwin
+            vibeguard-runtime-x86_64-unknown-linux-musl
+          )
+          mapfile -t actual_assets < <(find "${audit_dir}" -maxdepth 1 -type f -exec basename {} \; | LC_ALL=C sort)
+          mapfile -t sorted_expected < <(printf '%s\n' "${expected_assets[@]}" | LC_ALL=C sort)
+          if [[ "${actual_assets[*]}" != "${sorted_expected[*]}" ]]; then
+            echo "ERROR: staged draft assets do not match the exact release set" >&2
+            exit 1
+          fi
+
+          (
+            cd "${audit_dir}"
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum --check --strict SHA256SUMS
+            else
+              shasum -a 256 --check SHA256SUMS
+            fi
+          )
+
+          attested_assets=(
+            "${audit_dir}/SHA256SUMS"
+            "${audit_dir}/vibeguard-payload-${TAG_NAME#v}.tar.gz"
+            "${audit_dir}/vibeguard-runtime-aarch64-apple-darwin"
+            "${audit_dir}/vibeguard-runtime-aarch64-unknown-linux-musl"
+            "${audit_dir}/vibeguard-runtime-releases.json"
+            "${audit_dir}/vibeguard-runtime-x86_64-apple-darwin"
+            "${audit_dir}/vibeguard-runtime-x86_64-unknown-linux-musl"
+          )
+          for asset in "${attested_assets[@]}"; do
+            gh attestation verify "${asset}" \
+              --repo "${GH_REPO}" \
+              --signer-workflow "github.com/${GH_REPO}/.github/workflows/release.yml" \
+              --signer-digest "${WORKFLOW_SHA}" \
+              --source-ref "refs/tags/${TAG_NAME}" \
+              --source-digest "${EVENT_SHA}" \
+              --deny-self-hosted-runners
+          done
+
+          marker_commit="$(
+            tar -xOf "${audit_dir}/vibeguard-payload-${TAG_NAME#v}.tar.gz" .vibeguard-payload \
+              | awk -F= '$1 == "git_commit" { count += 1; commit = $2 } END { if (count == 1) print commit; else exit 1 }'
+          )"
+          if [[ "${marker_commit}" != "${EVENT_SHA}" ]]; then
+            echo "ERROR: staged payload marker does not match event commit ${EVENT_SHA}" >&2
+            exit 1
+          fi
+
+          final_tag_commit="$(gh api "repos/${GH_REPO}/commits/${TAG_NAME}" --jq .sha)"
+          if [[ "${final_tag_commit}" != "${EVENT_SHA}" ]]; then
+            echo "ERROR: release tag ${TAG_NAME} moved before publication; draft remains unpublished" >&2
+            exit 1
+          fi
+
+          publish_json="$(gh api --method PATCH "repos/${GH_REPO}/releases/${RELEASE_ID}" \
+            -F draft=false -f make_latest=true)"
+          if ! jq -e --argjson id "${RELEASE_ID}" '.id == $id and .draft == false' \
+            <<< "${publish_json}" >/dev/null; then
+            echo "ERROR: GitHub did not confirm the single draft-to-public transition" >&2
+            exit 1
+          fi

@@ -6,6 +6,8 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW="${REPO_DIR}/.github/workflows/release.yml"
 CI_WORKFLOW="${REPO_DIR}/.github/workflows/ci.yml"
+CONTRACT_HELPER="${REPO_DIR}/tests/helpers/release_workflow_contract.rb"
+PROTOCOL_FIXTURE="${REPO_DIR}/tests/helpers/test_staged_release_protocol.sh"
 PASS=0
 FAIL=0
 
@@ -43,53 +45,18 @@ TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-no-clone-smoke.XXXXXX")"
 trap 'rm -rf "${TMP_ROOT}"' EXIT
 JOB_SCRIPT="${TMP_ROOT}/no-clone-smoke.sh"
 
-# Parse the workflow as YAML. This deliberately rejects a disabled security
-# step and extracts the executable run body rather than scanning comments.
 extract_smoke_script() {
   local workflow="$1" output="$2"
-  ruby - "${workflow}" "${output}" <<'RUBY'
-require "yaml"
-
-document = YAML.load_file(ARGV.fetch(0))
-jobs = document.fetch("jobs")
-job = jobs.fetch("no-clone-smoke")
-raise "smoke must depend on publish-release" unless job.fetch("needs") == "publish-release"
-raise "smoke contents permission must be read" unless job.dig("permissions", "contents") == "read"
-raise "smoke attestations permission must be read" unless job.dig("permissions", "attestations") == "read"
-oses = job.dig("strategy", "matrix", "include").map { |entry| entry.fetch("os") }
-raise "smoke matrix must cover macOS and Ubuntu" unless oses.sort == ["macos-14", "ubuntu-latest"]
-steps = job.fetch("steps")
-raise "smoke must not checkout source" if steps.any? { |step| step["uses"].to_s.start_with?("actions/checkout@") }
-matches = steps.select { |step| step["name"] == "Install and verify from immutable release" }
-raise "expected exactly one immutable release smoke step" unless matches.length == 1
-step = matches.fetch(0)
-raise "immutable release smoke step must be reachable" if step.key?("if")
-raise "immutable release smoke step must not ignore failure" if step["continue-on-error"]
-run = step.fetch("run")
-raise "immutable release smoke step is empty" if run.strip.empty?
-File.binwrite(ARGV.fetch(1), run)
-RUBY
+  ruby "${CONTRACT_HELPER}" extract-smoke "${workflow}" "${output}"
 }
 
-validate_ci_invocation() {
-  ruby - "${CI_WORKFLOW}" <<'RUBY'
-require "yaml"
-
-document = YAML.load_file(ARGV.fetch(0))
-steps = document.fetch("jobs").fetch("validate-and-test").fetch("steps")
-matches = steps.select { |step| step["name"] == "Validate no-clone release smoke contract" }
-raise "expected one CI no-clone contract step" unless matches.length == 1
-step = matches.fetch(0)
-raise "CI no-clone contract must execute the test" unless step["run"] == "bash tests/test_no_clone_release_smoke.sh"
-raise "CI no-clone contract must propagate failure" if step["continue-on-error"]
-raise "CI no-clone contract must run on both Unix matrices" unless step["if"] == "runner.os != 'Windows'"
-RUBY
-}
-
-expect_success "release smoke is a reachable structured YAML step" \
+expect_success "release workflow has exact structured jobs, permissions, expressions, and dependencies" \
+  ruby "${CONTRACT_HELPER}" validate "${WORKFLOW}" "${CI_WORKFLOW}"
+expect_success "release smoke is extracted from the parsed workflow AST" \
   extract_smoke_script "${WORKFLOW}" "${JOB_SCRIPT}"
 expect_success "extracted release smoke is valid Bash" bash -n "${JOB_SCRIPT}"
-expect_success "CI structurally invokes the executable contract on Unix" validate_ci_invocation
+expect_success "draft staging, final verification, one publish transition, and failure cleanup execute" \
+  bash "${PROTOCOL_FIXTURE}" "${WORKFLOW}" "${CONTRACT_HELPER}"
 
 make_payload_fixture() {
   local root="$1" marker_commit="$2" bootstrap_repo="$3" checksum_mode="$4" archive_mode="$5"
@@ -114,6 +81,7 @@ SETUP
   cat > "${payload_root}/scripts/setup/bootstrap.sh" <<BOOTSTRAP
 #!/usr/bin/env bash
 set -euo pipefail
+RELEASE_REPO="${bootstrap_repo}"
 version=""
 while [[ \$# -gt 0 ]]; do
   case "\$1" in
@@ -127,11 +95,11 @@ tag="v\${version}"
 asset="vibeguard-payload-\${version}.tar.gz"
 download="\${RUNNER_TEMP}/fixture-bootstrap-download"
 mkdir -p "\${download}"
-gh release download "\${tag}" --repo "${bootstrap_repo}" \
+gh release download "\${tag}" --repo "\${RELEASE_REPO}" \
   --pattern "\${asset}" --pattern SHA256SUMS --dir "\${download}"
 gh attestation verify "\${download}/\${asset}" \
-  --repo "${bootstrap_repo}" \
-  --signer-workflow "github.com/${bootstrap_repo}/.github/workflows/release.yml" \
+  --repo "\${RELEASE_REPO}" \
+  --signer-workflow "github.com/\${RELEASE_REPO}/.github/workflows/release.yml" \
   --source-ref "refs/tags/\${tag}" --deny-self-hosted-runners
 final="\${HOME}/.vibeguard/dist/\${version}"
 mkdir -p "\${final}"
@@ -165,6 +133,8 @@ BOOTSTRAP
   if [[ "${archive_mode}" == "unsafe-link" ]]; then
     ln -s setup.sh "${payload_root}/unsafe-link"
     members+=(unsafe-link)
+  elif [[ "${archive_mode}" == "changed-content" ]]; then
+    printf '# distinct second download\n' >> "${payload_root}/setup.sh"
   fi
   tar -czf "${asset}" -C "${payload_root}" "${members[@]}"
 
@@ -183,8 +153,22 @@ make_gh_stub() {
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" == "api" ]]; then
-  printf '%s\n' "${GH_STUB_API_SHA}"
-  exit 0
+  endpoint="${2:-}"
+  if [[ "${endpoint}" == "repos/${GH_REPO}/releases/${RELEASE_ID}" ]]; then
+    printf '{"id":%s,"draft":true,"tag_name":"%s"}\n' "${RELEASE_ID}" "${TAG_NAME}"
+    exit 0
+  fi
+  if [[ "${endpoint}" == "repos/${GH_REPO}/commits/${TAG_NAME}" ]]; then
+    api_count="$(grep -c '^api-tag$' "${GH_STUB_LOG}" || true)"
+    printf 'api-tag\n' >> "${GH_STUB_LOG}"
+    if [[ "${api_count}" -eq 0 ]]; then
+      printf '%s\n' "${GH_STUB_API_SHA_FIRST}"
+    else
+      printf '%s\n' "${GH_STUB_API_SHA_FINAL}"
+    fi
+    exit 0
+  fi
+  exit 64
 fi
 if [[ "${1:-}" == "release" && "${2:-}" == "download" ]]; then
   shift 2
@@ -205,8 +189,16 @@ if [[ "${1:-}" == "release" && "${2:-}" == "download" ]]; then
   done
   [[ "${repo}" == "${GH_REPO}" && "${tag}" == "${TAG_NAME}" && -n "${destination}" ]] || exit 1
   mkdir -p "${destination}"
-  cp "${GH_STUB_PAYLOAD}" "${destination}/${GH_STUB_PAYLOAD##*/}"
-  cp "${GH_STUB_SUMS}" "${destination}/SHA256SUMS"
+  download_count="$(grep -c '^download$' "${GH_STUB_LOG}" || true)"
+  if [[ "${download_count}" -eq 0 ]]; then
+    payload="${GH_STUB_PAYLOAD}"
+    sums="${GH_STUB_SUMS}"
+  else
+    payload="${GH_STUB_SECOND_PAYLOAD}"
+    sums="${GH_STUB_SECOND_SUMS}"
+  fi
+  cp "${payload}" "${destination}/vibeguard-payload-1.2.3.tar.gz"
+  cp "${sums}" "${destination}/SHA256SUMS"
   printf 'download\n' >> "${GH_STUB_LOG}"
   exit 0
 fi
@@ -249,6 +241,9 @@ GH_STUB
 
 run_fixture() {
   local fixture_root="$1" script="$2" verify_exit="${3:-0}"
+  local release_repo="${4:-majiayu000/vibeguard}"
+  local final_api_sha="${5:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}"
+  local second_root="${6:-${fixture_root}}"
   local runner="${fixture_root}/runner"
   local stub_bin="${fixture_root}/stub-bin"
   rm -rf "${runner}" "${stub_bin}"
@@ -259,13 +254,17 @@ run_fixture() {
   if ! env \
     EVENT_SHA="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
     WORKFLOW_SHA="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" \
-    GH_REPO="majiayu000/vibeguard" \
+    GH_REPO="${release_repo}" \
     TAG_NAME="v1.2.3" \
+    RELEASE_ID="4242" \
     GH_TOKEN="fixture-token" \
     RUNNER_TEMP="${runner}" \
-    GH_STUB_API_SHA="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+    GH_STUB_API_SHA_FIRST="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+    GH_STUB_API_SHA_FINAL="${final_api_sha}" \
     GH_STUB_PAYLOAD="${fixture_root}/vibeguard-payload-1.2.3.tar.gz" \
     GH_STUB_SUMS="${fixture_root}/SHA256SUMS" \
+    GH_STUB_SECOND_PAYLOAD="${second_root}/vibeguard-payload-1.2.3.tar.gz" \
+    GH_STUB_SECOND_SUMS="${second_root}/SHA256SUMS" \
     GH_STUB_LOG="${fixture_root}/gh.log" \
     FIXTURE_VERIFY_EXIT="${verify_exit}" \
     PATH="${stub_bin}:${PATH}" \
@@ -285,6 +284,9 @@ make_payload_fixture "${GOOD}" \
 expect_success "exact release smoke executes checksum, provenance, secondary download, install, and verify" \
   run_fixture "${GOOD}" "${JOB_SCRIPT}"
 
+expect_success "fork or renamed repository uses one trusted identity for both downloads" \
+  run_fixture "${GOOD}" "${JOB_SCRIPT}" 0 fork-owner/renamed-vibeguard
+
 WRONG_SUM="${TMP_ROOT}/wrong-sum"
 mkdir -p "${WRONG_SUM}"
 make_payload_fixture "${WRONG_SUM}" \
@@ -300,13 +302,15 @@ make_payload_fixture "${WRONG_MARKER}" \
 expect_failure "payload marker from another commit fails closed" \
   run_fixture "${WRONG_MARKER}" "${JOB_SCRIPT}"
 
-WRONG_REPO="${TMP_ROOT}/wrong-repo"
-mkdir -p "${WRONG_REPO}"
-make_payload_fixture "${WRONG_REPO}" \
-  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
-  other/repository correct safe
-expect_failure "bootstrap secondary download from another repository fails closed" \
-  run_fixture "${WRONG_REPO}" "${JOB_SCRIPT}"
+WRONG_REPO_SCRIPT="${TMP_ROOT}/wrong-repository-parameter.sh"
+ruby - "${JOB_SCRIPT}" "${WRONG_REPO_SCRIPT}" <<'RUBY'
+text = File.binread(ARGV.fetch(0))
+old = 'VIBEGUARD_RELEASE_REPO="${GH_REPO}"'
+raise "trusted repository argument missing" unless text.sub!(old, 'VIBEGUARD_RELEASE_REPO="other/repository"')
+File.binwrite(ARGV.fetch(1), text)
+RUBY
+expect_failure "bootstrap cannot perform its second download from another repository" \
+  run_fixture "${GOOD}" "${WRONG_REPO_SCRIPT}"
 
 UNSAFE="${TMP_ROOT}/unsafe"
 mkdir -p "${UNSAFE}"
@@ -318,6 +322,19 @@ expect_failure "link or special archive entry fails before execution" \
 
 expect_failure "verify-install nonzero status propagates" \
   run_fixture "${GOOD}" "${JOB_SCRIPT}" 17
+
+expect_failure "tag movement during staged smoke fails before publication" \
+  run_fixture "${GOOD}" "${JOB_SCRIPT}" 0 majiayu000/vibeguard \
+    cccccccccccccccccccccccccccccccccccccccc
+
+SECOND_PAYLOAD="${TMP_ROOT}/second-payload"
+mkdir -p "${SECOND_PAYLOAD}"
+make_payload_fixture "${SECOND_PAYLOAD}" \
+  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  majiayu000/vibeguard correct changed-content
+expect_failure "independent second-download digest drift fails closed" \
+  run_fixture "${GOOD}" "${JOB_SCRIPT}" 0 majiayu000/vibeguard \
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "${SECOND_PAYLOAD}"
 
 WRONG_DIGEST_SCRIPT="${TMP_ROOT}/wrong-source-digest.sh"
 ruby - "${JOB_SCRIPT}" "${WRONG_DIGEST_SCRIPT}" <<'RUBY'
@@ -339,17 +356,8 @@ RUBY
 expect_failure "commented or inert attestation cannot satisfy the executable contract" \
   run_fixture "${GOOD}" "${INERT_SCRIPT}"
 
-DISABLED_WORKFLOW="${TMP_ROOT}/disabled-workflow.yml"
-ruby - "${WORKFLOW}" "${DISABLED_WORKFLOW}" <<'RUBY'
-require "yaml"
-document = YAML.load_file(ARGV.fetch(0))
-step = document.fetch("jobs").fetch("no-clone-smoke").fetch("steps")
-  .find { |candidate| candidate["name"] == "Install and verify from immutable release" }
-step["if"] = "${{ false }}"
-File.write(ARGV.fetch(1), YAML.dump(document))
-RUBY
-expect_failure "structural validator rejects an unreachable smoke step" \
-  extract_smoke_script "${DISABLED_WORKFLOW}" "${TMP_ROOT}/disabled.sh" 2>/dev/null
+expect_success "structured contract rejects reachability, permission, expression, dependency, and final-check mutations" \
+  ruby "${CONTRACT_HELPER}" self-test "${WORKFLOW}" "${CI_WORKFLOW}"
 
 printf '%s passed, %s failed\n' "${PASS}" "${FAIL}"
 test "${FAIL}" -eq 0
