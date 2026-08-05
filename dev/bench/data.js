@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785952447788,
+  "lastUpdate": 1785956935029,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -56678,6 +56678,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 12,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b2b0b989e318a17caaff5e9d87be8c2cb5056a19",
+          "message": "docs(spec): correct GH-703 evidence and lifecycle contracts (#735)\n\n* docs(spec): correct GH703 evidence contracts\n\n* docs(spec): pin GH699 coordination result\n\n* docs(GH703): close corrective evidence gaps\n\n* docs(GH703): close terminal evidence review gaps\n\n* docs(GH703): prove coverage liveness\n\n* docs(GH703): close review contract gaps\n\n* docs(GH703): fence coverage authority\n\n* docs(spec): close GH-703 review gaps\n\n* docs(spec): close GH-703 launcher retention gaps\n\n* docs(spec): close GH703 product decision gaps\n\n* docs(spec): define GH703 coverage snapshot contract\n\n* docs(GH703): close coverage review blockers\n\n* docs(gh703): close coverage recovery gaps\n\n* docs(GH703): close identity outcome matrix\n\n* docs(gh703): close append-only recovery gaps\n\n* docs(gh703): close authority state gaps\n\n* docs(gh703): close remaining crash contracts\n\n* docs: close GH703 authority lifecycle gaps\n\n* docs: close GH703 pre-commit evidence mapping\n\n* docs(GH703): close crash and retention contracts\n\n* docs(GH703): close current-head review gaps\n\n* docs(GH703): simplify retention recovery contracts\n\n* docs(gh703): unify publication operation contract",
+          "timestamp": "2026-08-05T18:10:55Z",
+          "tree_id": "3282108a23b5d81feba35f43678b75afd4158106",
+          "url": "https://github.com/majiayu000/vibeguard/commit/b2b0b989e318a17caaff5e9d87be8c2cb5056a19"
+        },
+        "date": 1785956933308,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 44,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 48,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 49,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 49,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 44,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 46,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 46,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 48,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 48,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 54,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 54,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 54,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 46,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 9,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 9,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 9,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 10,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 10,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 10,
             "unit": "ms"
           }
         ]
