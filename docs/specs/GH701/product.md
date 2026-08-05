@@ -6,6 +6,10 @@ GH-701
 
 complexity: large
 
+本 product spec、[`tech.md`](tech.md) 与
+[`security-lifecycle-contract.md`](security-lifecycle-contract.md) 共同构成 GH-701
+的 normative spec set；后者固定 B-019/B-025/B-028 的安全与生命周期协议。
+
 ## 用户问题
 
 VibeGuard 的规则、hook、guard 与本地 observability 已经能保护 Claude Code 和
@@ -71,7 +75,8 @@ GH-701 已完成。
    opencode，Cursor CLI 只有取得等价 native blocking evidence 后才可选择。
 2. **H-002 安装触发 — Recommended proposal: 专用 `--host gemini` opt-in**。
    discovery 始终只读，只有用户明确给出 host 参数并确认 diff 才写配置；“检测到
-   executable 自动写入”是互斥备选，不得与 opt-in 同时生效。
+   executable”互斥备选也只能生成 proposal，必须经过相同的 exact-diff 确认后
+   才能写入，不得与 opt-in 同时生效。
 3. **H-003 stale branch — Recommended proposal: delete after approval**。远端
    `docs/gh701-readme-first-screen` 当前指向 `c77253b4`，其有效内容已通过 squash
    merge PR #705（`48076210`）进入 main，且该 commit 不是 main ancestor。唯一
@@ -83,7 +88,9 @@ GH-701 已完成。
    `preserve_pr705_extras` 允许额外内容继续留在首屏，但维护者必须先通过同一
    GitHub 决策来源明确更新 GH-701 issue acceptance，列出保留块及其证据要求；
    不能只改 spec/README 后声称 acceptance 已同步。两者均未获批或同时出现时，
-   route、task planning、README renderer 与 closure gate 必须 blocked。
+   task planning 仍须生成覆盖 B-001–B-035 的完整计划，但产品 tranche 必须显式
+   依赖 `gh701_decision_gate: allowed` 并保持 blocked；route、README renderer 与
+   closure gate 也必须 blocked，只有 B-034 一次性 fail-closed bootstrap tranche 可执行。
 
 ## Behavior Invariants
 
@@ -122,22 +129,31 @@ GH-701 已完成。
    host free text；诊断只允许闭集分类与必要的非敏感结构元数据。
 10. B-010 proof host adapter 安装必须是幂等的：重复执行产生同一语义配置，不
     重复注册 VibeGuard hook，不改变第三方 hook 的内容或相对顺序；clean/disable
-    只移除可证明由 VibeGuard 管理的条目。
+    只移除可证明由 VibeGuard 管理的条目。verified-file host 的 clean/disable
+    也只能由用户应用 plan-time、digest-bound reverse diff；VibeGuard 只验证恢复。
 11. B-011 host 配置缺失、只读、语法损坏、写入中断或 verification 失败时不得
     留下“安装完成”的部分状态；旧可用配置必须保留或恢复，失败必须可见并给出
-    修复动作。
+    修复动作。verified-file candidate probe 失败时须提供同一人工 reverse 流程；
+    未验证恢复前保持 `partial/needs_human`，不得把用户应用等同自动 rollback。
 12. B-012 同一机器同时安装多个受支持 host 时，各 host 的配置、wrapper identity
     与 health evidence 必须隔离；并发或任意顺序的重复安装不得让一个 host 的
     event 被归属为另一个 host，也不得覆盖第三方配置。
 13. B-013 新 adapter 的默认数据流保持 local-first：不新增网络上报、远端执行、
     analytics 或 secret 读取；host 配置写入只发生在用户确认的目标与 VibeGuard
-    owned entry 内，并遵守 host 自身权限边界。
+    owned entry 内，并遵守 host 自身权限边界。auto-detect 只能提出候选 target，
+    不能把 executable 存在视为确认；每个 target 都必须展示并确认 exact diff。
 14. B-014 已支持的 Claude Code 与 Codex CLI 安装、profile、capability、
     fail-closed、第三方 hook preservation、doctor/verify-install 与 clean 语义
     必须保持；generalize manifest 或 adapter registry 不得改变它们的有效配置。
+    两者现有 JSON target 继续使用已验证的 atomic owned-entry merge/clean 兼容
+    lifecycle，不追溯要求 host storage API；B-025 的新 shared lifecycle 只用于
+    proof host/新增 v2 host，并按 capability 显式选择 versioned 或 verified-file
+    lifecycle，不能把旧 host 降级为 manual。
 15. B-015 adapter 与 core 的 compatibility 必须由 host adapter contract
     version、host protocol/version range 与 VibeGuard runtime version 显式判定；
-    不兼容组合必须 fail visible，不能尝试 best-effort 转换后报告成功。
+    每个 host registry entry 必须声明可接受的 runtime version/ABI range，并在
+    配置写入或 core 执行前验证；不兼容组合必须 fail visible，不能尝试
+    best-effort 转换后报告成功。
 16. B-016 用户中断安装或 adapter update 后重试时，系统必须从已验证的旧状态或
     明确的 incomplete 状态继续；不得复用未验证的 temporary config、伪造成功
     evidence 或产生重复 event registration。
@@ -157,7 +173,20 @@ GH-701 已完成。
     `not_applicable` mapping，多 tool/file event 的每个可执行项都必须保留原输入
     顺序并被 core 独立判定。每个 batch 最多 64 个 requests；decoder 必须在任何
     core evaluation 或逐项日志之前验证完整 count，超限或无法确定 count 时整个
-    batch fail-closed，禁止截断或部分执行。
+    batch fail-closed，禁止截断或部分执行。host entry 还必须声明同步 response
+    deadline；adapter 为 encode 和 termination 各保留固定时间，以剩余总预算约束
+    每项 core 调用。每项必须在 security/lifecycle appendix §1 的 kernel-enforced、
+    不可逃逸 containment provider 内运行；process group 本身不是 containment，
+    `setsid`、double-fork、reparent 或平台 breakaway 均不能逃出 supervisor 所有权。
+    candidate 也不得通过 user service manager、D-Bus、daemon socket、named pipe/RPC
+    或 inherited handle 委托 boundary 外 broker 产生副作用；外部 spawn endpoint 必须
+    不可达，或 broker 本身位于同一 provider ownership/termination closure。
+    Linux 到期时必须先关闭 host-side 输出并在有界子期限内执行 guest cgroup/subreaper
+    cleanup；若含 uninterruptible sleep 的 descendant 仍在，受保护 host control plane
+    必须在 response deadline 内销毁 per-invocation outer VM，且不等待 guest reap。
+    只有 descendant/side-effect ledger closed、host pipes closed，并取得 provider 的
+    VM destroy/zero-side-channel receipt 后，才可为当前项及所有未执行项生成闭集
+    `hook_error`；无法证明有界 outer teardown 的平台为 unsupported。
 20. B-020 同一 batch 的 mixed decisions 必须按固定优先级
     `hook_error > block > escalate > gate > correction > warn > complete > pass`
     产生唯一 host response；每个 core invocation 的 `failed` 或 `hook_error`
@@ -184,22 +213,76 @@ GH-701 已完成。
     error；discovery 遇到未知 executable 为 `unsupported` 且零写入；known host
     + unknown protocol 为 `incompatible`；blocking adapter runtime 收到未知
     event/payload 为 fail-closed。四类不得互相降级成 pass/active。
-25. B-025 host config 更新必须遵守
-    `discover → plan → lock → snapshot → apply → probe → commit/rollback`；
+25. B-025 proof host/新增 v2 host 的 install/update/clean/disable/reverse/supersede
+    必须全部投影为 appendix §3 的 `recoverable_host_transaction_v1` 闭集；
+    versioned branch 遵守 `discover → plan → lock/lease → fresh base → apply →
+    probe → commit/rollback → durable lease release/revoke → journal retirement`；
     任一步失败、中断或超时都不得写 committed/active evidence，plan 之后的配置
-    digest 漂移必须停止而不是覆盖并发更改。plan 必须先证明目标支持真正原子的
-    `conditional_replace(expected_base_identity, candidate)`；该原语在同一个
-    kernel/host linearization point 校验 no-follow target 的 presence、file identity
-    与 bytes digest，并且仅在全匹配时替换。单独 read/compare 后再 rename、advisory
-    lock 或 mtime check 都不算 CAS；缺少该原语必须在 snapshot/journal/target
-    mutation 前 fail closed。调用前必须 durable 写入 `applying` journal；CAS
-    mismatch 不得改 target，必须保留外部更改并进入 `broken/needs_human`。恢复时
-    以 target 的实际 digest 判定是否已 apply，不能把尚未记录 `applied` 的 rename
-    当成 pre-apply 丢弃。
-26. B-026 同一 config 的并发 writer 必须由 bounded lock 串行化；多个 config
+    digest 漂移必须停止而不是覆盖并发更改。自动写入仅支持 host storage API
+    提供的 versioned CAS/lease：同一服务端 linearization point 验证 version，
+    lease 排斥旧/新 writer，再 commit candidate；journal 记录 transaction/version/
+    lease token 并通过 API 查询恢复。普通 macOS/Linux JSON 文件、rename、
+    advisory lock、mtime 或 exclusive claim 都不能排除延迟 old-FD write，不得
+    冒充该 capability。file-backed proof/new host 可显式选择
+    `verified_file_setup_v1` 必须完整实现 security/lifecycle appendix §3：VibeGuard
+    只输出 exact diff，零 host-target mutation；plan/receipt 以闭集
+    `base_presence: present|absent` 表示初始状态，absent 不得伪造空 base bytes、mode
+    或 owner。用户确认 target 后亲自应用 diff。verifier 必须持有 no-follow parent
+    directory handle 与（若 present）target handle，并把 parent/target filesystem
+    identity、candidate bytes/ownership/mode、loss-detecting watcher 与 bounded native
+    probe 绑定到 evidence；任何 write/rename/link/delete event 或 watcher gap 都无条件
+    使本 activation epoch 失效，之后相同 bytes/identity 不能恢复它。重新解析出的
+    target 必须仍是同一 identity。byte-identical
+    inode replacement、parent-directory swap、symlink、watcher gap/overflow、额外编辑
+    或 old-FD late write 都保持 `partial/needs_human`。H-001-selected lifecycle provider
+    必须位于 same-user process trust domain 外；H-001 exact-pin provider kind/version、覆盖
+    generation/CAS/lease/state/retirement 的 transition policy digest、measured-caller/IPC
+    authentication policy digest 与用户不可读的 journal/signing root，provider 持有
+    sealed recovery payload、generation/CAS 与 target lease；所有 authoritative record 都
+    签名并绑定 journal root/sequence/previous digest，0600/0700 本地文件仅为 untrusted
+    cache。provider 只接受 measured approved VibeGuard caller，并独立验证 transition；
+    无此边界的平台 unsupported。closed state 为 planned/activating/publishing/completed/
+    consumed 与 terminal aborted；publish 必须在 provider journal CAS exact expected
+    pointer generation+digest。probe 后 provider 记录 authenticated activating、publishing
+    intent/completion；final pre-CAS barrier 先取得不可旁路 OS mutation exclusion。任何
+    write attempt/gap 都 invalidate。provider atomic release-and-record 必须同时 CAS/persist
+    literal completed pointer+receipt、release receipt 和 exclusion removal；consumer 只接受
+    fresh nonce-bound provider snapshot/signature exact-match 的 tuple。每次 runtime/proof use
+    在读 tuple 前必须另取 H-001-approved exclusion，持有到 host 已完整 acquisition exact
+    loaded bytes、post-load watcher barrier 与 pointer CAS re-read，再 atomic use-release ack。
+    ack commit 前不得 host dispatch/side effect；lazy/unattested load 禁止。所有失败/崩溃/orphan
+    必须 atomic abort-release-record 后解锁；activating/publishing abort 必须留下
+    `publication_aborted + reverse_status: pending + retirement_allowed: false` 和 sealed reverse
+    payload。terminal/local tombstone 不证明回滚；只有 fresh exclusion 内 provider atomic
+    verified reverse/retirement commit 同时把 tombstone CAS 回 exact predecessor completed
+    pointer（或原子发布等价新 generation；初始 absence 保持不可 use）后才可退休；
+    `rollback_required: false` 不得替代该
+    commit。owner-death/有界 expiry 保证 fail-closed
+    但不永久锁 host。
+    reverse/clean 必须在 fresh exclusion 内把 final barrier+identity/bytes/absence re-read、
+    completed→consumed CAS、consume receipt 与 release 原子绑定；prewritten tx intent/commit
+    区分线性化前 abort-retain 与线性化后幂等 reconcile。failed-probe verified reverse
+    原子 planned→aborted，不得伪造 completed/consumed。supersession 用 multi-record CAS
+    在同一线性化点完成 N+1 并消费 N；任一 mismatch 两者都不完成。
+    present-base reverse 必须由用户恢复并按同一 identity/bytes/metadata 验证；
+    absent-base reverse/clean 必须由用户删除 exact target，并以 watcher 连续性、两次
+    bounded absence observation 与 host-native unregistration 验证。VibeGuard 不得写或
+    删除 host target；任一 drift 禁止 stale reverse。superseding receipt 必须继承
+    original clean ancestry，且只有 verified restore/removal 或新 receipt 生效后才能
+    消费旧 receipt。获批 proof host 若既无
+    versioned API 又不能完成 verified-file contract 才必须重新选择。Claude/Codex
+    现有 JSON target 依 B-014 走 compatibility lifecycle，不得被静默改成 manual。
+26. B-026 versioned automatic branch 的同一 config 并发 writer 必须由 bounded
+    lock 串行化；多个 config
     按 canonical path 排序取锁避免死锁。进程崩溃后下一次运行必须识别 pending
-    transaction：只有当前 digest 仍等于本次 candidate 时才自动 rollback，否则
-    保留外部更改并进入 `broken/needs_human`，不得用旧 snapshot 覆盖未知新内容。
+    transaction；普通失败与崩溃恢复都只有在 lease token 仍归属本 transaction、
+    API current version 精确等于 apply 返回的 version 且 digest 等于 candidate 时
+    才可 version-CAS rollback。clean/disable 必须在 lease 内 fresh-read current version，
+    只删除 exact VibeGuard managed identity并保留此刻全部第三方 entry；失败只可回滚到
+    本次 clean fresh base，禁止恢复旧 install snapshot。任一 token/version/digest drift
+    （包括 bytes 相同但 version 更新）都保留当前内容并进入 `broken/needs_human`。
+    success/abort/needs-human 的 API lease 都必须有 durable release/revoke receipt；
+    crash reconciliation 按 transaction/release ID 幂等查询，未取得 receipt 不得删除 journal。
 27. B-027 GH-699 install claim 与 GH-700 benchmark claim 必须分别有固定 schema、
     固定 evidence path 与同一个离线 README-claim validator；validator 绑定 claim
     类型、issue、release、source HEAD、exact producer SHA/argv、输入/输出 digest、
@@ -214,23 +297,90 @@ GH-701 已完成。
     或建立平行的 README benchmark payload。
 28. B-028 第三 host proof 必须由固定 schema/path 的 fresh runtime artifact 与
     独立 maintainer witness 共同满足：runtime artifact 精确绑定当前 candidate
-    HEAD、native event identity、redaction result、host binary SHA-256、VibeGuard
-    runtime SHA-256、config digest 与 correlation IDs；超过 7×24 小时、future
-    timestamp、head/event/digest 不匹配、缺 witness 或 witness 早于 event 时 gate
-    必须阻断。proof gate 还必须消费当前 H-001 decision result，并 exact-match
+    HEAD、VibeGuard 生成的 event correlation ID、redaction result、host binary
+    SHA-256、VibeGuard runtime SHA-256、config digest 与 correlation IDs。freshness 只从
+    protected supervisor/provider run metadata、native event monotonic-to-trusted-wall mapping
+    和 attestation issuer time 计算；三者固定最大 skew 300 秒，candidate `observed_at`
+    只能在同一 skew 内 exact-match，不能提供时间权威或刷新旧 run。H-001 必须 exact-pin
+    trusted clock source identity 与 mapping policy digest；self-selected clock/mapping 无授权力。
+    超过 7×24 小时、
+    future/skew、延迟重放、head/event/digest 不匹配、缺 witness 或 witness 早于 event
+    时 gate 必须阻断。proof gate 还必须消费当前 H-001 decision result，并 exact-match
     获批的 host_id/option、host release、protocol snapshot、native blocking
     event 与受信发行来源。host binary 必须通过 H-001 绑定的签名 package identity、
-    registry integrity 或 signed release manifest 得到独立 approved digest，再以
-    no-follow 打开的实际 executable bytes 复算匹配；binary 自报 release/SHA 或
-    pathname 不能建立 provenance。另一个第三 host 的有效 proof 不能替代获批选择。
+    registry integrity 或 signed release manifest 得到独立 approved digest，并由
+    受信 proof supervisor 在事件发生时对 proof-producing process 做平台进程测量。
+    candidate 必须运行在 credential-free execution job/VM：没有 `GITHUB_TOKEN`、
+    OIDC request、Actions runtime/artifact 或 attestation token，也不能读取
+    supervisor state/output/handoff。独立 protected attestation job 永不执行或加载
+    candidate code。candidate boundary 经受保护 provider 有界销毁并关闭全部 host-side
+    channel 后，supervisor 必须把每个 subject 的 exact
+    bytes 封存在 candidate 不可访问的 protected content-addressed handoff，并以独立
+    supervisor workload identity 认证 closed subject manifest（role、size、digest、
+    immutable object version）。signing job 只读取得 manifest 与全部 blobs，逐一重哈希
+    exact bytes、拒绝 missing/extra/duplicate/substitution 后才以 OIDC identity 签名
+    manifest digest 与 subjects；认证、inventory、version 或 digest 不匹配都阻断。
+    trusted supervisor 必须在 execution VM 外实现 candidate-independent information-flow/
+    redaction boundary：高侧解析 raw input/config/credential/payload，unknown/free-form
+    默认 secret，只允许 closed digest-bound policy 声明的 low typed fields 经单向 channel
+    进入 candidate；secret、其 digest/encoding/substrings/length/key 与 opaque handles 均
+    不可读且不得进入 closed output schema。attestation 绑定 policy digest、keyed/salted
+    high-side commitment、candidate-view digest、typed transcript root、output schema 与 sink
+    manifest。sentinel exact-byte scan 仅为 diagnostic defense-in-depth，不能证明无泄漏；
+    split/reorder/encode/compress/encrypt/hash 与 cross-field/sink reconstruction fixture 必须
+    均被 access/noninterference boundary 阻断。H-001 closed selection 必须 exact-pin high-side
+    supervisor identity/version、declassification policy raw digest 与 low-side output schema raw
+    digest；self-selected、missing、substituted 或 drifted boundary 不能产生 accepted proof。
+    supervisor 必须输出固定 schema/path 的 detached attestation；验证器 exact-match
+    protected workflow issuer/identity/ref/SHA，并把 runtime proof SHA、candidate
+    head、event/nonce/process/distribution、host-acquisition-ack/use-release receipt digests、
+    confidentiality policy/transcript 与 provider journal root/sequence/snapshot digest
+    绑定为 attested subjects，缺任一绑定都阻断。
+    H-001 closed selection 还必须批准 security provider kind/version、containment/
+    executable-memory policy digests、mutation-exclusion provider kind/version/policy digest、
+    lifecycle provider kind/version、transition 与 caller-auth policy digests、journal trust-root
+    digest、trusted clock source identity 与 monotonic-to-wall mapping policy digest、
+    high-side supervisor identity/version、declassification policy 与 low-side output schema digests、
+    固定 **schemas/gh701-host-acquisition-ack.schema.json**、
+    **schemas/gh701-use-release-receipt.schema.json** raw-byte digests；两 path 必须在
+    resolved trust set；`$ref` 只许同文件 fragment，external/relative/remote/dynamic refs 禁止，
+    以及 relocation manifest digest/signing identity；lifecycle gate 必须 exact-match
+    exclusion/journal selection，并把 decision-record digest、provider journal root/sequence/
+    snapshot digest 绑定所有 publish/abort/use/consume records；
+    gate 必须把 signer trust chain/provenance exact-match approved distribution。
+    native binary 须完整实现 appendix §§1–2：在不可逃逸 execution
+    containment 内拒绝 `LD_PRELOAD`、library-path、危险 `DYLD_*`、debugger/plugin/
+    injection 环境，并以 target-side policy 双向阻断 `ptrace`、`/proc/<pid>/mem`、
+    `process_vm_writev`、Mach task/VM write 与 Windows cross-process memory write，
+    包括 boundary 外同用户进程的 inbound write。supervisor 必须在 suspended
+    spawn 恢复前安装平台 loader/executable-mapping mediator，并从第一条指令直到
+    boundary 被 provider 有界销毁且 host-side channel closed 连续记录 exec、executable mmap/mprotect、image load/unload
+    及保护变更；同时强制 immutable backing、W^X、禁止 anonymous/RWX 或 private-COW
+    writable→executable pages。每个 executable page 必须在执行前及后续检查中 exact-match
+    approved backing offset 加 closed signed relocation manifest 计算出的 expected bytes/root。
+    patch-then-restore、unknown/anonymous executable、未批准 JIT、late attach、ledger
+    gap/drop/overflow 或任何未批准 load 即使随后 unload 都阻断。final mapping/image
+    snapshot 必须与 append-only ledger 一致；attestation 绑定 containment/descendant
+    closure、ledger root/sequence/gap counters、page roots 与 final loaded-code root。
+    平台无法证明完整 mediation/trace/page integrity 时该 H-001 host/release 必须 unsupported；
+    interpreted CLI 还必须绑定 interpreter、canonical argv/entrypoint 与受信发行
+    manifest 的只读 package snapshot/Merkle root，禁止 snapshot 外 module load。
+    gate-time 路径重读、binary 自报 release/SHA 或 pathname 不能建立 provenance。native
+    event ID/free text 不得持久化。另一个第三 host 的有效 proof 不能替代获批选择。
 29. B-029 stale branch 最终状态只能是 `deleted`，或
-    `readonly_retain + owner + UTC expiry`；任何第三状态、缺 owner/expiry、expiry
-    已过仍存在或发生新 push 都阻断 GH-701 closure。
+    `readonly_retain + owner + UTC expiry + active no-bypass update/delete restrictions`；
+    protected collector 必须从 GitHub ruleset/protection API live 验证规则覆盖
+    exact branch、同时禁止 update/delete 且 bypass actor 为空，并绑定 rule ID/digest。
+    retain 转 deleted 必须重新取得互斥 H-003 `delete` 决策；仅 `ls-remote`、任何第三
+    状态、缺字段、expiry 已过或发生新 push/delete 都阻断 closure。
 30. B-030 H-004 必须是维护者明确选择的互斥值 `strict_four` 或
     `preserve_pr705_extras`，推荐值 `strict_four` 本身不构成批准；后者还必须绑定
     已更新 GH-701 issue acceptance 的 immutable node/source URL、更新时间与
-    acceptance digest。缺失、两值并存、issue 未同步或同步发生在选择之后但未
-    重新见证时，README/task/implementation/closure gate 均 blocked。
+    acceptance digest。H-004 缺失时 task plan 仍须覆盖全部 B-ID，并可预排明确标为
+    blocked、依赖 `gh701_decision_gate: allowed` 的 README/host tranches；唯一可执行
+    的内容是 `bootstrap_once` allowlist。两值并存、issue 未
+    同步或同步发生在选择之后但未重新见证时，README/implementation/closure
+    gate 均 blocked。
 31. B-031 H-001 至 H-004 必须来自固定路径、固定 schema 的 machine-readable
     decision record。受保护 collector 每次授权前必须重新读取 live GitHub source，
     确认原 node 仍存在、内容/updated_at 未变、没有更新的同 decision 或显式
@@ -253,28 +403,32 @@ GH-701 已完成。
     绑定不一致、attestation 无效或 evidence 不新鲜时 third-host gate blocked。
 33. B-033 primary block 的 fix instruction 即使单项超过 response byte cap，也
     不得被省略成无修复信息的响应；encoder 必须保持 `block`，返回固定、无 payload
-    的有界 closed fallback，标记 truncation/fallback 并保留原 fix 的随机
-    `fix_id` 关联。oversize 原文及其 content-derived digest 不得进入
+    的有界 closed fallback 并标记 truncation/fallback；原 fix 存在但 oversize
+    或编码失败时保留其随机 `fix_id`，原 fix 缺失时生成新的 CSPRNG
+    `fallback_fix_id`。oversize 原文及其 content-derived digest 不得进入
     response/log/proof；schema-valid oversize-primary
     fixture 必须证明 pass/correction/空 fix 均不会替代该 closed fallback。
 34. B-034 decision collector/gate 尚未存在于受保护 main 时，只允许一次
     `bootstrap_once` tranche。该 tranche 只由 ordinary repository routing 的
-    `plan_first` handoff、维护者对 product/tech 的明确 GitHub review、live
+    `plan_first` handoff、维护者对完整 normative spec set 的明确 GitHub review、live
     duplicate-work search、当前 PR CI 与 human merge review 授权；任何可选
     SpecRail packet/evaluator 都不是前置条件或授权来源。task plan 必须覆盖全部
     B-ID；只有 bootstrap tasks 可执行，其余 tasks 全部依赖尚未满足的
     H-001–H-004 decision gate。bootstrap PR 的实现 diff 只能包含 decision/witness
-    schemas、只读 collector、attestation/offline gate、受保护 main workflow 和
-    这些表面的 tests/fixtures；不得改 host adapter、runtime/manifest、setup、
-    README 或生成任何 active/完成 claim。该 PR 仍须正常 CI、human final review
+    schemas、只读 collector、全部 decision/proof/README authorization gates 及
+    schemas（含唯一 GH-700 authority **schemas/public_benchmark_summary.schema.json**）、
+    README renderer、受保护 main workflows 和这些表面的 tests/fixtures；该 schema
+    必须进入 completion sentinel 的 fixed path/digest set；
+    所有下游 gate 在 decisions 缺失时必须 fail closed。不得改 host adapter、
+    runtime/manifest、setup、README 或生成 active/完成 claim。该 PR 仍须正常 CI、human final review
     与 merge gate；只有 merge 到 main、attested completion sentinel 验证完整
     protected workflow、collector/schema/gate path set 与全部 contract/blob
     digests 后才能收集可信 decisions，任一缺失或漂移只能是
     `partial/needs_human`，绝不能标为 closed。
-35. B-035 decision record 必须同时绑定 `approved_spec_head_sha`、product.md 原始
-    bytes SHA-256、tech.md 原始 bytes SHA-256 与 canonical decision-input
-    SHA-256。后续 task/implementation HEAD 只有在 approved spec head 是其 ancestor、
-    两份 spec bytes digest 完全相同且重新计算的 decision-input digest 完全相同
+35. B-035 decision record 必须同时绑定 `approved_spec_head_sha`、product.md、
+    tech.md、security-lifecycle-contract.md 三份原始 bytes SHA-256 与 canonical
+    decision-input SHA-256。后续 task/implementation HEAD 只有在 approved spec head
+    是其 ancestor、三份 spec bytes digest 完全相同且重新计算的 decision-input digest 完全相同
     时才能继承批准；task/code/test 的非 decision-sensitive descendant commit 可以
     继续。任一 spec byte、H-001–H-004 option/约束、issue acceptance snapshot、
     proof protocol/release、branch expectation 或 collector trust identity 改变，
@@ -301,12 +455,49 @@ GH-701 已完成。
   event logs 可由 batch/request IDs 双向关联。
 - [ ] manifest v2、v1 compatibility/deprecation、non-host entries 与完整 unknown
   matrix 有 schema-valid positive/negative fixtures。
-- [ ] config transaction 的 lock contention、TOCTOU drift、最后 observation 后且
-  conditional replace linearization 前的外部改写、缺 CAS capability、每个 phase
-  failure、crash recovery、safe rollback 与 external-drift needs-human 路径均有
-  确定性零覆盖证据。
+- [ ] config transaction 的 versioned CAS/lease、lock contention、TOCTOU drift、
+  每个 phase failure、API-based crash recovery/safe rollback 均有确定性证据；clean/disable
+  从 fresh current version 只删除 managed identity，保留 install 后新增/重排的第三方 entry，
+  rollback 不复用 install snapshot；所有 terminal path 在 journal GC 前有 durable lease
+  release/revoke receipt，commit-before-release 与 release-before-fsync crash 可幂等恢复；
+  普通文件自动路径与 delayed old-FD fixtures 必须零写入；verified-file fixture
+  只有用户应用 exact diff、probe 前后 candidate bytes/metadata、同一 target inode/file
+  identity 与 parent-directory identity 均匹配，watcher epoch 零 mutation 且 native probe
+  成功才产出 proof evidence；temporary write-restore、byte-identical replacement、parent swap、
+  额外编辑或 late write 都保持 partial。
+- [ ] verified-file failed-probe 与 clean/disable fixtures 仅在 current candidate /
+  receipt 精确匹配时提供用户应用的 reverse diff；present base 的 identity/bytes/
+  metadata 重验通过后才 restored/not-installed；fresh exclusion 下 final barrier/re-read、
+  consume CAS/receipt/release 必须一个 durable transaction；pre/post commit crash 由 tx receipt
+  幂等区分。generic abort 保留 planned，只有 verified failed-probe reverse commit 可
+  planned→aborted；supersession N/N+1 multi-record CAS。
+  atomic success/abort release、owner-death/expiry 各 crash 窗口必须确定性；只有 verified
+  removal 或保留原 clean ancestry 的 superseding receipt 生效后才消费；absent base
+  不得伪造空 base，clean 必须由用户删除 exact target 并经两次 bounded absence、
+  watcher continuity 与 host-native unregistration 验证；任一第三方 drift 都不覆盖并
+  保持 needs-human。
+- [ ] verified-file authority 来自 H-001-selected protected provider journal，而不是
+  same-user 可写的 0600/0700 mirror；replace/replay/delete local cache、伪造 provider IPC、
+  provider kind/version/transition/caller-auth policy drift、stale snapshot/signature/journal root
+  均不得产生 completed/use/consume/retire。每个
+  publication-aborted crash window 保留 sealed reverse payload 与 retirement-disabled；
+  只有把 current tombstone 与 exact predecessor completed pointer（或同事务等价新 generation）
+  一起 CAS 的 atomic verified reverse commit 才授权退休；restored bytes + stale tombstone、
+  exact-absence 被误授权 use、`rollback_required: false` 均为 negative fixture。
+- [ ] 每次 verified-file host use 在 completed tuple read 前取得 H-001-bound exclusion，
+  exact loaded-byte acquisition ack 后 drain post-load barrier 并 CAS re-read pointer，再 atomic
+  use-release；ack/release exact bytes 必须是 manifest+attestation authenticated proof subjects，
+  exact-match event/nonce/process/tuple；drift、write-restore、lazy/missing/cross-event 均零 proof。
 - [ ] GH-699/GH-700 README claims 与第三 host proof 各由固定 gate 消费；缺失、
-  tampered、stale、wrong-head/event/digest/witness fixtures 全部 nonzero。
+  tampered、stale、wrong-head/event/digest/witness、candidate 可见 credential、
+  signing job 执行 candidate、subject blob/认证 manifest 缺失替换或重哈希不符、
+  H-001 high-side supervisor/declassification/output-schema binding 缺失或 split/encoded/
+  cross-sink 泄漏，trusted clock source/mapping 或 supervisor/run/attestation time 缺失、
+  drift/skew/replay，以及 containment
+  setsid/double-fork/broker/breakaway、Linux uninterruptible descendant 未经 bounded outer
+  VM destroy、inbound/outbound process-memory write、private-COW exec、bad relocation/page
+  mismatch、self/implementer-signed relocation、patch-then-restore、RWX、load-unload、
+  trace gap/unknown loaded-code 均 nonzero。
 - [ ] H-001–H-004 decision record 与 maintainer witness 分别通过固定 schema、
   protected collector attestation 和离线 gate；witness source 的 edit/delete/revoke
   在当前 protected run 被重新查询并拒绝；route/task/renderer/closure 都绑定当前
@@ -315,9 +506,10 @@ GH-701 已完成。
   不出现在 response、双日志或 proof。
 - [ ] bootstrap tasks 只能在 ordinary `plan_first` handoff、维护者 GitHub spec
   approval 与 live duplicate-work search 后生成并执行一次；bootstrap PR diff
-  allowlist、CI、human review 与 merge gate 均通过，且可选 SpecRail 输出不参与
-  授权；merge 前所有普通 implementation tasks 保持 blocked。
-- [ ] decision gate 对 approved spec head 的 descendant 仅在 product/tech byte
+  allowlist（含 pinned `public_benchmark_summary` schema）、completion fixture、CI、
+  human review 与 merge gate 均通过，且可选 SpecRail 输出不参与授权；merge 前所有
+  普通 implementation tasks 保持 blocked。
+- [ ] decision gate 对 approved spec head 的 descendant 仅在三份 normative spec byte
   digests 与 canonical decision-input digest 均不变时 allowed；任一敏感输入变化的
   schema-valid fixture 要求重新收集维护者批准；精确、限时、protected-main
   `trust_rotation` 是修改 trust paths 的唯一通路。
