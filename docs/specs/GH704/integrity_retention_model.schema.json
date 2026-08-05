@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.dev/specs/GH704/integrity_retention_model.schema.json",
+  "title": "GH-704 W-02 integrity retention machine model",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "authority", "version", "policy_epoch", "state_universe", "tuple_templates", "tuples",
+    "edges", "selectors", "evidence_bindings", "l1_order_contract"
+  ],
+  "properties": {
+    "authority": {"const": "docs/specs/GH704/integrity_retention_model.json"},
+    "version": {"type": "integer", "minimum": 1},
+    "policy_epoch": {"$ref": "#/$defs/policy_epoch"},
+    "state_universe": {"$ref": "#/$defs/string_set"},
+    "tuple_templates": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/tuple_template"}
+    },
+    "tuples": {
+      "type": "array", "minItems": 0, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/exact_tuple"}
+    },
+    "edges": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/edge"}
+    },
+    "selectors": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/selector"}
+    },
+    "evidence_bindings": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/evidence_binding"}
+    },
+    "l1_order_contract": {"$ref": "#/$defs/l1_order_contract"}
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+    },
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "string_set": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/identifier"}
+    },
+    "finite_identifier_set": {
+      "type": "array", "minItems": 0, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/identifier"}
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_id", "source_ids"],
+      "properties": {
+        "project_id": {"$ref": "#/$defs/identifier"},
+        "source_ids": {"$ref": "#/$defs/finite_identifier_set"}
+      }
+    },
+    "policy_epoch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "inventory_version", "inventory_digest", "source_ids", "projects"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "inventory_version": {"type": "integer", "minimum": 1},
+        "inventory_digest": {"$ref": "#/$defs/digest"},
+        "source_ids": {"$ref": "#/$defs/finite_identifier_set"},
+        "projects": {
+          "type": "array", "minItems": 0, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/project"}
+        }
+      }
+    },
+    "tuple_template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "evidence_kind", "retention_class"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "evidence_kind": {
+          "enum": ["hypothesis_identity", "fix_attempt", "fresh_failure", "reset", "retention_tombstone"]
+        },
+        "retention_class": {"enum": ["policy_epoch", "attempt_window", "terminal_audit"]}
+      }
+    },
+    "exact_tuple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "template_id", "evidence_kind", "source_id", "project_id", "retention_class"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "template_id": {"$ref": "#/$defs/identifier"},
+        "evidence_kind": {"$ref": "#/$defs/identifier"},
+        "source_id": {"$ref": "#/$defs/identifier"},
+        "project_id": {"$ref": "#/$defs/identifier"},
+        "retention_class": {"$ref": "#/$defs/identifier"}
+      }
+    },
+    "expected_state": {
+      "type": "string", "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "depends_on", "crash_before", "crash_after"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "depends_on": {
+          "type": "array", "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        },
+        "crash_before": {"$ref": "#/$defs/expected_state"},
+        "crash_after": {"$ref": "#/$defs/expected_state"}
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "selector_id", "from_states", "to_state", "illegal_from_states", "steps"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "selector_id": {"$ref": "#/$defs/identifier"},
+        "from_states": {"$ref": "#/$defs/string_set"},
+        "to_state": {"$ref": "#/$defs/identifier"},
+        "illegal_from_states": {"$ref": "#/$defs/string_set"},
+        "steps": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/step"}
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "tuple_template_ids", "transitions"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "tuple_template_ids": {"$ref": "#/$defs/string_set"},
+        "transitions": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/transition"}
+        }
+      }
+    },
+    "selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "command"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "command": {"type": "string", "minLength": 1}
+      }
+    },
+    "evidence_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "edge_id", "transition_id", "selector_id", "tuple_template_ids", "required_cases"
+      ],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/identifier"},
+        "transition_id": {"$ref": "#/$defs/identifier"},
+        "selector_id": {"$ref": "#/$defs/identifier"},
+        "tuple_template_ids": {"$ref": "#/$defs/string_set"},
+        "required_cases": {
+          "type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true,
+          "items": {
+            "enum": ["crash_before_each_step", "crash_after_each_step", "illegal_transition_each_state"]
+          }
+        }
+      }
+    },
+    "l1_order_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edge_id", "transition_id", "ordered_steps"],
+      "properties": {
+        "edge_id": {"const": "l1_evidence_publish"},
+        "transition_id": {"const": "publish_l1_evidence"},
+        "ordered_steps": {
+          "type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true,
+          "items": {
+            "enum": ["prepared_write", "prepared_fsync", "row_write", "row_fsync", "manifest_publish"]
+          }
+        }
+      }
+    }
+  }
+}
