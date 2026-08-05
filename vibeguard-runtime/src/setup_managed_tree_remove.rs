@@ -206,7 +206,7 @@ fn recover_or_find_committed(
     name: &str,
     source_prefix: &str,
 ) -> SetupResult<Option<PathBuf>> {
-    let active_record = active_record(states, dest)?;
+    let mut active_record = active_record(states, dest)?;
     let mut committed = None;
     for transaction_path in transaction_paths(parent, name)? {
         let mut transaction = read_transaction(&transaction_path)?;
@@ -243,6 +243,21 @@ fn recover_or_find_committed(
                 verify_exact(states, &quarantine, source_prefix, dest)?;
                 publish_record(current_state, states, &transaction)?;
                 committed = Some(quarantine);
+            }
+            "released" if record_matches => {
+                // A release that persisted its released phase but failed before
+                // removing the active state record must be finished here.
+                // Leaving the stale record behind makes the exactness check
+                // below reject every later disable of this skill.
+                let record = record_value(&transaction);
+                let mut removed = false;
+                for state_path in states {
+                    removed |= remove_record(state_path, dest, &record)?;
+                }
+                if !removed {
+                    return Err("interrupted quarantine release could not be completed".into());
+                }
+                active_record = None;
             }
             "committed" | "restored" | "released" => {}
             phase => return Err(format!("unknown managed-tree transaction phase: {phase}").into()),
@@ -496,6 +511,22 @@ pub(crate) fn validate_state_metadata(state: &Value) -> SetupResult<()> {
             .as_object()
             .ok_or("disabled skill quarantine record must be an object")?;
         tree_state::validate_record(dest, record)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_state_artifacts(state: &Value) -> SetupResult<()> {
+    let Some(records) = state
+        .get("disabled_skill_quarantines")
+        .and_then(Value::as_object)
+    else {
+        return Ok(());
+    };
+    for (dest, record) in records {
+        let record = record
+            .as_object()
+            .ok_or("disabled skill quarantine record must be an object")?;
+        tree_state::validate_record_artifacts(dest, record)?;
     }
     Ok(())
 }

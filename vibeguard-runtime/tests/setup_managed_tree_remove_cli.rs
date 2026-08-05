@@ -417,3 +417,33 @@ fn symlink_and_special_paths_fail_closed() {
     assert!(fifo.exists());
     assert!(special_fixture.skill.join("SKILL.md").is_file());
 }
+
+#[test]
+fn interrupted_release_is_completed_before_a_new_quarantine() {
+    let fixture = Fixture::new("quarantine-managed-tree-released-then-disable");
+    let first = fixture.run(&[]);
+    assert_eq!(first.status.code(), Some(0), "{}", stderr(&first));
+    fs::create_dir_all(&fixture.skill).expect("public skill should be recreated");
+    fs::write(fixture.skill.join("SKILL.md"), "managed\n")
+        .expect("canonical public skill should be restored");
+
+    // Persist the released phase but fail before the active record is removed.
+    let interrupted = fixture.run_command(
+        "setup-state-release-quarantined-tree",
+        &[("VIBEGUARD_TEST_RELEASE_AFTER_TRANSACTION", "1")],
+    );
+    assert_eq!(interrupted.status.code(), Some(1));
+    assert!(fixture.record().is_some());
+
+    // Disabling again must finish the interrupted release instead of rejecting
+    // every attempt because the stale record has no non-terminal transaction.
+    let disabled = fixture.run(&[]);
+    assert_eq!(disabled.status.code(), Some(0), "{}", stderr(&disabled));
+    assert!(
+        !stderr(&disabled).contains("install-state quarantine locator has no exact transaction"),
+        "stale released record must not permanently block quarantine: {}",
+        stderr(&disabled)
+    );
+    assert!(!fixture.skill.exists());
+    assert!(fixture.record().is_some());
+}

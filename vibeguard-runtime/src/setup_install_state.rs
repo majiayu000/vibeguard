@@ -514,6 +514,7 @@ fn ensure_state_version(state: &Value) -> SetupResult<()> {
 
 pub(crate) fn validate_state_for_preflight(state: &Value) -> SetupResult<()> {
     crate::setup_managed_tree_remove::validate_state_metadata(state)?;
+    crate::setup_managed_tree_remove::validate_state_artifacts(state)?;
     let version = state
         .get("version")
         .and_then(Value::as_i64)

@@ -133,16 +133,22 @@ pub(crate) fn carry_incomplete_inventory(
     disabled_skills: &[&str],
 ) -> SetupResult<()> {
     validate_state_metadata(existing)?;
-    if existing.get("complete").and_then(Value::as_bool) != Some(false)
-        || existing.get("generation").and_then(Value::as_u64) != Some(generation)
-    {
-        return Ok(());
-    }
+    // Resuming an interrupted generation additionally re-carries the tracked
+    // copies of every disabled skill. Active quarantine records, however, must
+    // be carried unconditionally: when a disabled skill is removed or renamed
+    // in a later manifest the install loop never visits its old name, so
+    // nothing else republishes the locator and ownership of the retained hidden
+    // tree would be lost for good on the following install.
+    let resume = existing.get("complete").and_then(Value::as_bool) == Some(false)
+        && existing.get("generation").and_then(Value::as_u64) == Some(generation);
     let records = existing
         .get("disabled_skill_quarantines")
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
+    if records.is_empty() && !resume {
+        return Ok(());
+    }
     let source_files = existing
         .get("files")
         .and_then(Value::as_object)
@@ -173,6 +179,9 @@ pub(crate) fn carry_incomplete_inventory(
         if !carried {
             return Err("active quarantine has no tracked file inventory".into());
         }
+    }
+    if !resume {
+        return Ok(());
     }
     let Some(home) = crate::setup_support::home_dir() else {
         return Ok(());

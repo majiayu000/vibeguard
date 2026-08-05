@@ -4,6 +4,23 @@ use common::{assert_output, bin, path_text, unique_temp_dir, write_json};
 use serde_json::json;
 use std::fs;
 
+/// Preflight requires an active quarantine record to name durable artifacts
+/// that exist and describe the record, so fixtures must materialize them.
+fn materialize_quarantine_artifacts(
+    dest: &std::path::Path,
+    quarantine: &std::path::Path,
+    transaction: &std::path::Path,
+    record: &serde_json::Value,
+    phase: &str,
+) {
+    fs::create_dir_all(quarantine).expect("quarantine directory should be created");
+    let mut value = record.clone();
+    let object = value.as_object_mut().expect("record should be an object");
+    object.insert("dest".into(), json!(path_text(dest)));
+    object.insert("phase".into(), json!(phase));
+    write_json(transaction, &value);
+}
+
 #[test]
 fn quarantine_count_rejects_invalid_arity() {
     let output = bin()
@@ -39,22 +56,22 @@ fn quarantine_count_reports_missing_empty_and_active_inventory() {
     let parent = dest.parent().expect("destination should have parent");
     let quarantine = parent.join(".plan-flow.vibeguard-quarantine.nonce");
     let transaction = parent.join(".plan-flow.vibeguard-transaction.nonce.json");
+    let record = json!({
+        "version": 1,
+        "quarantine": path_text(&quarantine),
+        "transaction": path_text(&transaction),
+        "source_prefix": "skills/plan-flow",
+        "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+        "install_state_generation": 1,
+        "nonce": "nonce"
+    });
+    materialize_quarantine_artifacts(&dest, &quarantine, &transaction, &record, "committed");
     write_json(
         &state,
         &json!({
             "version": 1,
             "files": {},
-            "disabled_skill_quarantines": {
-                path_text(&dest): {
-                    "version": 1,
-                    "quarantine": path_text(&quarantine),
-                    "transaction": path_text(&transaction),
-                    "source_prefix": "skills/plan-flow",
-                    "tracked_digest": format!("sha256:{}", "a".repeat(64)),
-                    "install_state_generation": 1,
-                    "nonce": "nonce"
-                }
-            }
+            "disabled_skill_quarantines": { path_text(&dest): record }
         }),
     );
     let active = bin()
@@ -187,6 +204,16 @@ fn init_retry_preserves_incomplete_quarantine_locator_and_inventory() {
     let quarantine = root.join("skills/.plan-flow.vibeguard-quarantine.nonce");
     let transaction = root.join("skills/.plan-flow.vibeguard-transaction.nonce.json");
     let tracked = path_text(&dest.join("SKILL.md"));
+    let record = json!({
+        "version": 1,
+        "quarantine": path_text(&quarantine),
+        "transaction": path_text(&transaction),
+        "source_prefix": "skills/plan-flow",
+        "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+        "install_state_generation": 5,
+        "nonce": "nonce"
+    });
+    materialize_quarantine_artifacts(&dest, &quarantine, &transaction, &record, "committed");
     write_json(
         &state,
         &json!({
@@ -200,17 +227,7 @@ fn init_retry_preserves_incomplete_quarantine_locator_and_inventory() {
                     "checksum": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
                 }
             },
-            "disabled_skill_quarantines": {
-                path_text(&dest): {
-                    "version": 1,
-                    "quarantine": path_text(&quarantine),
-                    "transaction": path_text(&transaction),
-                    "source_prefix": "skills/plan-flow",
-                    "tracked_digest": format!("sha256:{}", "a".repeat(64)),
-                    "install_state_generation": 5,
-                    "nonce": "nonce"
-                }
-            }
+            "disabled_skill_quarantines": { path_text(&dest): record }
         }),
     );
     let output = bin()
@@ -308,5 +325,109 @@ fn init_retry_preserves_verifiable_incomplete_disabled_skill_inventory() {
     assert!(retained["files"].get(modified_tracked).is_none());
     assert!(retained["files"].get(other_tracked).is_none());
     assert!(retained["files"].get(unsupported_tracked).is_none());
+    fs::remove_dir_all(root).expect("temp root should be removed");
+}
+
+#[test]
+fn init_carries_active_quarantine_for_a_retired_manifest_skill() {
+    let root = unique_temp_dir("quarantine-init-retired-skill");
+    let state = root.join("state.json");
+    let dest = root.join("skills/plan-flow");
+    let quarantine = root.join("skills/.plan-flow.vibeguard-quarantine.nonce");
+    let transaction = root.join("skills/.plan-flow.vibeguard-transaction.nonce.json");
+    let tracked = path_text(&dest.join("SKILL.md"));
+    let record = json!({
+        "version": 1,
+        "quarantine": path_text(&quarantine),
+        "transaction": path_text(&transaction),
+        "source_prefix": "skills/plan-flow",
+        "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+        "install_state_generation": 5,
+        "nonce": "nonce"
+    });
+    materialize_quarantine_artifacts(&dest, &quarantine, &transaction, &record, "committed");
+    // A complete previous generation: the earlier carry rule dropped its
+    // quarantine records entirely.
+    write_json(
+        &state,
+        &json!({
+            "version": 1,
+            "generation": 5,
+            "complete": true,
+            "files": {
+                tracked.clone(): {
+                    "source": "skills/plan-flow/SKILL.md",
+                    "type": "copy",
+                    "checksum": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+                }
+            },
+            "disabled_skill_quarantines": { path_text(&dest): record }
+        }),
+    );
+
+    // Generation 6 no longer lists plan-flow, so the install loop never visits
+    // the name and nothing else republishes the locator.
+    let output = bin()
+        .args(["setup-state-init", &path_text(&state), "core", "", "6"])
+        .env("HOME", root.join("home"))
+        .output()
+        .expect("next generation init should run");
+    assert_output(&output, 0, "", "");
+
+    let carried: serde_json::Value =
+        serde_json::from_slice(&fs::read(&state).expect("state should be readable"))
+            .expect("state should remain JSON");
+    assert!(
+        carried["disabled_skill_quarantines"]
+            .get(path_text(&dest))
+            .is_some(),
+        "retired manifest skill must keep ownership of its retained tree"
+    );
+    assert!(
+        carried["files"].get(tracked).is_some(),
+        "carried quarantine must keep its tracked file inventory"
+    );
+    fs::remove_dir_all(root).expect("temp root should be removed");
+}
+
+#[test]
+fn preflight_rejects_an_active_quarantine_whose_artifacts_are_gone() {
+    let root = unique_temp_dir("quarantine-preflight-missing-artifacts");
+    let state = root.join("state.json");
+    let dest = root.join("skills/plan-flow");
+    let quarantine = root.join("skills/.plan-flow.vibeguard-quarantine.nonce");
+    let transaction = root.join("skills/.plan-flow.vibeguard-transaction.nonce.json");
+    let record = json!({
+        "version": 1,
+        "quarantine": path_text(&quarantine),
+        "transaction": path_text(&transaction),
+        "source_prefix": "skills/plan-flow",
+        "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+        "install_state_generation": 1,
+        "nonce": "nonce"
+    });
+    materialize_quarantine_artifacts(&dest, &quarantine, &transaction, &record, "committed");
+    write_json(
+        &state,
+        &json!({
+            "version": 1,
+            "files": {},
+            "disabled_skill_quarantines": { path_text(&dest): record }
+        }),
+    );
+    // Locator strings stay correct; only the durable artifact disappears.
+    fs::remove_dir_all(&quarantine).expect("quarantine directory should be removed");
+
+    let output = bin()
+        .args(["setup-state-quarantine-count", &path_text(&state)])
+        .output()
+        .expect("preflight command should run");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("active quarantine directory cannot be proven"),
+        "preflight must name the unprovable artifact: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     fs::remove_dir_all(root).expect("temp root should be removed");
 }
