@@ -555,3 +555,46 @@ else
 fi
 assert_cmd "unowned disabled skill is preserved" test -f "${gh719_home}/.codex/skills/plan-flow/custom.txt"
 assert_not_contains "${gh719_unowned_out}" "QUARANTINED plan-flow" "failed ownership check does not claim quarantine"
+
+# GH719 clean lifecycle: the canonical lock must be released while the pinned
+# runtime is still available, including on the failure path after
+# clean_vibeguard_home has already deleted the installed runtime. The fixture
+# installs only the managed runtime so that ~/.vibeguard/installed/bin is the
+# sole clean-time runtime candidate.
+gh719_seed_installed_runtime() {
+  local target_home="$1"
+  mkdir -p "${target_home}/.vibeguard/installed/bin"
+  cp "${gh719_runtime}" "${target_home}/.vibeguard/installed/bin/vibeguard-runtime"
+  chmod +x "${target_home}/.vibeguard/installed/bin/vibeguard-runtime"
+  printf '%s\n' 'must-survive' > "${target_home}/.vibeguard/run-hook.sh"
+}
+
+gh719_pinned_clean_home="${TMP_HOME}/gh719-pinned-clean-home"
+gh719_seed_installed_runtime "${gh719_pinned_clean_home}"
+# An unowned scheduler file makes clean_scheduled_gc fail after the installed
+# tree, and therefore the installed runtime, has already been removed.
+mkdir -p "${gh719_pinned_clean_home}/.config/systemd/user"
+printf '%s\n' 'not-vibeguard' \
+  > "${gh719_pinned_clean_home}/.config/systemd/user/vibeguard-gc.service"
+gh719_pinned_clean_rc=0
+gh719_pinned_clean_out="$(
+  HOME="${gh719_pinned_clean_home}" VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=1 \
+    bash "${REPO_DIR}/setup.sh" --clean 2>&1
+)" || gh719_pinned_clean_rc=$?
+assert_cmd "unowned scheduler file fails the clean" test "${gh719_pinned_clean_rc}" -ne 0
+assert_cmd "failed clean removed the installed runtime it depended on" test \
+  ! -e "${gh719_pinned_clean_home}/.vibeguard/installed/bin/vibeguard-runtime"
+assert_cmd "failed clean still releases the canonical setup lock" test \
+  ! -e "${gh719_pinned_clean_home}/.vibeguard/setup.lock"
+assert_not_contains "${gh719_pinned_clean_out}" "failed to release the VibeGuard setup lock" \
+  "failed clean releases the lock before discarding the pinned runtime"
+
+gh719_ok_clean_home="${TMP_HOME}/gh719-ok-clean-home"
+gh719_seed_installed_runtime "${gh719_ok_clean_home}"
+gh719_ok_clean_rc=0
+HOME="${gh719_ok_clean_home}" VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=1 \
+  bash "${REPO_DIR}/setup.sh" --clean >/dev/null 2>&1 || gh719_ok_clean_rc=$?
+assert_cmd "clean succeeds with only the installed runtime available" test \
+  "${gh719_ok_clean_rc}" -eq 0
+assert_cmd "successful clean leaves no canonical setup lock" test \
+  ! -e "${gh719_ok_clean_home}/.vibeguard/setup.lock"

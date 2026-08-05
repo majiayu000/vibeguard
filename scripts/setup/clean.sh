@@ -28,8 +28,17 @@ USAGE
 done
 
 cleanup_clean_lifecycle() {
+  local status=0
+  # Releasing the canonical lock runs the runtime, and clean_vibeguard_home may
+  # already have deleted the installed binary, so the pinned copy has to outlive
+  # the release. Swallowing a failed release would leave ~/.vibeguard/setup.lock
+  # behind and block every later install and clean.
+  if ! setup_lock_release; then
+    red "ERROR: failed to release the VibeGuard setup lock; remove it before retrying"
+    status=1
+  fi
   setup_runtime_bootstrap_cleanup
-  setup_lock_release || true
+  return "${status}"
 }
 
 clean_abs_path() {
