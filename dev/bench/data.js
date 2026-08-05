@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785947831154,
+  "lastUpdate": 1785952447788,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -56474,6 +56474,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 9,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cee45ec0676eeec8ca760b69ce7a6dd1a00fed93",
+          "message": "ci(release): add real no-clone install smoke (#737)\n\n* ci(release): prove no-clone install from assets\n\n* fix(release): bind no-clone smoke to event commit\n\n* fix(release): verify draft before publication\n\n* fix(release): scope the smoke audit wrapper and bind runtime provenance\n\nResolves the five open review threads on #737.\n\nP1 release.yml:560 — the bootstrap audit wrapper intercepted every\n`gh release download` and then required the payload asset in the\ndestination, so setup's own runtime download returned failure and fell\nback to an unauthenticated curl that cannot read a draft release. The\nwrapper now discriminates on the requested pattern: only the bootstrap\npayload download takes the audit path; every other release download\nkeeps the real `gh` exit status and records its identity evidence.\n\nP1 release.yml:580 — the nested setup resolved\nVIBEGUARD_RUNTIME_RELEASE_REPO to the hardcoded upstream repository, so\na fork could silently install the upstream runtime. The bootstrap\ninvocation now binds it to GH_REPO, and the smoke asserts the installed\nruntime-provenance repository and tag.\n\nP2 test_staged_release_protocol.sh:104/109 — the publish stub ignored\nevery argument, so stripping the pinned signer identity or retargeting\nthe PATCH to another release id both false-greened. The stub now parses\nand requires the full attestation identity and the exact PATCH endpoint\nwith draft=false and make_latest=true, and both mutations are covered as\nnegative cases.\n\nP2 release.yml:720 — a lost or unparseable PATCH acknowledgement failed\nthe job even when the release was already public, and the retry then hit\nthe `.draft == true` guard. The PATCH is now treated as an ambiguous\ncommit point and reconciled against the exact release id.\n\nThe local fixture previously wrote a fake runtime instead of exercising\nruntime acquisition; its synthetic setup now performs a real release\ndownload through the wrapper, and an unbound-runtime-repository mutation\nfails closed.\n\n* fix(release): make publication retries idempotent",
+          "timestamp": "2026-08-06T00:57:38+08:00",
+          "tree_id": "ee6a7ad8dd77399a6a8e79496a7dcd240c9ea5e3",
+          "url": "https://github.com/majiayu000/vibeguard/commit/cee45ec0676eeec8ca760b69ce7a6dd1a00fed93"
+        },
+        "date": 1785952446314,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 75,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 73,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 79,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 79,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 75,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 75,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 66,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 66,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 75,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 12,
             "unit": "ms"
           }
         ]
