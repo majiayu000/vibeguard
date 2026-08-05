@@ -315,6 +315,21 @@ state = {"version": 1, "generation": 5, "complete": False,
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(state, handle)
 PY
+# Preflight proves the durable artifacts an active record names, so the
+# fixture must materialize the quarantine directory and its transaction.
+mkdir -p "${gh719_retry_quarantine}"
+python3 - "${gh719_retry_transaction}" "${gh719_retry_dest}" \
+  "${gh719_retry_quarantine}" <<'PY'
+import json, sys
+path, dest, quarantine = sys.argv[1:]
+transaction = {"version": 1, "phase": "committed", "dest": dest,
+               "quarantine": quarantine, "transaction": path,
+               "source_prefix": "skills/plan-flow",
+               "tracked_digest": "sha256:" + "a" * 64,
+               "install_state_generation": 5, "nonce": "retry"}
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(transaction, handle)
+PY
 gh719_last_complete_hash="$(shasum -a 256 "${gh719_retry_state_home}/.vibeguard/install-state.previous.json" | awk '{print $1}')"
 HOME="${gh719_retry_state_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c \
   'source "$1/scripts/lib/install-state.sh"; state_init core ""' _ "${REPO_DIR}"
