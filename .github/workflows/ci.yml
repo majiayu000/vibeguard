@@ -177,6 +177,11 @@ jobs:
         shell: bash
         run: bash tests/test_release_workflow.sh
 
+      - name: Validate no-clone release smoke contract
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/test_no_clone_release_smoke.sh
+
       - name: Payload regression tests
         if: runner.os != 'Windows'
         shell: bash
