@@ -21,7 +21,9 @@ jobs:
   validate-and-test:
     name: CI (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # The macOS runner reached 59m05s on main against the previous 60-minute
+    # limit, so any added regression cancelled the job instead of failing it.
+    timeout-minutes: 90
 
     strategy:
       fail-fast: false
