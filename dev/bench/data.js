@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785956935029,
+  "lastUpdate": 1785958966665,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -56882,6 +56882,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 10,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "70cb5d88e112841d3e92e1458d670d60f700122d",
+          "message": "docs(spec): complete GH704 post-merge review contract (#729)\n\n* docs(spec): close GH704 review gaps\n\n* docs(spec): refresh GH704 evidence anchors\n\n* docs(spec): close GH704 post-merge review gaps\n\n* docs(spec): refresh GH704 evidence and env boundary\n\n* docs(spec): refresh GH702 evidence anchor\n\n* docs(spec): record merged GH702 evidence\n\n* docs(spec): close GH704 corrective review gaps\n\n* docs(spec): make GH704 evidence gates executable\n\n* docs(spec): align GH704 anchor provenance\n\n* docs(spec): close GH704 runtime review gaps\n\n* docs(spec): harden GH704 recovery contracts\n\n* docs(spec): complete GH704 critical coverage gate\n\n* docs(spec): close GH704 critical inventory gap\n\n* docs(spec): close GH704 current review findings\n\n* docs(spec): make GH704 projection recovery complete\n\n* docs(spec): stage GH704 consumer projections safely\n\n* docs(spec): converge GH704 on group commit barrier\n\n* docs(GH704): close runtime integrity review gaps\n\n* docs(GH704): close connector follow-up gaps\n\n* docs(GH704): refresh reviewed main provenance\n\n* docs(GH704): complete lifecycle and consumer ownership\n\n* docs(GH704): close durability and observe gaps\n\n* docs(GH704): close connector recovery gaps\n\n* docs(GH704): serialize off with receipt completion\n\n* docs(GH704): close registry and consumer proofs\n\n* docs: close GH704 runtime lifecycle gaps\n\n* docs: complete GH704 recovery consumer closure\n\n* docs: close GH704 off and aggregate protocols\n\n* docs: close GH704 projection recovery proofs\n\n* docs: close GH704 recovery edge cases\n\n* docs(GH704): close history coverage proof\n\n* docs: isolate GH704 recovery failures\n\n* docs(GH704): enumerate remaining lag proofs\n\n* docs: close GH704 quarantine recovery\n\n* docs: finalize GH704 projection acknowledgement\n\n* docs(spec): close GH704 recovery lifecycle gaps\n\n* docs(GH704): close acknowledgement recovery lifecycle\n\n* docs(spec): close GH704 off-state proof gaps\n\n* docs(spec): close GH704 administrative recovery gaps\n\n* docs(GH704): close off-state recovery review gaps\n\n* docs(gh704): close projection capacity proofs\n\n* docs(gh704): split and close verification ownership\n\n* docs(gh704): close retained recovery boundaries\n\n* docs(gh704): retain lag scope and deletion recovery\n\n* docs(gh704): bound projection storage and snapshots\n\n* docs(gh704): close receipt and entitlement lifecycles\n\n* docs(spec): close GH704 recovery ownership gaps\n\n* docs(spec): unify GH704 resource ledger\n\n* docs(spec): close GH704 resource state algebra\n\n* docs(gh704): close resource ledger state algebra\n\n* docs(spec): formalize GH704 resource ledger model\n\n* docs(gh704): close integrity retention review gaps\n\n* docs(gh704): close resource ledger review gaps\n\n* docs(gh704): close verifier coverage gaps\n\n* docs(gh704): bind verifier relations exactly\n\n* docs(gh704): close machine-contract false greens",
+          "timestamp": "2026-08-05T18:55:28Z",
+          "tree_id": "772cc6e9b9922107c28e1ed47be6f5cf9dada096",
+          "url": "https://github.com/majiayu000/vibeguard/commit/70cb5d88e112841d3e92e1458d670d60f700122d"
+        },
+        "date": 1785958965056,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 54,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 55,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 55,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 54,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 54,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 54,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 58,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 59,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 59,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 58,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 58,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 58,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 57,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 59,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 59,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 62,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 63,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 63,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 55,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 56,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 56,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 57,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 57,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 57,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 11,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 11,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 11,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 11,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 12,
             "unit": "ms"
           }
         ]
