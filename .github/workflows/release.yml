@@ -684,11 +684,12 @@ jobs:
 
           release_json="$(gh api "repos/${GH_REPO}/releases/${RELEASE_ID}")"
           if ! jq -e --arg tag "${TAG_NAME}" --argjson id "${RELEASE_ID}" '
-            .id == $id and .draft == true and .tag_name == $tag
+            .id == $id and (.draft == true or .draft == false) and .tag_name == $tag
           ' <<< "${release_json}" >/dev/null; then
-            echo "ERROR: final publication target is not the expected draft release" >&2
+            echo "ERROR: final publication target is not the expected release" >&2
             exit 1
           fi
+          initially_public="$(jq -r '.draft == false' <<< "${release_json}")"
 
           audit_dir="${RUNNER_TEMP}/vibeguard-final-release-audit"
           mkdir -p "${audit_dir}"
@@ -752,6 +753,7 @@ jobs:
             echo "ERROR: release tag ${TAG_NAME} moved before publication; draft remains unpublished" >&2
             exit 1
           fi
+          [[ "${initially_public}" != "true" ]] || exit 0
 
           # The PATCH is an ambiguous commit point: GitHub may have applied the
           # draft-to-public transition even when the acknowledgement is lost,

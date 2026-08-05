@@ -170,7 +170,8 @@ if [[ "${1:-}" == "api" ]]; then
     "repos/${GH_REPO}/commits/${TAG_NAME}") printf '%s\n' "${GH_STUB_TAG_SHA}" ;;
     "repos/${GH_REPO}/releases/${RELEASE_ID}")
       patch_seen="$(grep -c '^publish-transition$' "${GH_STUB_LOG}" || true)"
-      if [[ "${patch_seen}" -gt 0 && "${GH_STUB_PATCH_COMMITTED:-1}" == "1" ]]; then
+      if [[ "${GH_STUB_RELEASE_PUBLIC:-0}" == "1" \
+        || ( "${patch_seen}" -gt 0 && "${GH_STUB_PATCH_COMMITTED:-1}" == "1" ) ]]; then
         printf '{"id":%s,"draft":false,"tag_name":"%s"}\n' "${RELEASE_ID}" "${TAG_NAME}"
       else
         printf '{"id":%s,"draft":true,"tag_name":"%s"}\n' "${RELEASE_ID}" "${TAG_NAME}"
@@ -207,6 +208,12 @@ test "$(grep -c '^create-draft$' "${GH_LOG}")" -eq 1
 test "$(grep -c '^upload-assets$' "${GH_LOG}")" -eq 1
 test "$(grep -c '^publish-transition$' "${GH_LOG}" || true)" -eq 0
 
+: > "${GH_LOG}"
+env "${run_env[@]}" GH_STUB_TAG_SHA="${EVENT_SHA}" GH_STUB_RELEASE_PUBLIC=1 \
+  RUNNER_TEMP="${FIXTURE_ROOT}/runner-already-public" bash "${PUBLISH_SCRIPT}"
+test "$(grep -c '^publish-transition$' "${GH_LOG}" || true)" -eq 0
+
+: > "${GH_LOG}"
 env "${run_env[@]}" GH_STUB_TAG_SHA="${EVENT_SHA}" \
   RUNNER_TEMP="${FIXTURE_ROOT}/runner-success" bash "${PUBLISH_SCRIPT}"
 test "$(grep -c '^publish-transition$' "${GH_LOG}")" -eq 1
