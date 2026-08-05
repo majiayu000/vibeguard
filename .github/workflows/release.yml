@@ -538,14 +538,20 @@ jobs:
             shift
             repo=""
             destination=""
+            payload_requested=0
             while [[ $# -gt 0 ]]; do
               case "$1" in
                 --repo) [[ $# -ge 2 ]] || exit 64; repo="$2"; shift 2 ;;
                 --repo=*) repo="${1#*=}"; shift ;;
                 --dir) [[ $# -ge 2 ]] || exit 64; destination="$2"; shift 2 ;;
                 --dir=*) destination="${1#*=}"; shift ;;
-                --pattern) [[ $# -ge 2 ]] || exit 64; shift 2 ;;
-                --pattern=*) shift ;;
+                --pattern)
+                  [[ $# -ge 2 ]] || exit 64
+                  [[ "$2" != "${VIBEGUARD_SMOKE_EXPECTED_ASSET}" ]] || payload_requested=1
+                  shift 2 ;;
+                --pattern=*)
+                  [[ "${1#*=}" != "${VIBEGUARD_SMOKE_EXPECTED_ASSET}" ]] || payload_requested=1
+                  shift ;;
                 *) echo "ERROR: unexpected bootstrap gh release download argument: $1" >&2; exit 64 ;;
               esac
             done
@@ -553,6 +559,15 @@ jobs:
               || "${tag}" != "${VIBEGUARD_SMOKE_EXPECTED_TAG}" ]]; then
               echo "ERROR: bootstrap requested ${repo}@${tag}, expected ${VIBEGUARD_SMOKE_EXPECTED_REPO}@${VIBEGUARD_SMOKE_EXPECTED_TAG}" >&2
               exit 1
+            fi
+            if [[ "${payload_requested}" != "1" ]]; then
+              # Setup downloads the runtime binary, SHA256SUMS, and the runtime
+              # release manifest from the same release. Those downloads must keep
+              # the real gh exit status, otherwise setup falls back to an
+              # unauthenticated curl that cannot read a still-draft release.
+              printf 'repo=%s\ntag=%s\n' "${repo}" "${tag}" \
+                >> "${VIBEGUARD_SMOKE_AUDIT_DIR}/runtime-download.identity"
+              exec "${VIBEGUARD_SMOKE_REAL_GH}" "${original_args[@]}"
             fi
             "${VIBEGUARD_SMOKE_REAL_GH}" "${original_args[@]}"
             downloaded="${destination}/${VIBEGUARD_SMOKE_EXPECTED_ASSET}"
@@ -576,6 +591,7 @@ jobs:
 
           HOME="${FRESH_HOME}" PATH="${AUDIT_BIN}:${PATH}" \
             VIBEGUARD_RELEASE_REPO="${GH_REPO}" \
+            VIBEGUARD_RUNTIME_RELEASE_REPO="${GH_REPO}" \
             bash "${SEED_DIR}/scripts/setup/bootstrap.sh" \
             --version "${VERSION}" --require-provenance -- --yes --require-provenance
           test "$(grep -Fxc -- "repo=${GH_REPO}" "${AUDIT_DIR}/download.identity")" = "1"
@@ -593,6 +609,29 @@ jobs:
             echo "ERROR: bootstrap payload marker does not match event commit ${EVENT_SHA}" >&2
             exit 1
           fi
+          runtime_provenance="${FRESH_HOME}/.vibeguard/installed/runtime-provenance"
+          if [[ ! -f "${runtime_provenance}" || -L "${runtime_provenance}" ]]; then
+            echo "ERROR: no-clone install did not record runtime provenance evidence" >&2
+            exit 1
+          fi
+          installed_runtime_repo="$(
+            awk -F= '$1 == "release_repo" { count += 1; repo = $2 } END { if (count == 1) print repo; else exit 1 }' \
+              "${runtime_provenance}"
+          )"
+          if [[ "${installed_runtime_repo}" != "${GH_REPO}" ]]; then
+            echo "ERROR: installed runtime came from ${installed_runtime_repo}, expected ${GH_REPO}" >&2
+            exit 1
+          fi
+          installed_runtime_tag="$(
+            awk -F= '$1 == "tag" { count += 1; tag = $2 } END { if (count == 1) print tag; else exit 1 }' \
+              "${runtime_provenance}"
+          )"
+          if [[ "${installed_runtime_tag}" != "${TAG_NAME}" ]]; then
+            echo "ERROR: installed runtime came from ${installed_runtime_tag}, expected ${TAG_NAME}" >&2
+            exit 1
+          fi
+          test "$(grep -Fxc -- "repo=${GH_REPO}" "${AUDIT_DIR}/runtime-download.identity")" -ge 1
+          test "$(grep -Fxc -- "tag=${TAG_NAME}" "${AUDIT_DIR}/runtime-download.identity")" -ge 1
           HOME="${FRESH_HOME}" bash \
             "${FRESH_HOME}/.vibeguard/dist/current/setup.sh" verify-install
           installed_marker_commit="$(
@@ -714,10 +753,34 @@ jobs:
             exit 1
           fi
 
+          # The PATCH is an ambiguous commit point: GitHub may have applied the
+          # draft-to-public transition even when the acknowledgement is lost,
+          # truncated, or unparseable. Never decide the job status from the
+          # acknowledgement alone; reconcile against the exact release id.
+          publish_rc=0
           publish_json="$(gh api --method PATCH "repos/${GH_REPO}/releases/${RELEASE_ID}" \
-            -F draft=false -f make_latest=true)"
-          if ! jq -e --argjson id "${RELEASE_ID}" '.id == $id and .draft == false' \
-            <<< "${publish_json}" >/dev/null; then
-            echo "ERROR: GitHub did not confirm the single draft-to-public transition" >&2
-            exit 1
+            -F draft=false -f make_latest=true)" || publish_rc=$?
+          if [[ "${publish_rc}" -ne 0 ]] \
+            || ! jq -e --argjson id "${RELEASE_ID}" '.id == $id and .draft == false' \
+              <<< "${publish_json}" >/dev/null; then
+            echo "NOTE: publication acknowledgement was unusable; reconciling release ${RELEASE_ID}" >&2
+            reconcile_rc=0
+            reconcile_json="$(gh api "repos/${GH_REPO}/releases/${RELEASE_ID}")" || reconcile_rc=$?
+            if [[ "${reconcile_rc}" -ne 0 ]]; then
+              echo "ERROR: publication state of release ${RELEASE_ID} could not be read" >&2
+              exit 1
+            fi
+            if jq -e --arg tag "${TAG_NAME}" --argjson id "${RELEASE_ID}" '
+              .id == $id and .draft == false and .tag_name == $tag
+            ' <<< "${reconcile_json}" >/dev/null; then
+              echo "NOTE: release ${RELEASE_ID} is already public; the lost acknowledgement was benign" >&2
+            elif jq -e --arg tag "${TAG_NAME}" --argjson id "${RELEASE_ID}" '
+              .id == $id and .draft == true and .tag_name == $tag
+            ' <<< "${reconcile_json}" >/dev/null; then
+              echo "ERROR: draft-to-public transition did not commit; release ${RELEASE_ID} is still a draft" >&2
+              exit 1
+            else
+              echo "ERROR: release ${RELEASE_ID} is in an unexpected state after the publish attempt" >&2
+              exit 1
+            fi
           fi

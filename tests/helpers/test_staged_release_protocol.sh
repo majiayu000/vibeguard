@@ -99,21 +99,82 @@ if [[ "${1:-}" == "release" && "${2:-}" == "download" ]]; then
   exit 0
 fi
 if [[ "${1:-}" == "attestation" && "${2:-}" == "verify" ]]; then
+  shift 2
+  subject="${1:-}"
+  [[ -n "${subject}" && "${subject}" != -* ]] || exit 64
+  shift
+  repo="" signer="" signer_digest="" source_ref="" source_digest="" deny=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo) [[ $# -ge 2 ]] || exit 64; repo="$2"; shift 2 ;;
+      --signer-workflow) [[ $# -ge 2 ]] || exit 64; signer="$2"; shift 2 ;;
+      --signer-digest) [[ $# -ge 2 ]] || exit 64; signer_digest="$2"; shift 2 ;;
+      --source-ref) [[ $# -ge 2 ]] || exit 64; source_ref="$2"; shift 2 ;;
+      --source-digest) [[ $# -ge 2 ]] || exit 64; source_digest="$2"; shift 2 ;;
+      --deny-self-hosted-runners) deny=1; shift ;;
+      *) exit 64 ;;
+    esac
+  done
+  # A stub that ignores arguments would false-green a provenance regression:
+  # require the complete pinned identity that the workflow advertises.
+  if [[ "${repo}" != "${GH_REPO}" \
+    || "${signer}" != "github.com/${GH_REPO}/.github/workflows/release.yml" \
+    || "${signer_digest}" != "${WORKFLOW_SHA}" \
+    || "${source_ref}" != "refs/tags/${TAG_NAME}" \
+    || "${source_digest}" != "${EVENT_SHA}" \
+    || "${deny}" != "1" ]]; then
+    echo "ERROR: attestation verify omitted the pinned signer identity" >&2
+    exit 64
+  fi
   printf 'verify-attestation\n' >> "${GH_STUB_LOG}"
   [[ "${GH_STUB_ATTEST_FAIL:-0}" != "1" ]]
   exit
 fi
 if [[ "${1:-}" == "api" ]]; then
-  if [[ " $* " == *" --method PATCH "* ]]; then
+  shift
+  method="GET" endpoint="" draft_value="" make_latest_value=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --method) [[ $# -ge 2 ]] || exit 64; method="$2"; shift 2 ;;
+      --jq) [[ $# -ge 2 ]] || exit 64; shift 2 ;;
+      -F|-f)
+        [[ $# -ge 2 ]] || exit 64
+        case "$2" in
+          draft=*) draft_value="${2#draft=}" ;;
+          make_latest=*) make_latest_value="${2#make_latest=}" ;;
+          *) exit 64 ;;
+        esac
+        shift 2 ;;
+      -*) exit 64 ;;
+      *) [[ -z "${endpoint}" ]] || exit 64; endpoint="$1"; shift ;;
+    esac
+  done
+  if [[ "${method}" == "PATCH" ]]; then
+    if [[ "${endpoint}" != "repos/${GH_REPO}/releases/${RELEASE_ID}" \
+      || "${draft_value}" != "false" \
+      || "${make_latest_value}" != "true" ]]; then
+      echo "ERROR: publish PATCH did not target the staged draft release" >&2
+      exit 64
+    fi
     printf 'publish-transition\n' >> "${GH_STUB_LOG}"
+    # An applied PATCH whose acknowledgement is lost is the ambiguous commit
+    # point the publish job must reconcile instead of failing outright.
+    if [[ "${GH_STUB_PATCH_LOSE_ACK:-0}" == "1" ]]; then
+      exit 1
+    fi
     printf '{"id":%s,"draft":false}\n' "${RELEASE_ID}"
     exit 0
   fi
-  endpoint="${2:-}"
+  [[ "${method}" == "GET" ]] || exit 64
   case "${endpoint}" in
     "repos/${GH_REPO}/commits/${TAG_NAME}") printf '%s\n' "${GH_STUB_TAG_SHA}" ;;
     "repos/${GH_REPO}/releases/${RELEASE_ID}")
-      printf '{"id":%s,"draft":true,"tag_name":"%s"}\n' "${RELEASE_ID}" "${TAG_NAME}"
+      patch_seen="$(grep -c '^publish-transition$' "${GH_STUB_LOG}" || true)"
+      if [[ "${patch_seen}" -gt 0 && "${GH_STUB_PATCH_COMMITTED:-1}" == "1" ]]; then
+        printf '{"id":%s,"draft":false,"tag_name":"%s"}\n' "${RELEASE_ID}" "${TAG_NAME}"
+      else
+        printf '{"id":%s,"draft":true,"tag_name":"%s"}\n' "${RELEASE_ID}" "${TAG_NAME}"
+      fi
       ;;
     *) exit 64 ;;
   esac
@@ -173,3 +234,52 @@ if (
   exit 1
 fi
 test "$(grep -c '^delete-draft$' "${GH_LOG}")" -eq 1
+
+# An applied PATCH whose acknowledgement is lost must reconcile to success
+# against the exact release id, without a second publish transition.
+: > "${GH_LOG}"
+env "${run_env[@]}" GH_STUB_TAG_SHA="${EVENT_SHA}" GH_STUB_PATCH_LOSE_ACK=1 \
+  RUNNER_TEMP="${FIXTURE_ROOT}/runner-lost-ack" bash "${PUBLISH_SCRIPT}" >/dev/null 2>&1
+test "$(grep -c '^publish-transition$' "${GH_LOG}")" -eq 1
+
+# A PATCH that never committed must stay a failure, not be reconciled away.
+: > "${GH_LOG}"
+if env "${run_env[@]}" GH_STUB_TAG_SHA="${EVENT_SHA}" GH_STUB_PATCH_LOSE_ACK=1 \
+  GH_STUB_PATCH_COMMITTED=0 \
+  RUNNER_TEMP="${FIXTURE_ROOT}/runner-uncommitted" bash "${PUBLISH_SCRIPT}" >/dev/null 2>&1; then
+  exit 1
+fi
+
+# Negative mutation: publishing another release id must fail closed.
+WRONG_RELEASE_SCRIPT="${TMP_ROOT}/publish-wrong-release.sh"
+ruby - "${PUBLISH_SCRIPT}" "${WRONG_RELEASE_SCRIPT}" <<'RUBY'
+text = File.binread(ARGV.fetch(0))
+old = 'gh api --method PATCH "repos/${GH_REPO}/releases/${RELEASE_ID}"'
+new = 'gh api --method PATCH "repos/${GH_REPO}/releases/999999"'
+raise "publish PATCH endpoint missing" unless text.sub!(old, new)
+File.binwrite(ARGV.fetch(1), text)
+RUBY
+: > "${GH_LOG}"
+if env "${run_env[@]}" GH_STUB_TAG_SHA="${EVENT_SHA}" \
+  RUNNER_TEMP="${FIXTURE_ROOT}/runner-wrong-release" \
+  bash "${WRONG_RELEASE_SCRIPT}" >/dev/null 2>&1; then
+  exit 1
+fi
+test "$(grep -c '^publish-transition$' "${GH_LOG}" || true)" -eq 0
+
+# Negative mutation: dropping the pinned provenance identity must fail closed.
+LOOSE_ATTEST_SCRIPT="${TMP_ROOT}/publish-loose-attestation.sh"
+ruby - "${PUBLISH_SCRIPT}" "${LOOSE_ATTEST_SCRIPT}" <<'RUBY'
+text = File.binread(ARGV.fetch(0))
+pattern = /gh attestation verify "\$\{asset\}".*?--deny-self-hosted-runners\n/m
+replacement = %Q{gh attestation verify "${asset}" --repo "${GH_REPO}"\n}
+raise "pinned attestation identity missing" unless text.sub!(pattern, replacement)
+File.binwrite(ARGV.fetch(1), text)
+RUBY
+: > "${GH_LOG}"
+if env "${run_env[@]}" GH_STUB_TAG_SHA="${EVENT_SHA}" \
+  RUNNER_TEMP="${FIXTURE_ROOT}/runner-loose-attestation" \
+  bash "${LOOSE_ATTEST_SCRIPT}" >/dev/null 2>&1; then
+  exit 1
+fi
+test "$(grep -c '^publish-transition$' "${GH_LOG}" || true)" -eq 0

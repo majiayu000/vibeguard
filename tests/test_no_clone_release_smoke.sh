@@ -73,8 +73,22 @@ if [[ "${1:-}" == "verify-install" ]]; then
   exit "${FIXTURE_VERIFY_EXIT:-0}"
 fi
 mkdir -p "${HOME}/.vibeguard/installed/bin" "${HOME}/.vibeguard/installed/rules/claude-rules"
-printf '#!/usr/bin/env bash\nexit 0\n' > "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+# Mirror production runtime acquisition: the payload setup performs its own
+# release download for the runtime binary, from the runtime release repository.
+runtime_repo="${VIBEGUARD_RUNTIME_RELEASE_REPO:-majiayu000/vibeguard}"
+runtime_dir="$(mktemp -d "${HOME}/.vibeguard/runtime-download.XXXXXX")"
+gh release download "v1.2.3" \
+  --repo "${runtime_repo}" \
+  --pattern "vibeguard-runtime-fixture-target" \
+  --pattern "SHA256SUMS" \
+  --dir "${runtime_dir}"
+[[ -f "${runtime_dir}/vibeguard-runtime-fixture-target" ]]
+cp "${runtime_dir}/vibeguard-runtime-fixture-target" \
+  "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
 chmod 0755 "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+rm -rf "${runtime_dir}"
+printf 'status=verified-provenance\nrelease_repo=%s\ntag=v1.2.3\ntarget=fixture-target\n' \
+  "${runtime_repo}" > "${HOME}/.vibeguard/installed/runtime-provenance"
 SETUP
   chmod 0755 "${payload_root}/setup.sh"
 
@@ -176,19 +190,32 @@ if [[ "${1:-}" == "release" && "${2:-}" == "download" ]]; then
   shift
   repo=""
   destination=""
+  payload_requested=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --repo) repo="$2"; shift 2 ;;
       --repo=*) repo="${1#*=}"; shift ;;
       --dir) destination="$2"; shift 2 ;;
       --dir=*) destination="${1#*=}"; shift ;;
-      --pattern) shift 2 ;;
-      --pattern=*) shift ;;
+      --pattern)
+        [[ "$2" != "vibeguard-payload-1.2.3.tar.gz" ]] || payload_requested=1
+        shift 2 ;;
+      --pattern=*)
+        [[ "${1#*=}" != "vibeguard-payload-1.2.3.tar.gz" ]] || payload_requested=1
+        shift ;;
       *) exit 64 ;;
     esac
   done
   [[ "${repo}" == "${GH_REPO}" && "${tag}" == "${TAG_NAME}" && -n "${destination}" ]] || exit 1
   mkdir -p "${destination}"
+  if [[ "${payload_requested}" != "1" ]]; then
+    printf 'runtime=fixture-target\n' > "${destination}/vibeguard-runtime-fixture-target"
+    printf '%s  %s\n' \
+      "0000000000000000000000000000000000000000000000000000000000000000" \
+      "vibeguard-runtime-fixture-target" > "${destination}/SHA256SUMS"
+    printf 'runtime-download\n' >> "${GH_STUB_LOG}"
+    exit 0
+  fi
   download_count="$(grep -c '^download$' "${GH_STUB_LOG}" || true)"
   if [[ "${download_count}" -eq 0 ]]; then
     payload="${GH_STUB_PAYLOAD}"
@@ -272,6 +299,7 @@ run_fixture() {
     return 1
   fi
   [[ "$(grep -c '^download$' "${fixture_root}/gh.log" || true)" -eq 2 ]] || return 1
+  [[ "$(grep -c '^runtime-download$' "${fixture_root}/gh.log" || true)" -eq 1 ]] || return 1
   [[ "$(grep -c '^attest-exact$' "${fixture_root}/gh.log" || true)" -eq 1 ]] || return 1
   [[ "$(grep -c '^attest-loose$' "${fixture_root}/gh.log" || true)" -eq 1 ]] || return 1
 }
@@ -311,6 +339,16 @@ File.binwrite(ARGV.fetch(1), text)
 RUBY
 expect_failure "bootstrap cannot perform its second download from another repository" \
   run_fixture "${GOOD}" "${WRONG_REPO_SCRIPT}"
+
+UNBOUND_RUNTIME_SCRIPT="${TMP_ROOT}/unbound-runtime-repository.sh"
+ruby - "${JOB_SCRIPT}" "${UNBOUND_RUNTIME_SCRIPT}" <<'RUBY'
+text = File.binread(ARGV.fetch(0))
+pattern = /^[ \t]*VIBEGUARD_RUNTIME_RELEASE_REPO="\$\{GH_REPO\}" \\\n/
+raise "runtime repository binding missing" unless text.sub!(pattern, "")
+File.binwrite(ARGV.fetch(1), text)
+RUBY
+expect_failure "nested runtime download cannot fall back to the upstream repository" \
+  run_fixture "${GOOD}" "${UNBOUND_RUNTIME_SCRIPT}" 0 fork-owner/renamed-vibeguard
 
 UNSAFE="${TMP_ROOT}/unsafe"
 mkdir -p "${UNSAFE}"
