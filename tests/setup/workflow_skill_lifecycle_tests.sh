@@ -6,6 +6,130 @@ gh719_config="${gh719_home}/.vibeguard/config.json"
 gh719_runtime="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
 mkdir -p "${gh719_home}"
 
+assert_cmd "install cleanup releases the lock before deleting staged runtime" env \
+  VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c '
+    source "$1/scripts/setup/lib.sh"
+    order=""
+    setup_lock_release() { order="${order}release "; }
+    cleanup_install_temps() { order="${order}cleanup"; }
+    cleanup_install_lifecycle
+    [[ "$order" == "release cleanup" ]]
+  ' _ "${REPO_DIR}"
+assert_cmd "install cleanup reports lock release failure after preserving order" env \
+  VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c '
+    source "$1/scripts/setup/lib.sh"
+    order=""
+    setup_lock_release() { order="${order}release "; return 1; }
+    cleanup_install_temps() { order="${order}cleanup"; }
+    if cleanup_install_lifecycle; then exit 1; fi
+    [[ "$order" == "release cleanup" ]]
+  ' _ "${REPO_DIR}"
+
+gh719_probe_dir="${TMP_HOME}/gh719-runtime-probe"
+mkdir -p "${gh719_probe_dir}"
+printf '%s\n' '#!/usr/bin/env bash' \
+  'if [[ "$1" == setup-state-capabilities ]]; then echo complete-snapshot-v1; exit 0; fi' \
+  'if [[ "$1" == setup-state-quarantine-count ]]; then echo "Unknown command: $1" >&2; fi' \
+  'exit 1' > "${gh719_probe_dir}/partial-runtime"
+chmod +x "${gh719_probe_dir}/partial-runtime"
+assert_cmd "install-state resolver rejects runtimes missing a consumed command" env \
+  VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c '
+    source "$1/scripts/lib/install-state.sh"
+    ! state_runtime_supports "$2"
+  ' _ "${REPO_DIR}" "${gh719_probe_dir}/partial-runtime"
+
+gh719_old_init_runtime="${gh719_probe_dir}/old-init-runtime"
+printf '%s\n' '#!/usr/bin/env bash' \
+  'case "${1:-}" in' \
+  '  version) printf "%s\n" "${VIBEGUARD_TEST_RUNTIME_VERSION:?}" ;;' \
+  '  setup-state-list-symlinks-under) exit 0 ;;' \
+  '  setup-state-capabilities) printf "%s\n" "Unknown command: setup-state-capabilities" >&2; exit 2 ;;' \
+  '  setup-state-init) printf "%s\n" "vibeguard-runtime error: Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills]" >&2; exit 1 ;;' \
+  '  *) printf "%s\n" "vibeguard-runtime error: Usage: legacy fixture" >&2; exit 1 ;;' \
+  'esac' > "${gh719_old_init_runtime}"
+chmod +x "${gh719_old_init_runtime}"
+gh719_capability_runtime="${gh719_probe_dir}/capability-runtime"
+printf '%s\n' '#!/usr/bin/env bash' \
+  'case "${1:-}" in' \
+  '  version) printf "%s\n" "${VIBEGUARD_TEST_RUNTIME_VERSION:?}" ;;' \
+  '  setup-state-list-symlinks-under) exit 0 ;;' \
+  '  setup-state-capabilities)' \
+  '    case "${VIBEGUARD_TEST_CAPABILITY_MODE:-valid}" in' \
+  '      missing) printf "%s\n" "Unknown command: setup-state-capabilities" >&2; exit 2 ;;' \
+  '      wrong) printf "%s\n" "complete-snapshot-v2" ;;' \
+  '      extra) printf "%s\n" "complete-snapshot-v1" "extra" ;;' \
+  '      valid) printf "%s\n" "complete-snapshot-v1" ;;' \
+  '    esac' \
+  '    ;;' \
+  '  setup-state-init) printf "%s\n" "vibeguard-runtime error: Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot]" >&2; exit 1 ;;' \
+  '  *) printf "%s\n" "vibeguard-runtime error: Usage: capability fixture" >&2; exit 1 ;;' \
+  'esac' > "${gh719_capability_runtime}"
+chmod +x "${gh719_capability_runtime}"
+gh719_current_runtime_version="$(tr -d '[:space:]' < "${REPO_DIR}/vibeguard-runtime/VERSION")"
+gh719_capability_probe_tmp="${TMP_HOME}/gh719-capability-probe-tmp"
+mkdir -p "${gh719_capability_probe_tmp}"
+assert_cmd "install-state selector rejects old setup-state-init usage" env \
+  VIBEGUARD_TEST_RUNTIME_VERSION="${gh719_current_runtime_version}" bash -c '
+    source "$1/scripts/lib/install-state.sh"
+    ! state_runtime_supports "$2"
+  ' _ "${REPO_DIR}" "${gh719_old_init_runtime}"
+assert_cmd "setup selector rejects old setup-state-init usage" env \
+  TMPDIR="${gh719_capability_probe_tmp}" \
+  VIBEGUARD_SETUP_RUNTIME_VERSION="${gh719_current_runtime_version}" \
+  VIBEGUARD_TEST_RUNTIME_VERSION="${gh719_current_runtime_version}" bash -c '
+    source "$1/scripts/setup/lib.sh"
+    ! setup_runtime_supports "$2"
+  ' _ "${REPO_DIR}" "${gh719_old_init_runtime}"
+for gh719_capability_mode in missing wrong extra; do
+  if [[ "${gh719_capability_mode}" == "missing" ]]; then
+    gh719_capability_case="spoofed current usage without capability"
+  elif [[ "${gh719_capability_mode}" == "extra" ]]; then
+    gh719_capability_case="multi-line capability response"
+  else
+    gh719_capability_case="wrong capability token"
+  fi
+  assert_cmd "install-state selector rejects ${gh719_capability_case}" env \
+    VIBEGUARD_TEST_CAPABILITY_MODE="${gh719_capability_mode}" \
+    VIBEGUARD_TEST_RUNTIME_VERSION="${gh719_current_runtime_version}" bash -c '
+      source "$1/scripts/lib/install-state.sh"
+      ! state_runtime_supports "$2"
+    ' _ "${REPO_DIR}" "${gh719_capability_runtime}"
+  assert_cmd "setup selector rejects ${gh719_capability_case}" env \
+    TMPDIR="${gh719_capability_probe_tmp}" \
+    VIBEGUARD_SETUP_RUNTIME_VERSION="${gh719_current_runtime_version}" \
+    VIBEGUARD_TEST_CAPABILITY_MODE="${gh719_capability_mode}" \
+    VIBEGUARD_TEST_RUNTIME_VERSION="${gh719_current_runtime_version}" bash -c '
+      source "$1/scripts/setup/lib.sh"
+      ! setup_runtime_supports "$2"
+    ' _ "${REPO_DIR}" "${gh719_capability_runtime}"
+done
+assert_cmd "install-state selector accepts exact capability fixture" env \
+  VIBEGUARD_TEST_CAPABILITY_MODE=valid \
+  VIBEGUARD_TEST_RUNTIME_VERSION="${gh719_current_runtime_version}" bash -c '
+    source "$1/scripts/lib/install-state.sh"
+    state_runtime_supports "$2"
+  ' _ "${REPO_DIR}" "${gh719_capability_runtime}"
+assert_cmd "setup selector accepts exact capability fixture" env \
+  TMPDIR="${gh719_capability_probe_tmp}" \
+  VIBEGUARD_SETUP_RUNTIME_VERSION="${gh719_current_runtime_version}" \
+  VIBEGUARD_TEST_CAPABILITY_MODE=valid \
+  VIBEGUARD_TEST_RUNTIME_VERSION="${gh719_current_runtime_version}" bash -c '
+    source "$1/scripts/setup/lib.sh"
+    setup_runtime_supports "$2"
+  ' _ "${REPO_DIR}" "${gh719_capability_runtime}"
+assert_cmd "install-state selector accepts real capability runtime" bash -c '
+  source "$1/scripts/lib/install-state.sh"
+  state_runtime_supports "$2"
+' _ "${REPO_DIR}" "${gh719_runtime}"
+assert_cmd "setup selector accepts real capability runtime" env \
+  TMPDIR="${gh719_capability_probe_tmp}" \
+  VIBEGUARD_SETUP_RUNTIME_VERSION="${gh719_current_runtime_version}" bash -c '
+    source "$1/scripts/setup/lib.sh"
+    setup_runtime_supports "$2"
+  ' _ "${REPO_DIR}" "${gh719_runtime}"
+assert_cmd "complete-snapshot capability probes create no state files" bash -c \
+  '! find "$1" -mindepth 1 -print -quit | grep -q .' _ "${gh719_capability_probe_tmp}"
+
 gh719_lock_home="${TMP_HOME}/gh719-lock-home"
 mkdir -p "${gh719_lock_home}/.vibeguard/setup.lock"
 printf 'pid=%s\nnonce=active-fixture\n' "$$" > "${gh719_lock_home}/.vibeguard/setup.lock/owner"
@@ -339,6 +463,117 @@ assert_cmd "retry preserves the last complete ownership generation" test \
 assert_cmd "retry reuses the interrupted next generation" python3 -c \
   'import json,sys; d=json.load(open(sys.argv[1])); dest=sys.argv[2]; assert d["generation"] == 5 and d["complete"] is False; assert dest in d["disabled_skill_quarantines"] and dest + "/SKILL.md" in d["files"]' \
   "${gh719_retry_state_home}/.vibeguard/install-state.json" "${gh719_retry_dest}"
+
+gh719_previous_only_home="${TMP_HOME}/gh719-previous-only-home"
+gh719_previous_only_dest="${gh719_previous_only_home}/.codex/skills/retired"
+gh719_previous_only_quarantine="${gh719_previous_only_home}/.codex/skills/.retired.vibeguard-quarantine.kept"
+gh719_previous_only_transaction="${gh719_previous_only_home}/.codex/skills/.retired.vibeguard-transaction.kept.json"
+gh719_current_owned="${gh719_previous_only_home}/.codex/skills/current/SKILL.md"
+mkdir -p "${gh719_previous_only_home}/.vibeguard" "${gh719_previous_only_quarantine}" \
+  "$(dirname "${gh719_current_owned}")"
+printf 'managed\n' > "${gh719_previous_only_quarantine}/SKILL.md"
+printf 'current-owned\n' > "${gh719_current_owned}"
+python3 - "${gh719_previous_only_home}/.vibeguard/install-state.json" \
+  "${gh719_previous_only_home}/.vibeguard/install-state.previous.json" \
+  "${gh719_previous_only_transaction}" "${gh719_previous_only_dest}" \
+  "${gh719_previous_only_quarantine}" "${gh719_current_owned}" <<'PY'
+import hashlib, json, sys
+current_path, previous_path, transaction_path, dest, quarantine, current_owned = sys.argv[1:]
+record = {"version": 1, "quarantine": quarantine, "transaction": transaction_path,
+          "source_prefix": "skills/retired", "tracked_digest": "sha256:" + "a" * 64,
+          "install_state_generation": 4, "nonce": "kept"}
+transaction = dict(record, phase="committed", dest=dest)
+json.dump(transaction, open(transaction_path, "w", encoding="utf-8"))
+entry = {"source": "skills/retired/SKILL.md", "type": "copy",
+         "checksum": "sha256:" + hashlib.sha256(b"managed\n").hexdigest()}
+previous = {"version": 1, "generation": 4, "complete": True,
+            "files": {dest + "/SKILL.md": entry},
+            "disabled_skill_quarantines": {dest: record}}
+current_entry = {"source": "skills/current/SKILL.md", "type": "copy",
+                 "checksum": "sha256:" + hashlib.sha256(b"current-owned\n").hexdigest()}
+current = {"version": 1, "generation": 5, "complete": True,
+           "files": {current_owned: current_entry}}
+json.dump(current, open(current_path, "w", encoding="utf-8"))
+json.dump(previous, open(previous_path, "w", encoding="utf-8"))
+PY
+gh719_previous_only_current_seed="${TMP_HOME}/gh719-previous-only-current.seed.json"
+gh719_previous_only_snapshot_seed="${TMP_HOME}/gh719-previous-only-snapshot.seed.json"
+cp -p "${gh719_previous_only_home}/.vibeguard/install-state.json" \
+  "${gh719_previous_only_current_seed}"
+cp -p "${gh719_previous_only_home}/.vibeguard/install-state.previous.json" \
+  "${gh719_previous_only_snapshot_seed}"
+gh719_previous_only_current_hash="$(shasum -a 256 \
+  "${gh719_previous_only_home}/.vibeguard/install-state.json" | awk '{print $1}')"
+gh719_previous_only_snapshot_hash="$(shasum -a 256 \
+  "${gh719_previous_only_home}/.vibeguard/install-state.previous.json" | awk '{print $1}')"
+for gh719_state_failure in \
+  VIBEGUARD_TEST_SETUP_STATE_INIT_FAILURE \
+  VIBEGUARD_TEST_SETUP_STATE_WRITE_FAILURE; do
+  gh719_state_failure_rc=0
+  env "${gh719_state_failure}=1" HOME="${gh719_previous_only_home}" \
+    VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c \
+    'source "$1/scripts/lib/install-state.sh"; state_init core ""' _ "${REPO_DIR}" \
+    >/dev/null 2>&1 || gh719_state_failure_rc=$?
+  assert_cmd "${gh719_state_failure} is visible" test "${gh719_state_failure_rc}" -ne 0
+  assert_cmd "${gh719_state_failure} preserves current state" test \
+    "$(shasum -a 256 "${gh719_previous_only_home}/.vibeguard/install-state.json" | awk '{print $1}')" = \
+    "${gh719_previous_only_current_hash}"
+  assert_cmd "${gh719_state_failure} preserves previous-only locator" test \
+    "$(shasum -a 256 "${gh719_previous_only_home}/.vibeguard/install-state.previous.json" | awk '{print $1}')" = \
+    "${gh719_previous_only_snapshot_hash}"
+done
+
+for gh719_publish_failure in \
+  VIBEGUARD_TEST_SETUP_STATE_AFTER_PREVIOUS_PUBLISH \
+  VIBEGUARD_TEST_SETUP_STATE_CURRENT_PUBLISH_FAILURE; do
+  cp -p "${gh719_previous_only_current_seed}" \
+    "${gh719_previous_only_home}/.vibeguard/install-state.json"
+  cp -p "${gh719_previous_only_snapshot_seed}" \
+    "${gh719_previous_only_home}/.vibeguard/install-state.previous.json"
+  gh719_publish_failure_rc=0
+  env "${gh719_publish_failure}=1" HOME="${gh719_previous_only_home}" \
+    VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c \
+    'source "$1/scripts/lib/install-state.sh"; state_init core ""' _ "${REPO_DIR}" \
+    >/dev/null 2>&1 || gh719_publish_failure_rc=$?
+  assert_cmd "${gh719_publish_failure} is visible" test \
+    "${gh719_publish_failure_rc}" -ne 0
+  assert_cmd "${gh719_publish_failure} leaves a merged complete previous snapshot" python3 -c \
+    'import json,sys; current=json.load(open(sys.argv[1])); previous=json.load(open(sys.argv[2])); retired,current_owned=sys.argv[3:]; assert current["generation"] == 5 and current["complete"] is True; assert retired not in current.get("disabled_skill_quarantines", {}); assert previous["generation"] == 5 and previous["complete"] is True; assert retired in previous["disabled_skill_quarantines"]; assert retired + "/SKILL.md" in previous["files"]; assert current_owned in previous["files"]' \
+    "${gh719_previous_only_home}/.vibeguard/install-state.json" \
+    "${gh719_previous_only_home}/.vibeguard/install-state.previous.json" \
+    "${gh719_previous_only_dest}" "${gh719_current_owned}"
+  assert_cmd "${gh719_publish_failure} leaves canonical state preflight-safe" env \
+    HOME="${gh719_previous_only_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+    bash -c 'source "$1/scripts/lib/install-state.sh"; state_preflight' _ "${REPO_DIR}"
+  HOME="${gh719_previous_only_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c \
+    'source "$1/scripts/lib/install-state.sh"; state_init core ""' _ "${REPO_DIR}"
+  assert_cmd "${gh719_publish_failure} retries with canonical ownership and generation" python3 -c \
+    'import json,sys; current=json.load(open(sys.argv[1])); previous=json.load(open(sys.argv[2])); retired,current_owned=sys.argv[3:]; assert current["generation"] == 6 and current["complete"] is False; assert previous["generation"] == 5 and previous["complete"] is True; assert retired in current["disabled_skill_quarantines"] and retired in previous["disabled_skill_quarantines"]; assert retired + "/SKILL.md" in current["files"] and retired + "/SKILL.md" in previous["files"]; assert current_owned in previous["files"]' \
+    "${gh719_previous_only_home}/.vibeguard/install-state.json" \
+    "${gh719_previous_only_home}/.vibeguard/install-state.previous.json" \
+    "${gh719_previous_only_dest}" "${gh719_current_owned}"
+done
+HOME="${gh719_previous_only_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c \
+  'source "$1/scripts/lib/install-state.sh"; state_init core ""' _ "${REPO_DIR}"
+assert_cmd "state init preserves a previous-only active quarantine" python3 -c \
+  'import json,sys; d=json.load(open(sys.argv[1])); assert sys.argv[2] in d["disabled_skill_quarantines"]; assert sys.argv[2] + "/SKILL.md" in d["files"]' \
+  "${gh719_previous_only_home}/.vibeguard/install-state.json" "${gh719_previous_only_dest}"
+
+for gh719_legacy_artifact in \
+  "${gh719_previous_only_home}/.vibeguard/install-state.previous.json.backup.stale" \
+  "${gh719_previous_only_home}/.vibeguard/install-state.json.next.stale"; do
+  cp -p "${gh719_previous_only_snapshot_seed}" "${gh719_legacy_artifact}"
+  gh719_legacy_artifact_rc=0
+  gh719_legacy_artifact_out="$(
+    HOME="${gh719_previous_only_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c \
+      'source "$1/scripts/lib/install-state.sh"; state_preflight' _ "${REPO_DIR}" 2>&1
+  )" || gh719_legacy_artifact_rc=$?
+  assert_cmd "legacy publish artifact is not silently ignored" test \
+    "${gh719_legacy_artifact_rc}" -ne 0
+  assert_contains "${gh719_legacy_artifact_out}" "requires explicit recovery" \
+    "legacy publish artifact reports fail-closed recovery requirement"
+  rm -f "${gh719_legacy_artifact}"
+done
 
 gh719_order_home="${TMP_HOME}/gh719-generation-order-home"
 mkdir -p "${gh719_order_home}/.vibeguard"

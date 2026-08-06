@@ -90,3 +90,31 @@ fn interrupted_lock_directory_transitions_never_leave_canonical_ownerless() {
     );
     fs::remove_dir_all(root).expect("root should be removed");
 }
+
+#[test]
+fn reclaimer_publish_recovers_an_abandoned_staged_hard_link() {
+    let root = unique_temp_dir("setup-lock-staged-reclaimer");
+    let lock = root.join("setup.lock");
+    fs::create_dir_all(&lock).expect("lock should be created");
+    fs::write(lock.join("owner"), "pid=41\nnonce=owner\n").expect("owner should be written");
+    let abandoned = lock.join(".reclaiming.42.abandoned");
+    fs::write(&abandoned, "pid=42\nnonce=abandoned\n").expect("abandoned stage should be written");
+
+    let output = bin()
+        .args([
+            "setup-lock-publish-owner",
+            &path_text(&lock),
+            "43",
+            "replacement",
+            "reclaiming",
+        ])
+        .output()
+        .expect("reclaimer publish should run");
+    assert_output(&output, 0, "", "");
+    assert!(!abandoned.exists());
+    assert_eq!(
+        fs::read_to_string(lock.join("reclaiming")).expect("reclaimer should be readable"),
+        "pid=43\nnonce=replacement\n"
+    );
+    fs::remove_dir_all(root).expect("root should be removed");
+}

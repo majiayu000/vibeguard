@@ -22,7 +22,7 @@ fn setup_state_commands_reject_invalid_arity_with_exact_usage() {
     let cases = [
         (
             "setup-state-init",
-            "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills]",
+            "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot]",
         ),
         (
             "setup-state-generation",

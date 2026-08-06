@@ -8,13 +8,23 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const STATE_VERSION: i64 = 1;
+const STATE_CAPABILITY_TOKEN: &str = "complete-snapshot-v1";
+const INIT_USAGE: &str = "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot]";
+
+pub fn capabilities(args: &[String]) -> SetupResult<()> {
+    if !args.is_empty() {
+        return Err("Usage: vibeguard-runtime setup-state-capabilities".into());
+    }
+    println!("{STATE_CAPABILITY_TOKEN}");
+    Ok(())
+}
 
 pub fn init(args: &[String]) -> SetupResult<()> {
-    if !(3..=5).contains(&args.len()) {
-        return Err(
-            "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills]"
-                .into(),
-        );
+    if !(3..=7).contains(&args.len()) {
+        return Err(INIT_USAGE.into());
+    }
+    if std::env::var_os("VIBEGUARD_TEST_SETUP_STATE_INIT_FAILURE").is_some() {
+        return Err("injected setup-state initialization failure".into());
     }
     let state_file = Path::new(&args[0]);
     let repo_dir = repo_dir_from_home();
@@ -31,6 +41,27 @@ pub fn init(args: &[String]) -> SetupResult<()> {
         .map(|value| value.parse::<u64>())
         .transpose()?
         .unwrap_or(1);
+    let complete_snapshot = match args.get(6).map(String::as_str) {
+        None => false,
+        Some("complete-snapshot") => true,
+        Some(_) => return Err(INIT_USAGE.into()),
+    };
+    if complete_snapshot {
+        if !args[1].is_empty() || !args[2].is_empty() || args.get(4).is_some_and(|v| !v.is_empty())
+        {
+            return Err(
+                "complete snapshot merge does not accept profile, languages, or disabled skills"
+                    .into(),
+            );
+        }
+        let carry_path = args.get(5).filter(|value| !value.is_empty());
+        let merged = merge_complete_snapshot(state_file, carry_path.map(Path::new), generation)?;
+        if std::env::var_os("VIBEGUARD_TEST_SETUP_STATE_WRITE_FAILURE").is_some() {
+            return Err("injected setup-state write failure".into());
+        }
+        write_json_atomic(state_file, &merged)?;
+        return Ok(());
+    }
     if generation == 0 {
         return Err("install-state generation must be a positive integer".into());
     }
@@ -53,7 +84,93 @@ pub fn init(args: &[String]) -> SetupResult<()> {
         validate_state_for_preflight(&existing)?;
         carry_incomplete_inventory(&existing, &mut state, generation, &disabled_skills)?;
     }
+    if let Some(carry_path) = args.get(5).filter(|value| !value.is_empty()) {
+        let carry = read_state(Path::new(carry_path))?;
+        validate_state_for_preflight(&carry)?;
+        carry_incomplete_inventory(&carry, &mut state, 0, &[])?;
+    }
+    if std::env::var_os("VIBEGUARD_TEST_SETUP_STATE_WRITE_FAILURE").is_some() {
+        return Err("injected setup-state write failure".into());
+    }
     write_json_atomic(state_file, &state)?;
+    Ok(())
+}
+
+fn merge_complete_snapshot(
+    state_file: &Path,
+    carry_path: Option<&Path>,
+    generation: u64,
+) -> SetupResult<Value> {
+    let mut state = read_regular_state(state_file, "complete snapshot source")?;
+    validate_state_for_preflight(&state)?;
+    let (complete, actual_generation) = state_generation(&state)?;
+    if !complete || actual_generation != generation {
+        return Err("complete snapshot source must be complete and match its generation".into());
+    }
+    let Some(carry_path) = carry_path else {
+        return Ok(state);
+    };
+    if std::fs::canonicalize(state_file)? == std::fs::canonicalize(carry_path)? {
+        return Err("complete snapshot carry source must be a different file".into());
+    }
+    let carry = read_regular_state(carry_path, "complete snapshot carry source")?;
+    validate_state_for_preflight(&carry)?;
+    let (carry_complete, carry_generation) = state_generation(&carry)?;
+    if !carry_complete || carry_generation > generation {
+        return Err("complete snapshot carry source must be a complete older generation".into());
+    }
+    reject_snapshot_inventory_conflicts(&state, &carry)?;
+    carry_incomplete_inventory(&carry, &mut state, 0, &[])?;
+    validate_state_for_preflight(&state)?;
+    Ok(state)
+}
+
+fn read_regular_state(path: &Path, label: &str) -> SetupResult<Value> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(format!("{label} must be a regular file").into());
+    }
+    read_state(path)
+}
+
+fn reject_snapshot_inventory_conflicts(current: &Value, carry: &Value) -> SetupResult<()> {
+    let current_files = current["files"]
+        .as_object()
+        .ok_or("install-state files must be an object")?;
+    let carry_files = carry["files"]
+        .as_object()
+        .ok_or("install-state files must be an object")?;
+    let current_records = current
+        .get("disabled_skill_quarantines")
+        .and_then(Value::as_object);
+    let carry_records = carry
+        .get("disabled_skill_quarantines")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for (carry_public, carry_record) in &carry_records {
+        let public = setup_absolute_path(&expand_home(carry_public));
+        if current_records.is_some_and(|records| {
+            records.iter().any(|(current_public, current_record)| {
+                setup_absolute_path(&expand_home(current_public)) == public
+                    && (current_public != carry_public || current_record != carry_record)
+            })
+        }) {
+            return Err("complete snapshot generations disagree on quarantine locator".into());
+        }
+        for (carry_path, entry) in carry_files {
+            let path = setup_absolute_path(&expand_home(carry_path));
+            if path != public && !path.starts_with(&public) {
+                continue;
+            }
+            if current_files.iter().any(|(current_path, current_entry)| {
+                setup_absolute_path(&expand_home(current_path)) == path
+                    && (current_path != carry_path || current_entry != entry)
+            }) {
+                return Err("complete snapshot generations disagree on tracked inventory".into());
+            }
+        }
+    }
     Ok(())
 }
 
@@ -297,6 +414,7 @@ pub fn publish_lock_owner(args: &[String]) -> SetupResult<()> {
     }
     let content = format!("pid={}\nnonce={}\n", args[1], args[2]);
     if owner_name == "reclaiming" {
+        remove_abandoned_reclaimer_stages(lock_dir)?;
         let staged = lock_dir.join(format!(".reclaiming.{}.{}", args[1], args[2]));
         write_text_atomic(&staged, &content)?;
         if let Err(link_error) = std::fs::hard_link(&staged, &owner) {
@@ -319,6 +437,40 @@ pub fn publish_lock_owner(args: &[String]) -> SetupResult<()> {
             );
         }
         return Err(error.into());
+    }
+    Ok(())
+}
+
+fn remove_abandoned_reclaimer_stages(lock_dir: &Path) -> SetupResult<()> {
+    for entry in std::fs::read_dir(lock_dir)? {
+        let path = entry?.path();
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+            return Err("setup lock contains a non-UTF-8 staged reclaimer".into());
+        };
+        if !name.starts_with(".reclaiming.") {
+            continue;
+        }
+        let metadata = std::fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err("setup lock staged reclaimer is not a regular file".into());
+        }
+        let content = std::fs::read_to_string(&path)?;
+        let mut lines = content.lines();
+        let pid = lines.next().and_then(|line| line.strip_prefix("pid="));
+        let nonce = lines.next().and_then(|line| line.strip_prefix("nonce="));
+        if lines.next().is_some()
+            || pid
+                .is_none_or(|value| value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()))
+            || nonce.is_none_or(str::is_empty)
+            || Some(name)
+                != pid
+                    .zip(nonce)
+                    .map(|(pid, nonce)| format!(".reclaiming.{pid}.{nonce}"))
+                    .as_deref()
+        {
+            return Err("setup lock staged reclaimer metadata is malformed".into());
+        }
+        std::fs::remove_file(path)?;
     }
     Ok(())
 }

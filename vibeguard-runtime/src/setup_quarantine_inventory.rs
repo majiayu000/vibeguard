@@ -1,7 +1,9 @@
 use crate::setup_install_state::{
     expand_home, read_state, setup_absolute_path, validate_state_for_preflight,
 };
-use crate::setup_managed_tree_remove::validate_state_metadata;
+use crate::setup_managed_tree_remove::{
+    tree_state::intent_quarantine_for_dest, validate_state_artifacts, validate_state_metadata,
+};
 use crate::setup_support::{SetupResult, sha256_file};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -28,6 +30,7 @@ pub fn check_drift(args: &[String]) -> SetupResult<()> {
         return Ok(());
     }
     validate_state_metadata(&state)?;
+    validate_state_artifacts(&state)?;
     let files = state
         .get("files")
         .and_then(Value::as_object)
@@ -156,11 +159,21 @@ pub(crate) fn carry_incomplete_inventory(
     let target_object = target
         .as_object_mut()
         .ok_or("install-state root must be an object")?;
-    if !records.is_empty() {
-        target_object.insert(
-            "disabled_skill_quarantines".into(),
-            Value::Object(records.clone()),
-        );
+    let target_records = target_object
+        .entry("disabled_skill_quarantines")
+        .or_insert_with(|| Value::Object(Default::default()))
+        .as_object_mut()
+        .ok_or("disabled_skill_quarantines must be an object")?;
+    for (public, record) in &records {
+        if target_records
+            .insert(public.clone(), record.clone())
+            .is_some_and(|previous| previous != *record)
+        {
+            return Err("install-state generations disagree on quarantine locator".into());
+        }
+    }
+    if target_records.is_empty() {
+        target_object.remove("disabled_skill_quarantines");
     }
     let target_files = target_object["files"]
         .as_object_mut()
@@ -191,12 +204,20 @@ pub(crate) fn carry_incomplete_inventory(
             return Err("disabled skill name is invalid".into());
         }
         let public = home.join(".codex/skills").join(name);
+        let actual = if public.exists() {
+            public.clone()
+        } else if let Some(quarantine) = intent_quarantine_for_dest(&public)? {
+            quarantine
+        } else {
+            public.clone()
+        };
         for (path, entry) in source_files {
             let path_root = setup_absolute_path(&expand_home(path));
             if path_root != public && !path_root.starts_with(&public) {
                 continue;
             }
-            if tracked_copy_matches(&path_root, entry)? {
+            let actual_path = actual.join(path_root.strip_prefix(&public)?);
+            if tracked_copy_matches(&actual_path, entry)? {
                 target_files.insert(path.clone(), entry.clone());
             }
         }

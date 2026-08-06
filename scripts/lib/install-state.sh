@@ -58,11 +58,19 @@ state_runtime_path() {
 }
 
 state_runtime_supports() {
-  local runtime="$1" probe_state="${TMPDIR:-/tmp}/vibeguard-runtime-probe.$$.json"
-  "${runtime}" setup-state-list-symlinks-under \
-    "${probe_state}" "${TMPDIR:-/tmp}" >/dev/null 2>&1 || return 1
-  local command probe_out
+  local runtime="$1" capability_out command probe_out
+  capability_out="$("${runtime}" setup-state-capabilities 2>/dev/null)" || return 1
+  [[ "${capability_out}" == "complete-snapshot-v1" ]] || return 1
   for command in \
+    setup-state-init \
+    setup-state-list \
+    setup-state-list-project-hooks \
+    setup-state-list-symlinks-under \
+    setup-state-list-tracked-under \
+    setup-state-record-file \
+    setup-state-record-project-hook \
+    setup-state-check-drift \
+    setup-state-quarantine-count \
     setup-state-verify-managed-tree \
     setup-state-generation \
     setup-state-mark-complete; do
@@ -82,9 +90,35 @@ state_runtime() {
   "${runtime}" "$@"
 }
 
+state_reject_legacy_publish_artifacts() {
+  local artifact status generation
+  local -a artifacts=()
+  shopt -s nullglob
+  artifacts=("${STATE_FILE}.next."* "${STATE_PREVIOUS_FILE}.backup."*)
+  shopt -u nullglob
+  [[ "${#artifacts[@]}" -eq 0 ]] && return 0
+  for artifact in "${artifacts[@]}"; do
+    if [[ -L "$artifact" || ! -f "$artifact" ]]; then
+      printf 'ERROR: legacy install-state publish artifact is not a regular file: %s\n' \
+        "$artifact" >&2
+      return 1
+    fi
+    IFS=$'\t' read -r status generation \
+      < <(state_runtime setup-state-generation "$artifact") || return 1
+    if [[ "$artifact" == "${STATE_PREVIOUS_FILE}.backup."* && "$status" != "COMPLETE" ]]; then
+      printf 'ERROR: legacy install-state backup is incomplete: %s\n' "$artifact" >&2
+      return 1
+    fi
+  done
+  printf 'ERROR: unfinished legacy install-state publish artifact requires explicit recovery: %s\n' \
+    "${artifacts[*]}" >&2
+  return 1
+}
+
 # Validate both install-state generations before any active install mutation.
 state_preflight() {
   local state_path
+  state_reject_legacy_publish_artifacts || return 1
   for state_path in "$STATE_FILE" "$STATE_PREVIOUS_FILE"; do
     if [[ -L "$state_path" || (-e "$state_path" && ! -f "$state_path") ]]; then
       printf 'ERROR: install-state path must be a regular file or absent: %s\n' "$state_path" >&2
@@ -134,6 +168,7 @@ state_preflight_generation_order() {
 # Initialize or load state
 state_init() {
   local profile="${1:-core}" languages="${2:-}" snapshot_tmp=""
+  local carry_state=""
   local current_status="" current_generation=0 previous_status="" previous_generation=0
   local base_generation=0 next_generation disabled_output="" disabled_csv=""
   state_preflight || return 1
@@ -150,6 +185,7 @@ state_init() {
         "$STATE_PREVIOUS_FILE" >&2
       return 1
     fi
+    carry_state="$STATE_PREVIOUS_FILE"
   fi
 
   # Publish only a complete outgoing generation as the ownership snapshot.
@@ -158,17 +194,6 @@ state_init() {
     if [[ "$current_status" == "COMPLETE" ]]; then
       if [[ -n "$previous_status" && "$current_generation" -lt "$previous_generation" ]]; then
         printf 'ERROR: current install-state generation is older than previous snapshot\n' >&2
-        return 1
-      fi
-      snapshot_tmp="$(mktemp "${STATE_PREVIOUS_FILE}.tmp.XXXXXX")" || return 1
-      if ! cp -p -- "$STATE_FILE" "$snapshot_tmp"; then
-        rm -f -- "$snapshot_tmp"
-        printf 'ERROR: failed to stage previous install-state snapshot\n' >&2
-        return 1
-      fi
-      if ! mv -f -- "$snapshot_tmp" "$STATE_PREVIOUS_FILE"; then
-        rm -f -- "$snapshot_tmp"
-        printf 'ERROR: failed to publish previous install-state snapshot\n' >&2
         return 1
       fi
       base_generation="$current_generation"
@@ -192,8 +217,37 @@ state_init() {
     disabled_output="$(disabled_skills)" || return 1
     disabled_csv="${disabled_output//$'\n'/,}"
   fi
+  if [[ "$current_status" == "COMPLETE" ]]; then
+    snapshot_tmp="$(mktemp "${STATE_PREVIOUS_FILE}.tmp.XXXXXX")" || {
+      return 1
+    }
+    if ! cp -p -- "$STATE_FILE" "$snapshot_tmp"; then
+      rm -f -- "$snapshot_tmp"
+      printf 'ERROR: failed to stage previous install-state snapshot\n' >&2
+      return 1
+    fi
+    if ! state_runtime setup-state-init \
+      "$snapshot_tmp" "" "" "$current_generation" "" "$carry_state" complete-snapshot; then
+      rm -f -- "$snapshot_tmp"
+      return 1
+    fi
+    if ! mv -f -- "$snapshot_tmp" "$STATE_PREVIOUS_FILE"; then
+      rm -f -- "$snapshot_tmp"
+      printf 'ERROR: failed to publish previous install-state snapshot\n' >&2
+      return 1
+    fi
+    carry_state="$STATE_PREVIOUS_FILE"
+    if [[ -n "${VIBEGUARD_TEST_SETUP_STATE_AFTER_PREVIOUS_PUBLISH:-}" ]]; then
+      printf 'ERROR: injected interruption after previous install-state publication\n' >&2
+      return 97
+    fi
+  fi
+  if [[ -n "${VIBEGUARD_TEST_SETUP_STATE_CURRENT_PUBLISH_FAILURE:-}" ]]; then
+    printf 'ERROR: injected current install-state publication failure\n' >&2
+    return 1
+  fi
   state_runtime setup-state-init \
-    "$STATE_FILE" "$profile" "$languages" "$next_generation" "$disabled_csv"
+    "$STATE_FILE" "$profile" "$languages" "$next_generation" "$disabled_csv" "$carry_state"
 }
 
 state_mark_complete() {

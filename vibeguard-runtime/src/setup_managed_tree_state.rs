@@ -1,9 +1,9 @@
 use crate::setup_install_state::{expand_home, read_state, setup_absolute_path};
-use crate::setup_support::SetupResult;
+use crate::setup_support::{SetupResult, sha256_file, write_json_atomic};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{TRANSACTION_VERSION, absolute, valid_digest, valid_text};
 
@@ -109,6 +109,7 @@ pub(super) fn validate_record(dest: &str, record: &Map<String, Value>) -> SetupR
 pub(super) fn validate_record_artifacts(
     dest: &str,
     record: &Map<String, Value>,
+    state: &Value,
 ) -> SetupResult<()> {
     let quarantine = record["quarantine"]
         .as_str()
@@ -155,6 +156,20 @@ pub(super) fn validate_record_artifacts(
     let object = value
         .as_object()
         .ok_or("managed-tree transaction root must be an object")?;
+    let expected = [
+        "dest",
+        "install_state_generation",
+        "nonce",
+        "phase",
+        "quarantine",
+        "source_prefix",
+        "tracked_digest",
+        "transaction",
+        "version",
+    ];
+    if object.len() != expected.len() || expected.iter().any(|key| !object.contains_key(*key)) {
+        return Err("managed-tree transaction has unknown or missing fields".into());
+    }
     if object.get("dest").and_then(Value::as_str) != Some(dest) {
         return Err(format!(
             "active quarantine transaction names another destination: {}",
@@ -162,12 +177,14 @@ pub(super) fn validate_record_artifacts(
         )
         .into());
     }
-    if object.get("phase").and_then(Value::as_str).is_none() {
-        return Err(format!(
-            "active quarantine transaction has no phase: {}",
-            transaction_path.display()
-        )
-        .into());
+    let phase = object
+        .get("phase")
+        .and_then(Value::as_str)
+        .ok_or("active quarantine transaction has no phase")?;
+    if !matches!(phase, "intent" | "committed" | "released") {
+        return Err(
+            format!("active quarantine transaction phase is not recoverable: {phase}").into(),
+        );
     }
     for key in [
         "version",
@@ -184,6 +201,143 @@ pub(super) fn validate_record_artifacts(
                 transaction_path.display()
             )
             .into());
+        }
+    }
+    match fs::symlink_metadata(dest) {
+        Ok(_) if phase != "released" => {
+            return Err(format!("disabled public destination unexpectedly exists: {dest}").into());
+        }
+        Ok(_) => validate_released_public_tree(state, Path::new(dest))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+pub(crate) fn intent_quarantine_for_dest(dest: &Path) -> SetupResult<Option<PathBuf>> {
+    let dest = setup_absolute_path(dest);
+    let parent = dest
+        .parent()
+        .ok_or("managed tree has no parent directory")?;
+    let name = dest
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .ok_or("managed tree name must be non-empty UTF-8")?;
+    let prefix = format!(".{name}.vibeguard-transaction.");
+    let mut found = None;
+    for entry in fs::read_dir(parent)? {
+        let path = entry?.path();
+        let Some(nonce) = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .and_then(|value| value.strip_prefix(&prefix))
+            .and_then(|value| value.strip_suffix(".json"))
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let value: Value = serde_json::from_slice(&fs::read(&path)?)?;
+        let object = value
+            .as_object()
+            .ok_or("managed-tree transaction root must be an object")?;
+        let expected = [
+            "dest",
+            "install_state_generation",
+            "nonce",
+            "phase",
+            "quarantine",
+            "source_prefix",
+            "tracked_digest",
+            "transaction",
+            "version",
+        ];
+        if object.len() != expected.len() || expected.iter().any(|key| !object.contains_key(*key)) {
+            return Err("managed-tree transaction has unknown or missing fields".into());
+        }
+        if object.get("phase").and_then(Value::as_str) != Some("intent") {
+            continue;
+        }
+        let quarantine = parent.join(format!(".{name}.vibeguard-quarantine.{nonce}"));
+        if object.get("dest").and_then(Value::as_str) != dest.to_str()
+            || object.get("nonce").and_then(Value::as_str) != Some(nonce)
+            || object.get("transaction").and_then(Value::as_str) != path.to_str()
+            || object.get("quarantine").and_then(Value::as_str) != quarantine.to_str()
+        {
+            return Err("managed-tree intent transaction contains an unknown path".into());
+        }
+        let metadata = fs::symlink_metadata(&quarantine)?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err("managed-tree intent quarantine is not a directory".into());
+        }
+        if found.replace(quarantine).is_some() {
+            return Err("multiple intent quarantines match managed tree".into());
+        }
+    }
+    Ok(found)
+}
+
+pub(super) fn prune_missing_tracked_files(state_path: &Path, dest: &Path) -> SetupResult<()> {
+    let mut state = read_state(state_path)?;
+    let files = state["files"]
+        .as_object_mut()
+        .ok_or("install-state files must be an object")?;
+    let before = files.len();
+    files.retain(|path, _| {
+        let path = setup_absolute_path(&expand_home(path));
+        (path != dest && !path.starts_with(dest)) || fs::symlink_metadata(path).is_ok()
+    });
+    if files.len() != before {
+        write_json_atomic(state_path, &state)?;
+        super::sync_directory(state_path.parent().ok_or("install-state has no parent")?)?;
+    }
+    Ok(())
+}
+
+fn validate_released_public_tree(state: &Value, dest: &Path) -> SetupResult<()> {
+    let files = state["files"]
+        .as_object()
+        .ok_or("install-state files must be an object")?;
+    let mut leaves = Vec::new();
+    collect_regular_leaves(dest, &mut leaves)?;
+    if leaves.is_empty() {
+        return Err("released quarantine public tree has no tracked inventory".into());
+    }
+    for path in leaves {
+        let entry = files
+            .iter()
+            .find(|(tracked, _)| setup_absolute_path(&expand_home(tracked)) == path)
+            .map(|(_, entry)| entry)
+            .ok_or("released quarantine public tree contains an untracked path")?;
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_file()
+            || entry.get("type").and_then(Value::as_str) != Some("copy")
+        {
+            return Err("released quarantine public tree has an unsupported path".into());
+        }
+        let expected = entry
+            .get("checksum")
+            .and_then(Value::as_str)
+            .ok_or("released quarantine public file has no checksum")?;
+        if format!("sha256:{}", sha256_file(&path)?) != expected {
+            return Err("released quarantine public tree checksum does not match state".into());
+        }
+    }
+    Ok(())
+}
+
+fn collect_regular_leaves(directory: &Path, leaves: &mut Vec<PathBuf>) -> SetupResult<()> {
+    for entry in fs::read_dir(directory)? {
+        let path = entry?.path();
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() || (!metadata.is_file() && !metadata.is_dir()) {
+            return Err("released quarantine public tree has an unsupported path".into());
+        }
+        if metadata.is_dir() {
+            collect_regular_leaves(&path, leaves)?;
+        } else {
+            leaves.push(path);
         }
     }
     Ok(())

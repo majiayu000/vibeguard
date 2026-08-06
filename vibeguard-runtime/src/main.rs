@@ -435,8 +435,13 @@ static COMMANDS: &[Command] = &[
         handler: setup_markdown::settings_check_stale,
     },
     Command {
+        name: "setup-state-capabilities",
+        usage: "— report the versioned install-state capability contract",
+        handler: setup_install_state::capabilities,
+    },
+    Command {
         name: "setup-state-init",
-        usage: "<state-file> <profile> <languages> [generation] [disabled-skills]  — initialize install state",
+        usage: "<state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot]  — initialize install state or merge a complete outgoing snapshot",
         handler: setup_install_state::init,
     },
     Command {

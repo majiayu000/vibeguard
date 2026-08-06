@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[path = "setup_managed_tree_test_support.rs"]
 mod test_support;
 #[path = "setup_managed_tree_state.rs"]
-mod tree_state;
+pub(crate) mod tree_state;
 use test_support::{
     inject_collision, inject_failure, inject_postverify, inject_public_replacement,
 };
@@ -147,18 +147,18 @@ pub fn release(args: &[String]) -> SetupResult<()> {
         println!("ABSENT");
         return Ok(());
     };
-    verify_exact(&states, &dest, &args[3], &dest)?;
-
     let mut matched = None;
     for transaction_path in transaction_paths(parent, name)? {
         let transaction = read_transaction(&transaction_path)?;
+        let expected_source = (!matches!(transaction.phase.as_str(), "restored" | "released"))
+            .then_some(args[3].as_str());
         validate_transaction(
             &transaction,
             &transaction_path,
             &dest,
             parent,
             name,
-            Some(&args[3]),
+            expected_source,
         )?;
         if record_value(&transaction) != record {
             continue;
@@ -182,6 +182,8 @@ pub fn release(args: &[String]) -> SetupResult<()> {
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err("quarantine retention path is not a regular directory".into());
     }
+    tree_state::prune_missing_tracked_files(current_state, &dest)?;
+    verify_exact(&states, &dest, &args[3], &dest)?;
 
     transaction.phase = "released".into();
     write_json_durable(&transaction_path, &transaction_value(&transaction))?;
@@ -526,7 +528,7 @@ pub(crate) fn validate_state_artifacts(state: &Value) -> SetupResult<()> {
         let record = record
             .as_object()
             .ok_or("disabled skill quarantine record must be an object")?;
-        tree_state::validate_record_artifacts(dest, record)?;
+        tree_state::validate_record_artifacts(dest, record, state)?;
     }
     Ok(())
 }
@@ -572,10 +574,12 @@ fn transaction_paths(parent: &Path, name: &str) -> SetupResult<Vec<PathBuf>> {
     let mut paths = Vec::new();
     for entry in fs::read_dir(parent)? {
         let path = entry?.path();
-        if !path
+        if path
             .file_name()
             .and_then(|value| value.to_str())
-            .is_some_and(|value| value.starts_with(&prefix))
+            .and_then(|value| value.strip_prefix(&prefix))
+            .and_then(|value| value.strip_suffix(".json"))
+            .is_none_or(|nonce| nonce.is_empty())
         {
             continue;
         }

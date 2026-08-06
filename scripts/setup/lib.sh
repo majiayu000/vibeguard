@@ -74,7 +74,9 @@ setup_runtime_version_matches() {
 }
 
 setup_runtime_supports() {
-  local runtime="$1" probe_state="${TMPDIR:-/tmp}/vibeguard-runtime-probe.$$.json"
+  local runtime="$1" capability_out probe_state="${TMPDIR:-/tmp}/vibeguard-runtime-probe.$$.json"
+  capability_out="$("${runtime}" setup-state-capabilities 2>/dev/null)" || return 1
+  [[ "${capability_out}" == "complete-snapshot-v1" ]] || return 1
   "${runtime}" setup-state-list-symlinks-under "${probe_state}" "${TMPDIR:-/tmp}" >/dev/null 2>&1 || return 1
   setup_runtime_version_matches "${runtime}" || return 1
 
@@ -91,6 +93,7 @@ setup_runtime_supports() {
     setup-codex-hooks-check-stale \
     setup-codex-hooks-prune-stale-unmanaged \
     setup-codex-hooks-check-timeouts \
+    setup-state-init \
     setup-state-list-tracked-under \
     setup-state-verify-managed-tree \
     setup-state-quarantine-managed-tree \

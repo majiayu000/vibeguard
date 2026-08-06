@@ -145,6 +145,7 @@ if [[ -n "${VIBEGUARD_STALE_RUNTIME_MARKER:-}" ]]; then
 fi
 case "${1:-}" in
   version) printf '%s\n' "${VIBEGUARD_STALE_RUNTIME_VERSION:?}" ;;
+  setup-state-capabilities) printf '%s\n' 'complete-snapshot-v1' ;;
   setup-state-quarantine-managed-tree)
     printf '%s\n' "Unknown command: setup-state-quarantine-managed-tree" >&2
     exit 2

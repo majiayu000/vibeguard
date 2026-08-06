@@ -282,6 +282,140 @@ fn released_transaction_from_old_source_does_not_block_new_source() {
 }
 
 #[test]
+fn active_quarantine_rejects_a_manifest_source_move() {
+    let fixture = Fixture::new("quarantine-managed-tree-active-source-move");
+    let first = fixture.run(&[]);
+    assert_eq!(first.status.code(), Some(0), "{}", stderr(&first));
+
+    let disabled_again = fixture.run_command_source(
+        "setup-state-quarantine-managed-tree",
+        "skills-v2/plan-flow",
+        &[],
+    );
+    assert_eq!(disabled_again.status.code(), Some(1));
+    assert!(stderr(&disabled_again).contains("managed-tree transaction does not match request"));
+    assert!(fixture.record().is_some());
+    assert!(fixture.quarantines()[0].join("SKILL.md").is_file());
+}
+
+#[test]
+fn release_prunes_stale_tracked_files_removed_from_canonical_source() {
+    let fixture = Fixture::new("quarantine-managed-tree-release-prune");
+    let first = fixture.run(&[]);
+    assert_eq!(first.status.code(), Some(0), "{}", stderr(&first));
+    let stale = fixture.skill.join("REMOVED.md");
+    let mut state = fixture.state();
+    state["files"][path_text(&stale)] = json!({
+        "source": "skills/plan-flow/REMOVED.md",
+        "type": "copy",
+        "checksum": MANAGED_CHECKSUM
+    });
+    write_json(&fixture.state, &state);
+    fs::create_dir_all(&fixture.skill).expect("public skill should be recreated");
+    fs::write(fixture.skill.join("SKILL.md"), "managed\n")
+        .expect("canonical public skill should be restored");
+
+    let released = fixture.run_command("setup-state-release-quarantined-tree", &[]);
+    assert_eq!(released.status.code(), Some(0), "{}", stderr(&released));
+    assert!(fixture.state()["files"].get(path_text(&stale)).is_none());
+}
+
+#[test]
+fn release_transaction_failures_do_not_prune_install_state() {
+    for corrupt in [false, true] {
+        let fixture = Fixture::new(if corrupt {
+            "quarantine-managed-tree-corrupt-release-transaction"
+        } else {
+            "quarantine-managed-tree-missing-release-transaction"
+        });
+        assert_eq!(fixture.run(&[]).status.code(), Some(0));
+        let stale = fixture.skill.join("REMOVED.md");
+        let mut state = fixture.state();
+        state["files"][path_text(&stale)] = json!({
+            "source": "skills/plan-flow/REMOVED.md",
+            "type": "copy",
+            "checksum": MANAGED_CHECKSUM
+        });
+        write_json(&fixture.state, &state);
+        fs::create_dir_all(&fixture.skill).expect("public skill should be recreated");
+        fs::write(fixture.skill.join("SKILL.md"), "managed\n")
+            .expect("canonical public skill should be restored");
+        let transaction = fixture.transactions()[0].clone();
+        if corrupt {
+            fs::write(transaction, "{").expect("transaction should be corrupted");
+        } else {
+            fs::remove_file(transaction).expect("transaction should be removed");
+        }
+        let before = fs::read(&fixture.state).expect("state should read before release");
+        let released = fixture.run_command("setup-state-release-quarantined-tree", &[]);
+        assert_eq!(released.status.code(), Some(1));
+        assert_eq!(fs::read(&fixture.state).unwrap(), before);
+    }
+}
+
+#[test]
+fn released_crash_retry_tolerates_previous_stale_inventory() {
+    let fixture = Fixture::new("quarantine-managed-tree-released-previous-stale");
+    assert_eq!(fixture.run(&[]).status.code(), Some(0));
+    let record = fixture.record().expect("active record should exist");
+    let stale = fixture.skill.join("REMOVED.md");
+    let stale_entry = json!({
+        "source": "skills/plan-flow/REMOVED.md",
+        "type": "copy",
+        "checksum": MANAGED_CHECKSUM
+    });
+    let mut current = fixture.state();
+    current["files"][path_text(&stale)] = stale_entry.clone();
+    write_json(&fixture.state, &current);
+    let mut previous: Value =
+        serde_json::from_slice(&fs::read(&fixture.previous).unwrap()).unwrap();
+    previous["files"][path_text(&stale)] = stale_entry;
+    previous["disabled_skill_quarantines"] = json!({ path_text(&fixture.skill): record });
+    write_json(&fixture.previous, &previous);
+    fs::create_dir_all(&fixture.skill).expect("public skill should be recreated");
+    fs::write(fixture.skill.join("SKILL.md"), "managed\n")
+        .expect("canonical public skill should be restored");
+
+    let interrupted = fixture.run_command(
+        "setup-state-release-quarantined-tree",
+        &[("VIBEGUARD_TEST_RELEASE_AFTER_TRANSACTION", "1")],
+    );
+    assert_eq!(interrupted.status.code(), Some(1));
+    let previous_preflight = bin()
+        .args([
+            "setup-state-quarantine-count",
+            &path_text(&fixture.previous),
+        ])
+        .output()
+        .expect("previous-state preflight should run");
+    assert_output(&previous_preflight, 0, "1\n", "");
+
+    let retry = fixture.run_command("setup-state-release-quarantined-tree", &[]);
+    assert_eq!(retry.status.code(), Some(0), "{}", stderr(&retry));
+    assert!(fixture.record().is_none());
+    let previous: Value = serde_json::from_slice(&fs::read(&fixture.previous).unwrap()).unwrap();
+    assert!(previous.get("disabled_skill_quarantines").is_none());
+}
+
+#[test]
+fn transaction_scan_ignores_interrupted_atomic_write_temps() {
+    let fixture = Fixture::new("quarantine-managed-tree-transaction-temp");
+    let temp = fixture
+        .skill
+        .parent()
+        .unwrap()
+        .join(".plan-flow.vibeguard-transaction.abandoned.tmp.42");
+    fs::write(&temp, "{").expect("staged temp should be written");
+    let output = fixture.run(&[]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert!(
+        temp.is_file(),
+        "unpublished temp is ignored rather than parsed"
+    );
+    assert!(fixture.record().is_some());
+}
+
+#[test]
 fn crash_after_rename_recovers_then_commits_without_deletion() {
     let fixture = Fixture::new("quarantine-managed-tree-rename-crash");
     let crashed = fixture.run(&[("VIBEGUARD_TEST_QUARANTINE_AFTER_RENAME", "1")]);

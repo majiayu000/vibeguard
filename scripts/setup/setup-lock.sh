@@ -39,8 +39,13 @@ setup_lock_owner_status() {
 }
 
 cleanup_install_lifecycle() {
+  local status=$?
+  if ! setup_lock_release; then
+    red "ERROR: failed to release the VibeGuard setup lock; remove it before retrying"
+    status=1
+  fi
   cleanup_install_temps
-  setup_lock_release || true
+  return "${status}"
 }
 
 setup_preflight_and_lock() {

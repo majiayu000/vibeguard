@@ -145,6 +145,16 @@ fn drift_checks_active_quarantine_bytes_instead_of_public_path() {
     let transaction = root.join("skills/.plan-flow.vibeguard-transaction.nonce.json");
     fs::create_dir_all(&quarantine).expect("quarantine should be created");
     fs::write(quarantine.join("SKILL.md"), "hello").expect("quarantined skill should be written");
+    let record = json!({
+        "version": 1,
+        "quarantine": path_text(&quarantine),
+        "transaction": path_text(&transaction),
+        "source_prefix": "skills/plan-flow",
+        "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+        "install_state_generation": 1,
+        "nonce": "nonce"
+    });
+    materialize_quarantine_artifacts(&dest, &quarantine, &transaction, &record, "committed");
     write_json(
         &state,
         &json!({
@@ -156,17 +166,7 @@ fn drift_checks_active_quarantine_bytes_instead_of_public_path() {
                     "checksum": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
                 }
             },
-            "disabled_skill_quarantines": {
-                path_text(&dest): {
-                    "version": 1,
-                    "quarantine": path_text(&quarantine),
-                    "transaction": path_text(&transaction),
-                    "source_prefix": "skills/plan-flow",
-                    "tracked_digest": format!("sha256:{}", "a".repeat(64)),
-                    "install_state_generation": 1,
-                    "nonce": "nonce"
-                }
-            }
+            "disabled_skill_quarantines": { path_text(&dest): record }
         }),
     );
     let output = bin()
@@ -192,6 +192,16 @@ fn drift_checks_active_quarantine_bytes_instead_of_public_path() {
             dest.join("SKILL.md").display()
         ),
         "",
+    );
+    fs::remove_file(&transaction).expect("transaction should be removed");
+    let missing_transaction = bin()
+        .args(["setup-state-check-drift", &path_text(&state)])
+        .output()
+        .expect("drift with missing transaction should run");
+    assert_eq!(missing_transaction.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&missing_transaction.stderr)
+            .contains("active quarantine transaction cannot be proven")
     );
     fs::remove_dir_all(root).expect("temp root should be removed");
 }
@@ -329,6 +339,74 @@ fn init_retry_preserves_verifiable_incomplete_disabled_skill_inventory() {
 }
 
 #[test]
+fn init_retry_preserves_inventory_after_an_intent_quarantine_rename() {
+    let root = unique_temp_dir("quarantine-init-intent-retry");
+    let home = root.join("home");
+    let state = root.join("state.json");
+    let dest = home.join(".codex/skills/plan-flow");
+    let tracked = dest.join("SKILL.md");
+    fs::create_dir_all(&dest).expect("public skill should be created");
+    fs::write(&tracked, "hello").expect("managed skill should be written");
+    write_json(
+        &state,
+        &json!({
+            "version": 1,
+            "generation": 5,
+            "complete": false,
+            "files": {
+                path_text(&tracked): {
+                    "source": "workflows/plan-flow/SKILL.md",
+                    "type": "copy",
+                    "checksum": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+                }
+            }
+        }),
+    );
+    let quarantine = dest
+        .parent()
+        .unwrap()
+        .join(".plan-flow.vibeguard-quarantine.intent");
+    let transaction = dest
+        .parent()
+        .unwrap()
+        .join(".plan-flow.vibeguard-transaction.intent.json");
+    fs::rename(&dest, &quarantine).expect("public skill should be quarantined");
+    write_json(
+        &transaction,
+        &json!({
+            "version": 1,
+            "phase": "intent",
+            "dest": path_text(&dest),
+            "quarantine": path_text(&quarantine),
+            "transaction": path_text(&transaction),
+            "source_prefix": "workflows/plan-flow",
+            "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+            "install_state_generation": 5,
+            "nonce": "intent"
+        }),
+    );
+
+    let output = bin()
+        .args([
+            "setup-state-init",
+            &path_text(&state),
+            "core",
+            "",
+            "5",
+            "plan-flow",
+        ])
+        .env("HOME", &home)
+        .output()
+        .expect("intent retry init should run");
+    assert_output(&output, 0, "", "");
+    let retained: serde_json::Value =
+        serde_json::from_slice(&fs::read(&state).expect("state should be readable"))
+            .expect("state should remain JSON");
+    assert!(retained["files"].get(path_text(&tracked)).is_some());
+    fs::remove_dir_all(root).expect("temp root should be removed");
+}
+
+#[test]
 fn init_carries_active_quarantine_for_a_retired_manifest_skill() {
     let root = unique_temp_dir("quarantine-init-retired-skill");
     let state = root.join("state.json");
@@ -429,5 +507,185 @@ fn preflight_rejects_an_active_quarantine_whose_artifacts_are_gone() {
         "preflight must name the unprovable artifact: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    fs::remove_dir_all(root).expect("temp root should be removed");
+}
+
+#[test]
+fn preflight_rejects_public_replacements_terminal_phases_and_schema_drift() {
+    let root = unique_temp_dir("quarantine-preflight-exact-transaction");
+    let state = root.join("state.json");
+    let dest = root.join("skills/plan-flow");
+    let quarantine = root.join("skills/.plan-flow.vibeguard-quarantine.nonce");
+    let transaction = root.join("skills/.plan-flow.vibeguard-transaction.nonce.json");
+    let record = json!({
+        "version": 1,
+        "quarantine": path_text(&quarantine),
+        "transaction": path_text(&transaction),
+        "source_prefix": "skills/plan-flow",
+        "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+        "install_state_generation": 1,
+        "nonce": "nonce"
+    });
+    materialize_quarantine_artifacts(&dest, &quarantine, &transaction, &record, "committed");
+    write_json(
+        &state,
+        &json!({
+            "version": 1,
+            "files": {},
+            "disabled_skill_quarantines": { path_text(&dest): record }
+        }),
+    );
+
+    fs::create_dir_all(&dest).expect("public replacement should be created");
+    fs::write(dest.join("USER.md"), "user").expect("public replacement should be written");
+    let public = bin()
+        .args(["setup-state-quarantine-count", &path_text(&state)])
+        .output()
+        .expect("public replacement preflight should run");
+    assert_eq!(public.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&public.stderr).contains("unexpectedly exists"));
+    fs::remove_dir_all(&dest).expect("public replacement should be removed");
+
+    for phase in ["restored", "unknown"] {
+        materialize_quarantine_artifacts(&dest, &quarantine, &transaction, &record, phase);
+        let output = bin()
+            .args(["setup-state-quarantine-count", &path_text(&state)])
+            .output()
+            .expect("terminal phase preflight should run");
+        assert_eq!(output.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("phase is not recoverable"));
+    }
+
+    materialize_quarantine_artifacts(&dest, &quarantine, &transaction, &record, "committed");
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&fs::read(&transaction).expect("transaction should read"))
+            .expect("transaction should parse");
+    value["unexpected"] = json!(true);
+    write_json(&transaction, &value);
+    let schema = bin()
+        .args(["setup-state-quarantine-count", &path_text(&state)])
+        .output()
+        .expect("schema preflight should run");
+    assert_eq!(schema.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&schema.stderr).contains("unknown or missing fields"));
+
+    materialize_quarantine_artifacts(&dest, &quarantine, &transaction, &record, "released");
+    fs::create_dir_all(&dest).expect("released public tree should be created");
+    fs::write(dest.join("SKILL.md"), "managed\n").expect("released public file should exist");
+    let mut released_state: serde_json::Value =
+        serde_json::from_slice(&fs::read(&state).expect("state should read"))
+            .expect("state should parse");
+    released_state["files"][path_text(&dest.join("SKILL.md"))] = json!({
+        "source": "skills-v2/plan-flow/SKILL.md",
+        "type": "copy",
+        "checksum": "sha256:5b4bc29f140e30c01417d810e700ecc54a84a0107566d84215b42e5742ef8d96"
+    });
+    released_state["files"][path_text(&dest.join("REMOVED.md"))] = json!({
+        "source": "skills/plan-flow/REMOVED.md",
+        "type": "copy",
+        "checksum": "sha256:5b4bc29f140e30c01417d810e700ecc54a84a0107566d84215b42e5742ef8d96"
+    });
+    write_json(&state, &released_state);
+    let released = bin()
+        .args(["setup-state-quarantine-count", &path_text(&state)])
+        .output()
+        .expect("released phase preflight should run");
+    assert_output(&released, 0, "1\n", "");
+    fs::remove_dir_all(root).expect("temp root should be removed");
+}
+
+#[test]
+fn complete_snapshot_merge_preserves_current_inventory_and_previous_only_ownership() {
+    let root = unique_temp_dir("quarantine-complete-snapshot-merge");
+    let snapshot = root.join("install-state.previous.tmp");
+    let carry = root.join("install-state.previous.json");
+    let current_owned = root.join("skills/current/SKILL.md");
+    let dest = root.join("skills/retired");
+    let quarantine = root.join("skills/.retired.vibeguard-quarantine.nonce");
+    let transaction = root.join("skills/.retired.vibeguard-transaction.nonce.json");
+    fs::create_dir_all(current_owned.parent().unwrap()).unwrap();
+    fs::write(&current_owned, "hello").unwrap();
+    fs::create_dir_all(&quarantine).unwrap();
+    fs::write(quarantine.join("SKILL.md"), "hello").unwrap();
+    let record = json!({
+        "version": 1,
+        "quarantine": path_text(&quarantine),
+        "transaction": path_text(&transaction),
+        "source_prefix": "skills/retired",
+        "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+        "install_state_generation": 4,
+        "nonce": "nonce"
+    });
+    materialize_quarantine_artifacts(&dest, &quarantine, &transaction, &record, "committed");
+    write_json(
+        &snapshot,
+        &json!({
+            "version": 1, "generation": 5, "complete": true,
+            "files": { path_text(&current_owned): {
+                "source": "skills/current/SKILL.md", "type": "copy",
+                "checksum": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+            }}
+        }),
+    );
+    write_json(
+        &carry,
+        &json!({
+            "version": 1, "generation": 4, "complete": true,
+            "files": { path_text(&dest.join("SKILL.md")): {
+                "source": "skills/retired/SKILL.md", "type": "copy",
+                "checksum": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+            }},
+            "disabled_skill_quarantines": { path_text(&dest): record }
+        }),
+    );
+
+    let merged = bin()
+        .args([
+            "setup-state-init",
+            &path_text(&snapshot),
+            "",
+            "",
+            "5",
+            "",
+            &path_text(&carry),
+            "complete-snapshot",
+        ])
+        .output()
+        .expect("complete snapshot merge should run");
+    assert_output(&merged, 0, "", "");
+    let value: serde_json::Value = serde_json::from_slice(&fs::read(&snapshot).unwrap()).unwrap();
+    assert_eq!(value["generation"], 5);
+    assert_eq!(value["complete"], true);
+    assert!(value["files"].get(path_text(&current_owned)).is_some());
+    assert!(
+        value["files"]
+            .get(path_text(&dest.join("SKILL.md")))
+            .is_some()
+    );
+    assert!(
+        value["disabled_skill_quarantines"]
+            .get(path_text(&dest))
+            .is_some()
+    );
+    let mut incomplete = value;
+    incomplete["complete"] = json!(false);
+    write_json(&snapshot, &incomplete);
+    let before = fs::read(&snapshot).unwrap();
+    let rejected = bin()
+        .args([
+            "setup-state-init",
+            &path_text(&snapshot),
+            "",
+            "",
+            "5",
+            "",
+            &path_text(&carry),
+            "complete-snapshot",
+        ])
+        .output()
+        .expect("incomplete snapshot merge should run");
+    assert_eq!(rejected.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("must be complete"));
+    assert_eq!(fs::read(&snapshot).unwrap(), before);
     fs::remove_dir_all(root).expect("temp root should be removed");
 }
