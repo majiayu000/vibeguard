@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "contract_id": "gh703_operation_matrix_v1",
+  "normative": true,
+  "commit_primitive": {
+    "id": "exclusive_no_replace_rename",
+    "linux": "renameat2(RENAME_NOREPLACE)",
+    "macos": "renameatx_np(RENAME_EXCL)",
+    "forbidden": [
+      "hard_link",
+      "link_then_unlink",
+      "replace_existing",
+      "compare_then_rename"
+    ]
+  },
+  "chains": {
+    "source_generation": {
+      "record_path": "source-generations/<source-generation-id>/",
+      "commit_marker_path": null,
+      "commit_marker_required": false,
+      "commit_unit": "atomic_directory"
+    },
+    "authority_journal": {
+      "record_path": "authority-journal/segments/<segment-id>/records/<journal-sequence>-<record-id>.json",
+      "commit_marker_path": null,
+      "commit_marker_required": false,
+      "commit_unit": "record"
+    },
+    "generation_claim": {
+      "record_path": "generation-claims/records/<claim-sequence>-<claim-id>.json",
+      "commit_marker_path": "generation-claims/commits/<claim-sequence>-<claim-id>.commit",
+      "commit_marker_required": true,
+      "commit_unit": "record_marker_pair"
+    },
+    "generation_binding": {
+      "record_path": "generation-bindings/records/<binding-sequence>-<binding-id>.json",
+      "commit_marker_path": "generation-bindings/commits/<binding-sequence>-<binding-id>.commit",
+      "commit_marker_required": true,
+      "commit_unit": "record_marker_pair"
+    },
+    "ownership_receipt": {
+      "record_path": "ownership-receipts/records/<receipt-sequence>-<receipt-id>.json",
+      "commit_marker_path": "ownership-receipts/commits/<receipt-sequence>-<receipt-id>.commit",
+      "commit_marker_required": true,
+      "commit_unit": "record_marker_pair"
+    },
+    "lifecycle_terminal": {
+      "record_path": "lifecycle-terminals/records/<terminal-sequence>-<terminal-id>.json",
+      "commit_marker_path": "lifecycle-terminals/commits/<terminal-sequence>-<terminal-id>.commit",
+      "commit_marker_required": true,
+      "commit_unit": "record_marker_pair"
+    },
+    "current_pointer": {
+      "record_path": "current-pointers/records/<pointer-sequence>-<pointer-id>.json",
+      "commit_marker_path": "current-pointers/commits/<pointer-sequence>-<pointer-id>.commit",
+      "commit_marker_required": true,
+      "commit_unit": "record_marker_pair"
+    },
+    "audit_checkpoint": {
+      "record_path": "audit-checkpoints/<chain-kind>/records/<checkpoint-sequence>-<checkpoint-id>.json",
+      "commit_marker_path": "audit-checkpoints/<chain-kind>/commits/<checkpoint-sequence>-<checkpoint-id>.commit",
+      "commit_marker_required": true,
+      "commit_unit": "record_marker_pair"
+    }
+  },
+  "status_reasons": {
+    "publishable": [
+      "complete_nonempty",
+      "complete_empty",
+      "source_missing",
+      "ledger_gap",
+      "writer_coverage_unavailable",
+      "manual_pre_start",
+      "manual_post_seal",
+      "archive_missing",
+      "archive_tombstoned",
+      "event_identity_conflict",
+      "incompatible_host",
+      "unknown_host",
+      "unclassified_event",
+      "legacy_evidence",
+      "snapshot_changed",
+      "budget_exceeded"
+    ],
+    "terminal_no_publish": [
+      "ledger_corrupt",
+      "archive_corrupt",
+      "integrity_preflight_incomplete",
+      "event_identity_missing"
+    ],
+    "publishable_precedence": [
+      "writer_coverage_unavailable",
+      "manual_pre_start",
+      "manual_post_seal",
+      "ledger_gap",
+      "source_missing",
+      "archive_missing",
+      "archive_tombstoned",
+      "event_identity_conflict",
+      "incompatible_host",
+      "unknown_host",
+      "unclassified_event",
+      "legacy_evidence",
+      "snapshot_changed",
+      "budget_exceeded"
+    ]
+  },
+  "operations": [
+    {
+      "operation_id": "source_generation_bootstrap",
+      "allowed_chains": ["source_generation"],
+      "required_chain_order": ["source_generation"],
+      "forbidden_chains": ["authority_journal", "generation_claim", "generation_binding", "ownership_receipt", "lifecycle_terminal", "current_pointer", "audit_checkpoint"],
+      "commit_marker_policy": "chain_registry",
+      "publishability": "source_generation_only",
+      "reserve_capacity": {
+        "class": "activation_transaction",
+        "required_capacity": ["source_generation_directory"],
+        "may_consume_terminal_cleanup_reserve": false
+      },
+      "authority": {
+        "type": "lifecycle_activation",
+        "required_chain": "source_generation",
+        "pointer_record_type": null
+      },
+      "recovery_terminal": "nonzero_block_activation"
+    },
+    {
+      "operation_id": "authority_journal_append",
+      "allowed_chains": ["authority_journal"],
+      "required_chain_order": ["authority_journal"],
+      "forbidden_chains": ["source_generation", "generation_claim", "generation_binding", "ownership_receipt", "lifecycle_terminal", "current_pointer", "audit_checkpoint"],
+      "commit_marker_policy": "chain_registry",
+      "publishability": "coverage_evidence_only",
+      "reserve_capacity": {
+        "class": "active_journal_admission",
+        "required_capacity": ["open_slot_terminal_record", "next_heartbeat_record"],
+        "may_consume_terminal_cleanup_reserve": false
+      },
+      "authority": {
+        "type": "active_authority_epoch",
+        "required_chain": "authority_journal",
+        "pointer_record_type": null
+      },
+      "recovery_terminal": "seal_epoch_and_fail_visible"
+    },
+    {
+      "operation_id": "current_generation_publish",
+      "allowed_chains": ["generation_claim", "generation_binding", "ownership_receipt", "current_pointer"],
+      "required_chain_order": ["generation_claim", "generation_binding", "ownership_receipt", "current_pointer"],
+      "forbidden_chains": ["source_generation", "authority_journal", "lifecycle_terminal", "audit_checkpoint"],
+      "commit_marker_policy": "chain_registry",
+      "publishability": "current_generation",
+      "reserve_capacity": {
+        "class": "normal_admission",
+        "required_capacity": ["claim_pair", "binding_pair", "receipt_pair", "current_pointer_pair"],
+        "may_consume_terminal_cleanup_reserve": false
+      },
+      "authority": {
+        "type": "ownership_receipt",
+        "required_chain": "ownership_receipt",
+        "pointer_record_type": "current_generation"
+      },
+      "recovery_terminal": "nonzero_stale_keep_prior_pointer"
+    },
+    {
+      "operation_id": "disable_no_current",
+      "allowed_chains": ["lifecycle_terminal", "current_pointer"],
+      "required_chain_order": ["lifecycle_terminal", "current_pointer"],
+      "forbidden_chains": ["source_generation", "authority_journal", "generation_claim", "generation_binding", "ownership_receipt", "audit_checkpoint"],
+      "commit_marker_policy": "chain_registry",
+      "publishability": "no_current",
+      "reserve_capacity": {
+        "class": "terminal_cleanup",
+        "required_capacity": ["lifecycle_terminal_pair", "no_current_pointer_pair"],
+        "may_consume_terminal_cleanup_reserve": true
+      },
+      "authority": {
+        "type": "lifecycle_terminal",
+        "required_chain": "lifecycle_terminal",
+        "pointer_record_type": "no_current"
+      },
+      "recovery_terminal": "nonzero_retry_exact_remaining_terminal_steps"
+    },
+    {
+      "operation_id": "clean_no_current",
+      "allowed_chains": ["lifecycle_terminal", "current_pointer"],
+      "required_chain_order": ["lifecycle_terminal", "current_pointer"],
+      "forbidden_chains": ["source_generation", "authority_journal", "generation_claim", "generation_binding", "ownership_receipt", "audit_checkpoint"],
+      "commit_marker_policy": "chain_registry",
+      "publishability": "no_current",
+      "reserve_capacity": {
+        "class": "terminal_cleanup",
+        "required_capacity": ["lifecycle_terminal_pair", "no_current_pointer_pair"],
+        "may_consume_terminal_cleanup_reserve": true
+      },
+      "authority": {
+        "type": "lifecycle_terminal",
+        "required_chain": "lifecycle_terminal",
+        "pointer_record_type": "no_current"
+      },
+      "recovery_terminal": "nonzero_retry_exact_remaining_terminal_steps"
+    },
+    {
+      "operation_id": "audit_checkpoint_publish",
+      "allowed_chains": ["audit_checkpoint"],
+      "required_chain_order": ["audit_checkpoint"],
+      "forbidden_chains": ["source_generation", "authority_journal", "generation_claim", "generation_binding", "ownership_receipt", "lifecycle_terminal", "current_pointer"],
+      "commit_marker_policy": "chain_registry",
+      "publishability": "audit_restart_root_only",
+      "reserve_capacity": {
+        "class": "chain_checkpoint",
+        "required_capacity": ["checkpoint_pair"],
+        "may_consume_terminal_cleanup_reserve": false
+      },
+      "authority": {
+        "type": "selected_pointer_live_authorization",
+        "required_chain": "audit_checkpoint",
+        "pointer_record_type": null
+      },
+      "recovery_terminal": "nonzero_stop_publish_and_retention"
+    },
+    {
+      "operation_id": "integrity_failure",
+      "allowed_chains": [],
+      "required_chain_order": [],
+      "forbidden_chains": ["source_generation", "authority_journal", "generation_claim", "generation_binding", "ownership_receipt", "lifecycle_terminal", "current_pointer", "audit_checkpoint"],
+      "commit_marker_policy": "no_commit",
+      "publishability": "none",
+      "reserve_capacity": {
+        "class": "none",
+        "required_capacity": [],
+        "may_consume_terminal_cleanup_reserve": false
+      },
+      "authority": {
+        "type": "terminal_diagnostic",
+        "required_chain": null,
+        "pointer_record_type": null
+      },
+      "recovery_terminal": "nonzero_stale_keep_prior_pointer"
+    }
+  ]
+}
