@@ -32,7 +32,7 @@ U64_MAX = 18_446_744_073_709_551_615
 CLIENT = ("get_publication_head", "claim_publication_owner", "renew_publication_owner", "takeover_publication_owner", "append_publication_transition", "plan_release_mutation", "deliver_release_mutation", "recover_release_mutation", "plan_generated_pr", "deliver_generated_pr", "recover_generated_pr", "append_blocked_attempt", "bind_blocked_attempt", "list_blocked_attempts", "commit_reconciliation_watermark", "get_blocked_attempt_frontier", "read_secret_capsule")
 CONTROL = ("prepare_bootstrap_trusted_time", "bootstrap", "migrate", "recover", "ready")
 COVERAGE = {"source_binding", "genesis", "key_attestation", "client_replay", "control_replay", "terminal_binding", "snapshot_binding", "merged_existing_receipts", "recover_selector_database", "recover_selector_backup", "recover_selector_anchor", "control_not_found", "prebootstrap_policy", "release_recovery_pending", "release_not_applied", "release_compensated", "release_blocked", "generated_pr_not_applied", "generated_pr_blocked", "delivery_recovery_required", "capsule_source_plan", "capsule_source_claim"}
-REQUIRED_DIGEST_NODES = {"attempt_subject_key", "authorization_signing_preimage_digest", "signature_digest", "client_request_nonce_digest", "control_request_nonce_digest", "time_bound_request_id", "execution_identity_digest", "operation_id", "release_broker_delivery_id", "generated_pr_delivery_id", "delivery_scope_digest", "recovery_query_digest", "capsule_source_request_id", "secret_channel_request_core_digest", "tls_exporter_context_digest", "tls_exporter_keying_material_digest", "secret_channel_binding_digest", "operation_request_digest", "receipt_digest", "result_digest", "response_nonce_digest", "response_digest", "prior_anchor_binding_digest", "backup_aad_digest", "describe_key_material_attestation_digest", "manifest_key_binding_digest", "generate_data_key_request_digest", "generate_data_key_material_attestation_digest", "key_attestation_digest", "capsule_receipt_digest", "replay_row_digest"}
+REQUIRED_DIGEST_NODES = {"attempt_subject_key", "release_identity_attestation_digest", "liveness_policy_digest", "authorization_signing_preimage_digest", "signature_digest", "client_request_nonce_digest", "control_request_nonce_digest", "time_bound_request_id", "execution_identity_digest", "operation_id", "release_broker_delivery_id", "generated_pr_delivery_id", "delivery_scope_digest", "recovery_query_digest", "capsule_source_request_id", "secret_channel_request_core_digest", "tls_exporter_context_digest", "tls_exporter_keying_material_digest", "secret_channel_binding_digest", "operation_request_digest", "receipt_digest", "result_digest", "response_nonce_digest", "response_digest", "prior_anchor_binding_digest", "backup_aad_digest", "describe_key_material_attestation_digest", "manifest_key_binding_digest", "generate_data_key_request_digest", "generate_data_key_material_attestation_digest", "key_attestation_digest", "capsule_receipt_digest", "replay_row_digest"}
 DIGEST_SCHEMA = None
 KMS_MANIFEST = None
 BINDING_MATRIX = None
@@ -204,9 +204,25 @@ def receipt_digests(value, label="result"):
 def request_digests(request, surface):
     method, body = request["method"], request["body"]
     nonce = decode_b64u(request["request_nonce"], 32, f"{method}.request_nonce")
+    if "release_identity_attestation" in body:
+        # An unconstrained attestation_digest let the release identity, process,
+        # key, and validity fields be rewritten while the proof bundle merely
+        # copied the digest through. Bind the digest to the attestation content.
+        attestation = body["release_identity_attestation"]
+        derive(attestation, "attestation_digest", dg(
+            "release_identity_attestation_digest", "GH700:release-identity-attestation:v1",
+            {key: item for key, item in attestation.items() if key != "attestation_digest"},
+        ), method)
     op_id = operation_id(request, surface)
     if "time_bound_request_id" in body:
-        time_id = dg("time_bound_request_id", "GH700:time-bound-request-id:v1", body["time_bound_intent"])
+        intent = body["time_bound_intent"]
+        # The policy digest is derived from the approved H-006 body the intent
+        # carries, so an operation can no longer be certified under an
+        # arbitrary liveness policy of the caller's choosing.
+        derive(intent["client_payload_core"], "liveness_policy_digest", dg(
+            "liveness_policy_digest", "GH700:liveness-policy:v1", intent["liveness_policy"],
+        ), method)
+        time_id = dg("time_bound_request_id", "GH700:time-bound-request-id:v1", intent)
         derive(body, "time_bound_request_id", time_id, method)
         auth = body["publication_lease_authorization"]
         derive(auth, "authorized_time_bound_request_id", time_id, method)
@@ -290,7 +306,7 @@ def materialize(model, fixtures):
     request = {**expand({"$fixture": model["request_base"]}, fixtures), **expand(model["request_patch"], fixtures)}
     op_id, nonce_digest = request_digests(request, model["surface"])
     channel = request["body"].get("secret_channel_binding", {})
-    values = {"method": request["method"], "operation_id": op_id, "operation_request_digest": request["operation_request_digest"], "generated_pr_delivery_id": dg("generated_pr_delivery_id", "GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": op_id}), "publication_frontier": request.get("expected_publication_frontier_or_null"), "blocked_frontier": request.get("expected_blocked_attempt_frontier_or_null"), "secret_channel_binding_digest": channel.get("secret_channel_binding_digest")}
+    values = {"method": request["method"], "operation_id": op_id, "operation_request_digest": request["operation_request_digest"], "generated_pr_delivery_id": dg("generated_pr_delivery_id", "GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": op_id}), "publication_frontier": request.get("expected_publication_frontier_or_null"), "blocked_frontier": request.get("expected_blocked_attempt_frontier_or_null"), "secret_channel_binding_digest": channel.get("secret_channel_binding_digest"), "release_identity_attestation_digest": request["body"].get("release_identity_attestation", {}).get("attestation_digest")}
     response = context({**expand({"$fixture": model["success_base"]}, fixtures), **expand(model["success_patch"], fixtures)}, values)
     response_digests(response, request, model["surface"], op_id, nonce_digest)
     if any(isinstance(item, dict) and ({"$derive", "$context"} & set(item)) for item in walk((request, response))):

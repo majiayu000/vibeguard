@@ -45,12 +45,13 @@
       "schema_version":"GH700:release-identity-attestation:v1", "release_identity_digest":{"$fixture":"digest"},
       "process_identity_digest":{"$fixture":"digest"}, "signing_key_id":"release-key-1",
       "signing_key_material_id":{"$fixture":"key_material_id"}, "valid_from_unix_seconds":1700000000,
-      "valid_until_unix_seconds":1800000000, "attestation_digest":{"$fixture":"digest"}
+      "valid_until_unix_seconds":1800000000, "attestation_digest":{"$derive":"attestation_digest"}
     },
     "initial_time_proof_bundle": {
-      "schema_version":"GH700:initial-time-proof-bundle:v1", "release_identity_attestation_digest":{"$fixture":"digest"},
+      "schema_version":"GH700:initial-time-proof-bundle:v1", "release_identity_attestation_digest":{"$context":"release_identity_attestation_digest"},
       "trusted_lower_bound":1700000000, "trusted_upper_bound":1800000000, "trusted_time_proof_digest":{"$fixture":"digest"}
     },
+    "liveness_policy": { "policy_version":"GH700:H-006-liveness-policy:v1", "heartbeat_period_seconds":300, "min_renewal_interval_seconds":120, "ttl_seconds":1800, "max_generation_age_seconds":86400, "approval_digest":{"$fixture":"digest"} },
     "attempt_subject": { "attempt_record_kind":"candidate_failure", "candidate_identity_or_null":{"$fixture":"digest"}, "failure_scope_or_null":"build", "target_or_null":"release", "early_attempt_key_or_null":null },
     "ledger_object": {
       "schema_version": "GH700:ledger-object-ref:v1",
@@ -93,22 +94,22 @@
       "issuance_secret_channel_binding_digest": { "$context": "secret_channel_binding_digest" },
       "capsule_receipt_digest": { "$derive":"capsule_receipt_digest" }
     },
-    "time_bound_intent": {
+    "time_bound_intent": { "liveness_policy":{"$fixture":"liveness_policy"}, 
       "record_kind": "owner_claimed",
       "execution_identity": { "run_id": 1, "run_attempt": 1, "transition_slot": 0 },
-      "client_payload_core": { "owner_generation":1, "run_id":1, "run_attempt":1, "transition_slot":0, "candidate_tag_identity_digest":{"$fixture":"digest"}, "frozen_plan_digest":{"$fixture":"digest"}, "liveness_policy_digest":{"$fixture":"digest"} },
+      "client_payload_core": { "owner_generation":1, "run_id":1, "run_attempt":1, "transition_slot":0, "candidate_tag_identity_digest":{"$fixture":"digest"}, "frozen_plan_digest":{"$fixture":"digest"}, "liveness_policy_digest":{"$derive":"liveness_policy_digest"} },
       "predecessor_frontier": { "$fixture": "publication_frontier" }
     },
-    "time_bound_renew": {
+    "time_bound_renew": { "liveness_policy":{"$fixture":"liveness_policy"}, 
       "record_kind": "owner_heartbeat",
       "execution_identity": { "run_id": 1, "run_attempt": 1, "transition_slot": 1 },
-      "client_payload_core": { "owner_generation":1, "heartbeat_sequence":1, "prior_liveness_operation_id":{"$fixture":"digest"}, "transition_slot":1, "liveness_policy_digest":{"$fixture":"digest"} },
+      "client_payload_core": { "owner_generation":1, "heartbeat_sequence":1, "prior_liveness_operation_id":{"$fixture":"digest"}, "transition_slot":1, "liveness_policy_digest":{"$derive":"liveness_policy_digest"} },
       "predecessor_frontier": { "$fixture": "publication_frontier" }
     },
-    "time_bound_takeover": {
+    "time_bound_takeover": { "liveness_policy":{"$fixture":"liveness_policy"}, 
       "record_kind": "publication_owner_taken_over",
       "execution_identity": { "run_id": 2, "run_attempt": 1, "transition_slot": 2 },
-      "client_payload_core": { "new_owner_run_id":2, "new_owner_run_attempt":1, "transition_slot":2, "candidate_tag_identity_digest":{"$fixture":"digest"}, "prior_owner_generation":1, "new_owner_generation":2, "liveness_policy_digest":{"$fixture":"digest"} },
+      "client_payload_core": { "new_owner_run_id":2, "new_owner_run_attempt":1, "transition_slot":2, "candidate_tag_identity_digest":{"$fixture":"digest"}, "prior_owner_generation":1, "new_owner_generation":2, "liveness_policy_digest":{"$derive":"liveness_policy_digest"} },
       "predecessor_frontier": { "$fixture": "publication_frontier" }
     },
     "secret_claim": {
