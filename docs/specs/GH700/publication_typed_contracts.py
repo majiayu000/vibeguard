@@ -149,3 +149,36 @@ def _walk(value):
     children = value.values() if isinstance(value, dict) else value if isinstance(value, list) else ()
     for child in children:
         yield from _walk(child)
+
+
+RECEIPT_REQUEST_BINDINGS = ("authority_id", "repo_node_id", "method")
+
+
+def bind_nested_receipts(result, request, op_id, error_type, label="result"):
+    """Bind every nested receipt to the request that produced it.
+
+    The common response profile only proves the outer envelope, so a receipt
+    could name another authority, repo, method, or operation while the envelope
+    still matched and every digest recomputed cleanly.
+    """
+    bound = 0
+    if isinstance(result, list):
+        return sum(
+            bind_nested_receipts(item, request, op_id, error_type, f"{label}[{index}]")
+            for index, item in enumerate(result)
+        )
+    if not isinstance(result, dict):
+        return 0
+    for key, item in result.items():
+        bound += bind_nested_receipts(item, request, op_id, error_type, f"{label}.{key}")
+    if "receipt_version" in result:
+        for field in RECEIPT_REQUEST_BINDINGS:
+            if result.get(field) != request[field]:
+                raise error_type(
+                    f"{label}: receipt {field} {result.get(field)!r} does not match the request"
+                )
+        # Frontier receipts are operation-independent snapshots and carry none.
+        if "operation_id" in result and result["operation_id"] != op_id:
+            raise error_type(f"{label}: receipt operation_id does not match this operation")
+        bound += 1
+    return bound

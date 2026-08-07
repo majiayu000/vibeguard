@@ -24,7 +24,7 @@ from publication_wire_registries import (
     check_registry_anchors,
 )
 from publication_typed_contracts import (
-    check_nested_kms_mutations, materialize_kms_manifest, validate_nested_capsules,
+    bind_nested_receipts, check_nested_kms_mutations, materialize_kms_manifest, validate_nested_capsules,
 )
 
 SAFE_MAX = 9_007_199_254_740_991
@@ -213,15 +213,16 @@ def request_digests(request, surface):
             "release_identity_attestation_digest", "GH700:release-identity-attestation:v1",
             {key: item for key, item in attestation.items() if key != "attestation_digest"},
         ), method)
-    op_id = operation_id(request, surface)
-    if "time_bound_request_id" in body:
+    if "time_bound_intent" in body:
+        # Derived before operation_id: the intent (policy digest included) binds
+        # the operation, so both verification passes must see the same bytes.
         intent = body["time_bound_intent"]
-        # The policy digest is derived from the approved H-006 body the intent
-        # carries, so an operation can no longer be certified under an
-        # arbitrary liveness policy of the caller's choosing.
         derive(intent["client_payload_core"], "liveness_policy_digest", dg(
             "liveness_policy_digest", "GH700:liveness-policy:v1", intent["liveness_policy"],
         ), method)
+    op_id = operation_id(request, surface)
+    if "time_bound_request_id" in body:
+        intent = body["time_bound_intent"]
         time_id = dg("time_bound_request_id", "GH700:time-bound-request-id:v1", intent)
         derive(body, "time_bound_request_id", time_id, method)
         auth = body["publication_lease_authorization"]
@@ -294,6 +295,7 @@ def response_digests(response, request, surface, op_id, nonce_digest):
                 "generated_pr_delivery_id", "GH700:generated-pr-delivery-id:v1",
                 {"repo_node_id": request["repo_node_id"], "planned_operation_id": op_id},
             ), method)
+        bind_nested_receipts(response["result"], request, op_id, ContractError, f"{method}.result")
         validate_nested_capsules(response["result"], KMS_MANIFEST, derive, dg, ContractError)
         receipt_digests(response["result"])
         derive(response, "result_digest", dg("result_digest", f"GH700:{surface}-result:v1", response["result"], context=surface), method)
