@@ -174,7 +174,33 @@ def operation_id(request, surface):
     })
 
 
+SIGNING_MANIFEST = None
+
+
+def require_pinned_signing_key(container, label, role):
+    """Every signature must name the active manifest key for its role.
+
+    Recomputing the signing preimage and hashing the signature bytes proves
+    self-consistency, not authority: without this, a caller can construct
+    matching principal/policy/method fields, attach an arbitrary canonical
+    64-byte signature under a key of their choosing, and still verify.
+
+    This gate pins key identity. It does not perform the asymmetric signature
+    check itself — that needs a real verifier over the pinned public key and is
+    outside what a stdlib-only conformance gate can prove.
+    """
+    if SIGNING_MANIFEST is None:
+        raise ContractError(f"{label}: signing manifest is not loaded")
+    expected_id = SIGNING_MANIFEST[f"{role}_signing_key_id"]
+    expected_material = SIGNING_MANIFEST[f"{role}_signing_key_material_id"]
+    if container.get("signing_key_id") != expected_id:
+        raise ContractError(f"{label}: signing_key_id is not the active {role} key")
+    if container.get("signing_key_material_id") != expected_material:
+        raise ContractError(f"{label}: signing_key_material_id is not the active {role} key")
+
+
 def auth_digest(auth, label):
+    require_pinned_signing_key(auth, label, "authorization")
     raw_signature = decode_b64u(auth["signature_b64u"], 64, f"{label}.signature_b64u")
     require_domain(DIGEST_SCHEMA, "signature_digest", None, ContractError); derive(auth, "signature_digest", sha(raw_signature), label)
     preimage = {key: item for key, item in auth.items() if key not in {"signing_preimage_digest", "signature_b64u", "signature_digest"}}
@@ -209,6 +235,7 @@ def request_digests(request, surface):
         # key, and validity fields be rewritten while the proof bundle merely
         # copied the digest through. Bind the digest to the attestation content.
         attestation = body["release_identity_attestation"]
+        require_pinned_signing_key(attestation, method, "release_identity")
         derive(attestation, "attestation_digest", dg(
             "release_identity_attestation_digest", "GH700:release-identity-attestation:v1",
             {key: item for key, item in attestation.items() if key != "attestation_digest"},
@@ -623,11 +650,13 @@ def negative(case, pairs, schema):
 
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent); parser.add_argument("--emit-materialized", type=Path); args = parser.parse_args()
-    global BINDING_MATRIX, KMS_MANIFEST
+    global BINDING_MATRIX, KMS_MANIFEST, SIGNING_MANIFEST
     root = args.root.resolve(); schema = load(root / "publication_authority_api.schema.json"); models = load(root / "publication_authority_api.models.json")
     refs, unevaluated = check_schema(schema, root); dag_nodes, dag_edges = check_dag(schema); digest_mutations = check_digest_node_mutations(schema)
     anchors = check_registry_anchors(schema, jcs, ContractError)
     anchor_mutations = check_registry_anchor_mutations(schema, jcs, ContractError)
+    SIGNING_MANIFEST = expand({"$fixture": "authority_signing_manifest"}, models["fixtures"])
+    validate(SIGNING_MANIFEST, pointer(schema, "#/$defs/authority_signing_manifest"), schema)
     KMS_MANIFEST, kms_digests = materialize_kms_manifest(schema, models["fixtures"], expand, validate, pointer, derive, dg, ContractError)
     expected_rows = [("client", method) for method in CLIENT] + [("control", method) for method in CONTROL]
     BINDING_MATRIX = validate_binding_matrix(

@@ -51,6 +51,7 @@
       "schema_version":"GH700:initial-time-proof-bundle:v1", "release_identity_attestation_digest":{"$context":"release_identity_attestation_digest"},
       "trusted_lower_bound":1700000000, "trusted_upper_bound":1800000000, "trusted_time_proof_digest":{"$fixture":"digest"}
     },
+    "authority_signing_manifest": { "schema_version":"GH700:authority-signing-manifest:v1", "authorization_signing_key_id":"authority-signing-key-1", "authorization_signing_key_material_id":{"$fixture":"key_material_id"}, "release_identity_signing_key_id":"release-key-1", "release_identity_signing_key_material_id":{"$fixture":"key_material_id"} },
     "liveness_policy": { "policy_version":"GH700:H-006-liveness-policy:v1", "heartbeat_period_seconds":300, "min_renewal_interval_seconds":120, "ttl_seconds":1800, "max_generation_age_seconds":86400, "approval_digest":{"$fixture":"digest"} },
     "attempt_subject": { "attempt_record_kind":"candidate_failure", "candidate_identity_or_null":{"$fixture":"digest"}, "failure_scope_or_null":"build", "target_or_null":"release", "early_attempt_key_or_null":null },
     "ledger_object": {

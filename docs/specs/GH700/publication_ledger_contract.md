@@ -59,6 +59,15 @@ fence/lease与 expiry全部 byte-equal request及 committed plan/fold；refresh�
 authorization bytes，不改变 immutable operation。wrong method/ID/frontier/principal或 cross-kind object在
 任何 side effect前 unauthorized；delivery authorization只授权 committed plan的唯一 send-once ID。
 
+active signing key由 `$defs/authority_signing_manifest`拥有：每个 authorization须 byte-equal
+`authorization_signing_key_id`/`authorization_signing_key_material_id`，release identity attestation
+须 byte-equal其 `release_identity_*`对应项，二者不可互换。
+
+**Conformance gate boundary**：`verify_publication_authority_api.py`重算 signing preimage、detached
+signature digest与上述 pinned key identity，但**不执行非对称签名验证**——stdlib-only gate无法证明
+canonical 64-byte signature确由 pinned key所签。实现方须在 authority侧对 pinned public key做真正的
+signature verification；gate的绿色不构成该验证已完成的证据。
+
 ### Time-bound operations, capsules and recovery
 
 time_bound_intent、execution_identity、三个 client payload core及 proof-order仍由
