@@ -14,6 +14,7 @@ ROW_KEYS = {
     "surface", "method", "request_ref", "success_ref", "frontier_profile",
     "authorization_ref", "operation_id_ref", "request_digest_domain",
     "result_digest_domain", "error_codes", "replay", "model_profiles", "finding_ids",
+    "profile_selector",
 }
 RELATION_KEYS = {
     "equal": {"relation_id", "operator", "left", "right", "mutation_kind"},
@@ -92,7 +93,8 @@ def validate_binding_matrix(schema, models, expected_rows, pointer, error_type=V
     owned_models = []
     used_profiles = set(matrix["common_profiles"])
     for row in rows:
-        if set(row) not in (ROW_KEYS, ROW_KEYS - {"finding_ids"}):
+        optional = {"finding_ids", "profile_selector"}
+        if not (set(row) - optional == ROW_KEYS - optional and set(row) <= ROW_KEYS | optional):
             _fail(error_type, f"closed matrix row shape mismatch: {row.get('method')}")
         pointer(schema, row["request_ref"])
         pointer(schema, row["success_ref"])
@@ -200,6 +202,36 @@ def row_for_model(matrix, model, error_type=ValueError):
     if len(matches) != 1:
         _fail(error_type, f"{model['model_id']}: model row cardinality mismatch")
     return matches[0]
+
+
+def check_profile_selectors(rows, pairs, error_type=ValueError):
+    """Binding profiles must be selectable from the wire, not from a fixture id.
+
+    Without a discriminator a production request/response pair carries no
+    machine rule choosing between a row's state-specific profiles, so an
+    implementation cannot reproduce the evaluation the matrix certifies.
+    """
+    selected = 0
+    for row in rows:
+        selector = row.get("profile_selector")
+        if selector is None:
+            if len({tuple(names) for names in row["model_profiles"].values()}) > 1:
+                _fail(error_type, f"{row['method']}: state-specific profiles need a profile_selector")
+            continue
+        cases = selector["cases"]
+        if len({tuple(names) for names in cases.values()}) != len(cases):
+            _fail(error_type, f"{row['method']}: profile selector cases are not distinct")
+        for model_id, names in row["model_profiles"].items():
+            root = {"request": pairs[model_id][0], "response": pairs[model_id][1]}
+            value = _path(root, selector["path"], error_type)
+            if value not in cases:
+                _fail(error_type, f"{model_id}: wire discriminator {value!r} selects no binding profile")
+            if list(cases[value]) != list(names):
+                _fail(error_type, f"{model_id}: wire discriminator selects {cases[value]}, row declares {names}")
+            selected += 1
+        if {tuple(names) for names in row["model_profiles"].values()} != {tuple(v) for v in cases.values()}:
+            _fail(error_type, f"{row['method']}: profile selector cases do not cover the row's models")
+    return selected
 
 
 def active_relations(matrix, row, model_id, error_type=ValueError):
