@@ -2,19 +2,35 @@
 
 import copy
 
+# Every place the manifest key identity is copied into an attestation, tagged
+# with which half it must equal. The mutation generator deliberately does NOT
+# read this list — it rediscovers identity copies from the instance — so
+# deleting a comparison here still leaves a mutation that must be caught.
+ATTESTATION_IDENTITY_PATHS = (
+    (("kms_key_arn",), "arn"),
+    (("kms_key_material_id",), "material_id"),
+    (("generate_data_key_request", "key_id"), "arn"),
+    (("generate_data_key_response", "key_id"), "arn"),
+    (("generate_data_key_response", "key_material_id"), "material_id"),
+)
+
+
+def _at(value, path):
+    for step in path:
+        value = value[step]
+    return value
+
 
 def validate_kms_attestation(attestation, manifest, derive, digest, error_type, label):
     request = attestation["generate_data_key_request"]
     response = attestation["generate_data_key_response"]
-    identity = (manifest["kms_key_arn"], manifest["kms_key_material_id"])
-    observed = (
-        (manifest["describe_key_response"]["key_id"], manifest["describe_key_response"]["key_material_id"]),
-        (attestation["kms_key_arn"], attestation["kms_key_material_id"]),
-        (request["key_id"], attestation["kms_key_material_id"]),
-        (response["key_id"], response["key_material_id"]),
-    )
-    if any(item != identity for item in observed):
-        raise error_type(f"{label}: KMS ARN/KeyMaterialId mismatch")
+    identity = {"arn": manifest["kms_key_arn"], "material_id": manifest["kms_key_material_id"]}
+    describe = manifest["describe_key_response"]
+    if (describe["key_id"], describe["key_material_id"]) != (identity["arn"], identity["material_id"]):
+        raise error_type(f"{label}: KMS manifest DescribeKey identity mismatch")
+    for path, half in ATTESTATION_IDENTITY_PATHS:
+        if _at(attestation, path) != identity[half]:
+            raise error_type(f"{label}: KMS ARN/KeyMaterialId mismatch at {'.'.join(path)}")
     derive(attestation, "generate_data_key_request_digest", digest(
         "generate_data_key_request_digest", "GH700:generate-data-key-request:v1", request,
     ), label)
@@ -66,17 +82,23 @@ def check_nested_kms_mutations(pairs, manifest, derive, digest, error_type):
     for model_id, (_, response) in pairs.items():
         capsules = [item for item in _walk(response.get("result")) if isinstance(item, dict) and "capsule_receipt_version" in item]
         for index, capsule in enumerate(capsules):
-            for path in (("kms_key_arn",), ("kms_key_material_id",), ("key_attestation", "generate_data_key_request", "key_id"), ("key_attestation", "generate_data_key_response", "key_material_id"), ("key_attestation", "manifest_key_binding_digest")):
+            paths = [(("key_attestation", "manifest_key_binding_digest"), "digest")]
+            paths += _identity_copies(capsule, manifest)
+            for path, half in paths:
                 mutated = copy.deepcopy(capsule)
                 target = mutated
                 for step in path[:-1]: target = target[step]
-                if "material_id" in path[-1]:
-                    replacement = "f" * 64
-                elif path[-1].endswith("digest"):
-                    replacement = "sha256:" + "e" * 64
-                else:
-                    replacement = "arn:aws:kms:us-east-1:111122223333:key/87654321-4321-4321-4321-cba987654321"
+                replacement = {
+                    "material_id": "f" * 64,
+                    "digest": "sha256:" + "e" * 64,
+                    "arn": "arn:aws:kms:us-east-1:111122223333:key/87654321-4321-4321-4321-cba987654321",
+                }[half]
                 target[path[-1]] = replacement
+                # Recompute every digest the mutated field feeds, exactly as an
+                # attacker who controls the request would. Without this the
+                # digest derivation catches the mutation and the identity
+                # comparisons are never actually exercised.
+                _restamp_attestation_digests(mutated, digest)
                 try:
                     validate_nested_capsules(mutated, manifest, derive, digest, error_type, model_id)
                 except error_type:
@@ -84,6 +106,42 @@ def check_nested_kms_mutations(pairs, manifest, derive, digest, error_type):
                 else:
                     raise error_type(f"{model_id}: nested KMS mutation accepted at {'.'.join(path)}")
     return count
+
+
+def _restamp_attestation_digests(capsule, digest):
+    attestation = capsule.get("key_attestation")
+    if not isinstance(attestation, dict):
+        return
+    attestation["generate_data_key_request_digest"] = digest(
+        "generate_data_key_request_digest", "GH700:generate-data-key-request:v1",
+        attestation["generate_data_key_request"],
+    )
+    attestation["key_material_attestation_digest"] = digest(
+        "generate_data_key_material_attestation_digest",
+        "GH700:generate-data-key-material-attestation:v1",
+        attestation["generate_data_key_response"],
+    )
+
+
+def _identity_copies(value, manifest, path=()):
+    """Rediscover every field carrying the manifest key identity.
+
+    Derived from the instance rather than from ATTESTATION_IDENTITY_PATHS: a
+    generator that reads the same list as the comparison loop cannot notice a
+    comparison being deleted, because the deletion removes the probe too.
+    """
+    halves = {manifest["kms_key_arn"]: "arn", manifest["kms_key_material_id"]: "material_id"}
+    found = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if isinstance(item, str) and item in halves:
+                found.append((path + (key,), halves[item]))
+            else:
+                found.extend(_identity_copies(item, manifest, path + (key,)))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            found.extend(_identity_copies(item, manifest, path + (index,)))
+    return found
 
 
 def _walk(value):
