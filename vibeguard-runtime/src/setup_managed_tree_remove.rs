@@ -1,4 +1,4 @@
-use crate::setup_install_state::{managed_tree_decision, read_state};
+use crate::setup_install_state::read_state;
 use crate::setup_support::{SetupResult, sha256_text, write_json_atomic};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
@@ -15,7 +15,7 @@ pub(crate) mod tree_state;
 use test_support::{
     inject_collision, inject_failure, inject_postverify, inject_public_replacement,
 };
-use tree_state::carry_tracked_files;
+use tree_state::{carry_tracked_files, managed_tree_decision};
 
 const USAGE: &str = "Usage: vibeguard-runtime setup-state-quarantine-managed-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";
 const RELEASE_USAGE: &str = "Usage: vibeguard-runtime setup-state-release-quarantined-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";

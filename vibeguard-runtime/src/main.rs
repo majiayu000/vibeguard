@@ -457,7 +457,7 @@ static COMMANDS: &[Command] = &[
     Command {
         name: "setup-lock-publish-owner",
         usage: "<lock-dir> <pid> <nonce> [reclaiming]  — durably publish setup lock ownership",
-        handler: setup_install_state::publish_lock_owner,
+        handler: setup_lock_lifecycle::publish_lock_owner,
     },
     Command {
         name: "setup-lock-acquire",
@@ -502,7 +502,7 @@ static COMMANDS: &[Command] = &[
     Command {
         name: "setup-state-verify-managed-tree",
         usage: "<state-file> <dest-dir> <source-prefix> [tracked-dest-dir]  — verify exact managed-tree ownership",
-        handler: setup_install_state::verify_managed_tree,
+        handler: setup_managed_tree_remove::tree_state::verify_managed_tree,
     },
     Command {
         name: "setup-state-quarantine-managed-tree",
