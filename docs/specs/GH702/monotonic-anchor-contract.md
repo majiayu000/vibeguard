@@ -157,12 +157,39 @@ phase 只存在于 durable intent 预先绑定的合法 digest、commit journal 
 并绑定以下唯一链；这些 digest 都只使用 CAS 前已知的 exact identity，不吸收 backend 的随机
 receipt bytes、wall clock、filename 或进程内状态：
 
+四个 phase 的 `digest_domain` 是下列 exact ASCII literal，`phase` 是同名 literal，`schema_version`
+恒为整数 `1`。每个 `closed_phase_object` 的 key set 必须与下表 exact 相等（无多余、无缺失），
+JCS 排序由 RFC 8785 决定，实现不得追加字段或改写 literal：
+
+| `phase` | `digest_domain` (exact ASCII) |
+|---|---|
+| `prepared` | `vibeguard.gh702.anchor-phase-prepared.v1` |
+| `external_advanced` | `vibeguard.gh702.anchor-phase-external-advanced.v1` |
+| `selected` | `vibeguard.gh702.anchor-phase-selected.v1` |
+| `barrier_complete` | `vibeguard.gh702.anchor-phase-barrier-complete.v1` |
+
 ```text
-prepared_phase_digest = H(prepared_domain, operation, target_authorization_digest, mirror_file_digest, from_leaf_state, target_leaf_body, target_leaf_digest)
-external_advanced_phase_digest = H(external_advanced_domain, prepared_phase_digest, target_leaf_digest)
-selected_phase_digest = H(selected_domain, external_advanced_phase_digest, mirror_generation_id, mirror_file_digest)
-barrier_complete_phase_digest = H(barrier_complete_domain, selected_phase_digest, target_leaf_digest, barrier_id)
+prepared_phase_digest = sha256(UTF8(RFC8785_JCS({
+  digest_domain: "vibeguard.gh702.anchor-phase-prepared.v1", phase: "prepared", schema_version: 1,
+  operation, target_authorization_digest, mirror_file_digest, from_leaf_state,
+  target_leaf_body, target_leaf_digest })))
+
+external_advanced_phase_digest = sha256(UTF8(RFC8785_JCS({
+  digest_domain: "vibeguard.gh702.anchor-phase-external-advanced.v1", phase: "external_advanced",
+  schema_version: 1, prepared_phase_digest, target_leaf_digest })))
+
+selected_phase_digest = sha256(UTF8(RFC8785_JCS({
+  digest_domain: "vibeguard.gh702.anchor-phase-selected.v1", phase: "selected", schema_version: 1,
+  external_advanced_phase_digest, mirror_generation_id, mirror_file_digest })))
+
+barrier_complete_phase_digest = sha256(UTF8(RFC8785_JCS({
+  digest_domain: "vibeguard.gh702.anchor-phase-barrier-complete.v1", phase: "barrier_complete",
+  schema_version: 1, selected_phase_digest, target_leaf_digest, barrier_id })))
 ```
+
+`from_leaf_state` 是 null discriminant 字段：genesis 写 JSON `null`，否则写前一 leaf 的
+`target_leaf_body`。`operation` 是 literal string，取值域与 target authorization 的 `operation` 同一
+closed union。上述四式是 golden vector 与 recovery reader 的唯一真源。
 
 完整无环顺序是 `per_leaf_authority_body → per_leaf_authority_id` 与
 `target_leaf_body → target_leaf_digest → target_authorization_digest → mirror_file_digest/prepared →
@@ -320,13 +347,27 @@ global_platform_registry_envelope = {
   digest_domain: "vibeguard.gh702.global-platform-registry.v1", schema_version,
   registry_body: {registry_generation, previous_registry_digest|null,
     entries: [{platform_id, platform_profile_family_id, global_profile_generation,
-      authority_mode, transition_policy: permanent_backend_free_no_block_v1
-                       | external_launch_floor_anchor_v1}]},
+      authority_mode, transition_policy}]},
   global_platform_registry_digest,
   signatures: [{signer_key_id, signature_algorithm, signature}]
 }
 global_platform_registry_entry_digest =
   H("vibeguard.gh702.global-platform-registry-entry.v1", 1, exact entries[i])
+```
+
+`(authority_mode, transition_policy)` 是**单一 closed union 的两个投影**，不是两个可自由配对的
+字段。exact 合法对只有下列两行；任何其它组合即使 signature 有效也是 malformed entry，
+registry validation 必须在 mode selection 之前 fail-visible 拒绝，不得 alias、降级或按其中一半继续：
+
+| `authority_mode` | `transition_policy` |
+|---|---|
+| `anchor_block_v1` | `external_launch_floor_anchor_v1` |
+| `authenticated_no_block_v1` | `permanent_backend_free_no_block_v1` |
+
+若无此约束，一个 validly signed 的矛盾 entry 可使 mode selection 授权 anchor branch，
+而 terminality invariant 同时宣告该 platform 永久 backend-free——两条互斥路径同时为真。
+
+```text
 global_platform_registry_digest = sha256(JCS({digest_domain, schema_version, registry_body}))
 launch_authority_profile_body = {
   schema_version: 1, launch_authority_profile_id,
@@ -396,6 +437,33 @@ anchor-block。缺少 Core 外、pre-launch、不可由旧 binary/adapter 绕过
 的平台必须永久选择该 branch，禁止 maintainer migration 或 official block。
 `duplicate_platform_across_releases`、family rename/conflicting mode、registry predecessor/history drift 在 H-010
 selection 前拒绝；runtime/release validator 不得 first/last-wins。release pin 不参与该 invariant。
+
+**Latest-generation anchoring（no-block branch 必需）**：signatures 与 `previous_registry_digest` 只证明
+lineage，不证明所提供 snapshot 是最新的。`authenticated_no_block_v1` 按定义没有 Core 外的 nonrollback
+authority，因此一次 coherent whole-release rollback 可以同时提供**更旧但仍有效签名**的 registry 与
+匹配的旧 H-010，使 selector 把该 platform 视为 missing 而 deny，或让旧 release 沿用其先前 mode。
+为封闭该窗口，no-block branch 必须把 registry generation 锚进本地单调 leaf state：
+
+```text
+registry_high_water_leaf_body = {
+  schema_version: 1,
+  platform_id,
+  observed_registry_generation,
+  global_platform_registry_entry_digest
+}
+```
+
+该 leaf 复用本文的 monotonic leaf CAS 与 two-generation retention，语义为 per-`platform_id` 高水位：
+
+- `observed_registry_generation` 必须 `>=` 已存储高水位，等值时 `global_platform_registry_entry_digest`
+  必须 byte-equal，否则是 fork，fail-visible 拒绝而非取任一侧；
+- 严格更小的 generation 是 rollback：拒绝并以 nonzero 退出，不得 alias 为 missing platform、
+  不得 conservative-deny 后按旧 mode 继续，也不得静默重置高水位；
+- 高水位一旦记录某 `platform_id` 处于 `permanent_backend_free_no_block_v1`，任何提供
+  anchor-block entry 的更旧 snapshot 都在 mode selection 前拒绝。
+
+高水位 leaf 是本地 nonrollback 证据，不替代 registry 签名；两者都必须通过。缺少可写单调 leaf
+存储的环境不得运行 no-block branch。
 `anchor_profile` 与 `no_block_profile` 是 closed mutually-exclusive branches。`authenticated_no_block_v1`
 只用于 registry 已永久声明 no conforming backend/no official block 的 family；它不伪造 backend identity：
 `platform_profiles` 必须按 canonical `platform_id` byte order 严格递增且 ID 唯一；duplicate、乱序或同一
@@ -448,9 +516,23 @@ anchor profile 绝不能变成 no-block。expiry、pin mismatch 或 no-block pro
 也不解除 global ceiling；current valid profile 仍优先。
 `evaluation_policy_digest` 来自 authoritative active evaluation-policy envelope 的 literal
 `vibeguard.gh702.evaluation-policy.v1` domain + schema version + policy body digest；其 body 必须引用 exact
-`h010_decision_artifact_digest`。`authoritative_policy_generation` 来自 external policy leaf attestation，
-`policy_validity_evidence_digest` 来自该 policy 的 closed signed validity-evidence envelope。三者在运行前/
-后 under policy lock exact 相等，不能从 result、budget 或 wall clock推导。
+`h010_decision_artifact_digest`。`policy_validity_evidence_digest` 来自该 policy 的 closed signed
+validity-evidence envelope。三者在运行前/后 under policy lock exact 相等，不能从 result、budget 或
+wall clock 推导。
+
+`authoritative_policy_generation` 的来源**按 branch 分流**，因为 no-block branch 同时要求
+backend/root/leaf authority 为 `not_applicable` 并禁止 backend IPC——若唯一来源是 external policy leaf
+attestation，conforming no-block runner 只能去调用本 mode 明令禁止的 authority，或者伪造一个
+canonical source 在外部的字段：
+
+- `anchor_block_v1`：取自 external policy leaf attestation，与 launch floor 同一 authority。
+- `authenticated_no_block_v1`：取自 evaluation-policy envelope **自身**签名 body 中的
+  `policy_generation` 整数字段。它随 policy 一起被 maintainer 签名，与 `evaluation_policy_digest`
+  出自同一 bytes，因此无需任何 backend IPC 即可在本地重算与验证。
+
+两条 branch 都禁止从 result、budget、wall clock 或 host 状态推导该值。no-block branch 另须把
+`policy_generation` 纳入 “Latest-generation anchoring”的同一单调 leaf 语义：严格更小的
+generation 是 rollback，fail-visible 拒绝；等值时签名 body 必须 byte-equal。
 仅 `anchor_block_v1` 的 anchor-enabled fixture 按无环顺序构造下列对象；no-block branch 不得伪造
 `backend_profile_id`、anchor budget/result 或 CAS sample：
 ```text
@@ -707,6 +789,28 @@ h010_identity_schema_pointers = [
 all_identity_schema_pointers = exact_set_union(anchor_identity_schema_pointers,
   h010_identity_schema_pointers, atomic_annex.generated_atomic_launch_identity_schema_pointers)
 ```
+
+**Embedded-occurrence closure（必需，否则 pointer 集不是穷尽的）**：H-010 envelope 内嵌了完整的
+`launch_authority_profile_body` 与 `launch_policy_body` 对象，但上表只登记了 standalone pointer 与内嵌
+对象的 digest 字段。仅凭这些，required generator 无法为**内嵌**的 signer keys、quorum、validity/
+lifetime bounds、approved binaries 等路径产生 one-field 或 cross-record mutation——被改写的内嵌字段
+不在任何 mutation path 上。因此 pointer 集必须按下式闭包，且闭包结果参与 `exact_set_union`：
+
+```text
+EMBEDDED_PREFIXES = [
+  "/h010_decision_envelope/h010_decision_body/platform_profiles/items/anchor_profile"
+]
+embedded_identity_schema_pointers = [
+  prefix + suffix
+  for prefix in EMBEDDED_PREFIXES
+  for suffix in standalone_pointers_under("/launch_authority_profile_body")
+              + standalone_pointers_under("/launch_policy_body")
+]
+```
+
+atomic annex 的 `/launch_policy_body` root 同理：它只覆盖 standalone 出现，不覆盖 H-010 内嵌出现。
+generator 必须断言闭包后的集合中，每个 standalone pointer 都存在对应的 embedded pointer；缺失即
+pointer registry 未穷尽，validation 以 nonzero 退出，不得按 standalone 子集继续。
 negative corpus 还必须逐项 mutate 每个 budget value、batch phase/runs/metric/timeout/error/breach path、
 literal domain、outer schema version、signature/key 与 from/target leaf pairing。breach mirror fixtures
 `one_sided_breach_change`、`one_sided_breach_delete`、`one_sided_breach_swap` 必须分别只改 top-level

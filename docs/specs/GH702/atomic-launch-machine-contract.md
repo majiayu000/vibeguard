@@ -33,11 +33,33 @@ display string、继承环境或解析后的近似值。
 argv_body = {
   schema_version: 1,
   platform_process_abi,
-  arguments: [{index, value_base64url}]
+  arguments: [{index, value_base64url}],
+  command_line_base64url            // windows_utf16le_v1 必填；posix_bytes_v1 恒为 null
 }
 argv_digest = H(
   "vibeguard.gh702.approved-core-argv.v1", 1, argv_body)
+```
 
+**Windows command-line binding**：Windows 进程创建消费的是**单一 command-line 字符串**，而不是参数
+数组。只签 `arguments` 会让 adapter 与 backend 在 `argv_digest` 上达成一致，被启动的进程却收到不同
+的解析结果，独立实现之间也无法互认。因此 `windows_utf16le_v1` 必须同时绑定将要交给
+`CreateProcessW` 的 exact `lpCommandLine` UTF-16LE bytes：
+
+- `command_line_base64url` 保存该 exact、偶数字节、无终止 NUL 的 UTF-16LE 序列；
+- 它必须由 `arguments` 按下述 canonical 序列化**唯一**产生，backend 重算后 byte-equal，否则拒绝；
+- `posix_bytes_v1` 恒为 JSON `null`（POSIX 直接消费 argv 数组，无序列化歧义）。
+
+canonical 序列化按 `index` 升序拼接，参数之间用单个 U+0020 分隔，每个参数：
+
+1. 恒加首尾双引号 `"`，即使参数不含空格或特殊字符（不做条件引用，避免实现分歧）；
+2. 参数内部：连续 `\` 后紧跟结尾引号时，每个 `\` 加倍；连续 `\` 后紧跟 `"` 时，每个 `\` 加倍并在
+   该 `"` 前再加一个 `\`；其余 `\` 原样保留；
+3. 不做任何 shell/`cmd.exe` 转义，不追加、重排或去重参数，不插入 program name 之外的内容。
+
+这是 `CommandLineToArgvW` 的精确逆运算：backend 必须断言对 `command_line_base64url` 应用
+`CommandLineToArgvW` 得到的序列与 `arguments` exact 相等，两侧任一不符即在启动前 nonzero。
+
+```text
 environment_body = {
   schema_version: 1,
   platform_process_abi,
@@ -209,7 +231,30 @@ compare_current_state_consume_and_launch_request = {
   compare_current_state_consume_and_launch_request_body,
   compare_current_state_consume_and_launch_request_digest
 }
+```
 
+**Adapter measurement must be external to the adapter**：`measured_host_adapter_binary_digest` 与
+`requested_host_adapter_version` 是**调用方自报的字段**，不是调用方自身的 bytes。一个陈旧或被篡改
+的 adapter 只要运行在获批 principal 下，就可以把获批 adapter 的 digest/version 填进请求；backend 若
+只认证 principal 便消费 transaction，该未获批 adapter 仍会拿到 handle/token 并恢复 Core——self-report
+在此等同于自证，不构成任何证据。
+
+因此 backend 必须在消费 transaction 之前，**在 adapter 进程之外**独立度量调用方可执行文件：
+
+- 从已认证的 IPC 连接解析对端进程（POSIX：peer credentials 得到的 PID 加上
+  `posix_device_inode_v1` object identity；Windows：named-pipe 客户端 token 加上
+  `windows_volume_file_id_v1` file id），再由 backend 自己读取该 image 计算 digest；
+- 该 backend-measured digest 必须与 `launch_policy_body.approved_host_adapter_binary.binary_digest`
+  exact 相等，并与请求中的 `measured_host_adapter_binary_digest` exact 相等；三者任一不符即在
+  transaction 消费前 nonzero，不得回退为 principal-only 授权；
+- 度量与 launch 必须在同一 external-TCB linearization point 内，对同一 pinned object identity 完成，
+  防止度量后替换 image 的 TOCTOU；
+- backend 无法解析对端进程或无法独立读取其 image 时，必须 conservative deny，而不是接受 self-report。
+
+`measured_core_binary_digest` 同理由 backend 在 create-suspended 的同一 authority 内自行度量，
+adapter 的自报值只作为必须匹配的断言，不作为真源。
+
+```text
 platform_launch_floor_attestation_envelope = {
   digest_domain: "vibeguard.gh702.platform-launch-floor-attestation.v1",
   schema_version: 1,
