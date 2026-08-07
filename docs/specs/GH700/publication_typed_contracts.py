@@ -154,7 +154,7 @@ def _walk(value):
 RECEIPT_REQUEST_BINDINGS = ("authority_id", "repo_node_id", "method")
 
 
-def bind_nested_receipts(result, request, op_id, error_type, label="result"):
+def bind_nested_receipts(result, request, op_id, error_type, derive, digest, label="result"):
     """Bind every nested receipt to the request that produced it.
 
     The common response profile only proves the outer envelope, so a receipt
@@ -164,13 +164,29 @@ def bind_nested_receipts(result, request, op_id, error_type, label="result"):
     bound = 0
     if isinstance(result, list):
         return sum(
-            bind_nested_receipts(item, request, op_id, error_type, f"{label}[{index}]")
+            bind_nested_receipts(item, request, op_id, error_type, derive, digest, f"{label}[{index}]")
             for index, item in enumerate(result)
         )
     if not isinstance(result, dict):
         return 0
     for key, item in result.items():
-        bound += bind_nested_receipts(item, request, op_id, error_type, f"{label}.{key}")
+        bound += bind_nested_receipts(item, request, op_id, error_type, derive, digest, f"{label}.{key}")
+    if "capsule_receipt_version" in result:
+        # Rehashing the caller's own request proves nothing about which
+        # repository, operation, slot, or channel the data key was bound to.
+        # The context is derived from the capsule's already-bound identity.
+        request_core = result["key_attestation"]["generate_data_key_request"]
+        derive(request_core, "encryption_context_digest", digest(
+            "kms_encryption_context_digest", "GH700:kms-encryption-context:v1",
+            {
+                "authority_id": request["authority_id"],
+                "repo_node_id": request["repo_node_id"],
+                "capsule_id": result["capsule_id"],
+                "issuance_operation_id": result["issuance_operation_id"],
+                "issuance_secret_channel_binding_digest": result["issuance_secret_channel_binding_digest"],
+            },
+        ), label)
+        bound += 1
     if "receipt_version" in result:
         for field in RECEIPT_REQUEST_BINDINGS:
             if result.get(field) != request[field]:

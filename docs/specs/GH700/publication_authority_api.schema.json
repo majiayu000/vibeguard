@@ -33,9 +33,10 @@
     "ledger_append_authorization": { "domain":"GH700:ledger-append-authorization:signing-preimage:v1", "preimage_fields":["schema_version","authorization_kind","authorized_method","authorized_operation_id","authorized_predecessor_frontier","lease_token_digest","ledger_fence","authenticated_principal_digest","authorization_policy_digest","expires_at_unix_seconds","signing_key_id","signing_key_material_id"], "signature_digest":"SHA256(decoded canonical 64-byte signature_b64u)", "key_binding":"signing_key_id and signing_key_material_id byte-equal the active manifest-pinned authorization verification key" }
   },
   "x-gh700-digest-framing": "digest = lowercase sha256:<64hex> of SHA256(JCS({v:domain,...preimage_fields})); callers may not supply v",
-  "x-gh700-digest-formulas-anchor": "sha256:1f5357b0f2128a10cd43a0384aec5acd44de282fec7b7dd8e72371f0099e6a7e",
-  "x-gh700-digest-dag-anchor": "sha256:af1f2d9322cb8ca4accf93566f827a2278e0c67acf738ec56c0fbb57ce00c9e2",
+  "x-gh700-digest-formulas-anchor": "sha256:b32c06e1de6d034c5be83afcdbddb0cfb5126f2a17d365751ad453fe73c3d1cc",
+  "x-gh700-digest-dag-anchor": "sha256:f77e0d25e4b3f7fa933bfb74c9e3acebf4fa87ae38dae0fd81420c2e33053c2f",
   "x-gh700-digest-formulas": {
+    "kms_encryption_context_digest": { "domain":"GH700:kms-encryption-context:v1", "preimage":"{authority_id,repo_node_id,capsule_id,issuance_operation_id,issuance_secret_channel_binding_digest}", "wire_consumers":["capsule key_attestation.generate_data_key_request.encryption_context_digest"] },
     "release_identity_attestation_digest": { "domain":"GH700:release-identity-attestation:v1", "preimage":"{schema_version,release_identity_digest,process_identity_digest,signing_key_id,signing_key_material_id,valid_from_unix_seconds,valid_until_unix_seconds}", "wire_consumers":["prepare/bootstrap release_identity_attestation.attestation_digest"] },
     "liveness_policy_digest": { "domain":"GH700:liveness-policy:v1", "preimage":"{policy_version,heartbeat_period_seconds,min_renewal_interval_seconds,ttl_seconds,max_generation_age_seconds,approval_digest}", "wire_consumers":["claim/heartbeat/takeover client_payload_core"] },
     "attempt_subject_key": { "domain":"GH700:attempt-subject:v1", "preimage":"{attempt_record_kind,candidate_identity_or_null,failure_scope_or_null,target_or_null,early_attempt_key_or_null}", "wire_consumers":["append_blocked_attempt body expected_attempt_subject_key"] },
@@ -73,6 +74,7 @@
   "x-gh700-digest-dag": {
     "nodes": [
       "attempt_subject_key",
+      "kms_encryption_context_digest",
       "release_identity_attestation_digest",
       "liveness_policy_digest",
       "authorization_signing_preimage_digest", "signature_digest", "client_request_nonce_digest",
@@ -88,6 +90,7 @@
     ],
     "edges": [
       ["attempt_subject_key", "operation_request_digest"],
+      ["kms_encryption_context_digest", "generate_data_key_request_digest"],
       ["release_identity_attestation_digest", "operation_request_digest"],
       ["liveness_policy_digest", "time_bound_request_id"],
       ["time_bound_request_id", "authorization_signing_preimage_digest"],

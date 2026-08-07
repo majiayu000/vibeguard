@@ -11,6 +11,7 @@ CANONICAL_RUNTIME_DOMAIN_SETS = {
     "attempt_subject_key": frozenset({"GH700:attempt-subject:v1"}),
     "liveness_policy_digest": frozenset({"GH700:liveness-policy:v1"}),
     "release_identity_attestation_digest": frozenset({"GH700:release-identity-attestation:v1"}),
+    "kms_encryption_context_digest": frozenset({"GH700:kms-encryption-context:v1"}),
     "signature_digest": frozenset({None}),
     "client_request_nonce_digest": frozenset({"GH700:client-request-nonce:v1"}),
     "control_request_nonce_digest": frozenset({"GH700:control-request-nonce:v1"}),
