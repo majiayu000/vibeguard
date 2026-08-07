@@ -8,6 +8,7 @@ CANONICAL_RUNTIME_DOMAIN_SETS = {
         "GH700:ledger-append-authorization:signing-preimage:v1",
         "GH700:publication-lease-authorization:signing-preimage:v1",
     }),
+    "attempt_subject_key": frozenset({"GH700:attempt-subject:v1"}),
     "signature_digest": frozenset({None}),
     "client_request_nonce_digest": frozenset({"GH700:client-request-nonce:v1"}),
     "control_request_nonce_digest": frozenset({"GH700:control-request-nonce:v1"}),

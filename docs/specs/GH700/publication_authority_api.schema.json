@@ -33,9 +33,10 @@
     "ledger_append_authorization": { "domain":"GH700:ledger-append-authorization:signing-preimage:v1", "preimage_fields":["schema_version","authorization_kind","authorized_method","authorized_operation_id","authorized_predecessor_frontier","lease_token_digest","ledger_fence","authenticated_principal_digest","authorization_policy_digest","expires_at_unix_seconds","signing_key_id","signing_key_material_id"], "signature_digest":"SHA256(decoded canonical 64-byte signature_b64u)", "key_binding":"signing_key_id and signing_key_material_id byte-equal the active manifest-pinned authorization verification key" }
   },
   "x-gh700-digest-framing": "digest = lowercase sha256:<64hex> of SHA256(JCS({v:domain,...preimage_fields})); callers may not supply v",
-  "x-gh700-digest-formulas-anchor": "sha256:5ff03fe07933762f66f2d72e2b557b54a60272a0d307cd06220aba0ed0a3e5d9",
-  "x-gh700-digest-dag-anchor": "sha256:166dfb46eeb30e2c8f63ae151cea4738216c838080dc29a4995455191fd1bdcb",
+  "x-gh700-digest-formulas-anchor": "sha256:f4ed0ad1cde35fac35ea08660526811651d72b502005e58afcb1880302280ab1",
+  "x-gh700-digest-dag-anchor": "sha256:b18165244816526753088576ed57311c986290733d5f8186de301df67b9028b6",
   "x-gh700-digest-formulas": {
+    "attempt_subject_key": { "domain":"GH700:attempt-subject:v1", "preimage":"{attempt_record_kind,candidate_identity_or_null,failure_scope_or_null,target_or_null,early_attempt_key_or_null}", "wire_consumers":["append_blocked_attempt body expected_attempt_subject_key"] },
     "authorization_signing_preimage_digest": { "domain":"exact branch domain in x-gh700-signing-preimages", "preimage":"authorization preimage_fields from the selected closed branch", "wire_consumers":["authorization.signing_preimage_digest","operation_request_digest"] },
     "signature_digest": { "domain":"none; raw-byte digest", "preimage":"SHA256(decoded canonical 64-byte signature_b64u)", "wire_consumers":["authorization.signature_digest","operation_request_digest"] },
     "client_request_nonce_digest": { "domain":"GH700:client-request-nonce:v1", "preimage":"{authority_id,repo_node_id,authenticated_principal_digest,request_nonce}", "wire_consumers":["client success/error client_request_nonce_digest","client replay row"] },
@@ -69,6 +70,7 @@
   },
   "x-gh700-digest-dag": {
     "nodes": [
+      "attempt_subject_key",
       "authorization_signing_preimage_digest", "signature_digest", "client_request_nonce_digest",
       "control_request_nonce_digest", "time_bound_request_id", "execution_identity_digest", "operation_id",
       "release_broker_delivery_id", "generated_pr_delivery_id", "delivery_scope_digest",
@@ -81,6 +83,7 @@
       "key_attestation_digest", "capsule_receipt_digest", "replay_row_digest"
     ],
     "edges": [
+      ["attempt_subject_key", "operation_request_digest"],
       ["time_bound_request_id", "authorization_signing_preimage_digest"],
       ["execution_identity_digest", "authorization_signing_preimage_digest"],
       ["operation_id", "authorization_signing_preimage_digest"],
@@ -261,6 +264,7 @@
   },
   "$defs": {
     "digest": { "type":"string", "pattern":"^sha256:[0-9a-f]{64}$", "not":{"const":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}, "x-gh700-semantic":"the all-zero digest is the fail-closed sentinel and is never a valid wire value" },
+    "attempt_subject": { "type":"object", "additionalProperties":false, "required":["attempt_record_kind","candidate_identity_or_null","failure_scope_or_null","target_or_null","early_attempt_key_or_null"], "properties":{"attempt_record_kind":{"$ref":"#/$defs/attempt_record_kind"},"candidate_identity_or_null":{"oneOf":[{"$ref":"#/$defs/digest"},{"type":"null"}]},"failure_scope_or_null":{"oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"target_or_null":{"oneOf":[{"$ref":"#/$defs/id"},{"type":"null"}]},"early_attempt_key_or_null":{"oneOf":[{"$ref":"#/$defs/digest"},{"type":"null"}]}}, "x-gh700-semantic":"closed authority-derived subject payload; expected_attempt_subject_key is a byte-equal assertion over its digest" },
     "attempt_record_kind": { "enum":["candidate_failure","pipeline_interrupted","pipeline_interrupted_pre_attestation","publication_recovery_binding"] },
     "id": { "type":"string", "minLength":1, "maxLength":255, "pattern":"^[A-Za-z0-9._:/#-]+$" },
     "nonce": { "type":"string", "pattern":"^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$", "x-gh700-decoded-bytes":32, "x-gh700-padding":"forbidden", "x-gh700-semantic":"decode exactly 32 bytes, then require byte-identical unpadded base64url re-encode" },
@@ -329,7 +333,7 @@
     "body_deliver_release": { "type":"object", "additionalProperties":false, "required":["planned_operation_id","broker_delivery_id","delivery_authorization"], "properties":{"planned_operation_id":{"$ref":"#/$defs/operation_id"},"broker_delivery_id":{"$ref":"#/$defs/digest"},"delivery_authorization":{"$ref":"#/$defs/delivery_authorization"}} },
     "body_recover": { "type":"object", "additionalProperties":false, "required":["planned_operation_id","recovery_query_digest","append_authorization"], "properties":{"planned_operation_id":{"$ref":"#/$defs/operation_id"},"recovery_query_digest":{"$ref":"#/$defs/digest"},"append_authorization":{"$ref":"#/$defs/append_authorization"}} },
     "body_deliver_pr": { "type":"object", "additionalProperties":false, "required":["planned_operation_id","generated_pr_delivery_id","delivery_authorization"], "properties":{"planned_operation_id":{"$ref":"#/$defs/operation_id"},"generated_pr_delivery_id":{"$ref":"#/$defs/digest"},"delivery_authorization":{"$ref":"#/$defs/delivery_authorization"}} },
-    "body_append_blocked": { "type":"object", "additionalProperties":false, "required":["attempt_record","expected_attempt_subject_key","ledger_append_authorization"], "properties":{"attempt_record":{"$ref":"#/$defs/ledger_object"},"expected_attempt_subject_key":{"$ref":"#/$defs/digest"},"ledger_append_authorization":{"$ref":"#/$defs/ledger_append_authorization"}} },
+    "body_append_blocked": { "type":"object", "additionalProperties":false, "required":["attempt_record","attempt_subject","expected_attempt_subject_key","ledger_append_authorization"], "properties":{"attempt_record":{"$ref":"#/$defs/ledger_object"},"attempt_subject":{"$ref":"#/$defs/attempt_subject"},"expected_attempt_subject_key":{"$ref":"#/$defs/digest"},"ledger_append_authorization":{"$ref":"#/$defs/ledger_append_authorization"}} },
     "body_bind": { "type":"object", "additionalProperties":false, "required":["binding_intent","ledger_append_authorization"], "properties":{"binding_intent":{"$ref":"#/$defs/binding_intent"},"ledger_append_authorization":{"$ref":"#/$defs/ledger_append_authorization"}} },
     "body_list": { "type":"object", "additionalProperties":false, "required":["source_identity_key","candidate_identity_or_null","run_id_or_null","run_attempt_or_null","attempt_record_kind_or_null","attempt_subject_key_or_null","page_cursor_or_null","page_size"], "properties":{"source_identity_key":{"$ref":"#/$defs/digest"},"candidate_identity_or_null":{"oneOf":[{"$ref":"#/$defs/digest"},{"type":"null"}]},"run_id_or_null":{"oneOf":[{"$ref":"#/$defs/uint64"},{"type":"null"}]},"run_attempt_or_null":{"oneOf":[{"type":"integer","minimum":1,"maximum":4294967295},{"type":"null"}]},"attempt_record_kind_or_null":{"oneOf":[{"$ref":"#/$defs/attempt_record_kind"},{"type":"null"}]},"attempt_subject_key_or_null":{"oneOf":[{"$ref":"#/$defs/digest"},{"type":"null"}]},"page_cursor_or_null":{"oneOf":[{"type":"string","minLength":1},{"type":"null"}]},"page_size":{"type":"integer","minimum":1,"maximum":100}} },
     "body_watermark": { "type":"object", "additionalProperties":false, "required":["reconciliation_watermark","terminal_listing_proof","ledger_append_authorization"], "properties":{"reconciliation_watermark":{"$ref":"#/$defs/ledger_object"},"terminal_listing_proof":{"$ref":"#/$defs/ledger_object"},"ledger_append_authorization":{"$ref":"#/$defs/ledger_append_authorization"}} },

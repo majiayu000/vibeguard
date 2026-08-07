@@ -17,6 +17,7 @@ from publication_authorization_semantics import (
     validate_binding_matrix, validate_common_bindings, validate_pair_bindings,
 )
 from publication_digest_domains import allowed_domains, check_contextual_domain_rejections, require_domain, validate_domain_sets
+from publication_schema_validator import make_validator
 from publication_structural_mutations import check_structural_mutations
 from publication_wire_registries import (
     SIGNING_BRANCHES, anchor_digest, check_error_branches, check_registry_anchor_mutations,
@@ -31,7 +32,7 @@ U64_MAX = 18_446_744_073_709_551_615
 CLIENT = ("get_publication_head", "claim_publication_owner", "renew_publication_owner", "takeover_publication_owner", "append_publication_transition", "plan_release_mutation", "deliver_release_mutation", "recover_release_mutation", "plan_generated_pr", "deliver_generated_pr", "recover_generated_pr", "append_blocked_attempt", "bind_blocked_attempt", "list_blocked_attempts", "commit_reconciliation_watermark", "get_blocked_attempt_frontier", "read_secret_capsule")
 CONTROL = ("prepare_bootstrap_trusted_time", "bootstrap", "migrate", "recover", "ready")
 COVERAGE = {"source_binding", "genesis", "key_attestation", "client_replay", "control_replay", "terminal_binding", "snapshot_binding", "merged_existing_receipts", "recover_selector_database", "recover_selector_backup", "recover_selector_anchor", "control_not_found", "prebootstrap_policy", "release_recovery_pending", "release_not_applied", "release_compensated", "release_blocked", "generated_pr_not_applied", "generated_pr_blocked", "delivery_recovery_required", "capsule_source_plan", "capsule_source_claim"}
-REQUIRED_DIGEST_NODES = {"authorization_signing_preimage_digest", "signature_digest", "client_request_nonce_digest", "control_request_nonce_digest", "time_bound_request_id", "execution_identity_digest", "operation_id", "release_broker_delivery_id", "generated_pr_delivery_id", "delivery_scope_digest", "recovery_query_digest", "capsule_source_request_id", "secret_channel_request_core_digest", "tls_exporter_context_digest", "tls_exporter_keying_material_digest", "secret_channel_binding_digest", "operation_request_digest", "receipt_digest", "result_digest", "response_nonce_digest", "response_digest", "prior_anchor_binding_digest", "backup_aad_digest", "describe_key_material_attestation_digest", "manifest_key_binding_digest", "generate_data_key_request_digest", "generate_data_key_material_attestation_digest", "key_attestation_digest", "capsule_receipt_digest", "replay_row_digest"}
+REQUIRED_DIGEST_NODES = {"attempt_subject_key", "authorization_signing_preimage_digest", "signature_digest", "client_request_nonce_digest", "control_request_nonce_digest", "time_bound_request_id", "execution_identity_digest", "operation_id", "release_broker_delivery_id", "generated_pr_delivery_id", "delivery_scope_digest", "recovery_query_digest", "capsule_source_request_id", "secret_channel_request_core_digest", "tls_exporter_context_digest", "tls_exporter_keying_material_digest", "secret_channel_binding_digest", "operation_request_digest", "receipt_digest", "result_digest", "response_nonce_digest", "response_digest", "prior_anchor_binding_digest", "backup_aad_digest", "describe_key_material_attestation_digest", "manifest_key_binding_digest", "generate_data_key_request_digest", "generate_data_key_material_attestation_digest", "key_attestation_digest", "capsule_receipt_digest", "replay_row_digest"}
 DIGEST_SCHEMA = None
 KMS_MANIFEST = None
 BINDING_MATRIX = None
@@ -118,127 +119,7 @@ def uint64(value, label):
     return number
 
 
-def pointer(root, ref):
-    if not ref.startswith("#/"):
-        raise ContractError(f"non-local ref: {ref}")
-    value = root
-    for encoded in ref[2:].split("/"):
-        key = encoded.replace("~1", "/").replace("~0", "~")
-        if not isinstance(value, dict) or key not in value:
-            raise ContractError(f"dangling ref: {ref}")
-        value = value[key]
-    return value
-
-
-def is_type(value, expected):
-    return {
-        "object": isinstance(value, dict), "array": isinstance(value, list), "string": isinstance(value, str),
-        "integer": isinstance(value, int) and not isinstance(value, bool), "number": isinstance(value, (int, float)) and not isinstance(value, bool),
-        "boolean": isinstance(value, bool), "null": value is None,
-    }[expected]
-
-
-def valid(value, schema, root):
-    try:
-        validate(value, schema, root)
-        return True
-    except ContractError:
-        return False
-
-
-def validate(value, schema, root, path="$"):
-    if schema is True:
-        return set()
-    if schema is False or not isinstance(schema, dict):
-        raise ContractError(f"{path}: invalid/false schema")
-    evaluated = set()
-    if "$ref" in schema:
-        evaluated.update(validate(value, pointer(root, schema["$ref"]), root, path))
-    for child in schema.get("allOf", ()):
-        evaluated.update(validate(value, child, root, path))
-    if "anyOf" in schema:
-        matches = []
-        for child in schema["anyOf"]:
-            try:
-                matches.append(validate(value, child, root, path))
-            except ContractError:
-                continue
-        if not matches:
-            raise ContractError(f"{path}: no anyOf branch")
-        for annotations in matches:
-            evaluated.update(annotations)
-    if "oneOf" in schema:
-        matches = []
-        for child in schema["oneOf"]:
-            try:
-                matches.append(validate(value, child, root, path))
-            except ContractError:
-                continue
-        if len(matches) != 1:
-            raise ContractError(f"{path}: oneOf cardinality mismatch")
-        evaluated.update(matches[0])
-    if "not" in schema and valid(value, schema["not"], root):
-        raise ContractError(f"{path}: forbidden by not")
-    if "if" in schema:
-        branch = schema.get("then") if valid(value, schema["if"], root) else schema.get("else")
-        if branch is not None:
-            evaluated.update(validate(value, branch, root, path))
-    if "const" in schema and value != schema["const"]:
-        raise ContractError(f"{path}: const mismatch")
-    if "enum" in schema and value not in schema["enum"]:
-        raise ContractError(f"{path}: enum mismatch")
-    expected = schema.get("type")
-    if isinstance(expected, str) and not is_type(value, expected):
-        raise ContractError(f"{path}: expected {expected}")
-    if isinstance(expected, list) and not any(is_type(value, item) for item in expected):
-        raise ContractError(f"{path}: type union mismatch")
-    if isinstance(value, dict):
-        missing = [key for key in schema.get("required", ()) if key not in value]
-        if missing:
-            raise ContractError(f"{path}: missing {missing}")
-        props = schema.get("properties", {})
-        for key, item in value.items():
-            if key in props:
-                validate(item, props[key], root, f"{path}.{key}")
-                evaluated.add(key)
-        if "additionalProperties" in schema:
-            additional = set(value) - set(props)
-            additional_schema = schema["additionalProperties"]
-            if additional_schema is False and additional:
-                raise ContractError(f"{path}: additional properties {sorted(additional)}")
-            for key in additional:
-                validate(value[key], additional_schema, root, f"{path}.{key}")
-            evaluated.update(additional)
-        if "unevaluatedProperties" in schema:
-            unevaluated = set(value) - evaluated
-            unevaluated_schema = schema["unevaluatedProperties"]
-            if unevaluated_schema is False and unevaluated:
-                raise ContractError(f"{path}: unevaluated properties {sorted(unevaluated)}")
-            for key in unevaluated:
-                validate(value[key], unevaluated_schema, root, f"{path}.{key}")
-            evaluated.update(unevaluated)
-    if isinstance(value, list):
-        if len(value) < schema.get("minItems", 0) or len(value) > schema.get("maxItems", len(value)):
-            raise ContractError(f"{path}: array cardinality")
-        if schema.get("uniqueItems") and len({jcs(item) for item in value}) != len(value):
-            raise ContractError(f"{path}: duplicate item")
-        for index, item in enumerate(value):
-            if "items" in schema:
-                validate(item, schema["items"], root, f"{path}[{index}]")
-    if isinstance(value, str):
-        if len(value) < schema.get("minLength", 0) or len(value) > schema.get("maxLength", len(value)):
-            raise ContractError(f"{path}: string length")
-        if "pattern" in schema and re.search(schema["pattern"], value) is None:
-            raise ContractError(f"{path}: pattern mismatch")
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        if value < schema.get("minimum", value) or value > schema.get("maximum", value):
-            raise ContractError(f"{path}: numeric range")
-    semantic_validator = schema.get("x-gh700-semantic-validator")
-    if semantic_validator == "uint64":
-        uint64(value, path)
-    elif semantic_validator is not None:
-        raise ContractError(f"{path}: unknown semantic validator {semantic_validator}")
-    return evaluated
+pointer, is_type, valid, validate = make_validator(ContractError, uint64, jcs)
 
 
 def expand(value, fixtures, stack=()):
@@ -278,7 +159,10 @@ def strip_ids(value):
         return [strip_ids(item) for item in value]
     if not isinstance(value, dict):
         return value
-    omitted = set(AUTH_KEYS) | {"time_bound_request_id", "control_operation_id", "broker_delivery_id", "generated_pr_delivery_id", "recovery_query_digest", "secret_channel_binding"}
+    # Derived assertions never feed operation_id: expected_attempt_subject_key
+    # is a byte-equal restatement of the authority-derived subject, not an
+    # authority input, so the closed attempt_subject payload is what binds.
+    omitted = set(AUTH_KEYS) | {"time_bound_request_id", "control_operation_id", "broker_delivery_id", "generated_pr_delivery_id", "recovery_query_digest", "secret_channel_binding", "expected_attempt_subject_key"}
     return {key: strip_ids(item) for key, item in value.items() if key not in omitted}
 
 
@@ -333,6 +217,13 @@ def request_digests(request, surface):
         derive(body, "broker_delivery_id", dg("release_broker_delivery_id", "GH700:release-broker-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": body["planned_operation_id"]}), method)
     if "generated_pr_delivery_id" in body:
         derive(body, "generated_pr_delivery_id", dg("generated_pr_delivery_id", "GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": body["planned_operation_id"]}), method)
+    if "attempt_subject" in body:
+        # The caller's key is only a byte-equal assertion over the
+        # authority-derived subject, so it is recomputed from the closed
+        # payload rather than trusted as an authority input.
+        derive(body, "expected_attempt_subject_key", dg(
+            "attempt_subject_key", "GH700:attempt-subject:v1", body["attempt_subject"],
+        ), method)
     if "recovery_query_digest" in body:
         derive(body, "recovery_query_digest", dg("recovery_query_digest", "GH700:recovery-query:v1", {"method": method, "planned_operation_id": body["planned_operation_id"]}), method)
     if "capsule_source" in body:
@@ -379,6 +270,14 @@ def response_digests(response, request, surface, op_id, nonce_digest):
     derive(response, f"{surface}_request_nonce_digest", nonce_digest, method)
     response_nonce = decode_b64u(response["response_nonce"], 32, f"{method}.response_nonce")
     if "result" in response:
+        # Formula-owned identifiers are only substituted into the positive
+        # fixtures. A caller-supplied literal has to be recomputed here, or a
+        # response can name a delivery the request never planned.
+        if "generated_pr_delivery_id" in response["result"]:
+            derive(response["result"], "generated_pr_delivery_id", dg(
+                "generated_pr_delivery_id", "GH700:generated-pr-delivery-id:v1",
+                {"repo_node_id": request["repo_node_id"], "planned_operation_id": op_id},
+            ), method)
         validate_nested_capsules(response["result"], KMS_MANIFEST, derive, dg, ContractError)
         receipt_digests(response["result"])
         derive(response, "result_digest", dg("result_digest", f"GH700:{surface}-result:v1", response["result"], context=surface), method)
