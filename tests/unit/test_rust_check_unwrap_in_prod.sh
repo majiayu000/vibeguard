@@ -243,6 +243,67 @@ assert_fail "staged production unwrap remains visible" run_staged_guard
 assert_output_contains "staged output contains foo.rs" "src/foo.rs" run_staged_guard
 assert_output_not_contains "staged output excludes foo_tests.rs" "foo_tests.rs" run_staged_guard
 
+# --- PASS: raw string with unbalanced braces does not end `mod tests` early ---
+# Regression: _count_braces used to strip only ordinary string literals, so a
+# raw-string JSON/regex fixture inside `mod tests` skewed the brace depth to
+# zero and every following test line was reported as production code.
+proj5f="${tmpdir}/raw_string_mod_tests"
+mkdir -p "${proj5f}/src"
+cat > "${proj5f}/src/config.rs" <<'EOF'
+pub fn load() -> Option<String> {
+    Some(String::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_hook_config() {
+        let raw = r#"{"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"command":"jq '.hookSpecificOutput.updatedToolOutput=\"ok\"'"}]}]}}"#;
+        assert!(!raw.is_empty());
+    }
+
+    #[test]
+    fn uses_temp_root() {
+        let root = std::env::var("HOME").expect("test root");
+        assert!(!root.is_empty());
+    }
+
+    #[test]
+    fn uses_unwrap_after_raw_string() {
+        let value: Option<i32> = Some(1);
+        assert_eq!(value.unwrap(), 1);
+    }
+}
+EOF
+assert_ok "raw string in mod tests keeps later test lines ignored" \
+  bash "$GUARD" --strict "$proj5f"
+assert_output_not_contains "no RS-03 finding for config.rs test body" "config.rs" \
+  bash "$GUARD" --strict "$proj5f"
+
+# --- STAGED: same regression through the pre-commit diff path ---
+proj5g="${tmpdir}/staged_raw_string"
+mkdir -p "${proj5g}/src"
+git -C "$proj5g" init -q
+git -C "$proj5g" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj5g" config user.name "VibeGuard Tests"
+cp "${proj5f}/src/config.rs" "${proj5g}/src/config.rs"
+git -C "$proj5g" add src/config.rs
+staged_raw_files="${proj5g}/staged-files"
+printf '%s\n' "src/config.rs" > "$staged_raw_files"
+run_staged_raw_guard() {
+  (
+    cd "$proj5g"
+    env \
+      VIBEGUARD_STAGED_FILES="$staged_raw_files" \
+      bash "$GUARD" --strict "$proj5g"
+  )
+}
+assert_ok "staged raw string in mod tests produces no RS-03" run_staged_raw_guard
+assert_output_not_contains "staged output excludes config.rs test body" "config.rs" \
+  run_staged_raw_guard
+
 # --- PASS: empty project (no .rs files) ---
 proj6="${tmpdir}/pass_empty"
 mkdir -p "${proj6}/src"

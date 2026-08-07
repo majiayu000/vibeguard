@@ -54,6 +54,9 @@ _ITEM_KW    = re.compile(r'\b(mod|fn|impl|struct|enum|type|trait)\b')
 
 # --- Build test_lines set from original file (reuse standalone logic) ---
 def _count_braces(s):
+    # Raw strings first: their contents are literal, and JSON/regex fixtures
+    # routinely carry unbalanced braces that would corrupt the depth tracking.
+    s = re.sub(r'(?:b?r)(#*)"(?:(?!"\1).)*"\1', '', s, flags=re.S)
     s = re.sub(r'"(?:[^"\\]|\\.)*"', '', s)
     s = re.sub(r"'(?:[^'\\\\]|\\\\.)*'", '', s)
     s = re.sub(r'//.*$', '', s)
@@ -180,7 +183,11 @@ file_path = sys.argv[1]
 test_lines = set()
 
 def _count_braces(s):
-    # Strip string literals and line comments before counting braces
+    # Strip string literals and line comments before counting braces.
+    # Raw strings must go first: their contents are literal, and JSON/regex
+    # fixtures routinely carry unbalanced braces that would corrupt the depth
+    # tracking (covers r"..", r#".."#, br"..", br#".."#).
+    s = re.sub(r'(?:b?r)(#*)"(?:(?!"\1).)*"\1', '', s, flags=re.S)
     s = re.sub(r'"(?:[^"\\]|\\.)*"', '', s)   # remove double-quoted string literals
     s = re.sub(r"'(?:[^'\\]|\\.)*'", '', s)   # remove single-quoted char literals
     s = re.sub(r'//.*$', '', s)               # remove line comments
