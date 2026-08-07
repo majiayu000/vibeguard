@@ -2,19 +2,25 @@ use crate::setup_install_state::read_state;
 use crate::setup_support::{SetupResult, sha256_text, write_json_atomic};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
-use std::ffi::CString;
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
+
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "setup_managed_tree_test_support.rs"]
 mod test_support;
+#[path = "setup_managed_tree_io.rs"]
+mod tree_io;
 #[path = "setup_managed_tree_state.rs"]
 pub(crate) mod tree_state;
 use test_support::{
     inject_collision, inject_failure, inject_postverify, inject_public_replacement,
 };
+use tree_io::{
+    absolute, ensure_public_absent, path_text, sync_parent, valid_digest, valid_text,
+    write_json_durable, write_new_json_durable,
+};
+pub(crate) use tree_io::{now_nanos, rename_noreplace, sync_directory};
 use tree_state::{carry_tracked_files, managed_tree_decision};
 
 const USAGE: &str = "Usage: vibeguard-runtime setup-state-quarantine-managed-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";
@@ -212,8 +218,18 @@ fn recover_or_find_committed(
     let mut committed = None;
     for transaction_path in transaction_paths(parent, name)? {
         let mut transaction = read_transaction(&transaction_path)?;
-        let expected_source = (!matches!(transaction.phase.as_str(), "restored" | "released"))
-            .then_some(source_prefix);
+        let record_matches = active_record
+            .as_ref()
+            .is_some_and(|record| record == &record_value(&transaction));
+        // An active quarantine's stored source prefix is historical evidence
+        // that install-state preflight already validated. When a later manifest
+        // moves a disabled skill's source directory while keeping its public
+        // name, forcing the request's new prefix here would abort every install
+        // and re-enable after setup already refreshed the installed snapshot.
+        // Terminal phases have no live source left to prove at all.
+        let expected_source = (!record_matches
+            && !matches!(transaction.phase.as_str(), "restored" | "released"))
+        .then_some(source_prefix);
         validate_transaction(
             &transaction,
             &transaction_path,
@@ -222,14 +238,18 @@ fn recover_or_find_committed(
             name,
             expected_source,
         )?;
-        let record_matches = active_record
-            .as_ref()
-            .is_some_and(|record| record == &record_value(&transaction));
+        // Ownership of an active quarantine must likewise be proven against the
+        // prefix its tracked inventory was recorded under, not the moved path.
+        let owner_source = if record_matches {
+            transaction.source_prefix.clone()
+        } else {
+            source_prefix.to_string()
+        };
         let quarantine = PathBuf::from(&transaction.quarantine);
         match transaction.phase.as_str() {
             "intent" if record_matches => {
                 ensure_public_absent(dest)?;
-                verify_exact(states, &quarantine, source_prefix, dest)?;
+                verify_exact(states, &quarantine, &owner_source, dest)?;
                 transaction.phase = "committed".into();
                 write_json_durable(&transaction_path, &transaction_value(&transaction))?;
                 publish_record(current_state, states, &transaction)?;
@@ -242,7 +262,7 @@ fn recover_or_find_committed(
             }
             "committed" if record_matches => {
                 ensure_public_absent(dest)?;
-                verify_exact(states, &quarantine, source_prefix, dest)?;
+                verify_exact(states, &quarantine, &owner_source, dest)?;
                 publish_record(current_state, states, &transaction)?;
                 committed = Some(quarantine);
             }
@@ -652,146 +672,4 @@ fn current_generation(path: &Path) -> SetupResult<u64> {
             .ok_or_else(|| "install-state generation must be a positive integer".into()),
         _ => Err("install-state generation and complete must be declared together".into()),
     }
-}
-
-fn write_new_json_durable(path: &Path, value: &Value) -> SetupResult<()> {
-    let tmp = path.with_extension(format!("tmp.{}.{}", std::process::id(), now_nanos()));
-    let bytes = serde_json::to_vec_pretty(value)?;
-    let result = (|| {
-        let mut file = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
-        file.write_all(&bytes)?;
-        file.write_all(b"\n")?;
-        file.sync_all()?;
-        rename_noreplace(&tmp, path)?;
-        sync_parent(path)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result
-}
-
-fn write_json_durable(path: &Path, value: &Value) -> SetupResult<()> {
-    write_json_atomic(path, value)?;
-    sync_parent(path)
-}
-
-fn sync_parent(path: &Path) -> SetupResult<()> {
-    sync_directory(path.parent().ok_or("durable path has no parent")?)
-}
-
-pub(crate) fn sync_directory(path: &Path) -> SetupResult<()> {
-    #[cfg(unix)]
-    File::open(path)?.sync_all()?;
-    #[cfg(windows)]
-    let _ = path;
-    Ok(())
-}
-
-fn ensure_public_absent(dest: &Path) -> SetupResult<()> {
-    match fs::symlink_metadata(dest) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Ok(_) => Err(format!(
-            "disabled public destination unexpectedly exists: {}",
-            dest.display()
-        )
-        .into()),
-        Err(error) => Err(error.into()),
-    }
-}
-
-fn valid_text(value: &Value) -> bool {
-    value
-        .as_str()
-        .is_some_and(|text| !text.is_empty() && !text.contains(['\n', '\r']))
-}
-
-fn valid_digest(value: &Value) -> bool {
-    value
-        .as_str()
-        .and_then(|text| text.strip_prefix("sha256:"))
-        .is_some_and(|digest| {
-            digest.len() == 64
-                && digest
-                    .bytes()
-                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-        })
-}
-
-#[cfg(any(target_os = "linux", target_os = "android"))]
-pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
-    use std::os::unix::ffi::OsStrExt;
-    let from = CString::new(from.as_os_str().as_bytes())?;
-    let to = CString::new(to.as_os_str().as_bytes())?;
-    let result = unsafe {
-        libc::renameat2(
-            libc::AT_FDCWD,
-            from.as_ptr(),
-            libc::AT_FDCWD,
-            to.as_ptr(),
-            libc::RENAME_NOREPLACE,
-        )
-    };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
-}
-
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
-    use std::os::unix::ffi::OsStrExt;
-    let from = CString::new(from.as_os_str().as_bytes())?;
-    let to = CString::new(to.as_os_str().as_bytes())?;
-    let result = unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
-}
-
-#[cfg(windows)]
-pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
-    match fs::rename(from, to) {
-        Ok(()) => Ok(()),
-        Err(_) if fs::symlink_metadata(to).is_ok() => Err(io::ErrorKind::AlreadyExists.into()),
-        Err(error) => Err(error),
-    }
-}
-
-#[cfg(not(any(
-    target_os = "linux",
-    target_os = "android",
-    target_os = "macos",
-    target_os = "ios",
-    windows
-)))]
-pub(crate) fn rename_noreplace(_from: &Path, _to: &Path) -> io::Result<()> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "atomic no-replace rename is unsupported",
-    ))
-}
-
-fn absolute(path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(path)
-    }
-}
-
-fn path_text(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
-}
-
-pub(crate) fn now_nanos() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
 }

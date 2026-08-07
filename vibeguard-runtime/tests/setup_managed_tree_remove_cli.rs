@@ -281,21 +281,38 @@ fn released_transaction_from_old_source_does_not_block_new_source() {
     );
 }
 
+/// A manifest that moves a disabled skill's source directory while keeping its
+/// public name must not strand the installation. The active quarantine already
+/// carries the source prefix its tracked inventory was recorded under, so the
+/// request is idempotent: report the existing quarantine instead of aborting
+/// setup after it has already refreshed the installed snapshot.
 #[test]
-fn active_quarantine_rejects_a_manifest_source_move() {
+fn active_quarantine_survives_a_manifest_source_move() {
     let fixture = Fixture::new("quarantine-managed-tree-active-source-move");
     let first = fixture.run(&[]);
     assert_eq!(first.status.code(), Some(0), "{}", stderr(&first));
+    let quarantine = fixture.quarantines()[0].clone();
 
     let disabled_again = fixture.run_command_source(
         "setup-state-quarantine-managed-tree",
         "skills-v2/plan-flow",
         &[],
     );
-    assert_eq!(disabled_again.status.code(), Some(1));
-    assert!(stderr(&disabled_again).contains("managed-tree transaction does not match request"));
+    assert_eq!(
+        disabled_again.status.code(),
+        Some(0),
+        "{}",
+        stderr(&disabled_again)
+    );
+    assert!(
+        String::from_utf8_lossy(&disabled_again.stdout)
+            .contains(&format!("QUARANTINED\t{}", quarantine.display()))
+    );
+    // The move must not silently re-attribute ownership: the record and the
+    // retained bytes still belong to the original quarantine.
     assert!(fixture.record().is_some());
-    assert!(fixture.quarantines()[0].join("SKILL.md").is_file());
+    assert!(quarantine.join("SKILL.md").is_file());
+    assert_eq!(fixture.quarantines().len(), 1);
 }
 
 #[test]

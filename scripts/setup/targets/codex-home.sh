@@ -164,7 +164,14 @@ check_codex_home_installation() {
     link="${CODEX_DIR}/skills/${skill}"
     if skill_is_disabled "${skill}"; then
       if [[ -e "${link}" || -L "${link}" ]]; then
-        yellow "[DISABLED] ${skill} skill disabled via $(disabled_skills_source_label) but still present; re-run setup.sh to remove it"
+        # Only an exact install-state-owned copy can actually be quarantined by
+        # the next setup run. Promising removal for a tree the installer will
+        # refuse would report healthy right before a guaranteed install failure.
+        if state_managed_tree_owned "${link}" "${source_path}"; then
+          yellow "[DISABLED] ${skill} skill disabled via $(disabled_skills_source_label) but still present; re-run setup.sh to remove it"
+        else
+          red "[BROKEN] ${skill} skill is disabled but ~/.codex/skills/${skill} is not a VibeGuard-owned copy; setup.sh will refuse to quarantine it"
+        fi
       else
         green "[DISABLED] ${skill} skill disabled via $(disabled_skills_source_label)"
       fi

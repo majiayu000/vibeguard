@@ -115,15 +115,25 @@ state_reject_legacy_publish_artifacts() {
   return 1
 }
 
-# Validate both install-state generations before any active install mutation.
-state_preflight() {
+# A symlink or directory at an install-state path is not "no state": treating
+# it as absent lets a caller delete managed assets and only then fail on the
+# malformed path, leaving a half-cleaned installation behind.
+state_reject_nonregular_paths() {
   local state_path
-  state_reject_legacy_publish_artifacts || return 1
   for state_path in "$STATE_FILE" "$STATE_PREVIOUS_FILE"; do
     if [[ -L "$state_path" || (-e "$state_path" && ! -f "$state_path") ]]; then
       printf 'ERROR: install-state path must be a regular file or absent: %s\n' "$state_path" >&2
       return 1
     fi
+  done
+}
+
+# Validate both install-state generations before any active install mutation.
+state_preflight() {
+  local state_path
+  state_reject_legacy_publish_artifacts || return 1
+  state_reject_nonregular_paths || return 1
+  for state_path in "$STATE_FILE" "$STATE_PREVIOUS_FILE"; do
     if [[ -f "$state_path" ]] \
       && ! state_runtime setup-state-list-tracked-under "$state_path" "${HOME}/.codex/skills" >/dev/null; then
       printf 'ERROR: refusing to mutate malformed install-state: %s\n' "$state_path" >&2
@@ -282,6 +292,15 @@ state_record_tree() {
 
 # Check for drift — files that were installed but have been modified or removed
 state_check_drift() {
+  # A release that removed the active record from the current generation but
+  # crashed before removing it from the previous snapshot leaves a
+  # previous-only quarantine. The next install validates that generation and
+  # aborts, so reporting CLEAN from the current file alone would be dishonest.
+  if [[ -f "$STATE_PREVIOUS_FILE" ]] \
+    && ! state_runtime setup-state-quarantine-count "$STATE_PREVIOUS_FILE" >/dev/null 2>&1; then
+    printf 'PREVIOUS_GENERATION_INVALID: %s\n' "$STATE_PREVIOUS_FILE"
+    return 1
+  fi
   if [[ ! -f "$STATE_FILE" ]]; then
     echo "NO_STATE"
     return 0
@@ -347,6 +366,7 @@ state_list_project_hooks() {
 
 state_prepare_clean() {
   local current_count=0 previous_count=0 total_count
+  state_reject_nonregular_paths || return 1
   if [[ -f "$STATE_FILE" ]]; then
     current_count="$(state_runtime setup-state-quarantine-count "$STATE_FILE")" || return 1
   fi
