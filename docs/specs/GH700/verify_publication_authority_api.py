@@ -16,6 +16,11 @@ from publication_authorization_semantics import (
     validate_binding_matrix, validate_common_bindings, validate_pair_bindings,
 )
 from publication_digest_domains import allowed_domains, check_contextual_domain_rejections, require_domain, validate_domain_sets
+from publication_structural_mutations import check_structural_mutations
+from publication_wire_registries import (
+    SIGNING_BRANCHES, anchor_digest, check_error_branches, check_registry_anchor_mutations,
+    check_registry_anchors,
+)
 from publication_typed_contracts import (
     check_nested_kms_mutations, materialize_kms_manifest, validate_nested_capsules,
 )
@@ -458,7 +463,12 @@ def check_schema(schema, root):
         raise ContractError("generic two-field receipt remains")
     signing = {"signing_key_id", "signing_key_material_id", "signing_preimage_digest", "signature_b64u", "signature_digest"}
     signing_meta = schema.get("x-gh700-signing-preimages", {})
-    for name in ("publication_lease_authorization", "append_authorization", "delivery_authorization", "ledger_append_authorization"):
+    # The four authorization branches are the exact schema-owned signing
+    # registry. Reading only the expected names would let an extra branch reuse
+    # an existing domain and still certify, so the registry is closed by set.
+    if set(signing_meta) != set(SIGNING_BRANCHES):
+        raise ContractError(f"signing preimage registry is not exactly {sorted(SIGNING_BRANCHES)}")
+    for name in SIGNING_BRANCHES:
         if not signing <= set(defs[name]["required"]):
             raise ContractError(f"{name}: incomplete signing contract")
         meta = signing_meta.get(name, {})
@@ -566,11 +576,6 @@ def expect_pair_rejected(label, request, response, model, registry_row, schema):
     except ContractError:
         return
     raise ContractError(f"positive mutation accepted: {label}")
-
-
-def other_method(surface, method):
-    methods = CLIENT if surface == "client" else CONTROL
-    return next(candidate for candidate in methods if candidate != method)
 
 
 def applicable_semantic_paths(value, schema, root, path=()):
@@ -703,6 +708,8 @@ def main():
     global BINDING_MATRIX, KMS_MANIFEST
     root = args.root.resolve(); schema = load(root / "publication_authority_api.schema.json"); models = load(root / "publication_authority_api.models.json")
     refs, unevaluated = check_schema(schema, root); dag_nodes, dag_edges = check_dag(schema); digest_mutations = check_digest_node_mutations(schema)
+    anchors = check_registry_anchors(schema, jcs, ContractError)
+    anchor_mutations = check_registry_anchor_mutations(schema, jcs, ContractError)
     KMS_MANIFEST, kms_digests = materialize_kms_manifest(schema, models["fixtures"], expand, validate, pointer, derive, dg, ContractError)
     expected_rows = [("client", method) for method in CLIENT] + [("control", method) for method in CONTROL]
     BINDING_MATRIX = validate_binding_matrix(
@@ -714,6 +721,7 @@ def main():
     error_sets = {row["method"]: set(row["error_codes"]) for row in registry if row["surface"] == "control"}
     if "not_found" not in error_sets["recover"] or "not_found" in error_sets["ready"]:
         raise ContractError("control not_found registry partition mismatch")
+    error_branches = check_error_branches(schema, registry, {"client": CLIENT, "control": CONTROL}, validate, pointer, ContractError)
     registry_by_method = {(row["surface"], row["method"]): row for row in registry}
     pairs, coverage, digest_count = {}, set(), 0
     for model in models["models"]:
@@ -738,6 +746,10 @@ def main():
                 positive_mutations += 1
             else:
                 raise ContractError(f"binding mutation accepted: {label}")
+    structural_mutations = check_structural_mutations(
+        pairs, models["models"], registry_by_method, schema, {"client": CLIENT, "control": CONTROL},
+        validate, pointer, ContractError,
+    )
     kms_mutations = check_nested_kms_mutations(pairs, KMS_MANIFEST, derive, dg, ContractError)
     uint64_mutations = check_uint64_instance_mutations(pairs, models["models"], registry_by_method, schema)
     auxiliary = models.get("auxiliary_positive_instances", ())
@@ -768,7 +780,7 @@ def main():
         args.emit_materialized.mkdir(parents=True, exist_ok=True)
         for model_id, (request, response) in pairs.items():
             (args.emit_materialized / f"{model_id}.request.json").write_bytes(jcs(request)); (args.emit_materialized / f"{model_id}.response.json").write_bytes(jcs(response))
-    print(f"PUBLICATION_AUTHORITY_API_OK registry=17+5 models={len(models['models'])} auxiliary={len(auxiliary)} errors={len(errors)} refs={refs} unevaluated={unevaluated} digests={digest_count}+{kms_digests}kms mismatches=0 dag={dag_nodes}/{dag_edges} positive_mutations={positive_mutations} matrix_mutations={matrix_mutations} contextual_domain_mutations={contextual_domain_mutations} kms_mutations={kms_mutations} uint64_mutations={uint64_mutations} digest_mutations={digest_mutations} negatives={len(negatives)} coverage={len(coverage)}")
+    print(f"PUBLICATION_AUTHORITY_API_OK registry=17+5 models={len(models['models'])} auxiliary={len(auxiliary)} errors={len(errors)} refs={refs} unevaluated={unevaluated} digests={digest_count}+{kms_digests}kms mismatches=0 dag={dag_nodes}/{dag_edges} positive_mutations={positive_mutations} matrix_mutations={matrix_mutations} contextual_domain_mutations={contextual_domain_mutations} kms_mutations={kms_mutations} uint64_mutations={uint64_mutations} digest_mutations={digest_mutations} negatives={len(negatives)} coverage={len(coverage)} structural_mutations={structural_mutations} anchors={anchors}/{anchor_mutations} error_branches={error_branches}")
 
 
 if __name__ == "__main__":

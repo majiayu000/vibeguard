@@ -135,6 +135,20 @@ def active_relations(matrix, row, model_id, error_type=ValueError):
     return _relations(matrix, row["model_profiles"][model_id], error_type)
 
 
+_UINT64_DECIMAL = re.compile(r"0|[1-9][0-9]*")
+
+
+def _as_uint64(value, label, error_type=ValueError):
+    """Numeric view of a uint64 wire value; bools and non-canonical text fail."""
+    if isinstance(value, bool):
+        _fail(error_type, f"{label}: bool is not an ordered uint64 operand")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and _UINT64_DECIMAL.fullmatch(value):
+        return int(value)
+    _fail(error_type, f"{label}: ordered relation operand is not a canonical uint64")
+
+
 def validate_pair_bindings(request, response, matrix, row, model_id, error_type=ValueError):
     root = {"request": request, "response": response}
     for relation in active_relations(matrix, row, model_id, error_type):
@@ -148,10 +162,14 @@ def validate_pair_bindings(request, response, matrix, row, model_id, error_type=
             right = _path(root, relation["right"], error_type)
             if operator == "equal":
                 accepted = left == right
-            elif operator == "greater_or_equal":
-                accepted = left >= right
             else:
-                accepted = left <= right
+                # uint64 values above 2^53-1 travel as canonical decimal
+                # strings. Comparing them as raw JSON sorts them
+                # lexicographically, which accepts numerically inverted
+                # intervals, so ordering operands are coerced to integers.
+                left_number = _as_uint64(left, relation["left"], error_type)
+                right_number = _as_uint64(right, relation["right"], error_type)
+                accepted = left_number >= right_number if operator == "greater_or_equal" else left_number <= right_number
         if not accepted:
             _fail(error_type, f"{model_id}: binding relation failed: {relation['relation_id']}")
 
