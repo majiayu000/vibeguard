@@ -119,6 +119,79 @@ def validate_binding_matrix(schema, models, expected_rows, pointer, error_type=V
     return matrix
 
 
+FRONTIER_PROFILES = {
+    "NONE": (False, False, False),
+    "P0_B0": (False, False, False),
+    "P1_B0": (True, False, False),
+    "P0_B1": (False, True, False),
+    "P1_B1": (True, True, False),
+    "BODY_P1_B1": (True, True, True),
+}
+REPLAY_MODES = {"durable_same_nonce_same_digest", "durable_same_nonce_same_digest_read_confirm"}
+
+
+def _frontier_present(carrier, base):
+    for key in (base, f"{base}_or_null"):
+        if carrier.get(key) is not None:
+            return True
+    return False
+
+
+def check_row_contract_fields(schema, rows, pairs, pointer, validate, error_type=ValueError):
+    """Every binding-row field is a machine source, so validate all of them.
+
+    Dereferencing only `request_ref`/`success_ref` lets `authorization_ref`,
+    `operation_id_ref`, `frontier_profile`, `replay`, and `error_codes` hold
+    wrong but well-formed values while the matrix still certifies.
+    """
+    checked = 0
+    for row in rows:
+        label = f"{row['surface']}.{row['method']}"
+        for key in ("authorization_ref", "operation_id_ref"):
+            ref = row[key]
+            if ref is not None:
+                pointer(schema, ref)
+        if row["operation_id_ref"] not in (None, "#/$defs/operation_id"):
+            _fail(error_type, f"{label}: operation_id_ref must be the shared operation_id or null")
+        if row["replay"] not in REPLAY_MODES:
+            _fail(error_type, f"{label}: unknown replay mode {row['replay']}")
+        codes = row["error_codes"]
+        if not codes or len(codes) != len(set(codes)):
+            _fail(error_type, f"{label}: empty or duplicated error_codes")
+        profile = row["frontier_profile"]
+        if profile not in FRONTIER_PROFILES:
+            _fail(error_type, f"{label}: unknown frontier profile {profile}")
+        wants_publication, wants_blocked, in_body = FRONTIER_PROFILES[profile]
+
+        for model_id in row["model_profiles"]:
+            request = pairs[model_id][0]
+            # Envelope frontiers are nullable (`*_or_null`); body frontiers are
+            # required, so the same profile spells them under two names.
+            carrier = request["body"] if in_body else request
+            has_publication = _frontier_present(carrier, "expected_publication_frontier")
+            has_blocked = _frontier_present(carrier, "expected_blocked_attempt_frontier")
+            if (has_publication, has_blocked) != (wants_publication, wants_blocked):
+                _fail(
+                    error_type,
+                    f"{model_id}: frontier profile {profile} disagrees with the wire "
+                    f"(publication={has_publication} blocked={has_blocked})",
+                )
+            auth_ref = row["authorization_ref"]
+            if auth_ref is not None:
+                name = auth_ref.rsplit("/", 1)[-1]
+                present = request["body"].get(name) if name in request["body"] else request.get("policy_binding")
+                if present is None:
+                    _fail(error_type, f"{model_id}: authorization_ref {auth_ref} names no wire member")
+                # Presence is not agreement: a row can name a sibling
+                # authorization whose fields the wire member does not satisfy.
+                try:
+                    validate(present, pointer(schema, auth_ref), schema)
+                except Exception:
+                    _fail(error_type, f"{model_id}: wire authorization does not satisfy authorization_ref {auth_ref}")
+            checked += 1
+    return checked
+
+
 def row_for_model(matrix, model, error_type=ValueError):
     matches = [
         row for row in matrix["rows"]

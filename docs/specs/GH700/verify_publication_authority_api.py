@@ -12,7 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from publication_authorization_semantics import (
-    AUTH_KEYS, check_binding_matrix_mutations, derive_authorization_fields, relation_mutations, row_for_model,
+    AUTH_KEYS, check_binding_matrix_mutations, check_row_contract_fields, derive_authorization_fields,
+    relation_mutations, row_for_model,
     validate_binding_matrix, validate_common_bindings, validate_pair_bindings,
 )
 from publication_digest_domains import allowed_domains, check_contextual_domain_rejections, require_domain, validate_domain_sets
@@ -746,6 +747,7 @@ def main():
                 positive_mutations += 1
             else:
                 raise ContractError(f"binding mutation accepted: {label}")
+    row_fields = check_row_contract_fields(schema, registry, pairs, pointer, validate, ContractError)
     structural_mutations = check_structural_mutations(
         pairs, models["models"], registry_by_method, schema, {"client": CLIENT, "control": CONTROL},
         validate, pointer, ContractError,
@@ -780,7 +782,7 @@ def main():
         args.emit_materialized.mkdir(parents=True, exist_ok=True)
         for model_id, (request, response) in pairs.items():
             (args.emit_materialized / f"{model_id}.request.json").write_bytes(jcs(request)); (args.emit_materialized / f"{model_id}.response.json").write_bytes(jcs(response))
-    print(f"PUBLICATION_AUTHORITY_API_OK registry=17+5 models={len(models['models'])} auxiliary={len(auxiliary)} errors={len(errors)} refs={refs} unevaluated={unevaluated} digests={digest_count}+{kms_digests}kms mismatches=0 dag={dag_nodes}/{dag_edges} positive_mutations={positive_mutations} matrix_mutations={matrix_mutations} contextual_domain_mutations={contextual_domain_mutations} kms_mutations={kms_mutations} uint64_mutations={uint64_mutations} digest_mutations={digest_mutations} negatives={len(negatives)} coverage={len(coverage)} structural_mutations={structural_mutations} anchors={anchors}/{anchor_mutations} error_branches={error_branches}")
+    print(f"PUBLICATION_AUTHORITY_API_OK registry=17+5 models={len(models['models'])} auxiliary={len(auxiliary)} errors={len(errors)} refs={refs} unevaluated={unevaluated} digests={digest_count}+{kms_digests}kms mismatches=0 dag={dag_nodes}/{dag_edges} positive_mutations={positive_mutations} matrix_mutations={matrix_mutations} contextual_domain_mutations={contextual_domain_mutations} kms_mutations={kms_mutations} uint64_mutations={uint64_mutations} digest_mutations={digest_mutations} negatives={len(negatives)} coverage={len(coverage)} row_fields={row_fields} structural_mutations={structural_mutations} anchors={anchors}/{anchor_mutations} error_branches={error_branches}")
 
 
 if __name__ == "__main__":
