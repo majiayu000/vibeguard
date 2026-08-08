@@ -9,7 +9,9 @@ GH-702
 [`monotonic-anchor-contract.md`](monotonic-anchor-contract.md) 定义 external CAS、本地两代 mirror、
 commit journal 与 barrier recovery；[`atomic-launch-machine-contract.md`](atomic-launch-machine-contract.md)
 唯一地定义 H-010 request/response、process-template preimage 与 consumed-transaction lifecycle。
-两者的 backend/platform 选择仍须维护者批准，owner/annex digests 必须一起绑定到 decision artifact。
+[`anchor-identity-verification-contract.md`](anchor-identity-verification-contract.md) 唯一地定义 exhaustive
+identity pointer closure 与 executable negative corpus。三者的 backend/platform 选择仍须维护者批准，
+owner/annex digests 必须一起绑定到 decision artifact。
 
 ## 当前事实
 
@@ -136,8 +138,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     reinstall 是 reattach 还是新 root、device replacement/backup restore 是否禁止或走显式迁移、
     target authorizer profile/key/trust root 与每种 leaf 的 authorized-operation transition rules、
     backend/IPC unavailable 与 partial-CAS 的 repair authority/UX，以及 intentional reset 的确认、
-    evidence retention 和旧 receipts 处置。global platform registry 跨全部 Core releases append-only；
-    `platform_id` 全历史唯一且 family/mode 不可改；一旦 no-block 就永久拒绝 family rename/block transition。
+    evidence retention 和旧 receipts 处置。global platform registry 跨全部 conforming Core releases append-only；
+    `platform_id` 在 signed lineage 中唯一且 family/mode 不可改；一旦 no-block，后续 conforming
+    release 必须拒绝 family rename/block transition。没有 Core 外 monotonic authority 时，不声称能约束
+    entry 出现前的旧 binary 或随本地状态一起回滚的 coherent old release。
     每个 claimed installed hook 必须填写 `hook_e2e_p50/p95/p99/max_ms`；只有 anchor-block 再填写
     `cas_timeout_ms`、`ipc_timeout_ms`、`queue_wait_budget_ms`、`contention_total_budget_ms` 与
     `contention_retry_limit_count`，no-block 禁止 backend/CAS budget；不得留空、
@@ -150,11 +154,13 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     evaluation-policy digest/generation/validity evidence；任一 policy/budget rotation 或 mismatch 必须
     nonzero 并全量重跑，不能沿用旧 result。no-block branch 必须引用 global terminal registry entry 与
     `maximum_effective_decision=warn`；release pin 只绑定 compatibility，不定义 mode。该 platform/family
-    在任何过去/未来 release 都只 warn/off，expiry/pin mismatch 只使 status stale/nonzero。没有上述
-    external launch TCB 的平台永久 no-block，禁止 migration/official block；new identity、maintainer
+    从首次验证该 entry 的 conforming release 起只 warn/off，expiry/pin mismatch 只使 status stale/nonzero。
+    没有上述 external launch TCB 的平台在当前与后续 conforming release 中保持 no-block，禁止
+    migration/official block；new identity、maintainer
     authorization 或 Core 内检查不能替代 launch floor。anchor-block host adapter 必须在任何 Core hook
-    前验证 attestation，旧 binary/adapter 低于 floor 时 nonzero 拒绝启动且不得产生 decision；whole-release
-    rollback 不能执行旧 warn/off。no-block backend/root/leaf 始终 `not_applicable`，不 provision/restart/CAS/IPC。
+    前验证 attestation，旧 binary/adapter 低于 floor 时 nonzero 拒绝启动且不得产生 decision；只有
+    anchor-block 的 Core 外 launch authority 才能保证 coherent whole-release rollback 不执行旧路径。
+    no-block backend/root/leaf 始终 `not_applicable`，不 provision/restart/CAS/IPC。
     final CI 按 authority mode 分支：anchor-block 要求 launch authority + hardware/service conformance；
     no-block 只要求 zero-backend installed-hook、独立 budget/batch/result 与 status evidence，不要求硬件/service。
     未选 branch、block backend 不 conform、identity/IPC 无法认证时不得执行 committed/promoted block；
@@ -379,7 +385,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     anchor-block generation authority/pointer/floor 缺失、malformed、不可验证或低于 floor 时，block
     candidate 必须拒绝并 nonzero；no-block backend/root/leaf 是 `not_applicable`，不得运行
     provision/restart/CAS/IPC 或升级 denial。same-family/cross-release mode transition、duplicate platform
-    都 fail-visible；没有 Core 外 nonrollback launch TCB 的平台永久 no-block，禁止 migration/official block。
+    都 fail-visible；没有 Core 外 nonrollback launch TCB 的平台在当前与后续 conforming release 中
+    保持 no-block，禁止 migration/official block，但不声称能约束 coherent rollback 的旧 release。
     两者都不能等旧 horizon 到期。status
     同时显示 publication、committed evaluation 与 authoritative active evaluation policy
     identities。anchor-block 的每次 policy activation 还必须在 Core-owned policy lock 下先写入并 fsync closed
@@ -548,7 +555,7 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 - [ ] 默认无 telemetry；feedback export 与发送是分离、显式确认的动作。
 - [ ] H-001–H-010 均有 maintainer 选择与 security review evidence，未选择时 official
       publish/install/default-block gate 明确阻断。
-- [ ] `two_release_whole_rollback`、`old_binary_prelaunch_rejected`、仍未过期旧 attestation 在 floor advance 后
+- [ ] anchor-block 的 `two_release_whole_rollback`、`old_binary_prelaunch_rejected`、仍未过期旧 attestation 在 floor advance 后
       replay、read-current+local-spawn、六个 process-template subdigest/domain/preimage 与 handle/token mutation、
       named compare/recover/resume/query-or-abort response loss、prelinearization not-consumed cancel、resume receipt
       durable-before-runnable、pending timeout/abort/tombstone compaction 后 transaction reuse、handoff status secret

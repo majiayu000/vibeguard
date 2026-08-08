@@ -8,8 +8,8 @@ GH-702
 
 [`product.md`](product.md)
 
-External monotonic persistence/crash recovery 由 [`monotonic-anchor-contract.md`](monotonic-anchor-contract.md) 定义；
-atomic launch wire/process-template 只由 [`atomic-launch-machine-contract.md`](atomic-launch-machine-contract.md) 定义，本文件不另建 alias。
+External monotonic persistence/crash recovery 由 [`monotonic-anchor-contract.md`](monotonic-anchor-contract.md) 定义；atomic launch wire/process-template 只由 [`atomic-launch-machine-contract.md`](atomic-launch-machine-contract.md) 定义；
+identity pointer closure/negative corpus 只由 [`anchor-identity-verification-contract.md`](anchor-identity-verification-contract.md) 定义，本文件不另建 alias。
 
 ## Spec 状态与实施门
 
@@ -243,7 +243,8 @@ anchor-block 先由 Core 外、pre-launch、旧 binary 不可绕过的 nonrollba
 profile/policy 的 key-material/quorum 和 canonical process template，原子 compare current state、consume transaction、
 create suspended Core；adapter 验证 challenge-bound attestation、process preimage 与 opaque handle/token digest 后，
 才请求 external TCB 单次恢复 exact process。supporting contract 独占 launch/handoff/recovery/mode-specific perf；
-no-block 来自 global registry且无 TCB 时永久 no-block/禁止 migration/official block。backend/platform 仍未批准。
+no-block 来自 global registry；从首次验证 entry 的 conforming release 起禁止 migration/official block，
+但无 Core 外 TCB 时不宣称能约束更早或与本地状态共同回滚的旧 release。backend/platform 仍未批准。
 
 `source_storage_key` 是 closed union：official 为
 `official/<normalized_publisher>/<normalized_pack>`；local 为
@@ -569,7 +570,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "tests/test_guard_pack_supply_chain.sh",
     "tests/test_guard_pack_transactions.sh",
     "tests/test_guard_pack_precision_policy.sh",
-    "tests/test_guard_pack_anchor.sh", "tests/perf_guard_pack_anchor.sh", "tests/bench_hook_latency.sh", "tests/test_hook_perf_contract.sh",
+    "tests/test_gh702_anchor_contract.sh", "tests/test_guard_pack_anchor.sh", "tests/perf_guard_pack_anchor.sh", "tests/bench_hook_latency.sh", "tests/test_hook_perf_contract.sh",
     "tests/fixtures/guard_packs/", "tests/fixtures/guard_pack_anchor/", "docs/reference/hook-latency-contract.md",
     "tests/test_payload.sh",
     "tests/test_release_workflow.sh",
@@ -585,7 +586,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
   ],
   "spec_refs": [
     "docs/specs/GH702/product.md",
-    "docs/specs/GH702/tech.md", "docs/specs/GH702/monotonic-anchor-contract.md", "docs/specs/GH702/atomic-launch-machine-contract.md",
+    "docs/specs/GH702/tech.md", "docs/specs/GH702/monotonic-anchor-contract.md", "docs/specs/GH702/atomic-launch-machine-contract.md", "docs/specs/GH702/anchor-identity-verification-contract.md",
     "docs/specs/GH702/tasks.md"
   ]
 }
@@ -635,7 +636,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | External launch adapter + policy/global registry | named compare/recover/resume/query-or-abort schemas reject missing/anonymous/conditional drift；six canonical subdigest mutation fixtures bind exact process；timeout tombstone compaction still leaves permanent transaction reuse guard；no TCB means permanent no-block/no migration |
+| B-027 policy-owned thresholds | External launch adapter + policy/global registry | named compare/recover/resume/query-or-abort schemas reject missing/anonymous/conditional drift；six canonical subdigest mutation fixtures bind exact process；timeout tombstone compaction still leaves permanent transaction reuse guard；no TCB means no-block/no migration for current and subsequent conforming releases, without a whole-release rollback claim |
 | B-028 insufficient evidence degrades | Generation-scoped runtime guard | no-block hook-only result and expiry/pin fallback；anchor launch/state failure denies；block fallback latches time |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
@@ -650,7 +651,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds under the same publication policy match digest；evaluation-policy rotation does not rebuild；publish failures never create resolvable partial entry |
 | B-041 truthful list/status/audit | Shared renderer | no-block renders global binding/ceiling/stale + hook-only result/CI + not_applicable anchors；anchor renders launch floor/backend/budgets plus non-secret pending/resume-committed/resumed/not-consumed/terminal handoff state and request/process/handle/receipt/tombstone digests，never raw handle/token |
-| B-042 offline runtime stability | Launch/runtime/registry gates | whole-release old binary + still-valid attestation replay prelaunch reject、floor/transition fixtures + mode-specific schemas/CI |
+| B-042 offline runtime stability | Launch/runtime/registry gates | anchor-block whole-release old binary + still-valid attestation replay prelaunch reject；no-block fixture proves ordinary observation detects downgrade only while state survives and does not claim external authority；mode-specific schemas/CI |
 
 ## 数据流
 
@@ -676,7 +677,7 @@ vibeguard add <locator>
 
 platform launch
   ├─ anchor claim → external TCB compare+consume+create-suspended → adapter verifies process/handoff → single resume；old/invalid → abort/nonzero, no decision
-  └─ no-block → no external TCB required；global registry permanently forbids official block
+  └─ no-block → no external TCB required；signed lineage forbids official block in subsequent conforming releases
 runtime hook → verify global family + release/install binding
   ├─ no-block → warn/off；hook-only result/CI；anchors not_applicable；mismatch stale/nonzero
   └─ anchor → stable policy/install proof + floors
@@ -744,7 +745,7 @@ confirmation 声明。runtime enforcement、list local state 和 remove 已安�
   - tamper/rollback/freeze/yank/revoke/offline/unsafe archive；
   - failure/cancel/crash at every transaction stage + recovery；
   - parallel target lock、user/other-pack canaries、legacy safe-bash migration；
-  - runtime sentinels、refreshed proof、atomic read+spawn negative、six-subdigest/domain/preimage mutation、named request/response loss、handle/token/double-resume、timeout tombstone/reuse-after-compaction、two-release rollback/duplicate/transition、old-binary prelaunch floor、
+  - runtime sentinels、refreshed proof、atomic read+spawn negative、six-subdigest/domain/preimage mutation、named request/response loss、handle/token/double-resume、timeout tombstone/reuse-after-compaction、anchor-block two-release rollback/duplicate/transition、old-binary prelaunch floor、no-block local-observation limitation、
     no-block independent budget/batch/result/status/CI、breach/policy/clock mutations和 feedback redaction。
 - [ ] Release contract:
   - verified payload包含 client/schemas/policy；
@@ -757,6 +758,7 @@ confirmation 声明。runtime enforcement、list local state 和 remove 已安�
 cargo fmt --manifest-path vibeguard-runtime/Cargo.toml -- --check
 cargo check --manifest-path vibeguard-runtime/Cargo.toml
 cargo test --manifest-path vibeguard-runtime/Cargo.toml
+bash tests/test_gh702_anchor_contract.sh
 bash tests/test_guard_packs.sh
 bash tests/test_precision_tracker.sh
 bash tests/test_payload.sh
@@ -764,7 +766,6 @@ bash tests/test_release_workflow.sh
 bash tests/test_manifest_contract.sh
 bash scripts/local-contract-check.sh --quick
 ```
-
 - [ ] Planned focused suites:
 
 ```bash

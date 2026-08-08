@@ -164,11 +164,22 @@ consumed_transaction_tombstone_retention_digest = H(
   "vibeguard.gh702.consumed-transaction-retention.v1", 1,
   consumed_transaction_tombstone_retention_body)
 
+approved_adapter_process_template_body = {
+  schema_version: 1, executable_binary_digest, argv_digest, environment_digest,
+  working_directory_digest, principal_identity_digest, sandbox_profile_digest,
+  ipc_profile_digest, loaded_image_policy_digest, code_signing_policy_digest,
+  injection_controls_policy_digest, measurement_policy_digest
+}
+approved_adapter_process_template_digest = H(
+  "vibeguard.gh702.approved-adapter-process-template.v1", 1,
+  approved_adapter_process_template_body)
+
 launch_policy_body = {
   schema_version: 1, launch_authority_profile_digest, platform_id,
   platform_profile_family_id, global_platform_registry_entry_digest,
   approved_core_binary: {version, binary_digest},
   approved_host_adapter_binary: {version, binary_digest},
+  approved_adapter_process_template_digest,
   approved_core_process_template,
   consumed_transaction_tombstone_retention_digest,
   enforcement_stage: "before_any_core_hook_v1"
@@ -218,6 +229,7 @@ compare_current_state_consume_and_launch_request_body = {
   expected_platform_launch_current_state_digest,
   expected_current_platform_generation, expected_backend_state_counter,
   expected_monotonic_launch_floor,
+  adapter_process_attestation_digest,
   measured_host_adapter_binary_digest, requested_host_adapter_version,
   measured_core_binary_digest, requested_core_version,
   requested_process_template_inputs
@@ -239,17 +251,51 @@ compare_current_state_consume_and_launch_request = {
 只认证 principal 便消费 transaction，该未获批 adapter 仍会拿到 handle/token 并恢复 Core——self-report
 在此等同于自证，不构成任何证据。
 
-因此 backend 必须在消费 transaction 之前，**在 adapter 进程之外**独立度量调用方可执行文件：
+因此 backend 必须在消费 transaction 之前，**在 adapter 进程之外**验证 external-TCB 签发的
+`adapter_process_attestation`。只读取 executable 文件不构成 process attestation。其 closed body exact 为：
+
+```text
+adapter_process_attestation_body = {
+  schema_version: 1, launch_session_id, challenge_nonce, launch_transaction_id,
+  launch_request_identity_digest, peer_evidence_digest,
+  launch_authority_profile_digest, launch_policy_digest,
+  launch_authority_backend_identity, authenticated_channel_binding_digest,
+  authenticated_peer_process_id, process_start_identity,
+  executable_object_identity, executable_binary_digest,
+  loaded_image_set_digest, code_signing_identity_digest,
+  effective_argv_digest, effective_environment_digest, working_directory_object_digest,
+  effective_principal_digest, sandbox_profile_digest, ipc_profile_digest,
+  injection_controls_digest, measurement_policy_digest, measured_at, expires_at
+}
+adapter_process_attestation_digest = H(
+  "vibeguard.gh702.adapter-process-attestation.v1", 1,
+  adapter_process_attestation_body)
+adapter_process_attestation_envelope = {
+  digest_domain: "vibeguard.gh702.adapter-process-attestation.v1", schema_version: 1,
+  adapter_process_attestation_body, adapter_process_attestation_digest,
+  signatures: [{signer_key_id, signature_algorithm, signature}]
+}
+```
+
+`loaded_image_set_digest` 覆盖实际映射的 executable 与所有动态库/模块；
+`injection_controls_digest` 证明 H-010 所批准的 debugger、ptrace、dynamic-loader、preload、JIT 与
+unsigned-module policy 已由 OS/TCB 强制执行。argv/environment/cwd/principal/sandbox/IPC 的 effective
+digests 必须来自进程创建/测量 authority，不得来自 adapter request。attestation 必须 challenge/session/
+transaction-bound、由 launch profile 的 provisioned key 验证且在同一 linearization point current。
+
+具体平台只有在 OS/service/硬件 TCB 能提供上述实际进程证明时才能选择 `anchor_block_v1`：
 
 - 从已认证的 IPC 连接解析对端进程（POSIX：peer credentials 得到的 PID 加上
   `posix_device_inode_v1` object identity；Windows：named-pipe 客户端 token 加上
-  `windows_volume_file_id_v1` file id），再由 backend 自己读取该 image 计算 digest；
-- 该 backend-measured digest 必须与 `launch_policy_body.approved_host_adapter_binary.binary_digest`
-  exact 相等，并与请求中的 `measured_host_adapter_binary_digest` exact 相等；三者任一不符即在
+  `windows_volume_file_id_v1` file id），并把该 peer 与 attested process start identity exact 绑定；
+- attested executable/loaded images/signing/effective template/injection policy 必须与
+  `launch_policy_body` 的 approved adapter process template exact 相等；attested executable digest
+  还必须与请求中的 `measured_host_adapter_binary_digest` exact 相等；任一不符即在
   transaction 消费前 nonzero，不得回退为 principal-only 授权；
-- 度量与 launch 必须在同一 external-TCB linearization point 内，对同一 pinned object identity 完成，
-  防止度量后替换 image 的 TOCTOU；
-- backend 无法解析对端进程或无法独立读取其 image 时，必须 conservative deny，而不是接受 self-report。
+- attestation 与 launch 必须在同一 external-TCB linearization point 内，对同一 pinned process/object
+  identity 完成，防止度量后替换 image、加载新模块或改变调试/注入状态的 TOCTOU；
+- backend 无法解析对端进程、无法取得实际 loaded-process attestation，或平台只能重读 executable
+  文件时，必须 conservative deny；该平台不得声明 anchor-block conformance。
 
 `measured_core_binary_digest` 同理由 backend 在 create-suspended 的同一 authority 内自行度量，
 adapter 的自报值只作为必须匹配的断言，不作为真源。
@@ -266,6 +312,7 @@ platform_launch_floor_attestation_envelope = {
     launch_commit_counter, launched_process_identity_body,
     launched_process_identity_digest, suspended_process_handle_digest,
     resume_token_digest, resume_protocol: "single_use_external_tcb_resume_v1",
+    adapter_process_attestation_digest,
     measured_core_binary_digest, measured_host_adapter_binary_digest,
     requested_core_version, requested_host_adapter_version, issued_at, expires_at
   },
@@ -560,6 +607,8 @@ prelinearization cancel、pending、durable-resume recovery、resumed 与 termin
 atomic_launch_identity_schema_roots = [
   "/argv_body", "/environment_body", "/working_directory_body",
   "/principal_identity_body", "/sandbox_profile_body", "/ipc_profile_body",
+  "/adapter_process_attestation_envelope",
+  "/approved_adapter_process_template_body",
   "/approved_core_process_template",
   "/consumed_transaction_tombstone_retention_body", "/launch_policy_body",
   "/platform_launch_current_state_body", "/launched_process_identity_body",
@@ -583,6 +632,12 @@ domain/version/digest/signature leaf，生成 `atomic_launch_identity_schema_poi
 set 必须全等，不能只登记 root。每个 pointer 都生成 omit/null/unknown/wrong-type/one-field-mutation negative；
 新增字段而 expected registry 未更新必须使 fixture 失败。monotonic contract 的 H-010 registry 必须 join 此生成
 registry，不能复制一份会漂移的手写子集。
+
+Draft review 阶段尚无 planned public JSON schemas 时，checked-in `verify_anchor_contract.py` 必须至少以
+closed executable schema 递归编译本 PR 改动的 operation、launch profile/policy、adapter template、peer/
+attestation/signature、Windows 与 tombstone roots，并对每个生成 leaf 运行 omit/wrong-type/alias negatives；
+不得把上述 object roots 本身计作 leaf。complete-stage implementation 仍必须把全部 roots 切换到 public
+schemas 生成的完整集合，Draft subset 不得被描述为 production-complete registry。
 
 ## Targeted contract assertions
 

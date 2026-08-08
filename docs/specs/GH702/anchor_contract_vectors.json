@@ -1,0 +1,519 @@
+{
+  "schema_version": 1,
+  "mirror_file_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "operation_examples": [
+    {
+      "schema_version": 1,
+      "variant": "advance_policy_evaluation",
+      "from_policy_generation": 4,
+      "target_policy_generation": 5,
+      "committed_policy_digest": "sha256:0101010101010101010101010101010101010101010101010101010101010101",
+      "evaluation_policy_digest": "sha256:0202020202020202020202020202020202020202020202020202020202020202"
+    },
+    {
+      "schema_version": 1,
+      "variant": "advance_installation_generation",
+      "installation_scope_id": "user-default",
+      "from_installation_generation": 7,
+      "target_installation_generation": 8,
+      "committed_installation_digest": "sha256:0303030303030303030303030303030303030303030303030303030303030303"
+    },
+    {
+      "schema_version": 1,
+      "variant": "advance_time_high_water",
+      "installation_scope_id": "user-default",
+      "clock_epoch": 3,
+      "from_sequence": 11,
+      "target_sequence": 12,
+      "from_high_water": 1700000000,
+      "target_high_water": 1700000001
+    },
+    {
+      "schema_version": 1,
+      "variant": "reconcile_clock_epoch",
+      "installation_scope_id": "user-default",
+      "from_clock_epoch": 3,
+      "target_clock_epoch": 4,
+      "reconciliation_evidence_digest": "sha256:0404040404040404040404040404040404040404040404040404040404040404"
+    }
+  ],
+  "authorizations": {
+    "advance_policy_evaluation": {
+      "operation": "advance_policy_evaluation",
+      "authorized_operation": {
+        "schema_version": 1,
+        "variant": "advance_policy_evaluation",
+        "from_policy_generation": 4,
+        "target_policy_generation": 5,
+        "committed_policy_digest": "sha256:0101010101010101010101010101010101010101010101010101010101010101",
+        "evaluation_policy_digest": "sha256:0202020202020202020202020202020202020202020202020202020202020202"
+      },
+      "authorized_operation_digest": "16d138ccf140105e22d1065081fb07f25e5fd8bace0d6d1b71957d93adc18a60",
+      "from_leaf_state": {
+        "per_leaf_authority_id": "c9c6c284835befab68e6ea56065029567bfe67f6d93d90b8a253cab6d0323bae",
+        "leaf_counter": 4,
+        "leaf_value_digest": "sha256:0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      "target_leaf_body": {
+        "schema_version": 1,
+        "target_leaf_counter": 5,
+        "target_leaf_value_digest": "73d623a4f3d43452098539b10c427a19ba6fea7be08b082aa4bb17f86828896f"
+      },
+      "target_leaf_digest": "48a6c8fbd0a4f4d1d1c3273c6e3d30544015e0fbd53e187bc309243097e2f6c7",
+      "target_authorization_digest": "d6345c0dbc8c4ea7e259fc6fe46feea2cbaff0d8fb34bee69ef73177311a5584"
+    },
+    "advance_installation_generation": {
+      "operation": "advance_installation_generation",
+      "authorized_operation": {
+        "schema_version": 1,
+        "variant": "advance_installation_generation",
+        "installation_scope_id": "user-default",
+        "from_installation_generation": 7,
+        "target_installation_generation": 8,
+        "committed_installation_digest": "sha256:0303030303030303030303030303030303030303030303030303030303030303"
+      },
+      "authorized_operation_digest": "42280cfbe4df7121ba34c5603dc5d3488f1ac41512a0710fab9b6d039c776336",
+      "from_leaf_state": {
+        "per_leaf_authority_id": "546529f7d18f728d4b76e9efcfec2074ee585b398637a026922b89ae4766a45d",
+        "leaf_counter": 7,
+        "leaf_value_digest": "sha256:0303030303030303030303030303030303030303030303030303030303030303"
+      },
+      "target_leaf_body": {
+        "schema_version": 1,
+        "target_leaf_counter": 8,
+        "target_leaf_value_digest": "527fc905b5f62d5ee1e3ea85b8d051bad7c31a899b983ea6fac4387feee0247a"
+      },
+      "target_leaf_digest": "27d1634bf85257d1622bd32e767c6dff1fb38d0d98c81aaeccdb490298e55440",
+      "target_authorization_digest": "9b43b45f0e70030a7ee6d3f93cc231ade2fe76f07911147a0c2bde6aa5748dc1"
+    },
+    "advance_time_high_water": {
+      "operation": "advance_time_high_water",
+      "authorized_operation": {
+        "schema_version": 1,
+        "variant": "advance_time_high_water",
+        "installation_scope_id": "user-default",
+        "clock_epoch": 3,
+        "from_sequence": 11,
+        "target_sequence": 12,
+        "from_high_water": 1700000000,
+        "target_high_water": 1700000001
+      },
+      "authorized_operation_digest": "a09f3cf1999fca94b6da63c41e7eada8cf516c5e09647e3b20a35e4b8d6477c7",
+      "from_leaf_state": {
+        "per_leaf_authority_id": "81a5661cb91e3a5fc25073bbe4ba4de0c36f0fba50cc179447d573d679392350",
+        "leaf_counter": 11,
+        "leaf_value_digest": "de103e0acb8cef1583e56e1c329b6151913320dc913878a258b2edf246793e02"
+      },
+      "target_leaf_body": {
+        "schema_version": 1,
+        "target_leaf_counter": 12,
+        "target_leaf_value_digest": "aaf7414601d73f677cf374c71ca37f2a02d68a41c43ca4d889a981d3e747414b"
+      },
+      "target_leaf_digest": "6c789d94b081aa1dafdf0136a93575ac9c2315ad68b7f065083dece5f6b0e032",
+      "target_authorization_digest": "311027dd051217621c207a26c58040cdb52db27ce74ad806107cbe79eb51e089"
+    },
+    "reconcile_clock_epoch": {
+      "operation": "reconcile_clock_epoch",
+      "authorized_operation": {
+        "schema_version": 1,
+        "variant": "reconcile_clock_epoch",
+        "installation_scope_id": "user-default",
+        "from_clock_epoch": 3,
+        "target_clock_epoch": 4,
+        "reconciliation_evidence_digest": "sha256:0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "authorized_operation_digest": "343504ec9a3c62e2e76479a20623340ed6f7dba5743ab2bfc61b68c81effdeaa",
+      "from_leaf_state": {
+        "per_leaf_authority_id": "2eb8e6a5b6596fcf14e4be7d0e95fac383ecde62def566af041f047e761eae4c",
+        "leaf_counter": 3,
+        "leaf_value_digest": "sha256:0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "target_leaf_body": {
+        "schema_version": 1,
+        "target_leaf_counter": 4,
+        "target_leaf_value_digest": "79bdeb89cc85aef5ab0f810dedb0d46ee72a313c925d55f95a100202dbd66998"
+      },
+      "target_leaf_digest": "d94e92e16373c18653775df4dc3c72a43fbd3e7c34726a20a4d39a1f5d63a975",
+      "target_authorization_digest": "6469091bc0a9aa17fb8b251ca91d3945e5895f72c1b77485a9bc71d961d04b91"
+    }
+  },
+  "prepared_phases": {
+    "advance_policy_evaluation": {
+      "digest_domain": "vibeguard.gh702.anchor-phase-prepared.v1",
+      "phase": "prepared",
+      "schema_version": 1,
+      "operation": "advance_policy_evaluation",
+      "target_authorization_digest": "d6345c0dbc8c4ea7e259fc6fe46feea2cbaff0d8fb34bee69ef73177311a5584",
+      "mirror_file_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "from_leaf_state": {
+        "per_leaf_authority_id": "c9c6c284835befab68e6ea56065029567bfe67f6d93d90b8a253cab6d0323bae",
+        "leaf_counter": 4,
+        "leaf_value_digest": "sha256:0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      "target_leaf_body": {
+        "schema_version": 1,
+        "target_leaf_counter": 5,
+        "target_leaf_value_digest": "73d623a4f3d43452098539b10c427a19ba6fea7be08b082aa4bb17f86828896f"
+      },
+      "target_leaf_digest": "48a6c8fbd0a4f4d1d1c3273c6e3d30544015e0fbd53e187bc309243097e2f6c7"
+    },
+    "advance_installation_generation": {
+      "digest_domain": "vibeguard.gh702.anchor-phase-prepared.v1",
+      "phase": "prepared",
+      "schema_version": 1,
+      "operation": "advance_installation_generation",
+      "target_authorization_digest": "9b43b45f0e70030a7ee6d3f93cc231ade2fe76f07911147a0c2bde6aa5748dc1",
+      "mirror_file_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "from_leaf_state": {
+        "per_leaf_authority_id": "546529f7d18f728d4b76e9efcfec2074ee585b398637a026922b89ae4766a45d",
+        "leaf_counter": 7,
+        "leaf_value_digest": "sha256:0303030303030303030303030303030303030303030303030303030303030303"
+      },
+      "target_leaf_body": {
+        "schema_version": 1,
+        "target_leaf_counter": 8,
+        "target_leaf_value_digest": "527fc905b5f62d5ee1e3ea85b8d051bad7c31a899b983ea6fac4387feee0247a"
+      },
+      "target_leaf_digest": "27d1634bf85257d1622bd32e767c6dff1fb38d0d98c81aaeccdb490298e55440"
+    },
+    "advance_time_high_water": {
+      "digest_domain": "vibeguard.gh702.anchor-phase-prepared.v1",
+      "phase": "prepared",
+      "schema_version": 1,
+      "operation": "advance_time_high_water",
+      "target_authorization_digest": "311027dd051217621c207a26c58040cdb52db27ce74ad806107cbe79eb51e089",
+      "mirror_file_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "from_leaf_state": {
+        "per_leaf_authority_id": "81a5661cb91e3a5fc25073bbe4ba4de0c36f0fba50cc179447d573d679392350",
+        "leaf_counter": 11,
+        "leaf_value_digest": "de103e0acb8cef1583e56e1c329b6151913320dc913878a258b2edf246793e02"
+      },
+      "target_leaf_body": {
+        "schema_version": 1,
+        "target_leaf_counter": 12,
+        "target_leaf_value_digest": "aaf7414601d73f677cf374c71ca37f2a02d68a41c43ca4d889a981d3e747414b"
+      },
+      "target_leaf_digest": "6c789d94b081aa1dafdf0136a93575ac9c2315ad68b7f065083dece5f6b0e032"
+    },
+    "reconcile_clock_epoch": {
+      "digest_domain": "vibeguard.gh702.anchor-phase-prepared.v1",
+      "phase": "prepared",
+      "schema_version": 1,
+      "operation": "reconcile_clock_epoch",
+      "target_authorization_digest": "6469091bc0a9aa17fb8b251ca91d3945e5895f72c1b77485a9bc71d961d04b91",
+      "mirror_file_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "from_leaf_state": {
+        "per_leaf_authority_id": "2eb8e6a5b6596fcf14e4be7d0e95fac383ecde62def566af041f047e761eae4c",
+        "leaf_counter": 3,
+        "leaf_value_digest": "sha256:0404040404040404040404040404040404040404040404040404040404040404"
+      },
+      "target_leaf_body": {
+        "schema_version": 1,
+        "target_leaf_counter": 4,
+        "target_leaf_value_digest": "79bdeb89cc85aef5ab0f810dedb0d46ee72a313c925d55f95a100202dbd66998"
+      },
+      "target_leaf_digest": "d94e92e16373c18653775df4dc3c72a43fbd3e7c34726a20a4d39a1f5d63a975"
+    }
+  },
+  "operation_goldens": {
+    "advance_policy_evaluation": {
+      "operation_digest": "16d138ccf140105e22d1065081fb07f25e5fd8bace0d6d1b71957d93adc18a60",
+      "from_leaf_state_digest": "22cdc861dc8e6f0eafbdf1668c8dcdce9f0992e2dae12a98015de0e2c9fd7949",
+      "target_leaf_digest": "48a6c8fbd0a4f4d1d1c3273c6e3d30544015e0fbd53e187bc309243097e2f6c7",
+      "authorization_digest": "d6345c0dbc8c4ea7e259fc6fe46feea2cbaff0d8fb34bee69ef73177311a5584",
+      "prepared_digest": "96f113913b85c92dd068f66cf30f86e277ee09ecee8c255abfbf24e7e69d2902"
+    },
+    "advance_installation_generation": {
+      "operation_digest": "42280cfbe4df7121ba34c5603dc5d3488f1ac41512a0710fab9b6d039c776336",
+      "from_leaf_state_digest": "09f74d5ae84fe2794f354829d82a304c7f35b022fb98a83b8253d3a41fdf6a10",
+      "target_leaf_digest": "27d1634bf85257d1622bd32e767c6dff1fb38d0d98c81aaeccdb490298e55440",
+      "authorization_digest": "9b43b45f0e70030a7ee6d3f93cc231ade2fe76f07911147a0c2bde6aa5748dc1",
+      "prepared_digest": "e710eef593179bcdeb7af6ded34e609c99850c123fd53b4587279a93dbf5e68d"
+    },
+    "advance_time_high_water": {
+      "operation_digest": "a09f3cf1999fca94b6da63c41e7eada8cf516c5e09647e3b20a35e4b8d6477c7",
+      "from_leaf_state_digest": "32cfab379235a8e555063060eb5dfdb597c998b85fc4cb01252baa05867c7f43",
+      "target_leaf_digest": "6c789d94b081aa1dafdf0136a93575ac9c2315ad68b7f065083dece5f6b0e032",
+      "authorization_digest": "311027dd051217621c207a26c58040cdb52db27ce74ad806107cbe79eb51e089",
+      "prepared_digest": "87a0f22118188b8ffe495567bc9bfb8aa2b882aeab917ded76e81c734efc1e63"
+    },
+    "reconcile_clock_epoch": {
+      "operation_digest": "343504ec9a3c62e2e76479a20623340ed6f7dba5743ab2bfc61b68c81effdeaa",
+      "from_leaf_state_digest": "cec86af6e4fb0a5e96652dd83ebf46b08e17a2330880b8ec744ace3be4df6ebc",
+      "target_leaf_digest": "d94e92e16373c18653775df4dc3c72a43fbd3e7c34726a20a4d39a1f5d63a975",
+      "authorization_digest": "6469091bc0a9aa17fb8b251ca91d3945e5895f72c1b77485a9bc71d961d04b91",
+      "prepared_digest": "bf6d7cefb51a260172833ee47e5046a7daa273f0290b8341f01240e4c757a19e"
+    }
+  },
+  "registry": {
+    "persisted_observation": {
+      "platform_id": "linux-x86_64",
+      "generation": 8,
+      "mode": "authenticated_no_block_v1",
+      "transition_policy": "permanent_backend_free_no_block_v1",
+      "state_survives": true
+    },
+    "successor": {
+      "platform_id": "linux-x86_64",
+      "generation": 9,
+      "mode": "authenticated_no_block_v1",
+      "transition_policy": "permanent_backend_free_no_block_v1"
+    },
+    "whole_release_rollback_guarantee": "not_claimed_without_external_authority"
+  },
+  "launch": {
+    "profile": {
+      "schema_version": 1,
+      "launch_authority_profile_id": "profile:fixture-1",
+      "launch_authority_backend_identity": {
+        "backend_kind": "fixture_external_tcb_v1",
+        "backend_instance_id": "backend:fixture-1",
+        "device_key_digest": "sha256:1515151515151515151515151515151515151515151515151515151515151515",
+        "protocol_version": 1
+      },
+      "signature_quorum": 2,
+      "trusted_signers": [
+        {
+          "signer_key_id": "signer-a",
+          "signature_algorithm": "fixture_sha256_binding_v1",
+          "verification_key_digest": "6df09261c7982fa3f17faaf8d927cb3285238d237716744bef241aed1b0cf38b"
+        },
+        {
+          "signer_key_id": "signer-b",
+          "signature_algorithm": "fixture_sha256_binding_v1",
+          "verification_key_digest": "9c178f82326ff8a36f1e287fe1ed69a77555c7dd85f55c61bfd3237fd64160db"
+        }
+      ],
+      "max_attestation_validity_ms": 30000,
+      "resume_token_min_entropy_bits": 128,
+      "max_suspended_lifetime_ms": 60000,
+      "freshness_protocol": "challenge_compare_and_launch_v1",
+      "resume_protocol": "single_use_external_tcb_resume_v1"
+    },
+    "profile_digest": "79681e535df53a3139641dac2a5212d68c132375e75d19c916d05e66667f3cdf",
+    "approved_adapter_process_template": {
+      "executable_binary_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "loaded_image_policy_digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+      "code_signing_policy_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      "argv_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "environment_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "working_directory_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "principal_identity_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "sandbox_profile_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "ipc_profile_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "injection_controls_policy_digest": "sha256:1212121212121212121212121212121212121212121212121212121212121212",
+      "measurement_policy_digest": "sha256:1313131313131313131313131313131313131313131313131313131313131313",
+      "schema_version": 1
+    },
+    "approved_adapter_process_template_digest": "0b14de03e00d071f3f0776da1a16d391d5e34d16ca8ab2e7f243f212d499c74b",
+    "policy": {
+      "schema_version": 1,
+      "launch_authority_profile_digest": "79681e535df53a3139641dac2a5212d68c132375e75d19c916d05e66667f3cdf",
+      "platform_id": "linux-x86_64",
+      "platform_profile_family_id": "linux-fixture",
+      "global_platform_registry_entry_digest": "sha256:1616161616161616161616161616161616161616161616161616161616161616",
+      "approved_core_binary": {
+        "version": "1.1.12",
+        "binary_digest": "sha256:1717171717171717171717171717171717171717171717171717171717171717"
+      },
+      "approved_host_adapter_binary": {
+        "version": "1.1.12",
+        "binary_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      "approved_adapter_process_template_digest": "0b14de03e00d071f3f0776da1a16d391d5e34d16ca8ab2e7f243f212d499c74b",
+      "approved_core_process_template": {
+        "schema_version": 1,
+        "entrypoint_id": "vibeguard-core",
+        "argv_digest": "sha256:1818181818181818181818181818181818181818181818181818181818181818",
+        "environment_digest": "sha256:1919191919191919191919191919191919191919191919191919191919191919",
+        "working_directory_digest": "sha256:2020202020202020202020202020202020202020202020202020202020202020",
+        "principal_identity_digest": "sha256:2121212121212121212121212121212121212121212121212121212121212121",
+        "sandbox_profile_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "ipc_profile_digest": "sha256:2323232323232323232323232323232323232323232323232323232323232323"
+      },
+      "consumed_transaction_tombstone_retention_digest": "sha256:2424242424242424242424242424242424242424242424242424242424242424",
+      "enforcement_stage": "before_any_core_hook_v1"
+    },
+    "policy_digest": "d543ed9e403d8231f82608fa03eaa4ea59c20407b766ca91f4d97ca259d88623",
+    "peer_evidence": {
+      "launch_session_id": "session-0007",
+      "challenge_nonce": "nonce-0007",
+      "launch_transaction_id": "launch-0007",
+      "authenticated_peer_process_id": "pid:4242",
+      "process_start_identity": "boot-7:start-991",
+      "authenticated_channel_binding_digest": "sha256:1414141414141414141414141414141414141414141414141414141414141414",
+      "peer_evidence_digest": "07f1e50e7dd364db3fac15c5c9074024ca1637bd461b3cffd11c13d292f81352"
+    },
+    "launch_request_identity": {
+      "launch_session_id": "session-0007",
+      "challenge_nonce": "nonce-0007",
+      "launch_transaction_id": "launch-0007",
+      "authenticated_channel_binding_digest": "sha256:1414141414141414141414141414141414141414141414141414141414141414"
+    },
+    "launch_request_identity_digest": "31542e6783c9832800fcbddc24dece2127bb6461f31b94854bcb5b1861e6c676",
+    "validation_time": "2026-08-09T00:00:15Z",
+    "adapter_process_attestation_envelope": {
+      "digest_domain": "vibeguard.gh702.adapter-process-attestation.v1",
+      "schema_version": 1,
+      "body": {
+        "schema_version": 1,
+        "launch_session_id": "session-0007",
+        "challenge_nonce": "nonce-0007",
+        "launch_transaction_id": "launch-0007",
+        "launch_authority_profile_digest": "79681e535df53a3139641dac2a5212d68c132375e75d19c916d05e66667f3cdf",
+        "launch_policy_digest": "d543ed9e403d8231f82608fa03eaa4ea59c20407b766ca91f4d97ca259d88623",
+        "launch_authority_backend_identity": {
+          "backend_kind": "fixture_external_tcb_v1",
+          "backend_instance_id": "backend:fixture-1",
+          "device_key_digest": "sha256:1515151515151515151515151515151515151515151515151515151515151515",
+          "protocol_version": 1
+        },
+        "authenticated_channel_binding_digest": "sha256:1414141414141414141414141414141414141414141414141414141414141414",
+        "authenticated_peer_process_id": "pid:4242",
+        "process_start_identity": "boot-7:start-991",
+        "executable_object_identity": "dev:3:ino:42",
+        "executable_binary_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "loaded_image_set_digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+        "code_signing_identity_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+        "effective_argv_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "effective_environment_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "working_directory_object_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "effective_principal_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "sandbox_profile_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "ipc_profile_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "injection_controls_digest": "sha256:1212121212121212121212121212121212121212121212121212121212121212",
+        "measurement_policy_digest": "sha256:1313131313131313131313131313131313131313131313131313131313131313",
+        "measured_at": "2026-08-09T00:00:00Z",
+        "expires_at": "2026-08-09T00:00:30Z",
+        "launch_request_identity_digest": "31542e6783c9832800fcbddc24dece2127bb6461f31b94854bcb5b1861e6c676",
+        "peer_evidence_digest": "07f1e50e7dd364db3fac15c5c9074024ca1637bd461b3cffd11c13d292f81352"
+      },
+      "attestation_digest": "3bb57004ff7080edeaffe9b0ba86c19590e5f87cd659f2ead6bf55a728979167",
+      "signatures": [
+        {
+          "signer_key_id": "signer-a",
+          "signature_algorithm": "fixture_sha256_binding_v1",
+          "signature": "e6301cfa35522fa3ec30526e357d744af9249bc4df3a477d149079557acaac34"
+        },
+        {
+          "signer_key_id": "signer-b",
+          "signature_algorithm": "fixture_sha256_binding_v1",
+          "signature": "f26019bf2391f5fcfde634298855b30e2d63ae0122687980e962b51539f4ab1f"
+        }
+      ]
+    }
+  },
+  "embedded_h010_anchor_profile": {
+    "launch_authority_profile_body": {
+      "schema_version": 1,
+      "launch_authority_profile_id": "profile:fixture-1",
+      "launch_authority_backend_identity": {
+        "backend_kind": "fixture_external_tcb_v1",
+        "backend_instance_id": "backend:fixture-1",
+        "device_key_digest": "sha256:1515151515151515151515151515151515151515151515151515151515151515",
+        "protocol_version": 1
+      },
+      "signature_quorum": 2,
+      "trusted_signers": [
+        {
+          "signer_key_id": "signer-a",
+          "signature_algorithm": "fixture_sha256_binding_v1",
+          "verification_key_digest": "6df09261c7982fa3f17faaf8d927cb3285238d237716744bef241aed1b0cf38b"
+        },
+        {
+          "signer_key_id": "signer-b",
+          "signature_algorithm": "fixture_sha256_binding_v1",
+          "verification_key_digest": "9c178f82326ff8a36f1e287fe1ed69a77555c7dd85f55c61bfd3237fd64160db"
+        }
+      ],
+      "max_attestation_validity_ms": 30000,
+      "resume_token_min_entropy_bits": 128,
+      "max_suspended_lifetime_ms": 60000,
+      "freshness_protocol": "challenge_compare_and_launch_v1",
+      "resume_protocol": "single_use_external_tcb_resume_v1"
+    },
+    "launch_policy_body": {
+      "schema_version": 1,
+      "launch_authority_profile_digest": "79681e535df53a3139641dac2a5212d68c132375e75d19c916d05e66667f3cdf",
+      "platform_id": "linux-x86_64",
+      "platform_profile_family_id": "linux-fixture",
+      "global_platform_registry_entry_digest": "sha256:1616161616161616161616161616161616161616161616161616161616161616",
+      "approved_core_binary": {
+        "version": "1.1.12",
+        "binary_digest": "sha256:1717171717171717171717171717171717171717171717171717171717171717"
+      },
+      "approved_host_adapter_binary": {
+        "version": "1.1.12",
+        "binary_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      "approved_adapter_process_template_digest": "0b14de03e00d071f3f0776da1a16d391d5e34d16ca8ab2e7f243f212d499c74b",
+      "approved_core_process_template": {
+        "schema_version": 1,
+        "entrypoint_id": "vibeguard-core",
+        "argv_digest": "sha256:1818181818181818181818181818181818181818181818181818181818181818",
+        "environment_digest": "sha256:1919191919191919191919191919191919191919191919191919191919191919",
+        "working_directory_digest": "sha256:2020202020202020202020202020202020202020202020202020202020202020",
+        "principal_identity_digest": "sha256:2121212121212121212121212121212121212121212121212121212121212121",
+        "sandbox_profile_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "ipc_profile_digest": "sha256:2323232323232323232323232323232323232323232323232323232323232323"
+      },
+      "consumed_transaction_tombstone_retention_digest": "sha256:2424242424242424242424242424242424242424242424242424242424242424",
+      "enforcement_stage": "before_any_core_hook_v1"
+    }
+  },
+  "windows_serialization": {
+    "arguments": [
+      "C:\\Program Files\\VibeGuard\\adapter.exe",
+      "--session",
+      "α β",
+      "tail\\",
+      "say\"hi"
+    ],
+    "command_line_base64url": "IgBDADoAXABQAHIAbwBnAHIAYQBtACAARgBpAGwAZQBzAFwAVgBpAGIAZQBHAHUAYQByAGQAXABhAGQAYQBwAHQAZQByAC4AZQB4AGUAIgAgACIALQAtAHMAZQBzAHMAaQBvAG4AIgAgACIAsQMgALIDIgAgACIAdABhAGkAbABcAFwAIgAgACIAcwBhAHkAXAAiAGgAaQAiAA",
+    "command_line_sha256": "ee5b029b787fd8d3166a0480e3fd51e149112d9f7b908da4e4fa82c181916b7d"
+  },
+  "tombstone_previous": {
+    "reuse_guard_generation": 10,
+    "previous_state_digest": "genesis",
+    "durable_consumed_transaction_ids": [
+      "launch-0007"
+    ],
+    "state_digest": "bcf01a7b1afef3f2f8396cdbb13cba57d23b205e7c70c8d2ba76698b3915e0c4",
+    "detail_records": [
+      "audit:launch-0007"
+    ]
+  },
+  "tombstone_current": {
+    "reuse_guard_generation": 11,
+    "previous_state_digest": "bcf01a7b1afef3f2f8396cdbb13cba57d23b205e7c70c8d2ba76698b3915e0c4",
+    "durable_consumed_transaction_ids": [
+      "launch-0007"
+    ],
+    "state_digest": "9aca81bcd824d43e08f67eb0037356d52fad7ae4696678c11c21f0d17b79aade",
+    "detail_records": []
+  },
+  "negative_corpus": [
+    "attestation_co_mutated_challenge",
+    "attestation_co_mutated_peer",
+    "attestation_co_mutated_template",
+    "attestation_expired",
+    "attestation_missing_loaded_image_set",
+    "attestation_signature_extra_field",
+    "attestation_unsigned_self_report",
+    "authorization_unknown_operation",
+    "authorization_variant_extra_field",
+    "consumed_transaction_reuse_after_compaction",
+    "embedded_pointer_omitted",
+    "mode_extra_field",
+    "mode_unknown_null",
+    "no_block_to_anchor_transition",
+    "peer_evidence_extra_field",
+    "phase_from_state_detached",
+    "phase_operation_detached",
+    "phase_target_detached",
+    "tombstone_guard_deletion",
+    "whole_release_rollback_overclaim",
+    "windows_command_line_mutation",
+    "windows_embedded_nul"
+  ]
+}
