@@ -60,13 +60,10 @@ authorization bytes，不改变 immutable operation。wrong method/ID/frontier/p
 任何 side effect前 unauthorized；delivery authorization只授权 committed plan的唯一 send-once ID。
 
 active signing key由 `$defs/authority_signing_manifest`拥有：每个 authorization须 byte-equal
-`authorization_signing_key_id`/`authorization_signing_key_material_id`，release identity attestation
-须 byte-equal其 `release_identity_*`对应项，二者不可互换。
-
-**Conformance gate boundary**：`verify_publication_authority_api.py`重算 signing preimage、detached
-signature digest与上述 pinned key identity，但**不执行非对称签名验证**——stdlib-only gate无法证明
-canonical 64-byte signature确由 pinned key所签。实现方须在 authority侧对 pinned public key做真正的
-signature verification；gate的绿色不构成该验证已完成的证据。
+`authorization_signing_key_id`/`authorization_signing_key_material_id`，并用 manifest-pinned Ed25519
+public key验证 exact signing-preimage digest。release identity attestation使用独立的
+`release_identity_*` key、签名及 validity interval，二者不可互换。conformance gate使用 RFC 8032
+公开测试向量执行真实签名验证，并拒绝 wrong-key、one-bit及 non-canonical signature。
 
 ### Time-bound operations, capsules and recovery
 
@@ -75,14 +72,18 @@ time_bound_intent、execution_identity、三个 client payload core及 proof-ord
 和 history fold唯一解释。claim/heartbeat/takeover的 run tuple必须 byte-equal authenticated execution
 identity；takeover core必须显式包含 new_owner_run_id/new_owner_run_attempt，且等于 request
 run_id/run_attempt。client不得提交 trusted time、high-water、final payload或 authority evidence。
+H-006 liveness policy必须 byte-equal authority signing manifest中的 maintainer-approved policy；wire上的
+approval digest和各 interval不能自我批准，任一 drift在 operation digest或 side effect之前拒绝。
 
 secret_channel_binding、capsule_source、capsule_receipt 与 authority_capsule_key_attestation exact schema
 均只在 machine source。authority capsule key只来自 manifest-pinned exact KMS key ARN、authenticated
 DescribeKey 64hex KeyMaterialId attestation及 byte-equal actual GenerateDataKey response；nested digest domain/preimage
 只读 schema DAG并由 verifier重算，不存在 logical kms_key_version。
 UNIQUE (repo_node_id,source_method,source_request_id,secret_slot_id) 保证 claim/mutation capsule只签发一次；
-read challenge与 live exporter fresh验证，但只返回原 capsule。missing/tampered attestation、ciphertext或
-source为 not_found/hard failure，绝不生成 replacement。
+capsule_source同时绑定 source operation与 issuance channel；read confirmation须 byte-equal source request
+ID、实际 read challenge raw-byte digest及当前 live exporter binding，返回的 capsule receipt还须回指同一
+issuance operation/channel。missing/tampered attestation、ciphertext或 source为 not_found/hard failure，
+绝不生成 replacement。
 
 method-specific success的 receipt cardinality/nullability由 registry success_ref唯一决定。Release与
 generated-PR send-once/recovery state、trusted-time durable preparation及 history operation-ID semantic
@@ -380,12 +381,13 @@ server_ref_type,server_ref_name}))`；
 结果都编码为 lowercase `sha256:<64hex>`；tuple不同却 digest相同永久冲突，调用方提交的 key只作
 byte-equal assertion，不能成为 authority输入真源。
 
-authority从 closed payload派生
+authority从 submitted blocked-attempt record内的 closed `attempt_subject`派生
 `attempt_subject_key=SHA256(JCS({v:"GH700:attempt-subject:v1",attempt_record_kind,
 candidate_identity_or_null,failure_scope_or_null,target_or_null,early_attempt_key_or_null}))`。
 `candidate_failure`写 candidate+scope及 target-or-null；`pipeline_interrupted`与
 `publication_recovery_binding`写 candidate且其余 null；pre-attestation kind只写 early-attempt key。
-`append_blocked_attempt.expected_attempt_subject_key`必须 byte-equal重算值，不能作为 authority输入真源。
+record `object_digest`覆盖该 subject；`append_blocked_attempt.expected_attempt_subject_key`必须
+byte-equal重算值。不存在与 submitted record并列的独立 subject authority输入。
 
 binding_intent及其 binding_evidence exact closed union由 machine schema定义：
 

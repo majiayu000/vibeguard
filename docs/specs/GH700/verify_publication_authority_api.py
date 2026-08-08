@@ -19,6 +19,8 @@ from publication_authorization_semantics import (
 )
 from publication_digest_domains import allowed_domains, check_contextual_domain_rejections, require_domain, validate_domain_sets
 from publication_schema_validator import make_validator
+from publication_signature_contract import self_test as signature_self_test
+from publication_signature_contract import verify_or_materialize
 from publication_structural_mutations import check_structural_mutations
 from publication_wire_registries import (
     SIGNING_BRANCHES, anchor_digest, check_error_branches, check_registry_anchor_mutations,
@@ -33,7 +35,7 @@ U64_MAX = 18_446_744_073_709_551_615
 CLIENT = ("get_publication_head", "claim_publication_owner", "renew_publication_owner", "takeover_publication_owner", "append_publication_transition", "plan_release_mutation", "deliver_release_mutation", "recover_release_mutation", "plan_generated_pr", "deliver_generated_pr", "recover_generated_pr", "append_blocked_attempt", "bind_blocked_attempt", "list_blocked_attempts", "commit_reconciliation_watermark", "get_blocked_attempt_frontier", "read_secret_capsule")
 CONTROL = ("prepare_bootstrap_trusted_time", "bootstrap", "migrate", "recover", "ready")
 COVERAGE = {"source_binding", "genesis", "key_attestation", "client_replay", "control_replay", "terminal_binding", "snapshot_binding", "merged_existing_receipts", "recover_selector_database", "recover_selector_backup", "recover_selector_anchor", "control_not_found", "prebootstrap_policy", "release_recovery_pending", "release_not_applied", "release_compensated", "release_blocked", "generated_pr_not_applied", "generated_pr_blocked", "delivery_recovery_required", "capsule_source_plan", "capsule_source_claim"}
-REQUIRED_DIGEST_NODES = {"attempt_subject_key", "kms_encryption_context_digest", "release_identity_attestation_digest", "liveness_policy_digest", "authorization_signing_preimage_digest", "signature_digest", "client_request_nonce_digest", "control_request_nonce_digest", "time_bound_request_id", "execution_identity_digest", "operation_id", "release_broker_delivery_id", "generated_pr_delivery_id", "delivery_scope_digest", "recovery_query_digest", "capsule_source_request_id", "secret_channel_request_core_digest", "tls_exporter_context_digest", "tls_exporter_keying_material_digest", "secret_channel_binding_digest", "operation_request_digest", "receipt_digest", "result_digest", "response_nonce_digest", "response_digest", "prior_anchor_binding_digest", "backup_aad_digest", "describe_key_material_attestation_digest", "manifest_key_binding_digest", "generate_data_key_request_digest", "generate_data_key_material_attestation_digest", "key_attestation_digest", "capsule_receipt_digest", "replay_row_digest"}
+REQUIRED_DIGEST_NODES = {"attempt_subject_key", "blocked_attempt_object_digest", "kms_encryption_context_digest", "release_identity_attestation_digest", "liveness_policy_digest", "authorization_signing_preimage_digest", "signature_digest", "client_request_nonce_digest", "control_request_nonce_digest", "time_bound_request_id", "execution_identity_digest", "operation_id", "release_broker_delivery_id", "generated_pr_delivery_id", "delivery_scope_digest", "recovery_query_digest", "capsule_source_request_id", "read_challenge_digest", "secret_channel_request_core_digest", "tls_exporter_context_digest", "tls_exporter_keying_material_digest", "secret_channel_binding_digest", "operation_request_digest", "receipt_digest", "result_digest", "response_nonce_digest", "response_digest", "prior_anchor_binding_digest", "backup_aad_digest", "describe_key_material_attestation_digest", "manifest_key_binding_digest", "generate_data_key_request_digest", "generate_data_key_material_attestation_digest", "key_attestation_digest", "capsule_receipt_digest", "replay_row_digest"}
 DIGEST_SCHEMA = None
 KMS_MANIFEST = None
 BINDING_MATRIX = None
@@ -161,8 +163,7 @@ def strip_ids(value):
     if not isinstance(value, dict):
         return value
     # Derived assertions never feed operation_id: expected_attempt_subject_key
-    # is a byte-equal restatement of the authority-derived subject, not an
-    # authority input, so the closed attempt_subject payload is what binds.
+    # is a byte-equal restatement of the subject inside the submitted record.
     omitted = set(AUTH_KEYS) | {"time_bound_request_id", "control_operation_id", "broker_delivery_id", "generated_pr_delivery_id", "recovery_query_digest", "secret_channel_binding", "expected_attempt_subject_key"}
     return {key: strip_ids(item) for key, item in value.items() if key not in omitted}
 
@@ -178,38 +179,18 @@ def operation_id(request, surface):
 SIGNING_MANIFEST = None
 
 
-def require_pinned_signing_key(container, label, role):
-    """Every signature must name the active manifest key for its role.
-
-    Recomputing the signing preimage and hashing the signature bytes proves
-    self-consistency, not authority: without this, a caller can construct
-    matching principal/policy/method fields, attach an arbitrary canonical
-    64-byte signature under a key of their choosing, and still verify.
-
-    This gate pins key identity. It does not perform the asymmetric signature
-    check itself — that needs a real verifier over the pinned public key and is
-    outside what a stdlib-only conformance gate can prove.
-    """
-    if SIGNING_MANIFEST is None:
-        raise ContractError(f"{label}: signing manifest is not loaded")
-    expected_id = SIGNING_MANIFEST[f"{role}_signing_key_id"]
-    expected_material = SIGNING_MANIFEST[f"{role}_signing_key_material_id"]
-    if container.get("signing_key_id") != expected_id:
-        raise ContractError(f"{label}: signing_key_id is not the active {role} key")
-    if container.get("signing_key_material_id") != expected_material:
-        raise ContractError(f"{label}: signing_key_material_id is not the active {role} key")
-
-
 def auth_digest(auth, label):
-    require_pinned_signing_key(auth, label, "authorization")
-    raw_signature = decode_b64u(auth["signature_b64u"], 64, f"{label}.signature_b64u")
-    require_domain(DIGEST_SCHEMA, "signature_digest", None, ContractError); derive(auth, "signature_digest", sha(raw_signature), label)
     preimage = {key: item for key, item in auth.items() if key not in {"signing_preimage_digest", "signature_b64u", "signature_digest"}}
     derive(auth, "signing_preimage_digest", dg(
         "authorization_signing_preimage_digest",
         auth["schema_version"].replace(":v1", ":signing-preimage:v1"), preimage,
         context=auth["schema_version"],
     ), label)
+    require_domain(DIGEST_SCHEMA, "signature_digest", None, ContractError)
+    verify_or_materialize(
+        auth, auth["signing_preimage_digest"], label, "authorization",
+        SIGNING_MANIFEST, decode_b64u, b64u, derive, sha, ContractError,
+    )
 
 
 def receipt_digests(value, label="result"):
@@ -228,25 +209,50 @@ def receipt_digests(value, label="result"):
         derive(value, "capsule_receipt_digest", dg("capsule_receipt_digest", value["capsule_receipt_version"], {key: item for key, item in value.items() if key != "capsule_receipt_digest"}), label)
 
 
+def capsule_read_challenge_digest(request):
+    challenge = request["body"].get("read_challenge")
+    if challenge is None:
+        return None
+    require_domain(DIGEST_SCHEMA, "read_challenge_digest", None, ContractError)
+    return sha(decode_b64u(challenge, 32, f"{request['method']}.read_challenge"))
+
+
 def request_digests(request, surface):
     method, body = request["method"], request["body"]
     nonce = decode_b64u(request["request_nonce"], 32, f"{method}.request_nonce")
     if "release_identity_attestation" in body:
-        # An unconstrained attestation_digest let the release identity, process,
-        # key, and validity fields be rewritten while the proof bundle merely
-        # copied the digest through. Bind the digest to the attestation content.
         attestation = body["release_identity_attestation"]
-        require_pinned_signing_key(attestation, method, "release_identity")
+        core = {
+            key: item for key, item in attestation.items()
+            if key not in {"attestation_digest", "signature_b64u", "signature_digest"}
+        }
         derive(attestation, "attestation_digest", dg(
-            "release_identity_attestation_digest", "GH700:release-identity-attestation:v1",
-            {key: item for key, item in attestation.items() if key != "attestation_digest"},
+            "release_identity_attestation_digest",
+            "GH700:release-identity-attestation:v1", core,
         ), method)
+        require_domain(DIGEST_SCHEMA, "signature_digest", None, ContractError)
+        verify_or_materialize(
+            attestation, attestation["attestation_digest"], method, "release_identity",
+            SIGNING_MANIFEST, decode_b64u, b64u, derive, sha, ContractError,
+        )
+        if uint64(attestation["valid_from_unix_seconds"], method) >= uint64(
+            attestation["valid_until_unix_seconds"], method
+        ):
+            raise ContractError(f"{method}: release identity validity interval is empty")
     if "time_bound_intent" in body:
         # Derived before operation_id: the intent (policy digest included) binds
         # the operation, so both verification passes must see the same bytes.
         intent = body["time_bound_intent"]
+        if intent["liveness_policy"] != SIGNING_MANIFEST["approved_liveness_policy"]:
+            raise ContractError(f"{method}: liveness policy is not the manifest-approved H-006 policy")
         derive(intent["client_payload_core"], "liveness_policy_digest", dg(
             "liveness_policy_digest", "GH700:liveness-policy:v1", intent["liveness_policy"],
+        ), method)
+    record = body.get("attempt_record")
+    if isinstance(record, dict) and "attempt_subject" in record:
+        derive(record, "object_digest", dg(
+            "blocked_attempt_object_digest", "GH700:blocked-attempt-record:v1",
+            {key: item for key, item in record.items() if key != "object_digest"},
         ), method)
     op_id = operation_id(request, surface)
     if "time_bound_request_id" in body:
@@ -262,18 +268,22 @@ def request_digests(request, surface):
         derive(body, "broker_delivery_id", dg("release_broker_delivery_id", "GH700:release-broker-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": body["planned_operation_id"]}), method)
     if "generated_pr_delivery_id" in body:
         derive(body, "generated_pr_delivery_id", dg("generated_pr_delivery_id", "GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": body["planned_operation_id"]}), method)
-    if "attempt_subject" in body:
-        # The caller's key is only a byte-equal assertion over the
-        # authority-derived subject, so it is recomputed from the closed
-        # payload rather than trusted as an authority input.
+    if isinstance(record, dict) and "attempt_subject" in record:
         derive(body, "expected_attempt_subject_key", dg(
-            "attempt_subject_key", "GH700:attempt-subject:v1", body["attempt_subject"],
+            "attempt_subject_key", "GH700:attempt-subject:v1",
+            record["attempt_subject"],
         ), method)
     if "recovery_query_digest" in body:
         derive(body, "recovery_query_digest", dg("recovery_query_digest", "GH700:recovery-query:v1", {"method": method, "planned_operation_id": body["planned_operation_id"]}), method)
     if "capsule_source" in body:
         source = body["capsule_source"]
-        derive(source, "source_request_id", dg("capsule_source_request_id", "GH700:capsule-source-request-id:v1", {key: source[key] for key in ("source_method", "source_operation_id", "secret_slot_id")}), method)
+        derive(source, "source_request_id", dg(
+            "capsule_source_request_id", "GH700:capsule-source-request-id:v1",
+            {key: source[key] for key in (
+                "source_method", "source_operation_id", "secret_slot_id",
+                "issuance_secret_channel_binding_digest",
+            )},
+        ), method)
     derive_authorization_fields(body, op_id, method, derive, dg)
     for key in AUTH_KEYS:
         auth = body.get(key)
@@ -323,7 +333,10 @@ def response_digests(response, request, surface, op_id, nonce_digest):
                 "generated_pr_delivery_id", "GH700:generated-pr-delivery-id:v1",
                 {"repo_node_id": request["repo_node_id"], "planned_operation_id": op_id},
             ), method)
-        bind_nested_receipts(response["result"], request, op_id, ContractError, derive, dg, f"{method}.result")
+        bind_nested_receipts(
+            response["result"], request, op_id, ContractError, derive, dg,
+            f"{method}.result", capsule_read_challenge_digest(request),
+        )
         validate_nested_capsules(response["result"], KMS_MANIFEST, derive, dg, ContractError)
         receipt_digests(response["result"])
         derive(response, "result_digest", dg("result_digest", f"GH700:{surface}-result:v1", response["result"], context=surface), method)
@@ -336,7 +349,8 @@ def materialize(model, fixtures):
     request = {**expand({"$fixture": model["request_base"]}, fixtures), **expand(model["request_patch"], fixtures)}
     op_id, nonce_digest = request_digests(request, model["surface"])
     channel = request["body"].get("secret_channel_binding", {})
-    values = {"method": request["method"], "operation_id": op_id, "operation_request_digest": request["operation_request_digest"], "generated_pr_delivery_id": dg("generated_pr_delivery_id", "GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": op_id}), "publication_frontier": request.get("expected_publication_frontier_or_null"), "blocked_frontier": request.get("expected_blocked_attempt_frontier_or_null"), "secret_channel_binding_digest": channel.get("secret_channel_binding_digest"), "release_identity_attestation_digest": request["body"].get("release_identity_attestation", {}).get("attestation_digest")}
+    source = request["body"].get("capsule_source", {})
+    values = {"method": request["method"], "operation_id": op_id, "source_operation_id": source.get("source_operation_id", op_id), "operation_request_digest": request["operation_request_digest"], "generated_pr_delivery_id": dg("generated_pr_delivery_id", "GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": op_id}), "publication_frontier": request.get("expected_publication_frontier_or_null"), "blocked_frontier": request.get("expected_blocked_attempt_frontier_or_null"), "source_request_id": source.get("source_request_id"), "read_challenge_digest": capsule_read_challenge_digest(request), "secret_channel_binding_digest": channel.get("secret_channel_binding_digest"), "issuance_secret_channel_binding_digest": source.get("issuance_secret_channel_binding_digest", channel.get("secret_channel_binding_digest")), "release_identity_attestation_digest": request["body"].get("release_identity_attestation", {}).get("attestation_digest")}
     response = context({**expand({"$fixture": model["success_base"]}, fixtures), **expand(model["success_patch"], fixtures)}, values)
     response_digests(response, request, model["surface"], op_id, nonce_digest)
     if any(isinstance(item, dict) and ({"$derive", "$context"} & set(item)) for item in walk((request, response))):
@@ -632,6 +646,23 @@ def negative(case, pairs, schema):
             key = next(key for key in AUTH_KEYS if key in request["body"]); request["body"][key]["authorized_method"] = "ready"; request_digests(request, case["surface"])
         elif kind == "authorization_frontier_mismatch":
             key = next(key for key in ("append_authorization", "ledger_append_authorization") if key in request["body"]); request["body"][key]["authorized_predecessor_frontier"]["full_prefix_digest"] = "sha256:" + "f" * 64; request_digests(request, case["surface"])
+        elif kind in {"authorization_signature_mutation", "release_identity_signature_mutation"}:
+            target = (request["body"]["release_identity_attestation"] if kind.startswith("release") else next(request["body"][key] for key in AUTH_KEYS if key in request["body"]))
+            raw = decode_b64u(target["signature_b64u"], 64, kind)
+            target["signature_b64u"] = b64u(bytes([raw[0] ^ 1]) + raw[1:])
+            target["signature_digest"] = sha(decode_b64u(target["signature_b64u"], 64, kind))
+            request_digests(request, case["surface"])
+        elif kind == "liveness_policy_mutation":
+            request["body"]["time_bound_intent"]["liveness_policy"]["ttl_seconds"] += 1; request_digests(request, case["surface"])
+        elif kind == "attempt_subject_detached_mutation":
+            record = request["body"]["attempt_record"]; record["attempt_subject"]["target_or_null"] = "other-target"
+            request["body"]["expected_attempt_subject_key"] = dg("attempt_subject_key", "GH700:attempt-subject:v1", record["attempt_subject"]); request_digests(request, case["surface"])
+        elif kind in {"capsule_issuance_operation_mismatch", "capsule_confirmation_source_mismatch", "capsule_challenge_mismatch"}:
+            result = response["result"]
+            if kind == "capsule_issuance_operation_mismatch": result["capsule_receipt"]["issuance_operation_id"] = "sha256:" + "f" * 64
+            elif kind == "capsule_confirmation_source_mismatch": result["capsule_read_confirmation"]["source_request_id"] = "sha256:" + "f" * 64
+            else: result["capsule_read_confirmation"]["read_challenge_digest"] = "sha256:" + "f" * 64
+            op, nonce = request_digests(request, case["surface"]); response_digests(response, request, case["surface"], op, nonce)
         elif kind == "receipt_extra_field":
             target = next(item for item in walk(response["result"]) if isinstance(item, dict) and "receipt_digest" in item); target["invented"] = True; validate(response, schema, schema)
         elif kind == "merged_existing_one_receipt":
@@ -658,6 +689,7 @@ def main():
     anchor_mutations = check_registry_anchor_mutations(schema, jcs, ContractError)
     SIGNING_MANIFEST = expand({"$fixture": "authority_signing_manifest"}, models["fixtures"])
     validate(SIGNING_MANIFEST, pointer(schema, "#/$defs/authority_signing_manifest"), schema)
+    signature_primitives = signature_self_test(ContractError)
     KMS_MANIFEST, kms_digests = materialize_kms_manifest(schema, models["fixtures"], expand, validate, pointer, derive, dg, ContractError)
     expected_rows = [("client", method) for method in CLIENT] + [("control", method) for method in CONTROL]
     BINDING_MATRIX = validate_binding_matrix(
@@ -730,7 +762,7 @@ def main():
         args.emit_materialized.mkdir(parents=True, exist_ok=True)
         for model_id, (request, response) in pairs.items():
             (args.emit_materialized / f"{model_id}.request.json").write_bytes(jcs(request)); (args.emit_materialized / f"{model_id}.response.json").write_bytes(jcs(response))
-    print(f"PUBLICATION_AUTHORITY_API_OK registry=17+5 models={len(models['models'])} auxiliary={len(auxiliary)} errors={len(errors)} refs={refs} unevaluated={unevaluated} digests={digest_count}+{kms_digests}kms mismatches=0 dag={dag_nodes}/{dag_edges} positive_mutations={positive_mutations} matrix_mutations={matrix_mutations} contextual_domain_mutations={contextual_domain_mutations} kms_mutations={kms_mutations} uint64_mutations={uint64_mutations} digest_mutations={digest_mutations} negatives={len(negatives)} coverage={len(coverage)} row_fields={row_fields} profile_selectors={profile_selectors} structural_mutations={structural_mutations} anchors={anchors}/{anchor_mutations} error_branches={error_branches}")
+    print(f"PUBLICATION_AUTHORITY_API_OK registry=17+5 models={len(models['models'])} auxiliary={len(auxiliary)} errors={len(errors)} refs={refs} unevaluated={unevaluated} digests={digest_count}+{kms_digests}kms mismatches=0 dag={dag_nodes}/{dag_edges} positive_mutations={positive_mutations} matrix_mutations={matrix_mutations} contextual_domain_mutations={contextual_domain_mutations} kms_mutations={kms_mutations} uint64_mutations={uint64_mutations} digest_mutations={digest_mutations} negatives={len(negatives)} coverage={len(coverage)} row_fields={row_fields} profile_selectors={profile_selectors} structural_mutations={structural_mutations} anchors={anchors}/{anchor_mutations} error_branches={error_branches} signature_primitives={signature_primitives}")
 
 
 if __name__ == "__main__":

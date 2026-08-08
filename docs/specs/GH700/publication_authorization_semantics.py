@@ -130,6 +130,13 @@ FRONTIER_PROFILES = {
     "BODY_P1_B1": (True, True, True),
 }
 REPLAY_MODES = {"durable_same_nonce_same_digest", "durable_same_nonce_same_digest_read_confirm"}
+READ_CONFIRM_METHODS = {
+    ("client", "deliver_release_mutation"),
+    ("client", "recover_release_mutation"),
+    ("client", "deliver_generated_pr"),
+    ("client", "recover_generated_pr"),
+    ("control", "recover"),
+}
 
 
 def _frontier_present(carrier, base):
@@ -155,8 +162,16 @@ def check_row_contract_fields(schema, rows, pairs, pointer, validate, error_type
                 pointer(schema, ref)
         if row["operation_id_ref"] not in (None, "#/$defs/operation_id"):
             _fail(error_type, f"{label}: operation_id_ref must be the shared operation_id or null")
-        if row["replay"] not in REPLAY_MODES:
-            _fail(error_type, f"{label}: unknown replay mode {row['replay']}")
+        expected_replay = (
+            "durable_same_nonce_same_digest_read_confirm"
+            if (row["surface"], row["method"]) in READ_CONFIRM_METHODS
+            else "durable_same_nonce_same_digest"
+        )
+        if row["replay"] not in REPLAY_MODES or row["replay"] != expected_replay:
+            _fail(
+                error_type,
+                f"{label}: replay mode {row['replay']!r} does not match {expected_replay!r}",
+            )
         codes = row["error_codes"]
         if not codes or len(codes) != len(set(codes)):
             _fail(error_type, f"{label}: empty or duplicated error_codes")
@@ -234,10 +249,23 @@ def check_profile_selectors(rows, pairs, error_type=ValueError):
     return selected
 
 
-def active_relations(matrix, row, model_id, error_type=ValueError):
+def _wire_profile_names(row, request, response, model_id, error_type):
     if model_id not in row["model_profiles"]:
         _fail(error_type, f"{model_id}: model is not owned by operation row")
-    return _relations(matrix, row["model_profiles"][model_id], error_type)
+    selector = row.get("profile_selector")
+    if selector is None:
+        return row["model_profiles"][model_id]
+    value = _path({"request": request, "response": response}, selector["path"], error_type)
+    try:
+        return selector["cases"][value]
+    except (KeyError, TypeError):
+        _fail(error_type, f"{model_id}: wire discriminator {value!r} selects no binding profile")
+
+
+def active_relations(matrix, row, request, response, model_id, error_type=ValueError):
+    return _relations(
+        matrix, _wire_profile_names(row, request, response, model_id, error_type), error_type,
+    )
 
 
 _UINT64_DECIMAL = re.compile(r"0|[1-9][0-9]*")
@@ -256,7 +284,7 @@ def _as_uint64(value, label, error_type=ValueError):
 
 def validate_pair_bindings(request, response, matrix, row, model_id, error_type=ValueError):
     root = {"request": request, "response": response}
-    for relation in active_relations(matrix, row, model_id, error_type):
+    for relation in active_relations(matrix, row, request, response, model_id, error_type):
         left = _path(root, relation["left"], error_type)
         operator = relation["operator"]
         if operator == "value":
@@ -304,7 +332,7 @@ def derive_authorization_fields(body, op_id, method, derive, digest):
 
 def relation_mutations(request, response, matrix, row, model_id, mutate_value, error_type=ValueError):
     root = {"request": request, "response": response}
-    for relation in active_relations(matrix, row, model_id, error_type):
+    for relation in active_relations(matrix, row, request, response, model_id, error_type):
         mutated_request, mutated_response = copy.deepcopy((request, response))
         mutated_root = {"request": mutated_request, "response": mutated_response}
         target = relation["left"]

@@ -22,8 +22,16 @@ SIGNING_BRANCHES = (
 # contents of `x-gh700-digest-formulas` and `x-gh700-digest-dag`, so any added,
 # removed, or rewritten formula/edge fails the gate and has to be re-approved
 # here deliberately rather than sliding through an endpoint-validity check.
-DIGEST_FORMULAS_ANCHOR = "x-gh700-digest-formulas-anchor"
-DIGEST_DAG_ANCHOR = "x-gh700-digest-dag-anchor"
+TRUSTED_REGISTRY_ANCHORS = {
+    "x-gh700-digest-formulas": (
+        "x-gh700-digest-formulas-anchor",
+        "sha256:fe1de974a85b57aaa86c42d895118aa3c976344882aa3d7e6e3ad9acd71ee986",
+    ),
+    "x-gh700-digest-dag": (
+        "x-gh700-digest-dag-anchor",
+        "sha256:2c106d428d4d95817e90be4575e8a8808b3a43ac9f5babc580120ef2a4fe84cb",
+    ),
+}
 
 
 def anchor_digest(value, jcs):
@@ -34,17 +42,17 @@ def anchor_digest(value, jcs):
 def check_registry_anchors(schema, jcs, error):
     """Pin the digest formula and DAG registries to their approved contents."""
     checked = 0
-    for key, anchor_key in (
-        ("x-gh700-digest-formulas", DIGEST_FORMULAS_ANCHOR),
-        ("x-gh700-digest-dag", DIGEST_DAG_ANCHOR),
-    ):
+    for key, (anchor_key, trusted) in TRUSTED_REGISTRY_ANCHORS.items():
         registry = schema.get(key)
         if not isinstance(registry, dict):
             raise error(f"{key}: missing registry")
         declared = schema.get(anchor_key)
         actual = anchor_digest(registry, jcs)
-        if declared != actual:
-            raise error(f"{key}: registry anchor mismatch (declared={declared} actual={actual})")
+        if declared != trusted or actual != trusted:
+            raise error(
+                f"{key}: registry anchor mismatch "
+                f"(trusted={trusted} declared={declared} actual={actual})"
+            )
         checked += 1
     return checked
 
@@ -66,6 +74,8 @@ def check_registry_anchor_mutations(schema, jcs, error):
     ]
     for label, mutated, key in variants:
         probe = {**schema, key: mutated}
+        anchor_key, _ = TRUSTED_REGISTRY_ANCHORS[key]
+        probe[anchor_key] = anchor_digest(mutated, jcs)
         try:
             check_registry_anchors(probe, jcs, error)
         except Exception:

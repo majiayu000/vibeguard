@@ -154,7 +154,10 @@ def _walk(value):
 RECEIPT_REQUEST_BINDINGS = ("authority_id", "repo_node_id", "method")
 
 
-def bind_nested_receipts(result, request, op_id, error_type, derive, digest, label="result"):
+def bind_nested_receipts(
+    result, request, op_id, error_type, derive, digest, label="result",
+    read_challenge_digest=None,
+):
     """Bind every nested receipt to the request that produced it.
 
     The common response profile only proves the outer envelope, so a receipt
@@ -164,14 +167,31 @@ def bind_nested_receipts(result, request, op_id, error_type, derive, digest, lab
     bound = 0
     if isinstance(result, list):
         return sum(
-            bind_nested_receipts(item, request, op_id, error_type, derive, digest, f"{label}[{index}]")
+            bind_nested_receipts(
+                item, request, op_id, error_type, derive, digest,
+                f"{label}[{index}]", read_challenge_digest,
+            )
             for index, item in enumerate(result)
         )
     if not isinstance(result, dict):
         return 0
     for key, item in result.items():
-        bound += bind_nested_receipts(item, request, op_id, error_type, derive, digest, f"{label}.{key}")
+        bound += bind_nested_receipts(
+            item, request, op_id, error_type, derive, digest,
+            f"{label}.{key}", read_challenge_digest,
+        )
     if "capsule_receipt_version" in result:
+        source = request["body"].get("capsule_source")
+        expected_operation = source["source_operation_id"] if source else op_id
+        channel = request["body"].get("secret_channel_binding", {})
+        expected_channel = (
+            source["issuance_secret_channel_binding_digest"]
+            if source else channel.get("secret_channel_binding_digest")
+        )
+        if result["issuance_operation_id"] != expected_operation:
+            raise error_type(f"{label}: capsule issuance operation does not match its source request")
+        if result["issuance_secret_channel_binding_digest"] != expected_channel:
+            raise error_type(f"{label}: capsule issuance channel does not match its source request")
         # Rehashing the caller's own request proves nothing about which
         # repository, operation, slot, or channel the data key was bound to.
         # The context is derived from the capsule's already-bound identity.
@@ -196,5 +216,18 @@ def bind_nested_receipts(result, request, op_id, error_type, derive, digest, lab
         # Frontier receipts are operation-independent snapshots and carry none.
         if "operation_id" in result and result["operation_id"] != op_id:
             raise error_type(f"{label}: receipt operation_id does not match this operation")
+        if result["receipt_version"] == "GH700:capsule-read-receipt:v1":
+            source = request["body"]["capsule_source"]
+            channel = request["body"]["secret_channel_binding"]
+            expected = (
+                source["source_request_id"], read_challenge_digest,
+                channel["secret_channel_binding_digest"],
+            )
+            actual = (
+                result["source_request_id"], result["read_challenge_digest"],
+                result["secret_channel_binding_digest"],
+            )
+            if actual != expected:
+                raise error_type(f"{label}: capsule read confirmation does not match its request")
         bound += 1
     return bound
