@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785958966665,
+  "lastUpdate": 1786212987409,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -57076,6 +57076,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P50",
             "value": 11,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 12,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "543c23eb357cb73eab8a89bf7c5b27e654feac8e",
+          "message": "docs(spec): reconcile GH700 post-merge review contracts (#725)\n\n* docs(spec): close GH700 follow-up evidence gaps\n\n* docs(spec): reconcile GH700 follow-up contracts\n\n* docs(spec): enforce single GH700 asset registry\n\n* docs(spec): resolve GH700 review findings\n\n* docs(spec): close GH700 follow-up review gaps\n\n* docs(spec): define GH700 marker recovery takeover\n\n* docs(spec): unify GH700 publication recovery\n\n* docs(spec): exclude GH700 genesis self-owner\n\n* docs(spec): close GH700 publication gaps\n\n* docs(spec): close GH700 recovery state machine\n\n* docs(spec): close GH700 pre-intent mutation gaps\n\n* docs(spec): generalize GH700 PR recovery\n\n* docs(spec): make GH700 history appends idempotent\n\n* docs(spec): decouple GH700 retry authorization fence\n\n* docs(spec): isolate GH700 committed fence truth\n\n* docs(spec): complete GH700 owner liveness\n\n* docs(spec): make GH700 draft nonce recoverable\n\n* docs(spec): scope GH700 markers per surface\n\n* docs(spec): close GH700 publication races\n\n* docs(spec): close GH700 mutation recovery gaps\n\n* docs(spec): seal GH700 mutation nonce plans\n\n* docs(spec): canonicalize GH700 publication history\n\n* docs(spec): extract GH700 publication contract\n\n* docs(spec): close GH700 publication authority gaps\n\n* docs(spec): close GH700 invalidation handoff gaps\n\n* docs(spec): harden GH700 authority trust contracts\n\n* docs(spec): close GH700 publication contract gaps\n\n* docs(spec): bind authority APIs and restore anchor\n\n* docs(spec): close publication recovery contracts\n\n* docs(spec): harden publication authority recovery\n\n* docs(spec): permit owner liveness in active phases\n\n* docs(spec): key target failures independently\n\n* docs(spec): bind generated PR identity before mutation\n\n* docs(spec): define governance operation identifiers\n\n* docs(spec): define successor frontier hashing\n\n* docs(spec): detach bootstrap approval digest\n\n* docs(GH700): make draft cleanup evidence representable\n\n* docs(spec): finalize anchors after backup confirmation\n\n* docs(spec): break trusted time identity cycle\n\n* docs(spec): remove rotation identity self reference\n\n* docs(spec): close publication client API schema\n\n* docs(spec): bind current plan before publication\n\n* docs(spec): gate unapproved liveness values\n\n* docs(spec): permit pre-intent rollover transition\n\n* docs(GH700): close blocked-attempt client API\n\n* docs(GH700): close publication recovery schema gaps\n\n* docs(GH700): define takeover liveness origin\n\n* docs(gh700): close publication recovery contract gaps\n\n* docs(gh700): route packet to split contracts\n\n* docs(gh700): close authority identity and recovery gaps\n\n* docs(gh700): define schema-complete vector generation\n\n* docs(gh700): close recovery and claim identities\n\n* docs(gh700): close publication authority review gaps\n\n* docs(gh700): anchor emergency delay and backup wrapping\n\n* docs(gh700): close publication recovery contracts\n\n* docs(gh700): define authority protocol contract\n\n* docs(gh700): close authority review contracts\n\n* docs(gh700): close payload bootstrap protocol gaps\n\n* docs(gh700): close trusted authority review gaps\n\n* docs(gh700): close bootstrap recovery contracts\n\n* docs(gh700): close publication authority wire contract\n\n* docs(spec): verify GH700 authority wire semantics\n\n* fix(spec): harden GH700 authority verifier\n\n* fix(spec): close GH700 verifier false greens\n\n* fix(spec): centralize GH700 authority validation\n\n* fix(gh700): close authority binding matrix\n\n* fix(spec): close 11 GH700 verifier escapes from the #725 review\n\nEach finding was reproduced as a concrete mutation that the verifier\naccepted, then closed and re-tested until the mutation is rejected while\nevery positive model still passes.\n\nSchema closures:\n- digest: reject the all-zero fail-closed sentinel\n- list_blocked_attempts: cap the record-kind filter to the ledger union and\n  the run-attempt filter to the 4294967295 domain the rest of the API uses\n- result slots: close receipt_kind per slot, so an owner claim cannot carry\n  generated-PR evidence, a ledger slot cannot carry another method's kind,\n  and a readiness slot cannot claim ready without authority_ready evidence\n- control_error: split migrate from recover; migrate's registry row has no\n  not_found\n\nVerifier closures (new publication_wire_registries.py):\n- signing-preimage registry closed by exact set, so an extra branch reusing\n  a live domain no longer certifies\n- digest formula and DAG registries pinned by canonical anchor, so a\n  rewritten preimage/wire_consumers or an added/removed/cleared edge fails\n- error envelopes validated as API branches: the root union must carry both\n  error branches, and every method's accepted codes must equal its registry\n  row\n\nStructural coverage (new publication_structural_mutations.py):\n- restore the per-model missing/null/extra/wrong-method/forbidden-alias pass\n  against the exact request/success schemas, lost when the mutation loop was\n  narrowed to binding relations. The forbidden-alias set is pinned in the\n  module rather than read from the schema it guards.\n\nSemantics:\n- coerce ordering operands to integers; large uint64s travel as decimal\n  strings and were being compared lexicographically, which accepted\n  numerically inverted validity windows\n\nPositive fixtures made self-consistent: bind_blocked_attempt and\ncommit_reconciliation_watermark now carry their own ledger receipt kinds\ninstead of reusing the append fixture.\n\n* fix(spec): validate every GH700 binding-row contract field\n\nThe matrix dereferenced only request_ref/success_ref, so authorization_ref,\noperation_id_ref, frontier_profile, replay, and error_codes could each hold a\nwrong but well-formed value and still certify. Each is now checked against the\nwire, and each was mutated to confirm it is rejected:\n\n- authorization_ref must resolve AND the wire authorization must satisfy it,\n  so naming a sibling authorization no longer passes\n- operation_id_ref must be the shared operation_id or null\n- frontier_profile must agree with the frontiers the positive request carries,\n  under both the envelope `*_or_null` and the required in-body spelling\n- replay must be one of the two durable modes\n- error_codes must be non-empty and duplicate-free\n\n* fix(spec): exercise every nested KMS identity copy\n\nThe mutation list omitted key_attestation.kms_key_arn,\n.kms_key_material_id, and .generate_data_key_response.key_id, so removing\nthe matching comparison from validate_kms_attestation left the verifier\ngreen — including the exact response-KeyId substitution from the earlier\nfinding.\n\nThe generator now rediscovers identity copies from the instance instead of\nreading the same list the comparison loop reads: a generator sharing that\nlist cannot notice a comparison being deleted, because the deletion removes\nthe probe too. It also restamps the attestation digests after mutating, so\nthe identity comparison is what rejects the mutation rather than a stale\ndigest an attacker would simply recompute.\n\nVerified by deleting each of the five identity comparisons in turn; every\ndeletion now fails the gate.\n\n* fix(spec): derive generated-PR delivery IDs and append subject keys\n\n:402 — response.result.generated_pr_delivery_id was only substituted into\nthe positive fixtures, so a caller-supplied literal passed through with\nrecomputed result/response digests. It is now recomputed from the request,\nand an attacker-chosen value fails the gate.\n\n:329 — the ledger contract makes expected_attempt_subject_key a byte-equal\nassertion over the authority-derived subject, but the wire carried only a\nby-reference ledger_object, so no conformance gate could recompute it. The\nrequest body now carries the closed attempt_subject payload the contract\nalready defines field-by-field, with a matching attempt_subject_key digest\nnode, runtime domain, and DAG edge. The assertion is excluded from the\noperation_id subject, because the contract says the caller's key must not be\nan authority input.\n\nVerified: substituting the key, and changing the payload while pinning the\nkey to the old subject, both fail.\n\nverify_publication_authority_api.py crossed the U-16 ceiling, so the Draft\n2020-12 evaluator moved to publication_schema_validator.py; make_validator\ninjects the caller's error type, uint64 validator, and canonicalizer so the\nmodule carries no verifier-specific imports.\n\n* fix(spec): bind liveness policies and release-identity attestations\n\n:315 — the three time-bound request cores accepted any liveness_policy_digest\nwith no relation tying it to the maintainer-approved H-006 policy. The\nimmutable intent now carries the closed policy body the history contract\nnames field-by-field, and the digest is derived from it. Verified: an\narbitrary digest in claim, renew, and takeover all fail, and swapping the\npolicy body while pinning the digest to the approved policy also fails.\n\n:431 — attestation_digest was an unconstrained digest, so the release\nidentity, process, key, and validity fields could be rewritten while the\nproof bundle copied the digest through. It is now derived from the\nattestation content, and the response proof bundle tracks that derived value\ninstead of a static fixture. The derivation runs before operation_id, which\nlegitimately binds the attestation.\n\n* fix(spec): bind nested receipts to their originating request\n\nThe common response profile proved only the outer envelope, so a nested\nreceipt could name another authority, repo, method, or operation while every\ndigest recomputed cleanly. Every receipt in a result is now bound to the\nrequest's authority_id, repo_node_id, and method, and to this operation's id\nwhen it carries one (frontier receipts are operation-independent snapshots\nand carry none). All six mutations now fail.\n\nThis check also surfaced an ordering defect in the liveness-policy\nderivation: it ran after operation_id, so the two verification passes hashed\ndifferent intent bytes. The derivation now runs before operation_id, which\nlegitimately binds the whole intent.\n\n* fix(spec): pin authorization and release-identity signing keys\n\nauth_digest only rehashed the supplied signature bytes and recomputed the\nsigning preimage, so a caller could construct matching principal, policy, and\nmethod fields, attach an arbitrary canonical 64-byte signature under a key of\ntheir choosing, and still verify. A new authority_signing_manifest owns the\nactive keys, and every authorization and release-identity attestation must\nname exactly the key for its role; the two roles are not interchangeable. All\nthree substitutions now fail.\n\nThe ledger contract states the gate's boundary explicitly: this verifier is\nstdlib-only and does NOT perform the asymmetric signature check, so a green\ngate is not evidence that verification happened. Implementations must verify\nsignatures against the pinned public key on the authority side.\n\n* fix(spec): derive the capsule KMS encryption context\n\nencryption_context_digest was rehashed from the caller's own request and\nnever compared with the repository, operation, secret slot, or channel\nbinding, so a substituted context survived once the request-attestation,\nkey-attestation, capsule, result, and response digests were recomputed.\n\nThe context is now derived from the capsule's already-bound identity —\nauthority, repo, capsule id, issuance operation, and issuance channel binding\ndigest — via a kms_encryption_context_digest node with its own runtime domain\nand DAG edge. No new wire field was needed.\n\nThe shared key_attestation fixture served both the manifest-level self-check\nand capsule issuance; only the latter carries a capsule-bound context, so the\ncapsule path now uses its own capsule_key_attestation fixture.\n\n* fix(spec): select binding profiles from wire discriminators\n\nState-specific profiles could only be chosen from an external positive\nfixture's model_id, which never appears in a real request or response, so a\nproduction deliver_release_mutation pair carried no machine rule choosing\nbound versus pending, and bind_blocked_attempt could not select terminal\nversus source relations.\n\nRows with state-specific profiles now declare a profile_selector naming a\nwire path and a value-to-profile map — delivery_state for the two delivery\nmethods, binding_evidence.binding_kind for bind, capsule_source.source_method\nfor capsule reads — all of them const-discriminated on the wire already. The\nverifier resolves the discriminator from the materialized pair and requires\nit to select exactly the profiles the row declares, and a row with\nstate-specific profiles and no selector now fails.\n\nVerified: removing a selector, mapping a discriminator to the wrong profile,\npointing the path at a field the wire lacks, and dropping a case all fail.\n\n* docs(spec): close GH700 review contract gaps",
+          "timestamp": "2026-08-08T17:35:55Z",
+          "tree_id": "0a5c482921a08f724ef1db6e85740cf9deb78cd2",
+          "url": "https://github.com/majiayu000/vibeguard/commit/543c23eb357cb73eab8a89bf7c5b27e654feac8e"
+        },
+        "date": 1786212985376,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 76,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 76,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 76,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 79,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 79,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 79,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 76,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 76,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 66,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 67,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 67,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 12,
             "unit": "ms"
           },
           {
