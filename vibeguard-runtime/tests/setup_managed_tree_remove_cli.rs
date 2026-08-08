@@ -511,7 +511,6 @@ fn retained_transaction_preflight_rejects_malformed_terminal_file() {
     let released = fixture.run_command("setup-state-release-quarantined-tree", &[]);
     assert_eq!(released.status.code(), Some(0), "{}", stderr(&released));
     let transaction = fixture.transactions()[0].clone();
-
     let valid = bin()
         .args([
             "setup-state-validate-managed-tree-transactions",
@@ -520,7 +519,6 @@ fn retained_transaction_preflight_rejects_malformed_terminal_file() {
         .output()
         .expect("retained transaction preflight should run");
     assert_output(&valid, 0, "", "");
-
     fs::write(&transaction, "{").expect("terminal transaction should be corrupted");
     let corrupt = bin()
         .args([
@@ -558,7 +556,6 @@ fn retained_transaction_preflight_rejects_unknown_phase_and_untrusted_destinatio
             _ => unreachable!(),
         }
         write_json(&transaction_path, &transaction);
-
         let output = bin()
             .args([
                 "setup-state-validate-managed-tree-transactions",
