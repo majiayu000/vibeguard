@@ -9,6 +9,7 @@ python3 - "${REPO_DIR}" <<'PY'
 import copy
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -99,6 +100,8 @@ def validate(node, contract, path="$"):
             return [f"{path}: enum"]
         if len(node) < contract.get("minLength", 0):
             return [f"{path}: range"]
+        if "pattern" in contract and re.fullmatch(contract["pattern"], node) is None:
+            return [f"{path}: pattern"]
         return []
     if expected_type == "array":
         if not isinstance(node, list):
@@ -172,6 +175,8 @@ assert_valid("disabled skills list", {"disabled_skills": ["plan-flow", "fixflow"
 assert_invalid("disabled skills scalar", {"disabled_skills": "plan-flow"}, "type")
 assert_invalid("disabled skills non-string entry", {"disabled_skills": [1]}, "type")
 assert_invalid("disabled skills empty entry", {"disabled_skills": [""]}, "range")
+assert_invalid("disabled skills newline entry", {"disabled_skills": ["plan-flow\nfixflow"]}, "pattern")
+assert_invalid("disabled skills path entry", {"disabled_skills": ["../plan-flow"]}, "pattern")
 assert_invalid(
     "disabled skills over max items",
     {"disabled_skills": [f"skill-{index}" for index in range(257)]},

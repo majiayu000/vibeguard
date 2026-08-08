@@ -46,8 +46,11 @@ mod setup_codex_config;
 mod setup_codex_hooks;
 mod setup_codex_hooks_health;
 mod setup_install_state;
+mod setup_lock_lifecycle;
+mod setup_managed_tree_remove;
 mod setup_manifest;
 mod setup_markdown;
+mod setup_quarantine_inventory;
 mod setup_support;
 mod time_utils;
 mod u16_baseline;
@@ -432,9 +435,39 @@ static COMMANDS: &[Command] = &[
         handler: setup_markdown::settings_check_stale,
     },
     Command {
+        name: "setup-state-capabilities",
+        usage: "— report the versioned install-state capability contract",
+        handler: setup_install_state::capabilities,
+    },
+    Command {
         name: "setup-state-init",
-        usage: "<state-file> <profile> <languages>  — initialize install state",
+        usage: "<state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot]  — initialize install state or merge a complete outgoing snapshot",
         handler: setup_install_state::init,
+    },
+    Command {
+        name: "setup-state-generation",
+        usage: "<state-file>  — report install-state completion and generation",
+        handler: setup_install_state::generation,
+    },
+    Command {
+        name: "setup-state-mark-complete",
+        usage: "<state-file>  — atomically mark an install-state generation complete",
+        handler: setup_install_state::mark_complete,
+    },
+    Command {
+        name: "setup-lock-publish-owner",
+        usage: "<lock-dir> <pid> <nonce> [reclaiming]  — durably publish setup lock ownership",
+        handler: setup_lock_lifecycle::publish_lock_owner,
+    },
+    Command {
+        name: "setup-lock-acquire",
+        usage: "<lock-dir> <pid> <nonce>  — atomically publish a complete setup lock directory",
+        handler: setup_lock_lifecycle::acquire,
+    },
+    Command {
+        name: "setup-lock-release",
+        usage: "<lock-dir> <pid> <nonce>  — atomically retire an owned setup lock directory",
+        handler: setup_lock_lifecycle::release,
     },
     Command {
         name: "setup-state-record-file",
@@ -449,7 +482,7 @@ static COMMANDS: &[Command] = &[
     Command {
         name: "setup-state-check-drift",
         usage: "<state-file>  — check install-state drift",
-        handler: setup_install_state::check_drift,
+        handler: setup_quarantine_inventory::check_drift,
     },
     Command {
         name: "setup-state-list",
@@ -465,6 +498,36 @@ static COMMANDS: &[Command] = &[
         name: "setup-state-list-tracked-under",
         usage: "<state-file> <dest-dir>  — list tracked paths of any type under a directory",
         handler: setup_install_state::list_tracked_under,
+    },
+    Command {
+        name: "setup-state-verify-managed-tree",
+        usage: "<state-file> <dest-dir> <source-prefix> [tracked-dest-dir]  — verify exact managed-tree ownership",
+        handler: setup_managed_tree_remove::tree_state::verify_managed_tree,
+    },
+    Command {
+        name: "setup-state-quarantine-managed-tree",
+        usage: "<state-file> <previous-state-file> <dest-dir> <source-prefix>  — durably quarantine a managed tree without deletion",
+        handler: setup_managed_tree_remove::run,
+    },
+    Command {
+        name: "setup-state-release-quarantined-tree",
+        usage: "<state-file> <previous-state-file> <dest-dir> <source-prefix>  — release a retained quarantine after canonical re-enable",
+        handler: setup_managed_tree_remove::release,
+    },
+    Command {
+        name: "setup-state-validate-managed-tree-transactions",
+        usage: "<skills-dir>  — validate retained managed-tree transactions before setup mutation",
+        handler: setup_managed_tree_remove::validate_transactions,
+    },
+    Command {
+        name: "setup-state-quarantine-count",
+        usage: "<state-file> [released-inventory-state-file]  — count active disabled-skill quarantine records",
+        handler: setup_quarantine_inventory::count,
+    },
+    Command {
+        name: "setup-state-remove-managed-tree",
+        usage: "<state-file> <previous-state-file> <dest-dir> <source-prefix>  — compatibility alias for non-destructive managed-tree quarantine",
+        handler: setup_managed_tree_remove::run,
     },
     Command {
         name: "setup-state-list-project-hooks",

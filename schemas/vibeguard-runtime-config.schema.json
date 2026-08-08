@@ -93,10 +93,11 @@
       "maxItems": 256,
       "items": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
       },
       "default": [],
-      "description": "Managed skill directory names to skip on install and remove if already installed."
+      "description": "Managed Codex workflow skill directory names to skip and remove only when exact install-state ownership is proven."
     },
     "learn": {
       "type": "object",

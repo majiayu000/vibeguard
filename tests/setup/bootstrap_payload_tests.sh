@@ -218,6 +218,8 @@ cp "${REPO_DIR}/scripts/setup/install.sh" \
   "${payload_ancestor_root}/scripts/setup/install.sh"
 cp "${REPO_DIR}/scripts/setup/check.sh" \
   "${payload_ancestor_root}/scripts/setup/check.sh"
+cp "${REPO_DIR}/scripts/lib/install-state.sh" \
+  "${payload_ancestor_root}/scripts/lib/install-state.sh"
 printf 'preserve pre-commit\n' > "${payload_ancestor_pre_commit_target}"
 printf 'preserve pre-push\n' > "${payload_ancestor_pre_push_target}"
 ln -s "${payload_ancestor_pre_commit_target}" \

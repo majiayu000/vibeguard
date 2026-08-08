@@ -636,12 +636,20 @@ def validate(workflow: str) -> None:
     job_lines = job.splitlines()
     required_lines = {
         "stable required check name": "    name: CI (${{ matrix.os }})",
-        "finite timeout headroom": "    timeout-minutes: 60",
         "Ubuntu/macOS matrix": "        os: [ubuntu-latest, macos-latest]",
     }
     for description, line in required_lines.items():
         if line not in job_lines:
             raise SystemExit(f"validate-and-test missing {description}: {line}")
+    # The contract requires a finite timeout, not one specific value: pinning a
+    # literal turns every headroom adjustment into a contract failure.
+    timeouts = [
+        line for line in job_lines if re.fullmatch(r"    timeout-minutes: \d+", line)
+    ]
+    if len(timeouts) != 1:
+        raise SystemExit("validate-and-test missing exactly one finite timeout headroom")
+    if int(timeouts[0].split(":", 1)[1]) <= 0:
+        raise SystemExit("validate-and-test timeout headroom must be positive")
     for prefix in ("    if:", "    continue-on-error:", "        include:", "        exclude:"):
         if any(line.startswith(prefix) for line in job_lines):
             raise SystemExit(f"validate-and-test must not contain {prefix.strip()}")
@@ -663,9 +671,13 @@ def validate(workflow: str) -> None:
 
 workflow = Path(sys.argv[1]).read_text(encoding="utf-8")
 validate(workflow)
+timeout_line = re.search(r"(?m)^    timeout-minutes: \d+$", workflow)
+if timeout_line is None:
+    raise SystemExit("ci.yml has no validate-and-test timeout headroom")
 mutations = {
     "macOS setup skip": ("        shell: bash\n        run: bash tests/test_setup.sh", "        if: runner.os == 'Linux'\n        shell: bash\n        run: bash tests/test_setup.sh"),
     "job advisory": ("    runs-on: ${{ matrix.os }}", "    runs-on: ${{ matrix.os }}\n    continue-on-error: true"),
+    "unbounded timeout": (timeout_line.group(0) + "\n", ""),
 }
 for description, (old, new) in mutations.items():
     mutated = workflow.replace(old, new, 1)

@@ -74,7 +74,9 @@ setup_runtime_version_matches() {
 }
 
 setup_runtime_supports() {
-  local runtime="$1" probe_state="${TMPDIR:-/tmp}/vibeguard-runtime-probe.$$.json"
+  local runtime="$1" capability_out probe_state="${TMPDIR:-/tmp}/vibeguard-runtime-probe.$$.json"
+  capability_out="$("${runtime}" setup-state-capabilities 2>/dev/null)" || return 1
+  [[ "${capability_out}" == "complete-snapshot-v1" ]] || return 1
   "${runtime}" setup-state-list-symlinks-under "${probe_state}" "${TMPDIR:-/tmp}" >/dev/null 2>&1 || return 1
   setup_runtime_version_matches "${runtime}" || return 1
 
@@ -91,7 +93,18 @@ setup_runtime_supports() {
     setup-codex-hooks-check-stale \
     setup-codex-hooks-prune-stale-unmanaged \
     setup-codex-hooks-check-timeouts \
+    setup-state-init \
     setup-state-list-tracked-under \
+    setup-state-verify-managed-tree \
+    setup-state-quarantine-managed-tree \
+    setup-state-quarantine-count \
+    setup-state-validate-managed-tree-transactions \
+    setup-state-release-quarantined-tree \
+    setup-state-generation \
+    setup-state-mark-complete \
+    setup-lock-acquire \
+    setup-lock-publish-owner \
+    setup-lock-release \
     runtime-config-get-list \
     runtime-config-validate; do
     probe_out="$("${runtime}" "${command}" 2>&1 || true)"
@@ -335,6 +348,27 @@ setup_runtime_bootstrap_cleanup() {
   fi
 }
 
+pin_setup_runtime_for_clean() {
+  local runtime managed_root tmp dest
+  runtime="$(setup_runtime_path)" || return 1
+  managed_root="${HOME}/.vibeguard/installed"
+  case "${runtime}" in
+    "${managed_root}/"*) ;;
+    *) return 0 ;;
+  esac
+
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-runtime-clean_XXXXXX")"
+  dest="${tmp}/vibeguard-runtime"
+  if ! cp "${runtime}" "${dest}" || ! chmod +x "${dest}"; then
+    rm -rf "${tmp}"
+    return 1
+  fi
+  export VIBEGUARD_SETUP_RUNTIME="${dest}"
+  export VIBEGUARD_SETUP_RUNTIME_BOOTSTRAP_TMP="${tmp}"
+  trap setup_runtime_bootstrap_cleanup EXIT
+  setup_runtime_path >/dev/null 2>&1
+}
+
 ensure_setup_runtime_available() {
   local target tag tmp dest
   if setup_runtime_path >/dev/null 2>&1; then
@@ -557,90 +591,13 @@ cleanup_retired_manifest_skill_links() {
   done < <(state_list_tracked_symlinks_under "${dest_dir}")
 }
 
-# Skills the user has persistently opted out of, one per line (GH719).
-#
-# Source of truth is "disabled_skills" in ~/.vibeguard/config.json, overridable
-# via VIBEGUARD_DISABLED_SKILLS. A malformed config fails the caller instead of
-# reading as "nothing is disabled", which would silently reverse an opt-out.
-disabled_skills() {
-  if [[ -n "${_VG_DISABLED_SKILLS_CACHE+x}" ]]; then
-    printf '%s' "${_VG_DISABLED_SKILLS_CACHE}"
-    return 0
-  fi
-  local output
-  if ! output="$(setup_runtime runtime-config-get-list VIBEGUARD_DISABLED_SKILLS disabled_skills 2>&1)"; then
-    red "  ERROR: cannot read disabled_skills from ~/.vibeguard/config.json" >&2
-    while IFS= read -r line; do
-      [[ -n "${line}" ]] && red "  ${line}" >&2
-    done <<< "${output}"
-    return 1
-  fi
-  _VG_DISABLED_SKILLS_CACHE="${output}"
-  printf '%s' "${_VG_DISABLED_SKILLS_CACHE}"
-}
-
-skill_is_disabled() {
-  local skill="$1" disabled entry
-  disabled="$(disabled_skills)" || return 2
-  while IFS= read -r entry; do
-    [[ "${entry}" == "${skill}" ]] && return 0
-  done <<< "${disabled}"
-  return 1
-}
-
-# Remove a VibeGuard-managed skill the user has since disabled.
-remove_disabled_skill() {
-  local dest="$1" skill="$2" dest_dir="$3"
-  local dest_parent dest_parent_abs dest_dir_abs
-  [[ -e "${dest}" || -L "${dest}" ]] || return 0
-
-  # Never delete outside the managed skills directory.
-  dest_parent="$(dirname "${dest}")"
-  [[ -d "${dest_parent}" && -d "${dest_dir}" ]] || return 0
-  dest_parent_abs="$(cd "${dest_parent}" && pwd -P)"
-  dest_dir_abs="$(cd "${dest_dir}" && pwd -P)"
-  if [[ "${dest_parent_abs}" != "${dest_dir_abs}" ]]; then
-    red "  ERROR: refusing to remove disabled skill outside ${dest_dir}: ${dest}"
-    return 1
-  fi
-
-  rm -rf "${dest}"
-  yellow "  REMOVED ${skill} (disabled in ~/.vibeguard/config.json)"
-}
-
-# Report — rather than silently perform — the restore of a managed skill the
-# user deleted without recording a persistent opt-out (GH719).
-report_skill_restore() {
-  local dest="$1" skill="$2"
-  [[ -e "${dest}" || -L "${dest}" ]] && return 0
-  declare -F state_is_tracked_path >/dev/null || return 0
-  state_is_tracked_path "${dest}" || return 0
-  yellow "  RESTORING ${skill}: previously installed by VibeGuard and since deleted."
-  yellow "    To keep it removed, add \"${skill}\" to \"disabled_skills\" in ~/.vibeguard/config.json."
-}
-
-install_manifest_skills() {
-  local target_uri="$1" dest_dir="$2" install_fn="$3"
-  local skill_links source_path skill
-
-  mkdir -p "${dest_dir}"
-  skill_links="$(manifest_skill_links_checked "${target_uri}")" || return 1
-  disabled_skills >/dev/null || return 1
-  while IFS=$'\t' read -r source_path skill; do
-    [[ -n "${source_path}" && -n "${skill}" ]] || continue
-    if skill_is_disabled "${skill}"; then
-      remove_disabled_skill "${dest_dir}/${skill}" "${skill}" "${dest_dir}" || return 1
-      yellow "  SKIP ${skill} (disabled in ~/.vibeguard/config.json)"
-      continue
-    fi
-    if [[ -d "${REPO_DIR}/${source_path}" ]]; then
-      report_skill_restore "${dest_dir}/${skill}" "${skill}"
-      "${install_fn}" "${REPO_DIR}/${source_path}" "${dest_dir}/${skill}" "${source_path}" "${skill}" || return 1
-    else
-      yellow "  SKIP ${skill} (source not found: ${source_path})"
-    fi
-  done <<< "${skill_links}"
-}
+# shellcheck source=workflow-skills.sh
+source "${REPO_DIR}/scripts/setup/workflow-skills.sh"
+# shellcheck source=bootstrap_identity.sh
+source "${REPO_DIR}/scripts/setup/bootstrap_identity.sh"
+BOOTSTRAP_BIRTH_TOKEN_JXA="${REPO_DIR}/scripts/setup/bootstrap_birth_token.jxa"
+# shellcheck source=setup-lock.sh
+source "${REPO_DIR}/scripts/setup/setup-lock.sh"
 
 install_context_profiles() {
   local target_dir="$1" display_prefix="$2"
