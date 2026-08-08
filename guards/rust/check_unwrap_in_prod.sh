@@ -53,14 +53,73 @@ hunk_pat    = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@')
 _ITEM_KW    = re.compile(r'\b(mod|fn|impl|struct|enum|type|trait)\b')
 
 # --- Build test_lines set from original file (reuse standalone logic) ---
+_raw_string_end = None
+
 def _count_braces(s):
-    # Raw strings first: their contents are literal, and JSON/regex fixtures
-    # routinely carry unbalanced braces that would corrupt the depth tracking.
-    s = re.sub(r'(?:b?r)(#*)"(?:(?!"\1).)*"\1', '', s, flags=re.S)
-    s = re.sub(r'"(?:[^"\\]|\\.)*"', '', s)
-    s = re.sub(r"'(?:[^'\\\\]|\\\\.)*'", '', s)
-    s = re.sub(r'//.*$', '', s)
-    return s.count('{') - s.count('}')
+    global _raw_string_end
+    depth = 0
+    i = 0
+    while i < len(s):
+        if _raw_string_end is not None:
+            end = s.find(_raw_string_end, i)
+            if end < 0:
+                return depth
+            i = end + len(_raw_string_end)
+            _raw_string_end = None
+            continue
+        if s.startswith('//', i):
+            break
+
+        prefix_len = 0
+        if s.startswith(('br', 'cr'), i):
+            prefix_len = 2
+        elif s.startswith('r', i):
+            prefix_len = 1
+        if prefix_len and (i == 0 or not (s[i - 1].isalnum() or s[i - 1] == '_')):
+            marker = i + prefix_len
+            while marker < len(s) and s[marker] == '#':
+                marker += 1
+            if marker < len(s) and s[marker] == '"':
+                _raw_string_end = '"' + ('#' * (marker - i - prefix_len))
+                i = marker + 1
+                continue
+
+        if s[i] == '"':
+            i += 1
+            while i < len(s):
+                if s[i] == '\\':
+                    i += 2
+                    continue
+                if s[i] == '"':
+                    i += 1
+                    break
+                i += 1
+            continue
+        if s[i] == "'":
+            end = i + 1
+            if end < len(s) and s[end] == '\\':
+                end += 1
+                if end < len(s) and s[end] == 'u' and s.startswith('{', end + 1):
+                    close = s.find('}', end + 2)
+                    end = close + 1 if close >= 0 else len(s)
+                elif end < len(s) and s[end] == 'x':
+                    end += 3
+                else:
+                    end += 1
+            else:
+                end += 1
+            if end < len(s) and s[end] == "'":
+                i = end + 1
+            else:
+                # A lifetime or loop label is not a character literal.
+                i += 1
+            continue
+        if s[i] == '{':
+            depth += 1
+        elif s[i] == '}':
+            depth -= 1
+        i += 1
+    return depth
 
 test_lines = set()
 try:
@@ -182,16 +241,73 @@ import json, sys, re
 file_path = sys.argv[1]
 test_lines = set()
 
+_raw_string_end = None
+
 def _count_braces(s):
-    # Strip string literals and line comments before counting braces.
-    # Raw strings must go first: their contents are literal, and JSON/regex
-    # fixtures routinely carry unbalanced braces that would corrupt the depth
-    # tracking (covers r"..", r#".."#, br"..", br#".."#).
-    s = re.sub(r'(?:b?r)(#*)"(?:(?!"\1).)*"\1', '', s, flags=re.S)
-    s = re.sub(r'"(?:[^"\\]|\\.)*"', '', s)   # remove double-quoted string literals
-    s = re.sub(r"'(?:[^'\\]|\\.)*'", '', s)   # remove single-quoted char literals
-    s = re.sub(r'//.*$', '', s)               # remove line comments
-    return s.count('{') - s.count('}')
+    global _raw_string_end
+    depth = 0
+    i = 0
+    while i < len(s):
+        if _raw_string_end is not None:
+            end = s.find(_raw_string_end, i)
+            if end < 0:
+                return depth
+            i = end + len(_raw_string_end)
+            _raw_string_end = None
+            continue
+        if s.startswith('//', i):
+            break
+
+        prefix_len = 0
+        if s.startswith(('br', 'cr'), i):
+            prefix_len = 2
+        elif s.startswith('r', i):
+            prefix_len = 1
+        if prefix_len and (i == 0 or not (s[i - 1].isalnum() or s[i - 1] == '_')):
+            marker = i + prefix_len
+            while marker < len(s) and s[marker] == '#':
+                marker += 1
+            if marker < len(s) and s[marker] == '"':
+                _raw_string_end = '"' + ('#' * (marker - i - prefix_len))
+                i = marker + 1
+                continue
+
+        if s[i] == '"':
+            i += 1
+            while i < len(s):
+                if s[i] == '\\':
+                    i += 2
+                    continue
+                if s[i] == '"':
+                    i += 1
+                    break
+                i += 1
+            continue
+        if s[i] == "'":
+            end = i + 1
+            if end < len(s) and s[end] == '\\':
+                end += 1
+                if end < len(s) and s[end] == 'u' and s.startswith('{', end + 1):
+                    close = s.find('}', end + 2)
+                    end = close + 1 if close >= 0 else len(s)
+                elif end < len(s) and s[end] == 'x':
+                    end += 3
+                else:
+                    end += 1
+            else:
+                end += 1
+            if end < len(s) and s[end] == "'":
+                i = end + 1
+            else:
+                # A lifetime or loop label is not a character literal.
+                i += 1
+            continue
+        if s[i] == '{':
+            depth += 1
+        elif s[i] == '}':
+            depth -= 1
+        i += 1
+    return depth
 
 _ITEM_KW = re.compile(r'\b(mod|fn|impl|struct|enum|type|trait)\b')
 

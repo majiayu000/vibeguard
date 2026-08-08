@@ -258,9 +258,30 @@ pub fn load() -> Option<String> {
 mod tests {
     use super::*;
 
+    fn helper<'a>() -> &'a str {
+        "lifetime braces must remain structural"
+    }
+
     #[test]
     fn parses_hook_config() {
         let raw = r#"{"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"command":"jq '.hookSpecificOutput.updatedToolOutput=\"ok\"'"}]}]}}"#;
+        assert!(!raw.is_empty());
+    }
+
+    #[test]
+    fn parses_multiline_fixture() {
+        let raw = br##"
+}}}
+"##;
+        assert!(!raw.is_empty());
+        assert!(!helper().is_empty());
+    }
+
+    #[test]
+    fn parses_multiline_c_fixture() {
+        let raw = cr##"
+}}}
+"##;
         assert!(!raw.is_empty());
     }
 
