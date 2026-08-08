@@ -111,7 +111,7 @@ pub(super) fn validate_record(dest: &str, record: &Map<String, Value>) -> SetupR
 pub(super) fn validate_record_artifacts(
     dest: &str,
     record: &Map<String, Value>,
-    state: &Value,
+    released_inventory: &Value,
 ) -> SetupResult<()> {
     let quarantine = record["quarantine"]
         .as_str()
@@ -209,7 +209,7 @@ pub(super) fn validate_record_artifacts(
         Ok(_) if phase != "released" => {
             return Err(format!("disabled public destination unexpectedly exists: {dest}").into());
         }
-        Ok(_) => validate_released_public_tree(state, Path::new(dest))?,
+        Ok(_) => validate_released_public_tree(released_inventory, Path::new(dest))?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
     }

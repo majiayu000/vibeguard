@@ -448,6 +448,175 @@ fn released_crash_retry_tolerates_previous_stale_inventory() {
 }
 
 #[test]
+fn released_crash_preflight_uses_current_inventory_for_changed_files() {
+    let fixture = Fixture::new("quarantine-managed-tree-released-current-inventory");
+    assert_eq!(fixture.run(&[]).status.code(), Some(0));
+    let record = fixture.record().expect("active record should exist");
+    let skill_file = fixture.skill.join("SKILL.md");
+    let mut current = fixture.state();
+    current["files"][path_text(&skill_file)] = json!({
+        "source": "skills-v2/plan-flow/SKILL.md",
+        "type": "copy",
+        "checksum": "sha256:050f24ffc5d5c34c0eaec1bc44078b0b5fa274b88916a929b56b9818d7532208"
+    });
+    write_json(&fixture.state, &current);
+    let mut previous: Value =
+        serde_json::from_slice(&fs::read(&fixture.previous).unwrap()).unwrap();
+    previous["disabled_skill_quarantines"] = json!({ path_text(&fixture.skill): record });
+    write_json(&fixture.previous, &previous);
+    fs::create_dir_all(&fixture.skill).expect("public skill should be recreated");
+    fs::write(&skill_file, "managed-v2\n").expect("updated public skill should be restored");
+
+    let interrupted = fixture.run_command_source(
+        "setup-state-release-quarantined-tree",
+        "skills-v2/plan-flow",
+        &[("VIBEGUARD_TEST_RELEASE_AFTER_TRANSACTION", "1")],
+    );
+    assert_eq!(interrupted.status.code(), Some(1));
+
+    let stale_alone = bin()
+        .args([
+            "setup-state-quarantine-count",
+            &path_text(&fixture.previous),
+        ])
+        .output()
+        .expect("standalone stale previous-state preflight should run");
+    assert_eq!(stale_alone.status.code(), Some(1));
+    let paired = bin()
+        .args([
+            "setup-state-quarantine-count",
+            &path_text(&fixture.previous),
+            &path_text(&fixture.state),
+        ])
+        .output()
+        .expect("paired previous-state preflight should run");
+    assert_output(&paired, 0, "1\n", "");
+
+    let retry = fixture.run_command_source(
+        "setup-state-release-quarantined-tree",
+        "skills-v2/plan-flow",
+        &[],
+    );
+    assert_eq!(retry.status.code(), Some(0), "{}", stderr(&retry));
+    assert!(fixture.record().is_none());
+}
+
+#[test]
+fn retained_transaction_preflight_rejects_malformed_terminal_file() {
+    let fixture = Fixture::new("quarantine-managed-tree-retained-preflight");
+    assert_eq!(fixture.run(&[]).status.code(), Some(0));
+    fs::create_dir_all(&fixture.skill).expect("public skill should be recreated");
+    fs::write(fixture.skill.join("SKILL.md"), "managed\n")
+        .expect("canonical public skill should be restored");
+    let released = fixture.run_command("setup-state-release-quarantined-tree", &[]);
+    assert_eq!(released.status.code(), Some(0), "{}", stderr(&released));
+    let transaction = fixture.transactions()[0].clone();
+
+    let valid = bin()
+        .args([
+            "setup-state-validate-managed-tree-transactions",
+            &path_text(fixture.skill.parent().unwrap()),
+        ])
+        .output()
+        .expect("retained transaction preflight should run");
+    assert_output(&valid, 0, "", "");
+
+    fs::write(&transaction, "{").expect("terminal transaction should be corrupted");
+    let corrupt = bin()
+        .args([
+            "setup-state-validate-managed-tree-transactions",
+            &path_text(fixture.skill.parent().unwrap()),
+        ])
+        .output()
+        .expect("malformed retained transaction preflight should run");
+    assert_eq!(corrupt.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&corrupt.stderr).contains("EOF while parsing"));
+}
+
+#[test]
+fn retained_transaction_preflight_rejects_unknown_phase_and_untrusted_destinations() {
+    for mutation in ["unknown-phase", "mismatched-dest", "out-of-root-dest"] {
+        let fixture = Fixture::new(&format!("retained-preflight-{mutation}"));
+        assert_eq!(fixture.run(&[]).status.code(), Some(0));
+        fs::create_dir_all(&fixture.skill).expect("public skill should be recreated");
+        fs::write(fixture.skill.join("SKILL.md"), "managed\n")
+            .expect("canonical public skill should be restored");
+        let released = fixture.run_command("setup-state-release-quarantined-tree", &[]);
+        assert_eq!(released.status.code(), Some(0), "{}", stderr(&released));
+        let transaction_path = fixture.transactions()[0].clone();
+        let mut transaction: Value =
+            serde_json::from_slice(&fs::read(&transaction_path).unwrap()).unwrap();
+        match mutation {
+            "unknown-phase" => transaction["phase"] = json!("future_terminal"),
+            "mismatched-dest" => {
+                transaction["dest"] =
+                    json!(path_text(&fixture.skill.parent().unwrap().join("other")))
+            }
+            "out-of-root-dest" => {
+                transaction["dest"] = json!(path_text(&fixture.root.join("outside/plan-flow")))
+            }
+            _ => unreachable!(),
+        }
+        write_json(&transaction_path, &transaction);
+
+        let output = bin()
+            .args([
+                "setup-state-validate-managed-tree-transactions",
+                &path_text(fixture.skill.parent().unwrap()),
+            ])
+            .output()
+            .expect("retained transaction semantic preflight should run");
+        assert_eq!(output.status.code(), Some(1), "mutation {mutation} passed");
+        let error = stderr(&output);
+        if mutation == "unknown-phase" {
+            assert!(error.contains("phase is unsupported"), "{error}");
+        } else {
+            assert!(error.contains("does not match request"), "{error}");
+        }
+    }
+}
+
+#[test]
+fn retained_transaction_preflight_rejects_filename_derived_parent_traversal() {
+    let fixture = Fixture::new("retained-preflight-filename-parent-traversal");
+    assert_eq!(fixture.run(&[]).status.code(), Some(0));
+    fs::create_dir_all(&fixture.skill).expect("public skill should be recreated");
+    fs::write(fixture.skill.join("SKILL.md"), "managed\n")
+        .expect("canonical public skill should be restored");
+    let released = fixture.run_command("setup-state-release-quarantined-tree", &[]);
+    assert_eq!(released.status.code(), Some(0), "{}", stderr(&released));
+
+    let original_path = fixture.transactions()[0].clone();
+    let mut transaction: Value =
+        serde_json::from_slice(&fs::read(&original_path).unwrap()).unwrap();
+    let directory = fixture.skill.parent().unwrap();
+    let nonce = "traversal";
+    let traversal_path = directory.join(format!("....vibeguard-transaction.{nonce}.json"));
+    transaction["dest"] = json!(path_text(&directory.join("..")));
+    transaction["nonce"] = json!(nonce);
+    transaction["quarantine"] = json!(path_text(
+        &directory.join(format!("...vibeguard-quarantine.{nonce}"))
+    ));
+    transaction["transaction"] = json!(path_text(&traversal_path));
+    write_json(&traversal_path, &transaction);
+    fs::remove_file(original_path).expect("valid retained transaction should be removed");
+
+    let output = bin()
+        .args([
+            "setup-state-validate-managed-tree-transactions",
+            &path_text(directory),
+        ])
+        .output()
+        .expect("filename traversal preflight should run");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("name must be one normal path component"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
 fn transaction_scan_ignores_interrupted_atomic_write_temps() {
     let fixture = Fixture::new("quarantine-managed-tree-transaction-temp");
     let temp = fixture

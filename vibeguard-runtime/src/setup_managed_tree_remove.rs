@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 #[path = "setup_managed_tree_test_support.rs"]
 mod test_support;
@@ -25,6 +25,8 @@ use tree_state::{carry_tracked_files, managed_tree_decision};
 
 const USAGE: &str = "Usage: vibeguard-runtime setup-state-quarantine-managed-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";
 const RELEASE_USAGE: &str = "Usage: vibeguard-runtime setup-state-release-quarantined-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";
+const VALIDATE_TRANSACTIONS_USAGE: &str =
+    "Usage: vibeguard-runtime setup-state-validate-managed-tree-transactions <skills-dir>";
 const TRANSACTION_VERSION: u64 = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -208,6 +210,73 @@ pub fn release(args: &[String]) -> SetupResult<()> {
         return Err("active quarantine record changed before release".into());
     }
     println!("RELEASED");
+    Ok(())
+}
+
+pub fn validate_transactions(args: &[String]) -> SetupResult<()> {
+    if args.len() != 1 {
+        return Err(VALIDATE_TRANSACTIONS_USAGE.into());
+    }
+    let directory = absolute(Path::new(&args[0]));
+    match fs::symlink_metadata(&directory) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err("managed-tree transaction root must be a directory or absent".into());
+        }
+        Ok(_) => {}
+    }
+    for entry in fs::read_dir(&directory)? {
+        let path = entry?.path();
+        let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let Some((name, nonce)) = file_name
+            .strip_prefix('.')
+            .and_then(|value| value.strip_suffix(".json"))
+            .and_then(|value| value.rsplit_once(".vibeguard-transaction."))
+        else {
+            continue;
+        };
+        if name.is_empty() || nonce.is_empty() {
+            continue;
+        }
+        let mut name_components = Path::new(name).components();
+        if !matches!(
+            (name_components.next(), name_components.next()),
+            (Some(Component::Normal(_)), None)
+        ) {
+            return Err(format!(
+                "managed-tree transaction name must be one normal path component: {name}"
+            )
+            .into());
+        }
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(format!(
+                "managed-tree transaction path is not a regular file: {}",
+                path.display()
+            )
+            .into());
+        }
+        let transaction = read_transaction(&path)?;
+        if !matches!(
+            transaction.phase.as_str(),
+            "intent" | "committed" | "restored" | "released"
+        ) {
+            return Err(format!(
+                "managed-tree transaction phase is unsupported: {}",
+                transaction.phase
+            )
+            .into());
+        }
+        // The canonical filename and caller-owned skills root define the only
+        // destination this transaction may describe. Deriving the expected
+        // value from transaction.dest would let an untrusted record self-attest
+        // an out-of-root destination.
+        let dest = directory.join(name);
+        validate_transaction(&transaction, &path, &dest, &directory, name, None)?;
+    }
     Ok(())
 }
 
@@ -543,6 +612,13 @@ pub(crate) fn validate_state_metadata(state: &Value) -> SetupResult<()> {
 }
 
 pub(crate) fn validate_state_artifacts(state: &Value) -> SetupResult<()> {
+    validate_state_artifacts_with_released_inventory(state, state)
+}
+
+pub(crate) fn validate_state_artifacts_with_released_inventory(
+    state: &Value,
+    released_inventory: &Value,
+) -> SetupResult<()> {
     let Some(records) = state
         .get("disabled_skill_quarantines")
         .and_then(Value::as_object)
@@ -553,7 +629,7 @@ pub(crate) fn validate_state_artifacts(state: &Value) -> SetupResult<()> {
         let record = record
             .as_object()
             .ok_or("disabled skill quarantine record must be an object")?;
-        tree_state::validate_record_artifacts(dest, record, state)?;
+        tree_state::validate_record_artifacts(dest, record, released_inventory)?;
     }
     Ok(())
 }

@@ -76,14 +76,21 @@ pub fn init(args: &[String]) -> SetupResult<()> {
         "repo_dir": repo_dir,
         "files": {}
     });
-    if state_file.exists() {
-        let existing = read_state(state_file)?;
-        validate_state_for_preflight(&existing)?;
-        carry_incomplete_inventory(&existing, &mut state, generation, &disabled_skills)?;
+    let current_inventory = if state_file.exists() {
+        Some(read_state(state_file)?)
+    } else {
+        None
+    };
+    if let Some(existing) = current_inventory.as_ref() {
+        validate_state_for_preflight(existing)?;
+        carry_incomplete_inventory(existing, &mut state, generation, &disabled_skills)?;
     }
     if let Some(carry_path) = args.get(5).filter(|value| !value.is_empty()) {
         let carry = read_state(Path::new(carry_path))?;
-        validate_state_for_preflight(&carry)?;
+        validate_state_for_preflight_with_released_inventory(
+            &carry,
+            current_inventory.as_ref().unwrap_or(&carry),
+        )?;
         carry_incomplete_inventory(&carry, &mut state, 0, &[])?;
     }
     if std::env::var_os("VIBEGUARD_TEST_SETUP_STATE_WRITE_FAILURE").is_some() {
@@ -111,7 +118,7 @@ fn merge_complete_snapshot(
         return Err("complete snapshot carry source must be a different file".into());
     }
     let carry = read_regular_state(carry_path, "complete snapshot carry source")?;
-    validate_state_for_preflight(&carry)?;
+    validate_state_for_preflight_with_released_inventory(&carry, &state)?;
     let (carry_complete, carry_generation) = state_generation(&carry)?;
     if !carry_complete || carry_generation > generation {
         return Err("complete snapshot carry source must be a complete older generation".into());
@@ -456,8 +463,18 @@ pub(crate) fn ensure_state_version(state: &Value) -> SetupResult<()> {
 }
 
 pub(crate) fn validate_state_for_preflight(state: &Value) -> SetupResult<()> {
+    validate_state_for_preflight_with_released_inventory(state, state)
+}
+
+pub(crate) fn validate_state_for_preflight_with_released_inventory(
+    state: &Value,
+    released_inventory: &Value,
+) -> SetupResult<()> {
     crate::setup_managed_tree_remove::validate_state_metadata(state)?;
-    crate::setup_managed_tree_remove::validate_state_artifacts(state)?;
+    crate::setup_managed_tree_remove::validate_state_artifacts_with_released_inventory(
+        state,
+        released_inventory,
+    )?;
     let version = state
         .get("version")
         .and_then(Value::as_i64)

@@ -1,5 +1,6 @@
 use crate::setup_install_state::{
     expand_home, read_state, setup_absolute_path, validate_state_for_preflight,
+    validate_state_for_preflight_with_released_inventory,
 };
 use crate::setup_managed_tree_remove::{
     tree_state::intent_quarantine_for_dest, validate_state_artifacts, validate_state_metadata,
@@ -8,7 +9,7 @@ use crate::setup_support::{SetupResult, sha256_file};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "Usage: vibeguard-runtime setup-state-quarantine-count <state-file>";
+const USAGE: &str = "Usage: vibeguard-runtime setup-state-quarantine-count <state-file> [released-inventory-state-file]";
 const STATE_VERSION: i64 = 1;
 
 pub fn check_drift(args: &[String]) -> SetupResult<()> {
@@ -78,7 +79,7 @@ pub fn check_drift(args: &[String]) -> SetupResult<()> {
 }
 
 pub fn count(args: &[String]) -> SetupResult<()> {
-    if args.len() != 1 {
+    if !(1..=2).contains(&args.len()) {
         return Err(USAGE.into());
     }
     let state_path = Path::new(&args[0]);
@@ -87,7 +88,13 @@ pub fn count(args: &[String]) -> SetupResult<()> {
         return Ok(());
     }
     let state = read_state(state_path)?;
-    validate_state_for_preflight(&state)?;
+    if let Some(inventory_path) = args.get(1).map(Path::new).filter(|path| path.exists()) {
+        let inventory = read_state(inventory_path)?;
+        validate_state_for_preflight(&inventory)?;
+        validate_state_for_preflight_with_released_inventory(&state, &inventory)?;
+    } else {
+        validate_state_for_preflight(&state)?;
+    }
     let count = state
         .get("disabled_skill_quarantines")
         .and_then(Value::as_object)

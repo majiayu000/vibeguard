@@ -515,8 +515,13 @@ static COMMANDS: &[Command] = &[
         handler: setup_managed_tree_remove::release,
     },
     Command {
+        name: "setup-state-validate-managed-tree-transactions",
+        usage: "<skills-dir>  — validate retained managed-tree transactions before setup mutation",
+        handler: setup_managed_tree_remove::validate_transactions,
+    },
+    Command {
         name: "setup-state-quarantine-count",
-        usage: "<state-file>  — count active disabled-skill quarantine records",
+        usage: "<state-file> [released-inventory-state-file]  — count active disabled-skill quarantine records",
         handler: setup_quarantine_inventory::count,
     },
     Command {

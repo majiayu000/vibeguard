@@ -29,10 +29,29 @@ STATE_FILE="${HOME}/.vibeguard/install-state.json"
 # "installed by VibeGuard and since deleted by the user" (GH719).
 STATE_PREVIOUS_FILE="${HOME}/.vibeguard/install-state.previous.json"
 INSTALL_STATE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_VG_STATE_RUNTIME_CACHE=""
+_VG_STATE_RUNTIME_CACHE_KEY=""
+
+state_runtime_cache_key() {
+  printf '%s\n' "${VIBEGUARD_SETUP_RUNTIME:-}|${_INSTALL_TMP:-}|${HOME}|${PATH}|${INSTALL_STATE_LIB_DIR}"
+}
+
+state_runtime_cache_clear() {
+  _VG_STATE_RUNTIME_CACHE=""
+  _VG_STATE_RUNTIME_CACHE_KEY=""
+}
 
 state_runtime_path() {
-  local repo_root candidate
+  local repo_root candidate cache_key
   repo_root="$(cd "${INSTALL_STATE_LIB_DIR}/../.." && pwd)"
+  cache_key="$(state_runtime_cache_key)"
+  if [[ -n "${_VG_STATE_RUNTIME_CACHE}" \
+    && "${_VG_STATE_RUNTIME_CACHE_KEY}" == "${cache_key}" \
+    && -x "${_VG_STATE_RUNTIME_CACHE}" ]]; then
+    printf '%s\n' "${_VG_STATE_RUNTIME_CACHE}"
+    return 0
+  fi
+  state_runtime_cache_clear
   for candidate in \
     "${VIBEGUARD_SETUP_RUNTIME:-}" \
     "${_INSTALL_TMP:-}/bin/vibeguard-runtime" \
@@ -43,12 +62,16 @@ state_runtime_path() {
     [[ -n "${candidate}" ]] || continue
     if [[ "${candidate}" == */* ]]; then
       if [[ -x "${candidate}" ]] && state_runtime_supports "${candidate}"; then
+        _VG_STATE_RUNTIME_CACHE="${candidate}"
+        _VG_STATE_RUNTIME_CACHE_KEY="${cache_key}"
         printf '%s\n' "${candidate}"
         return 0
       fi
     elif command -v "${candidate}" >/dev/null 2>&1; then
       candidate="$(command -v "${candidate}")"
       if state_runtime_supports "${candidate}"; then
+        _VG_STATE_RUNTIME_CACHE="${candidate}"
+        _VG_STATE_RUNTIME_CACHE_KEY="${cache_key}"
         printf '%s\n' "${candidate}"
         return 0
       fi
@@ -71,6 +94,7 @@ state_runtime_supports() {
     setup-state-record-project-hook \
     setup-state-check-drift \
     setup-state-quarantine-count \
+    setup-state-validate-managed-tree-transactions \
     setup-state-verify-managed-tree \
     setup-state-generation \
     setup-state-mark-complete; do
@@ -82,11 +106,17 @@ state_runtime_supports() {
 }
 
 state_runtime() {
-  local runtime
-  runtime="$(state_runtime_path)" || {
-    printf 'ERROR: vibeguard-runtime not found for install-state operation\n' >&2
-    return 127
-  }
+  local runtime cache_key
+  cache_key="$(state_runtime_cache_key)"
+  if [[ -z "${_VG_STATE_RUNTIME_CACHE}" \
+    || "${_VG_STATE_RUNTIME_CACHE_KEY}" != "${cache_key}" \
+    || ! -x "${_VG_STATE_RUNTIME_CACHE}" ]]; then
+    state_runtime_path >/dev/null || {
+      printf 'ERROR: vibeguard-runtime not found for install-state operation\n' >&2
+      return 127
+    }
+  fi
+  runtime="${_VG_STATE_RUNTIME_CACHE}"
   "${runtime}" "$@"
 }
 
@@ -130,16 +160,19 @@ state_reject_nonregular_paths() {
 
 # Validate both install-state generations before any active install mutation.
 state_preflight() {
-  local state_path
   state_reject_legacy_publish_artifacts || return 1
   state_reject_nonregular_paths || return 1
-  for state_path in "$STATE_FILE" "$STATE_PREVIOUS_FILE"; do
-    if [[ -f "$state_path" ]] \
-      && ! state_runtime setup-state-list-tracked-under "$state_path" "${HOME}/.codex/skills" >/dev/null; then
-      printf 'ERROR: refusing to mutate malformed install-state: %s\n' "$state_path" >&2
-      return 1
-    fi
-  done
+  state_runtime setup-state-validate-managed-tree-transactions "${HOME}/.codex/skills" || return 1
+  if [[ -f "$STATE_FILE" ]] \
+    && ! state_runtime setup-state-quarantine-count "$STATE_FILE" >/dev/null; then
+    printf 'ERROR: refusing to mutate malformed install-state: %s\n' "$STATE_FILE" >&2
+    return 1
+  fi
+  if [[ -f "$STATE_PREVIOUS_FILE" ]] \
+    && ! state_runtime setup-state-quarantine-count "$STATE_PREVIOUS_FILE" "$STATE_FILE" >/dev/null; then
+    printf 'ERROR: refusing to mutate malformed install-state: %s\n' "$STATE_PREVIOUS_FILE" >&2
+    return 1
+  fi
   state_preflight_generation_order
 }
 
@@ -297,7 +330,7 @@ state_check_drift() {
   # previous-only quarantine. The next install validates that generation and
   # aborts, so reporting CLEAN from the current file alone would be dishonest.
   if [[ -f "$STATE_PREVIOUS_FILE" ]] \
-    && ! state_runtime setup-state-quarantine-count "$STATE_PREVIOUS_FILE" >/dev/null 2>&1; then
+    && ! state_runtime setup-state-quarantine-count "$STATE_PREVIOUS_FILE" "$STATE_FILE" >/dev/null 2>&1; then
     printf 'PREVIOUS_GENERATION_INVALID: %s\n' "$STATE_PREVIOUS_FILE"
     return 1
   fi
@@ -371,7 +404,7 @@ state_prepare_clean() {
     current_count="$(state_runtime setup-state-quarantine-count "$STATE_FILE")" || return 1
   fi
   if [[ -f "$STATE_PREVIOUS_FILE" ]]; then
-    previous_count="$(state_runtime setup-state-quarantine-count "$STATE_PREVIOUS_FILE")" || return 1
+    previous_count="$(state_runtime setup-state-quarantine-count "$STATE_PREVIOUS_FILE" "$STATE_FILE")" || return 1
   fi
   [[ "$current_count" =~ ^[0-9]+$ && "$previous_count" =~ ^[0-9]+$ ]] || return 1
   if [[ "$current_count" -gt 0 ]]; then

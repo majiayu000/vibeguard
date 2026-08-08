@@ -55,7 +55,10 @@ active locator，先前 quarantine 与 terminal transaction 继续保留。扫�
 digest 与 sibling 路径，但其 source prefix 是创建隔离时的历史身份，可以不同于 manifest
 当前 source prefix；没有 matching active record 的新 transaction 必须使用当前 source prefix。
 `restored`/`released` 终态同样只验证自身结构与 sibling 路径，不能因 manifest 后续移动
-source 而阻塞安装或重新启用。
+source 而阻塞安装或重新启用。安装 preflight 还会扫描 skills 根下全部 canonical retained
+transaction；损坏的 terminal transaction 必须在 installed snapshot 或 target mutation 前失败。
+若 `released` record 同时存在于 current/previous generation，previous artifact 校验使用 current
+generation 的 public-tree inventory，避免旧 checksum 阻塞 crash recovery。
 
 ### 3. 安装与检查（shell）
 
@@ -77,7 +80,9 @@ source 而阻塞安装或重新启用。
 `scripts/lib/install-state.sh` 的 state 读取错误不得吞掉。`state_init()` 在任何写入前
 验证 current/previous state 都是非 symlink regular JSON；previous snapshot 使用同目录
 临时文件加 atomic rename。current/previous 的 complete/incomplete generation 排序在
-preflight 阶段验证，而不是等到 `state_init()` 才验证。
+preflight 阶段验证，而不是等到 `state_init()` 才验证。已经完成完整 capability probe 的
+install-state runtime 在同一 shell lifecycle 内缓存；staged runtime 重新准备、候选上下文变化
+或 cached path 消失时必须失效并重新验证。
 
 `check_codex_home_installation()` 在 skill 循环内插入禁用分支：目标缺失或仍是
 exact install-state-owned copy 时输出 `[DISABLED]`，不落到 `[MISSING]`；目标存在但不是

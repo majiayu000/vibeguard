@@ -121,6 +121,34 @@ assert_cmd "install-state selector accepts real capability runtime" bash -c '
   source "$1/scripts/lib/install-state.sh"
   state_runtime_supports "$2"
 ' _ "${REPO_DIR}" "${gh719_runtime}"
+
+gh719_cached_runtime="${gh719_probe_dir}/cached-runtime"
+gh719_cached_runtime_count="${gh719_probe_dir}/cached-runtime.count"
+printf '%s\n' '#!/usr/bin/env bash' \
+  'if [[ "$1" == setup-state-capabilities ]]; then' \
+  '  printf "probe\n" >> "${VIBEGUARD_TEST_PROBE_COUNT:?}"' \
+  '  printf "%s\n" complete-snapshot-v1' \
+  '  exit 0' \
+  'fi' \
+  'if [[ "$1" == setup-state-generation ]]; then printf "%s\t%s\n" COMPLETE 1; exit 0; fi' \
+  'printf "%s\n" "vibeguard-runtime error: Usage: fixture" >&2' \
+  'exit 1' > "${gh719_cached_runtime}"
+chmod +x "${gh719_cached_runtime}"
+assert_cmd "install-state runtime capability probes are cached per lifecycle" env \
+  VIBEGUARD_SETUP_RUNTIME="${gh719_cached_runtime}" \
+  VIBEGUARD_TEST_PROBE_COUNT="${gh719_cached_runtime_count}" bash -c '
+    source "$1/scripts/lib/install-state.sh"
+    state_runtime setup-state-generation /unused >/dev/null
+    state_runtime setup-state-generation /unused >/dev/null
+    [[ "$(wc -l < "$2" | tr -d " ")" == 1 ]]
+    state_runtime_cache_clear
+    state_runtime setup-state-generation /unused >/dev/null
+    [[ "$(wc -l < "$2" | tr -d " ")" == 2 ]]
+    _INSTALL_TMP=/changed-staged-runtime
+    state_runtime setup-state-generation /unused >/dev/null
+    [[ "$(wc -l < "$2" | tr -d " ")" == 3 ]]
+  ' _ "${REPO_DIR}" "${gh719_cached_runtime_count}"
+
 assert_cmd "setup selector accepts real capability runtime" env \
   TMPDIR="${gh719_capability_probe_tmp}" \
   VIBEGUARD_SETUP_RUNTIME_VERSION="${gh719_current_runtime_version}" bash -c '

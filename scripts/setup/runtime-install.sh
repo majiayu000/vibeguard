@@ -289,6 +289,9 @@ write_runtime_provenance_state() {
 
 prepare_runtime_binary() {
   local target tag download_rc fallback_reason
+  if declare -F state_runtime_cache_clear >/dev/null; then
+    state_runtime_cache_clear
+  fi
   mkdir -p "${_INSTALL_TMP}/bin"
 
   if [[ "${BUILD_FROM_SOURCE}" == "1" ]]; then

@@ -31,7 +31,7 @@ fn quarantine_count_rejects_invalid_arity() {
         &output,
         1,
         "",
-        "vibeguard-runtime error: Usage: vibeguard-runtime setup-state-quarantine-count <state-file>\n",
+        "vibeguard-runtime error: Usage: vibeguard-runtime setup-state-quarantine-count <state-file> [released-inventory-state-file]\n",
     );
 }
 

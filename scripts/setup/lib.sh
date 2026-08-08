@@ -98,6 +98,7 @@ setup_runtime_supports() {
     setup-state-verify-managed-tree \
     setup-state-quarantine-managed-tree \
     setup-state-quarantine-count \
+    setup-state-validate-managed-tree-transactions \
     setup-state-release-quarantined-tree \
     setup-state-generation \
     setup-state-mark-complete \
