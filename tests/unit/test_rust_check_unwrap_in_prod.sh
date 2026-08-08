@@ -40,6 +40,19 @@ assert_output_not_contains() {
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
+# Build a minimal PATH that deliberately omits ast-grep so the supported awk
+# fallback is exercised even on developer machines that have ast-grep installed.
+fallback_bin="${tmpdir}/fallback-bin"
+mkdir -p "$fallback_bin"
+for command_name in awk cat cp dirname find git grep head mktemp rm sed tr wc; do
+  command_path="$(command -v "$command_name")"
+  ln -s "$command_path" "${fallback_bin}/${command_name}"
+done
+
+run_guard_without_ast_grep() {
+  env PATH="$fallback_bin" /bin/bash "$GUARD" "$@"
+}
+
 runtime_wrapper="${tmpdir}/runtime-wrapper"
 cat > "$runtime_wrapper" <<'EOF'
 #!/usr/bin/env bash
@@ -259,6 +272,7 @@ mod tests {
     use super::*;
 
     fn helper<'a>() -> &'a str {
+        let _closing_brace = '\u{7d}';
         "lifetime braces must remain structural"
     }
 
@@ -302,6 +316,10 @@ assert_ok "raw string in mod tests keeps later test lines ignored" \
   bash "$GUARD" --strict "$proj5f"
 assert_output_not_contains "no RS-03 finding for config.rs test body" "config.rs" \
   bash "$GUARD" --strict "$proj5f"
+assert_ok "raw string fixture passes without ast-grep" \
+  run_guard_without_ast_grep --strict "$proj5f"
+assert_output_not_contains "awk fallback excludes config.rs test body" "config.rs" \
+  run_guard_without_ast_grep --strict "$proj5f"
 
 # --- STAGED: same regression through the pre-commit diff path ---
 proj5g="${tmpdir}/staged_raw_string"
@@ -331,7 +349,7 @@ mkdir -p "${proj5h}/src"
 cat > "${proj5h}/src/block_comment.rs" <<'EOF'
 #[cfg(test)]
 mod tests {
-    /* Documentation mentions the unmatched prefix r#" inside a block comment. */
+    /* Outer { comment /* mentions unmatched r#" */ and closes here. */
 }
 
 fn production() { let _ = Some(1).unwrap(); }
@@ -353,6 +371,12 @@ assert_output_contains "block-comment raw prefix does not hide production" \
   "block_comment.rs" bash "$GUARD" --strict "$proj5h"
 assert_output_contains "multiline ordinary string does not hide production" \
   "multiline_string.rs" bash "$GUARD" --strict "$proj5h"
+assert_fail "awk fallback keeps production findings visible" \
+  run_guard_without_ast_grep --strict "$proj5h"
+assert_output_contains "awk fallback keeps block-comment production visible" \
+  "block_comment.rs" run_guard_without_ast_grep --strict "$proj5h"
+assert_output_contains "awk fallback keeps multiline-string production visible" \
+  "multiline_string.rs" run_guard_without_ast_grep --strict "$proj5h"
 
 # --- STAGED: the same lexer-state regressions must not bypass pre-commit ---
 git -C "$proj5h" init -q

@@ -24,6 +24,126 @@ TMPFILE=$(create_tmpfile)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RULES_DIR="${SCRIPT_DIR}/../ast-grep-rules"
 
+# Stateful shell fallback used when ast-grep or its JSON parser is unavailable.
+# Keep its lexical states aligned with the Python scanners below: braces inside
+# strings/comments do not affect #[cfg(test)] scope, while lifetimes and labels
+# remain ordinary Rust syntax rather than being mistaken for character literals.
+scan_with_awk_fallback() {
+  local file="$1"
+  awk '
+    function char_literal_end(line, start,    end, close_pos, tail) {
+      end = start + 1
+      if (end > length(line)) return 0
+      if (substr(line, end, 1) == "\\") {
+        end++
+        if (substr(line, end, 1) == "u" && substr(line, end + 1, 1) == "{") {
+          tail = substr(line, end + 2)
+          close_pos = index(tail, "}")
+          if (!close_pos) return 0
+          end = end + 2 + close_pos
+        } else if (substr(line, end, 1) == "x") {
+          end += 3
+        } else {
+          end++
+        }
+      } else {
+        end++
+      }
+      return substr(line, end, 1) == "\047" ? end : 0
+    }
+
+    function scan_line(line,    n, i, c, pair, rest, pos, prefix_len, marker, hashes, j, char_end) {
+      code_line = ""
+      brace_delta = 0
+      n = length(line)
+      i = 1
+      while (i <= n) {
+        if (raw_string_end != "") {
+          rest = substr(line, i)
+          pos = index(rest, raw_string_end)
+          if (!pos) return brace_delta
+          i += pos - 1 + length(raw_string_end)
+          raw_string_end = ""
+          continue
+        }
+        c = substr(line, i, 1)
+        pair = substr(line, i, 2)
+        if (in_string) {
+          if (c == "\\") i += 2
+          else if (c == "\"") { in_string = 0; i++ }
+          else i++
+          continue
+        }
+        if (block_comment_depth) {
+          if (pair == "/*") { block_comment_depth++; i += 2 }
+          else if (pair == "*/") { block_comment_depth--; i += 2 }
+          else i++
+          continue
+        }
+        if (pair == "//") break
+        if (pair == "/*") { block_comment_depth = 1; i += 2; continue }
+
+        prefix_len = 0
+        if (pair == "br" || pair == "cr") prefix_len = 2
+        else if (c == "r") prefix_len = 1
+        if (prefix_len && (i == 1 || substr(line, i - 1, 1) !~ /[[:alnum:]_]/)) {
+          marker = i + prefix_len
+          while (marker <= n && substr(line, marker, 1) == "#") marker++
+          if (marker <= n && substr(line, marker, 1) == "\"") {
+            hashes = marker - i - prefix_len
+            raw_string_end = "\""
+            for (j = 0; j < hashes; j++) raw_string_end = raw_string_end "#"
+            i = marker + 1
+            continue
+          }
+        }
+
+        if (c == "\"") { in_string = 1; i++; continue }
+        if (c == "\047") {
+          char_end = char_literal_end(line, i)
+          if (char_end) { i = char_end + 1; continue }
+        }
+        code_line = code_line c
+        if (c == "{") brace_delta++
+        else if (c == "}") brace_delta--
+        i++
+      }
+      return brace_delta
+    }
+
+    {
+      delta = scan_line($0)
+      if (code_line ~ /^[[:space:]]*#\[cfg\(test\)\]/) {
+        if (code_line ~ /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/) {
+          in_test_mod = 1
+          brace_depth = delta
+          if (brace_depth <= 0) in_test_mod = 0
+        } else {
+          pending_test_attr = 1
+        }
+        next
+      }
+      if (pending_test_attr && code_line ~ /^[[:space:]]*#\[/) next
+      if (pending_test_attr && code_line ~ /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/) {
+        in_test_mod = 1
+        pending_test_attr = 0
+        brace_depth = delta
+        if (brace_depth <= 0) in_test_mod = 0
+        next
+      }
+      if (pending_test_attr) pending_test_attr = 0
+      if (in_test_mod) {
+        brace_depth += delta
+        if (brace_depth <= 0) in_test_mod = 0
+        next
+      }
+      if (code_line ~ /\.(unwrap|expect)\(/) {
+        print "[RS-03] " FILENAME ":" NR ": " $0
+      }
+    }
+  ' "${file}"
+}
+
 # --- Pre-commit mode: grep diff new lines (ast-grep does not process diff text) ---
 if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
   if ! grep -q '\.rs$' "${VIBEGUARD_STAGED_FILES}" 2>/dev/null; then
@@ -216,39 +336,10 @@ DIFFPYEOF
 elif command -v ast-grep >/dev/null 2>&1; then
   if ! command -v python3 >/dev/null 2>&1; then
     echo "[RS-03] WARN: python3 is not available, use grep fallback" >&2
-    # fall through to grep fallback below
     list_rs_prod_files "${TARGET_DIR}" \
       | while IFS= read -r f; do
-          if [[ -f "${f}" ]]; then
-            awk '
-              function net_braces(line,    _t, _o, _c) {
-                _t = line; gsub(/\/\/.*$/, "", _t); gsub(/"[^"]*"/, "", _t)
-                _o = gsub(/{/, "", _t); _c = gsub(/}/, "", _t); return _o - _c
-              }
-              /^[[:space:]]*#\[cfg\(test\)\]/ {
-                if (/(mod|fn|impl|struct|enum|type|trait)[[:space:]]/) {
-                  in_test_mod = 1; brace_depth = net_braces($0)
-                  if (brace_depth <= 0) in_test_mod = 0
-                } else { pending_test_attr = 1 }
-                next
-              }
-              pending_test_attr && /^[[:space:]]*#\[/ { next }
-              pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
-                in_test_mod = 1; pending_test_attr = 0; brace_depth = net_braces($0)
-                if (brace_depth <= 0) in_test_mod = 0
-                next
-              }
-              pending_test_attr { pending_test_attr = 0 }
-              in_test_mod {
-                brace_depth += net_braces($0)
-                if (brace_depth <= 0) in_test_mod = 0
-                next
-              }
-              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\// { print NR ": " $0 }
-            ' "${f}" | sed "s|^|${f}:|" || true
-          fi
+          [[ -f "${f}" ]] && scan_with_awk_fallback "${f}"
         done \
-      | awk '{ print "[RS-03] " $0 }' \
       > "${TMPFILE}" || true
   else
     _ASG_PER_FILE=$(create_tmpfile)
@@ -412,61 +503,11 @@ PYEOF
               --json "${f}" > "${_ASG_FILE_OUT}" 2>/dev/null; then
             python3 "${_PY_SCRIPT}" "${f}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || {
             echo "[RS-03] WARN: JSON parsing failed ${f}, use grep fallback" >&2
-            awk '
-              function net_braces(line,    _t, _o, _c) {
-                _t = line; gsub(/\/\/.*$/, "", _t); gsub(/"[^"]*"/, "", _t)
-                _o = gsub(/{/, "", _t); _c = gsub(/}/, "", _t); return _o - _c
-              }
-              /^[[:space:]]*#\[cfg\(test\)\]/ {
-                if (/(mod|fn|impl|struct|enum|type|trait)[[:space:]]/) {
-                  in_test_mod = 1; brace_depth = net_braces($0)
-                  if (brace_depth <= 0) in_test_mod = 0
-                } else { pending_test_attr = 1 }
-                next
-              }
-              pending_test_attr && /^[[:space:]]*#\[/ { next }
-              pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
-                in_test_mod = 1; pending_test_attr = 0; brace_depth = net_braces($0)
-                if (brace_depth <= 0) in_test_mod = 0
-                next
-              }
-              pending_test_attr { pending_test_attr = 0 }
-              in_test_mod {
-                brace_depth += net_braces($0)
-                if (brace_depth <= 0) in_test_mod = 0
-                next
-              }
-              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\// { print "[RS-03] " FILENAME ":" NR ": " $0 }
-            ' "${f}" >> "${_ASG_PER_FILE}" || true
+            scan_with_awk_fallback "${f}" >> "${_ASG_PER_FILE}"
           }
           else
             echo "[RS-03] WARN: ast-grep scan failed ${f}, use grep fallback" >&2
-            awk '
-              function net_braces(line,    _t, _o, _c) {
-                _t = line; gsub(/\/\/.*$/, "", _t); gsub(/"[^"]*"/, "", _t)
-                _o = gsub(/{/, "", _t); _c = gsub(/}/, "", _t); return _o - _c
-              }
-              /^[[:space:]]*#\[cfg\(test\)\]/ {
-                if (/(mod|fn|impl|struct|enum|type|trait)[[:space:]]/) {
-                  in_test_mod = 1; brace_depth = net_braces($0)
-                  if (brace_depth <= 0) in_test_mod = 0
-                } else { pending_test_attr = 1 }
-                next
-              }
-              pending_test_attr && /^[[:space:]]*#\[/ { next }
-              pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
-                in_test_mod = 1; pending_test_attr = 0; brace_depth = net_braces($0)
-                if (brace_depth <= 0) in_test_mod = 0
-                next
-              }
-              pending_test_attr { pending_test_attr = 0 }
-              in_test_mod {
-                brace_depth += net_braces($0)
-                if (brace_depth <= 0) in_test_mod = 0
-                next
-              }
-              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\// { print "[RS-03] " FILENAME ":" NR ": " $0 }
-            ' "${f}" >> "${_ASG_PER_FILE}" || true
+            scan_with_awk_fallback "${f}" >> "${_ASG_PER_FILE}"
           fi
         done
     cat "${_ASG_PER_FILE}" > "${TMPFILE}" || true
@@ -476,36 +517,8 @@ PYEOF
 else
   list_rs_prod_files "${TARGET_DIR}" \
     | while IFS= read -r f; do
-        if [[ -f "${f}" ]]; then
-          # Fix RS-03: handle multiple #[cfg(test)] blocks by using awk to track
-          # test module scope (brace depth), not just the first occurrence.
-          awk '
-            function net_braces(line,    _t, _o, _c) {
-              _t = line; gsub(/\/\/.*$/, "", _t); gsub(/"[^"]*"/, "", _t)
-              _o = gsub(/{/, "", _t); _c = gsub(/}/, "", _t); return _o - _c
-            }
-            /^[[:space:]]*#\[cfg\(test\)\]/ {
-              if (/(mod|fn|impl|struct|enum|type|trait)[[:space:]]/) {
-                in_test_mod = 1; brace_depth = net_braces($0)
-                if (brace_depth <= 0) in_test_mod = 0
-              } else { pending_test_attr = 1 }
-              next
-            }
-            pending_test_attr && /^[[:space:]]*#\[/ { next }
-            pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
-              in_test_mod = 1; pending_test_attr = 0; brace_depth = net_braces($0); next
-            }
-            pending_test_attr { pending_test_attr = 0 }
-            in_test_mod {
-              brace_depth += net_braces($0)
-              if (brace_depth <= 0) in_test_mod = 0
-              next
-            }
-            /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\// { print NR ": " $0 }
-          ' "${f}" | sed "s|^|${f}:|" || true
-        fi
+        [[ -f "${f}" ]] && scan_with_awk_fallback "${f}"
       done \
-    | awk '{ print "[RS-03] " $0 }' \
     > "${TMPFILE}" || true
 fi
 
