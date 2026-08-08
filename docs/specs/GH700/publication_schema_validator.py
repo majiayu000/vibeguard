@@ -7,6 +7,129 @@ semantic validator so this module stays free of verifier-specific imports.
 """
 
 import re
+from urllib.parse import urljoin
+
+
+DRAFT_2020_12_TYPES = {
+    "array", "boolean", "integer", "null", "number", "object", "string",
+}
+PLAIN_NAME = re.compile(r"^[A-Za-z_][-A-Za-z0-9._]*$")
+
+
+def compile_draft_2020_12_schema(schema, error_type=ValueError):
+    """Validate every used standard keyword against its 2020-12 meta shape.
+
+    The verifier remains stdlib-only, so this is the schema-compilation part of
+    the declared meta-schema rather than an instance-validation dependency. It
+    follows every standard subschema-bearing keyword and rejects malformed
+    keyword values before any model can short-circuit through a valid branch.
+    """
+
+    def fail(path, message):
+        raise error_type(f"{path}: Draft 2020-12 meta-schema violation: {message}")
+
+    def nonnegative_integer(value):
+        return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+    anchors_by_resource = {}
+
+    def schema_array(value, path, resource, nonempty=False):
+        if not isinstance(value, list) or (nonempty and not value):
+            fail(path, "schema array required")
+        for index, child in enumerate(value):
+            visit(child, f"{path}[{index}]", resource)
+
+    def string_array(value, path, unique=False):
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            fail(path, "string array required")
+        if unique and len(value) != len(set(value)):
+            fail(path, "array members must be unique")
+
+    def schema_map(value, path, resource):
+        if not isinstance(value, dict):
+            fail(path, "schema object required")
+        for key, child in value.items():
+            if not isinstance(key, str):
+                fail(path, "schema object keys must be strings")
+            visit(child, f"{path}.{key}", resource)
+
+    def visit(node, path, parent_resource):
+        if isinstance(node, bool):
+            return
+        if not isinstance(node, dict):
+            fail(path, "schema must be an object or boolean")
+        resource = parent_resource
+        if isinstance(node.get("$id"), str):
+            resource = urljoin(parent_resource, node["$id"])
+        for keyword in ("$schema", "$id", "$ref", "$dynamicRef", "$anchor", "$dynamicAnchor", "$comment", "title", "description", "format", "contentEncoding", "contentMediaType"):
+            if keyword in node and not isinstance(node[keyword], str):
+                fail(f"{path}.{keyword}", "string required")
+        for keyword in ("$anchor", "$dynamicAnchor"):
+            if keyword in node and PLAIN_NAME.fullmatch(node[keyword]) is None:
+                fail(f"{path}.{keyword}", "plain-name anchor required")
+            if keyword in node:
+                names = anchors_by_resource.setdefault(resource, set())
+                if node[keyword] in names:
+                    fail(f"{path}.{keyword}", f"duplicate anchor in schema resource {resource}")
+                names.add(node[keyword])
+        if "$vocabulary" in node:
+            vocabulary = node["$vocabulary"]
+            if not isinstance(vocabulary, dict) or not all(isinstance(key, str) and isinstance(value, bool) for key, value in vocabulary.items()):
+                fail(f"{path}.$vocabulary", "URI-to-boolean object required")
+        if "type" in node:
+            value = node["type"]
+            if isinstance(value, str):
+                if value not in DRAFT_2020_12_TYPES:
+                    fail(f"{path}.type", "unknown simple type")
+            elif isinstance(value, list):
+                if not value or not all(isinstance(item, str) and item in DRAFT_2020_12_TYPES for item in value):
+                    fail(f"{path}.type", "non-empty simple-type array required")
+                if len(value) != len(set(value)):
+                    fail(f"{path}.type", "type array members must be unique")
+            else:
+                fail(f"{path}.type", "string or simple-type array required")
+        if "enum" in node:
+            value = node["enum"]
+            if not isinstance(value, list) or not value:
+                fail(f"{path}.enum", "non-empty array required")
+        for keyword in ("required",):
+            if keyword in node:
+                string_array(node[keyword], f"{path}.{keyword}", unique=True)
+        if "dependentRequired" in node:
+            value = node["dependentRequired"]
+            if not isinstance(value, dict):
+                fail(f"{path}.dependentRequired", "object required")
+            for key, children in value.items():
+                string_array(children, f"{path}.dependentRequired.{key}", unique=True)
+        for keyword in ("minLength", "maxLength", "minItems", "maxItems", "minContains", "maxContains", "minProperties", "maxProperties"):
+            if keyword in node and not nonnegative_integer(node[keyword]):
+                fail(f"{path}.{keyword}", "non-negative integer required")
+        for keyword in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"):
+            if keyword in node and (not isinstance(node[keyword], (int, float)) or isinstance(node[keyword], bool)):
+                fail(f"{path}.{keyword}", "number required")
+        if "multipleOf" in node and (not isinstance(node["multipleOf"], (int, float)) or isinstance(node["multipleOf"], bool) or node["multipleOf"] <= 0):
+            fail(f"{path}.multipleOf", "positive number required")
+        for keyword in ("uniqueItems", "deprecated", "readOnly", "writeOnly"):
+            if keyword in node and not isinstance(node[keyword], bool):
+                fail(f"{path}.{keyword}", "boolean required")
+        if "pattern" in node:
+            if not isinstance(node["pattern"], str):
+                fail(f"{path}.pattern", "string required")
+            try:
+                re.compile(node["pattern"])
+            except re.error as exc:
+                fail(f"{path}.pattern", f"invalid regular expression: {exc}")
+        for keyword in ("allOf", "anyOf", "oneOf", "prefixItems"):
+            if keyword in node:
+                schema_array(node[keyword], f"{path}.{keyword}", resource, nonempty=keyword != "prefixItems")
+        for keyword in ("not", "if", "then", "else", "items", "contains", "additionalProperties", "unevaluatedProperties", "unevaluatedItems", "propertyNames", "contentSchema"):
+            if keyword in node:
+                visit(node[keyword], f"{path}.{keyword}", resource)
+        for keyword in ("$defs", "properties", "patternProperties", "dependentSchemas"):
+            if keyword in node:
+                schema_map(node[keyword], f"{path}.{keyword}", resource)
+
+    visit(schema, "$", "urn:gh700:anonymous-schema")
 
 
 def make_validator(error_type, uint64, jcs):

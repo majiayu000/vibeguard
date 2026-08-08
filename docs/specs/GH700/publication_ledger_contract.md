@@ -432,16 +432,28 @@ record set/history op冲突。proof capsule、binding/reconciliation record、fr
 
 第一页要求 `page_cursor_or_null=null`；authority在同一 committed ledger frontier创建
 `enumeration_snapshot_receipt={repo_node_id,query_digest,snapshot_frontier,snapshot_record_set_digest,
-page_size,issuer_key_id,signature_digest}`。`enumeration_query` exact 为
+page_size,issuer_key_id,issuer_key_material_id,signing_preimage_digest,signature_b64u,signature_digest}`。
+`enumeration_query` exact 为
 `{repo_node_id,source_identity_key,candidate_identity_or_null,run_id_or_null,run_attempt_or_null,
 attempt_record_kind_or_null,attempt_subject_key_or_null}`；
 `query_digest=SHA256(JCS({v:"GH700:blocked-attempt-enumeration-query:v1",enumeration_query}))`；
-`snapshot_record_set_digest=SHA256(JCS(record_digest bytes升序、去重的该 query在 snapshot frontier全部
-matching records数组))`。两个 digest编码 lowercase `sha256:<64hex>`，receipt signature覆盖除
-`signature_digest`外的 exact fields。`page_cursor`是 store-signed opaque token，内部绑定该 receipt digest、
-下一 canonical record key与 expiry policy digest；后续页必须使用同 snapshot frontier/query/page size。
-`attempt_records`按 `(source_identity_key,run_id,run_attempt,attempt_record_kind,attempt_subject_key,record_digest)`
-bytewise排序。任一页缺失、重复、cursor/query/frontier drift或无法完成全分页使 completeness证明失败。
+visible `enumeration_attempt_record` exact 投影还包含 `candidate_identity_or_null`，authority必须对
+`source_identity_key`及所有非 null optional query字段执行 server-side exact filter；每页
+`attempt_records`数量不得超过 receipt中签名绑定且跨页不变的 `page_size`。
+matching records先按 `(source_identity_key,run_id,run_attempt,attempt_record_kind,attempt_subject_key,
+object_digest)` 的 canonical scalar bytes tuple升序且 record/object digest均唯一；
+`snapshot_record_set_digest=SHA256(JCS(按该 tuple顺序提取的 object_digest完整数组))`。
+三个 digest编码 lowercase `sha256:<64hex>`。`signing_preimage_digest`的 domain固定为
+`GH700:blocked-attempt-enumeration-snapshot:signing-preimage:v1`，preimage exact 为
+`{repo_node_id,query_digest,snapshot_frontier,snapshot_record_set_digest,page_size,issuer_key_id,
+issuer_key_material_id}`；`signature_b64u`是 manifest-pinned enumeration Ed25519 key对该 digest bytes的
+canonical 64-byte signature，`signature_digest=SHA256(decoded signature_b64u bytes)`。
+`page_cursor`是 `canonical-base64url(payload).canonical-base64url(signature)` 的 store-signed opaque token；
+payload exact 为 `{v:"GH700:blocked-attempt-enumeration-cursor:v1",snapshot_receipt_digest,
+next_record_key,expiry_policy_digest}`，分别绑定完整 signed receipt、下一 canonical record-key tuple与
+manifest-pinned expiry policy。后续页必须 byte-equal前页 token并保持同 snapshot frontier/query/page size；
+任一页缺失、重复、record-key order、cursor signature/next-key/query/frontier drift或无法完成全分页使
+completeness证明失败。
 
 ## Terminal listing proof and reconciliation watermark
 
