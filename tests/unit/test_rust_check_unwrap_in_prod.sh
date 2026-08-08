@@ -325,6 +325,57 @@ assert_ok "staged raw string in mod tests produces no RS-03" run_staged_raw_guar
 assert_output_not_contains "staged output excludes config.rs test body" "config.rs" \
   run_staged_raw_guard
 
+# --- FAIL: comment/string lexer state must not hide later production code ---
+proj5h="${tmpdir}/multiline_lexer_state"
+mkdir -p "${proj5h}/src"
+cat > "${proj5h}/src/block_comment.rs" <<'EOF'
+#[cfg(test)]
+mod tests {
+    /* Documentation mentions the unmatched prefix r#" inside a block comment. */
+}
+
+fn production() { let _ = Some(1).unwrap(); }
+EOF
+cat > "${proj5h}/src/multiline_string.rs" <<'EOF'
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn accepts_multiline_string() {
+        let text = "first line {
+second line"; }
+}
+
+fn production() { let _ = Some(1).expect("production finding"); }
+EOF
+assert_fail "block comments and multiline strings keep production findings visible" \
+  bash "$GUARD" --strict "$proj5h"
+assert_output_contains "block-comment raw prefix does not hide production" \
+  "block_comment.rs" bash "$GUARD" --strict "$proj5h"
+assert_output_contains "multiline ordinary string does not hide production" \
+  "multiline_string.rs" bash "$GUARD" --strict "$proj5h"
+
+# --- STAGED: the same lexer-state regressions must not bypass pre-commit ---
+git -C "$proj5h" init -q
+git -C "$proj5h" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj5h" config user.name "VibeGuard Tests"
+git -C "$proj5h" add src/block_comment.rs src/multiline_string.rs
+staged_lexer_files="${proj5h}/staged-files"
+printf '%s\n' "src/block_comment.rs" "src/multiline_string.rs" > "$staged_lexer_files"
+run_staged_lexer_guard() {
+  (
+    cd "$proj5h"
+    env \
+      VIBEGUARD_STAGED_FILES="$staged_lexer_files" \
+      bash "$GUARD" --strict "$proj5h"
+  )
+}
+assert_fail "staged lexer state keeps production findings visible" \
+  run_staged_lexer_guard
+assert_output_contains "staged block-comment case remains visible" \
+  "block_comment.rs" run_staged_lexer_guard
+assert_output_contains "staged multiline-string case remains visible" \
+  "multiline_string.rs" run_staged_lexer_guard
+
 # --- PASS: empty project (no .rs files) ---
 proj6="${tmpdir}/pass_empty"
 mkdir -p "${proj6}/src"

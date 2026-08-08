@@ -54,9 +54,11 @@ _ITEM_KW    = re.compile(r'\b(mod|fn|impl|struct|enum|type|trait)\b')
 
 # --- Build test_lines set from original file (reuse standalone logic) ---
 _raw_string_end = None
+_in_string = False
+_block_comment_depth = 0
 
 def _count_braces(s):
-    global _raw_string_end
+    global _raw_string_end, _in_string, _block_comment_depth
     depth = 0
     i = 0
     while i < len(s):
@@ -67,8 +69,31 @@ def _count_braces(s):
             i = end + len(_raw_string_end)
             _raw_string_end = None
             continue
+        if _in_string:
+            if s[i] == '\\':
+                i += 2
+            elif s[i] == '"':
+                _in_string = False
+                i += 1
+            else:
+                i += 1
+            continue
+        if _block_comment_depth:
+            if s.startswith('/*', i):
+                _block_comment_depth += 1
+                i += 2
+            elif s.startswith('*/', i):
+                _block_comment_depth -= 1
+                i += 2
+            else:
+                i += 1
+            continue
         if s.startswith('//', i):
             break
+        if s.startswith('/*', i):
+            _block_comment_depth = 1
+            i += 2
+            continue
 
         prefix_len = 0
         if s.startswith(('br', 'cr'), i):
@@ -85,15 +110,8 @@ def _count_braces(s):
                 continue
 
         if s[i] == '"':
+            _in_string = True
             i += 1
-            while i < len(s):
-                if s[i] == '\\':
-                    i += 2
-                    continue
-                if s[i] == '"':
-                    i += 1
-                    break
-                i += 1
             continue
         if s[i] == "'":
             end = i + 1
@@ -242,9 +260,11 @@ file_path = sys.argv[1]
 test_lines = set()
 
 _raw_string_end = None
+_in_string = False
+_block_comment_depth = 0
 
 def _count_braces(s):
-    global _raw_string_end
+    global _raw_string_end, _in_string, _block_comment_depth
     depth = 0
     i = 0
     while i < len(s):
@@ -255,8 +275,31 @@ def _count_braces(s):
             i = end + len(_raw_string_end)
             _raw_string_end = None
             continue
+        if _in_string:
+            if s[i] == '\\':
+                i += 2
+            elif s[i] == '"':
+                _in_string = False
+                i += 1
+            else:
+                i += 1
+            continue
+        if _block_comment_depth:
+            if s.startswith('/*', i):
+                _block_comment_depth += 1
+                i += 2
+            elif s.startswith('*/', i):
+                _block_comment_depth -= 1
+                i += 2
+            else:
+                i += 1
+            continue
         if s.startswith('//', i):
             break
+        if s.startswith('/*', i):
+            _block_comment_depth = 1
+            i += 2
+            continue
 
         prefix_len = 0
         if s.startswith(('br', 'cr'), i):
@@ -273,15 +316,8 @@ def _count_braces(s):
                 continue
 
         if s[i] == '"':
+            _in_string = True
             i += 1
-            while i < len(s):
-                if s[i] == '\\':
-                    i += 2
-                    continue
-                if s[i] == '"':
-                    i += 1
-                    break
-                i += 1
             continue
         if s[i] == "'":
             end = i + 1
