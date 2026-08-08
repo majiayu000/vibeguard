@@ -52,7 +52,8 @@ VibeGuard 把 Codex workflow skills（`plan-flow`、`fixflow`、`optflow`、
 | skill 在禁用列表中，且不存在 | 安装时输出 `SKIP <skill> (disabled ...)`，不安装 |
 | skill 被用户手工删除，但未记录退出 | 恢复它，同时输出 `RESTORING <skill>` 并指明如何持久禁用 |
 | `--check`，skill 已禁用且不存在 | `[DISABLED] <skill> skill disabled in ~/.vibeguard/config.json` |
-| `--check`，skill 已禁用但仍存在 | 同上并追加提示重跑 `setup.sh` 以移除 |
+| `--check`，skill 已禁用且仍是 install-state 精确拥有的副本 | `[DISABLED]` 并提示重跑 `setup.sh` 以隔离；保持健康退出 |
+| `--check`，skill 已禁用但目录不受 install-state 精确拥有 | `[BROKEN]`；strict/JSON 检查非零，不能承诺 setup 会移除用户内容 |
 | 从列表中移除名字后重跑安装 | skill 从 canonical source 重新安装；先前隔离副本继续保留并输出 `RE-ENABLED` |
 | `disabled_skills` 格式非法 | 安装与 `--check` 失败并报出带 JSON 路径的类型错误 |
 
@@ -83,7 +84,8 @@ current/previous generation 的跨文件排序也必须在 active-install mutati
 
 - 用户可以持久禁用单个 Codex workflow skill。
 - 默认安装器重跑不恢复被禁用的 skill。
-- `--check` 对被禁用 skill 报 `[DISABLED]` 而非 `[MISSING]`。
+- `--check` 对不存在或仍由 install-state 精确拥有的被禁用 skill 报 `[DISABLED]`；
+  对 unowned/modified 同名路径报 `[BROKEN]` 并非零退出，均不误报 `[MISSING]`。
 - 重新启用是显式的。
 - 存在覆盖「删除/禁用 → 重装 → 仍保持禁用」的 setup 回归测试。
 - 托管 Codex skill 副本的行为与来源归属有文档说明。

@@ -773,6 +773,39 @@ assert_cmd "failed clean preserves malformed ownership inventory bytes" test \
 assert_cmd "failed clean preserves managed installation assets" test -f \
   "${gh719_invalid_clean_home}/.vibeguard/run-hook.sh"
 
+for gh719_nonregular_state_name in install-state.json install-state.previous.json; do
+  gh719_nonregular_clean_home="${TMP_HOME}/gh719-nonregular-clean-${gh719_nonregular_state_name}"
+  mkdir -p \
+    "${gh719_nonregular_clean_home}/.vibeguard/${gh719_nonregular_state_name}"
+  printf '%s\n' 'must-survive' > "${gh719_nonregular_clean_home}/.vibeguard/run-hook.sh"
+  gh719_nonregular_clean_rc=0
+  HOME="${gh719_nonregular_clean_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+    bash "${REPO_DIR}/setup.sh" --clean >/dev/null 2>&1 || gh719_nonregular_clean_rc=$?
+  assert_cmd "clean rejects nonregular ${gh719_nonregular_state_name} before mutation" \
+    test "${gh719_nonregular_clean_rc}" -ne 0
+  assert_cmd "failed clean preserves assets for nonregular ${gh719_nonregular_state_name}" \
+    test -f "${gh719_nonregular_clean_home}/.vibeguard/run-hook.sh"
+  assert_cmd "failed clean preserves nonregular ${gh719_nonregular_state_name}" \
+    test -d "${gh719_nonregular_clean_home}/.vibeguard/${gh719_nonregular_state_name}"
+done
+
+gh719_previous_invalid_home="${TMP_HOME}/gh719-previous-invalid-home"
+mkdir -p "${gh719_previous_invalid_home}/.vibeguard"
+printf '%s\n' '{"version":1,"generation":2,"complete":true,"files":{}}' \
+  > "${gh719_previous_invalid_home}/.vibeguard/install-state.json"
+printf '%s\n' '{"version":1,"files":[]}' \
+  > "${gh719_previous_invalid_home}/.vibeguard/install-state.previous.json"
+gh719_previous_invalid_rc=0
+gh719_previous_invalid_out="$(HOME="${gh719_previous_invalid_home}" \
+  VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c '
+    source "$1/scripts/lib/install-state.sh"
+    state_check_drift
+  ' _ "${REPO_DIR}" 2>&1)" || gh719_previous_invalid_rc=$?
+assert_cmd "drift check rejects an invalid previous generation" \
+  test "${gh719_previous_invalid_rc}" -ne 0
+assert_contains "${gh719_previous_invalid_out}" "PREVIOUS_GENERATION_INVALID" \
+  "drift check reports the invalid previous generation"
+
 printf '%s\n' '{"version":1,"disabled_skills":"plan-flow"}' > "${gh719_config}"
 gh719_before_hash="$(shasum -a 256 "${gh719_home}/.vibeguard/install-state.json" | awk '{print $1}')"
 if gh719_malformed_out="$(gh719_setup 2>&1)"; then
@@ -805,6 +838,14 @@ else
 fi
 assert_cmd "unowned disabled skill is preserved" test -f "${gh719_home}/.codex/skills/plan-flow/custom.txt"
 assert_not_contains "${gh719_unowned_out}" "QUARANTINED plan-flow" "failed ownership check does not claim quarantine"
+gh719_unowned_check_rc=0
+gh719_unowned_check_out="$(HOME="${gh719_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  bash "${REPO_DIR}/setup.sh" --check --strict 2>&1)" || gh719_unowned_check_rc=$?
+assert_cmd "strict check rejects an unowned disabled skill" test "${gh719_unowned_check_rc}" -ne 0
+assert_contains "${gh719_unowned_check_out}" "[BROKEN] plan-flow skill is disabled" \
+  "check reports an unowned disabled skill as broken"
+assert_not_contains "${gh719_unowned_check_out}" "[DISABLED] plan-flow skill disabled" \
+  "check does not report an unowned disabled skill as healthy"
 
 # GH719 clean lifecycle: the canonical lock must be released while the pinned
 # runtime is still available, including on the failure path after

@@ -156,8 +156,13 @@ pub fn release(args: &[String]) -> SetupResult<()> {
     let mut matched = None;
     for transaction_path in transaction_paths(parent, name)? {
         let transaction = read_transaction(&transaction_path)?;
-        let expected_source = (!matches!(transaction.phase.as_str(), "restored" | "released"))
-            .then_some(args[3].as_str());
+        let record_matches = record_value(&transaction) == record;
+        // A matching active record proves which historical source prefix owns
+        // the retained quarantine. Re-enable still verifies the newly restored
+        // public tree against the request's current prefix below.
+        let expected_source = (!record_matches
+            && !matches!(transaction.phase.as_str(), "restored" | "released"))
+        .then_some(args[3].as_str());
         validate_transaction(
             &transaction,
             &transaction_path,
@@ -166,7 +171,7 @@ pub fn release(args: &[String]) -> SetupResult<()> {
             name,
             expected_source,
         )?;
-        if record_value(&transaction) != record {
+        if !record_matches {
             continue;
         }
         if matched.is_some() {

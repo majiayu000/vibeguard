@@ -316,6 +316,39 @@ fn active_quarantine_survives_a_manifest_source_move() {
 }
 
 #[test]
+fn active_quarantine_can_be_released_after_a_manifest_source_move() {
+    let fixture = Fixture::new("quarantine-managed-tree-release-source-move");
+    let first = fixture.run(&[]);
+    assert_eq!(first.status.code(), Some(0), "{}", stderr(&first));
+    let quarantine = fixture.quarantines()[0].clone();
+
+    // Simulate setup refreshing the canonical install snapshot from its new
+    // manifest source before releasing the quarantine recorded under v1.
+    let mut current = fixture.state();
+    current["files"][path_text(&fixture.skill.join("SKILL.md"))]["source"] =
+        json!("skills-v2/plan-flow/SKILL.md");
+    write_json(&fixture.state, &current);
+    fs::create_dir_all(&fixture.skill).expect("public skill should be recreated");
+    fs::write(fixture.skill.join("SKILL.md"), "managed\n")
+        .expect("canonical public skill should be restored");
+
+    let released = fixture.run_command_source(
+        "setup-state-release-quarantined-tree",
+        "skills-v2/plan-flow",
+        &[],
+    );
+    assert_eq!(released.status.code(), Some(0), "{}", stderr(&released));
+    assert_eq!(String::from_utf8_lossy(&released.stdout), "RELEASED\n");
+    assert!(fixture.record().is_none());
+    assert!(fixture.skill.join("SKILL.md").is_file());
+    assert!(quarantine.join("SKILL.md").is_file());
+    let transaction: Value =
+        serde_json::from_slice(&fs::read(&fixture.transactions()[0]).unwrap()).unwrap();
+    assert_eq!(transaction["phase"], "released");
+    assert_eq!(transaction["source_prefix"], SOURCE);
+}
+
+#[test]
 fn release_prunes_stale_tracked_files_removed_from_canonical_source() {
     let fixture = Fixture::new("quarantine-managed-tree-release-prune");
     let first = fixture.run(&[]);

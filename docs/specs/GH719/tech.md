@@ -51,8 +51,11 @@ path type 时输出 `OWNED`；其他正常否定输出 `UNOWNED:<reason>`。
 精确托管树移动到同父目录隐藏 quarantine，fsync 后发布 locator；任何失败都保留至少一份
 完整数据。`setup-state-release-quarantined-tree` 在 canonical source 重新安装后只释放
 active locator，先前 quarantine 与 terminal transaction 继续保留。扫描 transaction 时，
-active `intent`/`committed` 必须匹配当前 source prefix；`restored`/`released` 终态只验证
-自身结构与 sibling 路径，不能因 manifest 后续移动 source 而阻塞安装。
+与 active locator 精确匹配的 `intent`/`committed` transaction 仍验证 destination、nonce、
+digest 与 sibling 路径，但其 source prefix 是创建隔离时的历史身份，可以不同于 manifest
+当前 source prefix；没有 matching active record 的新 transaction 必须使用当前 source prefix。
+`restored`/`released` 终态同样只验证自身结构与 sibling 路径，不能因 manifest 后续移动
+source 而阻塞安装或重新启用。
 
 ### 3. 安装与检查（shell）
 
@@ -76,9 +79,11 @@ active `intent`/`committed` 必须匹配当前 source prefix；`restored`/`relea
 临时文件加 atomic rename。current/previous 的 complete/incomplete generation 排序在
 preflight 阶段验证，而不是等到 `state_init()` 才验证。
 
-`check_codex_home_installation()` 在 skill 循环内插入禁用分支，输出 `[DISABLED]`
-而非落到 `[MISSING]`；Claude 检查与安装都不消费该字段。`status_report.sh` 把
-`[DISABLED]` 计入 summary/JSON event，但保持 healthy、quiet 中性。
+`check_codex_home_installation()` 在 skill 循环内插入禁用分支：目标缺失或仍是
+exact install-state-owned copy 时输出 `[DISABLED]`，不落到 `[MISSING]`；目标存在但不是
+VibeGuard-owned copy 时输出 `[BROKEN]`，明确下一次安装会拒绝隔离，并在 strict check 中
+非零退出。Claude 检查与安装都不消费该字段。`status_report.sh` 把 `[DISABLED]` 计入
+summary/JSON event，但保持 healthy、quiet 中性；`[BROKEN]` 保持既有 broken 语义。
 
 `scripts/setup/setup-lock.sh` 提供 HOME-scoped lifecycle lock。新 owner nonce 携带 Linux
 boot-id/start-ticks 或 Darwin 秒/微秒出生身份；PID 存活且身份相同才算 active，PID 被复用
