@@ -516,7 +516,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-state-validate-managed-tree-transactions",
-        usage: "<skills-dir>  — validate retained managed-tree transactions before setup mutation",
+        usage: "<skills-dir> [state-file previous-state-file]  — validate retained managed-tree transactions before setup or clean mutation",
         handler: setup_managed_tree_remove::validate_transactions,
     },
     Command {

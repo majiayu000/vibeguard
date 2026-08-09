@@ -395,6 +395,26 @@ pub(crate) fn orphan_intent_records(state: &Value) -> SetupResult<Map<String, Va
         {
             continue;
         }
+        let public_exists = match fs::symlink_metadata(&dest) {
+            Ok(_) => true,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error.into()),
+        };
+        let quarantine_exists = match fs::symlink_metadata(&transaction.quarantine) {
+            Ok(_) => true,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error.into()),
+        };
+        match (public_exists, quarantine_exists) {
+            (true, false) => continue,
+            (false, true) => {}
+            (true, true) => {
+                return Err("orphan quarantine intent has both public and hidden trees".into());
+            }
+            (false, false) => {
+                return Err("orphan quarantine intent has no recoverable tree".into());
+            }
+        }
         let record = super::record_value(&transaction);
         validate_record_artifacts(
             &dest_text,

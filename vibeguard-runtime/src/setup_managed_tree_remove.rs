@@ -23,8 +23,7 @@ use tree_state::{carry_tracked_files, managed_tree_decision};
 
 const USAGE: &str = "Usage: vibeguard-runtime setup-state-quarantine-managed-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";
 const RELEASE_USAGE: &str = "Usage: vibeguard-runtime setup-state-release-quarantined-tree <state-file> <previous-state-file> <dest-dir> <source-prefix>";
-const VALIDATE_TRANSACTIONS_USAGE: &str =
-    "Usage: vibeguard-runtime setup-state-validate-managed-tree-transactions <skills-dir>";
+const VALIDATE_TRANSACTIONS_USAGE: &str = "Usage: vibeguard-runtime setup-state-validate-managed-tree-transactions <skills-dir> [state-file previous-state-file]";
 const TRANSACTION_VERSION: u64 = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -212,10 +211,11 @@ pub fn release(args: &[String]) -> SetupResult<()> {
 }
 
 pub fn validate_transactions(args: &[String]) -> SetupResult<()> {
-    if args.len() != 1 {
+    if args.len() != 1 && args.len() != 3 {
         return Err(VALIDATE_TRANSACTIONS_USAGE.into());
     }
     let directory = absolute(Path::new(&args[0]));
+    let clean_states = (args.len() == 3).then(|| [Path::new(&args[1]), Path::new(&args[2])]);
     match fs::symlink_metadata(&directory) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error.into()),
@@ -274,6 +274,16 @@ pub fn validate_transactions(args: &[String]) -> SetupResult<()> {
         // an out-of-root destination.
         let dest = directory.join(name);
         validate_transaction(&transaction, &path, &dest, &directory, name, None)?;
+        if transaction.phase == "intent"
+            && let Some(states) = clean_states.as_ref()
+            && active_record(states, &dest)?.as_ref() != Some(&record_value(&transaction))
+        {
+            return Err(format!(
+                "clean cannot discard an unreferenced active quarantine intent: {}",
+                path.display()
+            )
+            .into());
+        }
     }
     Ok(())
 }
