@@ -198,6 +198,21 @@ if [[ "${doctor_rc}" -ne 0 ]]; then
 fi
 check "forwarded doctor command preserves dispatcher position" "${doctor_rc}"
 
+pack_rc=0
+pack_out="$(
+  cd "${REPO_DIR}" \
+    && HOME="${TEST_HOME}" \
+      PATH="${WORK}/fake-bin:${PATH}" \
+      VIBEGUARD_TEST_RELEASE_DIR="${WORK}/release-assets" \
+      VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
+      bash "${REPO_DIR}/install.sh" --version "${VERSION}" -- \
+        install --target claude-code --pack safe-bash --dry-run 2>&1
+)" || pack_rc=$?
+if [[ "${pack_rc}" -ne 0 ]]; then
+  printf '%s\n' "${pack_out}" >&2
+fi
+check "forwarded guard-pack install omits setup-only --yes" "${pack_rc}"
+
 header "dry-run and provenance boundaries"
 
 DRY_RUN_HOME="${WORK}/dry-run-home"

@@ -221,7 +221,16 @@ extract_bootstrap_seed "${ARCHIVE}" "${SEED_ROOT}"
 
 case "${SETUP_ARGS[0]:-}" in
   install)
-    SETUP_ARGS=(install --yes "${SETUP_ARGS[@]:1}")
+    setup_has_pack=0
+    for setup_arg in "${SETUP_ARGS[@]:1}"; do
+      if [[ "${setup_arg}" == "--pack" || "${setup_arg}" == --pack=* ]]; then
+        setup_has_pack=1
+        break
+      fi
+    done
+    if [[ "${setup_has_pack}" == "0" ]]; then
+      SETUP_ARGS=(install --yes "${SETUP_ARGS[@]:1}")
+    fi
     ;;
   doctor|verify-install|verify-project|verify-dev-repo|--check|--clean|--codex-status|packs|demo|--help|-h|help)
     ;;
