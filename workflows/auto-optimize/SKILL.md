@@ -1,10 +1,10 @@
 ---
 name: auto-optimize
-description: Automate analysis, evaluation, design and optimization of target projects. Integrate VibeGuard as a baseline scan, the remediation process adheres to VibeGuard specifications, and a compliance check is run at the end. Support auto-run-agent autonomous execution.
+description: Analyze a target project, classify findings, and implement at most one user-confirmed optimization with focused verification.
 ---
-# Auto-Optimize: Autonomous optimization process
+# Auto-Optimize: Bounded optimization process
 
-Integrate the project autonomous optimization workflow of the VibeGuard guard system.
+Use VibeGuard to assess a project and deliver one bounded, verified optimization.
 
 ## When to Activate
 
@@ -12,7 +12,7 @@ Integrate the project autonomous optimization workflow of the VibeGuard guard sy
 - A project needs a rotating scan across security, quality, reliability, performance, and maintainability.
 - Existing guard or audit findings should be converted into prioritized implementation work.
 - The task needs an optimization report before deciding which fixes to execute.
-- The user explicitly asks for autonomous optimization across quality, reliability, security, or DX dimensions.
+- The user explicitly asks for optimization across quality, reliability, security, or DX dimensions.
 
 ## Red Flags
 
@@ -36,8 +36,8 @@ Do not build coordinator/reviewer lanes by default. If the user explicitly reque
 
 1. **Not repairing is more important than repairing indiscriminately** — Each finding must be classified as FIX / SKIP / DEFER, and SKIP must be accompanied by a reason
 2. **Scan Dimension Rotation** — Don’t just look for the same type of problems every time, rotate scans by dimension.
-3. **Atomic Verification** — Each fix is independently verified and is not run until the end.
-4. **Experience Persistence** — Write the pitfalls you have stepped on into MEMORY.md to avoid repeated mistakes across sessions
+3. **Atomic Verification** — Verify the selected fix immediately rather than waiting until the end.
+4. **Experience Persistence** — Record durable pitfalls only in an existing project memory system.
 5. **Guard Priority** — Run VibeGuard deterministic guard first to obtain the baseline, and then use LLM deep scanning
 
 ## Scan dimensions (rotate by round)
@@ -80,7 +80,7 @@ Classify each finding into three categories:
 ```
 FIX — Have a clear plan, don’t break the public API, benefits > risks
 SKIP — with reasons: breaking change / over-engineering / not a bug / intentional design
-DEFER — More information or user decisions are required, logged in the backlog area of TASKS.md
+DEFER — More information or a future user decision is required; keep it report-only
 ```
 
 SKIP judgment criteria (load the rules of the corresponding language in the rules/ directory + VibeGuard specifications):
@@ -90,105 +90,45 @@ SKIP judgment criteria (load the rules of the corresponding language in the rule
 - Macros can solve it but will reduce readability → SKIP
 - Do not search for existing implementations before creating new files/classes/functions → Violates VibeGuard Layer 1, search first and then write
 
-FIX tasks are sorted by dependencies and generate a structured task list:
-```markdown
-## High priority
-- [ ] [BUG] Description | Documentation | Solution Summary
-- [ ] [BUG] ...
+Record all classifications in the evaluation report, but select exactly one
+bounded FIX for implementation. Do not turn the remaining findings into an
+execution queue. DEFER items may be reported to the user, but they do not
+become active tasks in this run.
 
-## Medium priority
-- [ ] [DEDUP] Description | Documentation | Solution Summary
-- [ ] [DESIGN] ...
+The selected FIX must include:
 
-## Architecture review (triggered after high/medium completion)
-- [ ] [ARCH] Comprehensively review the rationality of the architecture, and add new tasks if problems are found
+- concrete evidence and root-cause hypothesis;
+- owned files and a focused verification command;
+- a stop condition that fits one short session;
+- explicit user confirmation before implementation.
 
-## Low priority
-- [ ] [STYLE] ...
+### Phase 3: Implement One Selected Finding
 
-## Backlog（DEFER）
-- [ ] [DEFER] Description | Required information
-```
+1. Confirm the worktree is clean enough to isolate the selected change and
+   create one short-lived branch if a branch is needed.
+2. Reproduce the selected finding and implement only its smallest complete fix.
+3. Run the focused verification immediately.
+4. If verification fails three times, stop and revisit the hypothesis. Do not
+   move on to another finding.
+5. Run the relevant broader project check before submission. Leave exhaustive
+   platform coverage to CI.
+6. Stop when the selected fix is verified. A new finding requires a new user
+   decision and a new short session.
 
-### Phase 3: Create Runner environment
+This workflow does not create `TASKS.md`, runner directories, coordinator
+lanes, or autonomous queues. It does not invoke `auto-run-agent` or an
+orchestrator.
 
-1. Commit the current status and create a new branch in the target project (such as `auto-optimize`)
-2. Create the runner directory structure:
-```
-<runner-dir>/
-├── memory/
-│ ├── TASKS.md # Task list for Phase 2 design
-│ ├── CONTEXT.md # Project background, technology stack, specifications, architecture overview
-│ └── DONE.md # Automatically generated
-├── workspace/ # Soft link to the target project
-├── logs/
-└── config.yaml
-```
+### Phase 4: Closing and Learning (VibeGuard Compliance Check)
 
-3. CONTEXT.md must contain:
-   - Project overview and technology stack
-   - Architecture overview (key modules and responsibilities)
-   - Project specifications (reference the project's own CLAUDE.md or coding specifications)
-   - **VibeGuard specification reference** (remind workers to abide by the rules of search before writing, naming constraints, minimum changes, etc.)
-   - Build and test commands (must be verified after every modification)
-   - Commit specifications (if there are DCO requirements, etc.)
-   - Current scanning dimensions and round records
-
-4. config.yaml default configuration:
-```yaml
-max_iterations: 50
-max_cost_usd: 0
-max_duration: 6h
-consecutive_no_progress: 3
-stop_when_empty: true
-cooldown_duration: 15s
-worker_timeout: 30m
-use_git_detection: true
-```
-
-5. Default path of runner directory: `~/<project-name>-runner/`
-
-### Phase 4: Execution and Verification
-
-**Prerequisite Check**: The `AUTO_RUN_AGENT_DIR` environment variable must be set and the directory must exist.
-
-```bash
-# Detect auto-run-agent
-if [[ -z "${AUTO_RUN_AGENT_DIR:-}" ]]; then
-  echo "AUTO_RUN_AGENT_DIR is not set, skip Phase 4"
-  echo "Setting method: export AUTO_RUN_AGENT_DIR=/path/to/auto-run-agent"
-  exit 0
-fi
-```
-
-1. Start using auto-run-agent:
-```bash
-cd "${AUTO_RUN_AGENT_DIR}"
-./orchestrator --dir <runner-dir> --max-iterations 50 --max-cost 0 --max-duration 6
-```
-2. Worker execution rules:
-   - Run verification command (read from CONTEXT.md) immediately after each fix is completed
-   - Verification failed → Roll back the fix immediately, mark it as DEFER, and continue with the next one
-   - Verification passed → commit, marked as DONE, update DONE.md
-   - Every time a fix is completed, check whether a new problem is triggered (regression detection)
-3. Monitoring commands:
-   - `tail -f <runner-dir>/logs/orchestrator_*.log` — real-time log
-   - `cat <runner-dir>/memory/DONE.md` — View completion records
-   - `cat <runner-dir>/memory/TASKS.md` — View remaining tasks
-
-> **Note**: Phase 1-3 does not depend on auto-run-agent and can be used independently in an agent-less environment (manually execute TASKS.md).
-
-### Phase 5: Closing and Learning (VibeGuard Compliance Check)
-
-1. After all FIX are completed, run the full test suite
-2. **Run VibeGuard Compliance Check**:
+1. Run the relevant project test or build gate.
+2. **Run VibeGuard Compliance Check** when it applies to the changed surface:
    ```bash
    bash "${VIBEGUARD_ROOT:-$(dirname "$0")/../..}/scripts/verify/compliance_check.sh" /path/to/project
    ```
-3. Fix the problems found in the compliance check (if any)
-4. bump version（patch for fixes, minor for new features）
-5. Update the project MEMORY.md to record the patterns and lessons discovered in this round
-6. Record the scanning dimensions of this round and automatically switch to the next dimension next time
+3. Report any new findings without automatically fixing them.
+4. Update an existing project memory file only when the repository already uses
+   one and the lesson is durable.
 
 ## Rule system
 
@@ -214,15 +154,12 @@ Rule format: Each rule has ID, category, description, and example. Workers refer
 
 ## User interaction points
 - After the completion of Phase 1, the evaluation report (including guard baseline + LLM scan results) must be shown to the user to confirm the optimization direction
-- The task list of Phase 2 is displayed to the user for confirmation before creating the file.
-- Ask the user before starting: number of iterations, time limit, and whether there is a cost limit
-- Users can edit TASKS.md at any time to insert new tasks or adjust priorities
+- Phase 2 presents one recommended FIX for confirmation; the other findings remain report-only.
+- A request to continue with another finding starts a separate short session.
 
 ## Notes
-- `AUTO_RUN_AGENT_DIR` environment variable specifies the auto-run-agent path, Phase 4 runtime detection
 - The target project must be committed cleanly before branching to ensure that it can be rolled back
-- Workspace uses soft links and does not copy code
-- Multiple projects can run at the same time without affecting each other (note the API rate limit)
+- One repository has at most one writable session. Read-only helpers may be used only when explicitly requested and given disjoint scope.
 
 ## Red Flags
 
@@ -236,5 +173,6 @@ Rule format: Each rule has ID, category, description, and example. Workers refer
 - [ ] Record the selected scan dimensions and current baseline.
 - [ ] Search for existing fixes, plans, and guard coverage before proposing new tasks.
 - [ ] Prioritize by security, logic, and data integrity before maintainability.
-- [ ] Show the optimization report before Phase 2 task creation.
-- [ ] Attach focused verification commands to every implemented finding.
+- [ ] Show the optimization report and one selected FIX before implementation.
+- [ ] Attach a focused verification command to the selected finding.
+- [ ] Stop after that finding is verified; do not drain a queue.

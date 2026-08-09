@@ -212,6 +212,14 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-doc-command-paths.sh
 
+      - name: Doc path allowlist regression tests
+        shell: bash
+        run: bash tests/test_doc_path_allowlist.sh
+
+      - name: Documentation metadata contract tests
+        shell: bash
+        run: bash tests/test_docs_metadata_contract.sh
+
       - name: Validate no personal paths
         shell: bash
         run: bash scripts/ci/validate-no-personal-paths.sh
@@ -257,6 +265,10 @@ jobs:
       - name: Workflow contract regression tests
         shell: bash
         run: bash tests/test_workflow_contracts.sh
+
+      - name: CI workflow contract regression tests
+        shell: bash
+        run: bash tests/test_ci_workflow_contract.sh
 
       - name: Eval contract regression tests
         shell: bash
@@ -456,6 +468,12 @@ jobs:
       - name: Validate doc command paths
         run: bash scripts/ci/validate-doc-command-paths.sh
 
+      - name: Doc path allowlist regression tests
+        run: bash tests/test_doc_path_allowlist.sh
+
+      - name: Documentation metadata contract tests
+        run: bash tests/test_docs_metadata_contract.sh
+
       - name: Manifest contract regression tests
         run: bash tests/test_manifest_contract.sh
 
@@ -467,6 +485,9 @@ jobs:
 
       - name: Workflow contract regression tests
         run: bash tests/test_workflow_contracts.sh
+
+      - name: CI workflow contract regression tests
+        run: bash tests/test_ci_workflow_contract.sh
 
       - name: Eval contract regression tests
         run: bash tests/test_eval_contract.sh

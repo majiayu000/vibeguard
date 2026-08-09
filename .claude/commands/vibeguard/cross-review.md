@@ -11,7 +11,7 @@ argument-hint: "<project directory or file path>"
 - There are blind spots in single model review, and independent verification of the second model can detect omissions
 - Claude is responsible for generating structured reviews, and Codex does adversarial questioning through a **structured lens**
 - Review depth adapts to the size of the change: small changes focus on correctness, while large changes cover architecture and over-design
-- Iterate to convergence: up to 3 rounds of revisions to ensure review quality
+- Iterate to convergence for at most two total review rounds
 - Automatically downgrade to single model review when Codex is unavailable (`/vibeguard:review`)
 
 **Reviewer Lenses**
@@ -109,18 +109,18 @@ Three complementary perspectives, each focusing on a different failure mode:
 
 6. **Parse Codex VERDICT**
    - Extract the `VERDICT:` line
-   - If `APPROVED`: skip to step 8
+   - If `APPROVED`: skip to step 8; zero findings plus `APPROVED` stops immediately
    - If `REVISE`: proceed to step 7
-   - If it cannot be parsed (Codex output exception): Treat it as APPROVED, and mark "Codex verification exception, the result is for reference only" in the report
+   - If it cannot be parsed (Codex output exception): stop review and hand the result to a human; do not start another automated round
 
-7. **Iterative revision (up to 3 rounds)**
+7. **One iterative revision (round 2 is final)**
    - Claude revised review report based on Codex lens feedback:
      - Remove items marked with FALSE-POSITIVE
      - Add missing items of MISSED (mark the source lens)
      -Adjustment and repair suggestions
    - Update `/tmp/vibeguard-cross-review-<timestamp>.md`
-   - Call Codex verification again (same as step 5)
-   - If APPROVED is not achieved after 3 rounds: Mark as "Not Converged" and output the final report
+   - Call Codex verification once more (same as step 5)
+   - If APPROVED is not achieved after round 2: mark as "Not Converged", hand off to a human, and do not generate more review work
 
 8. **Output final report**
 
@@ -182,6 +182,7 @@ Three complementary perspectives, each focusing on a different failure mode:
 - When duplicate code is found, it is recommended to extend the existing implementation rather than create a new one (L1)
 - AI generated tags are not included in review reports
 - When Codex times out or is abnormal, it is downgraded to a single model result without blocking the process.
+- One PR receives at most two review rounds; zero findings plus `APPROVED` ends review immediately.
 - Lens allocation is strictly based on the number of changed rows and cannot be overwritten manually (to ensure consistency)
 
 **Reference**
