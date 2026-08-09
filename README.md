@@ -328,6 +328,28 @@ Extracts non-obvious solutions as structured Skill files for future reuse.
 
 ## Installation
 
+### One-command install
+
+On supported macOS and Linux targets the fastest path is a curl-pipe bootstrap
+that downloads the pinned release payload and runtime, verifies checksums, and
+runs the standard setup path without cloning the repository:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash
+```
+
+Add trailing `setup.sh` options after `--`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- --profile full --with-scheduler
+```
+
+Then verify:
+
+```bash
+bash ~/.vibeguard/installed/setup.sh verify-install
+```
+
 ### Runtime prerequisites
 
 Default setup downloads and verifies the pinned `vibeguard-runtime` release for

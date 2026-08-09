@@ -168,6 +168,11 @@ jobs:
         shell: bash
         run: bash tests/test_payload.sh
 
+      - name: One-command install regression tests
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/test_one_command_install.sh
+
       - name: Validate prompt contract
         shell: bash
         run: bash scripts/ci/validate-prompt-contract.sh --strict
