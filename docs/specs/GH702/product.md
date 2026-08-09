@@ -4,6 +4,15 @@
 
 GH-702
 
+## Supporting Contract
+
+[`monotonic-anchor-contract.md`](monotonic-anchor-contract.md) 定义 external CAS、本地两代 mirror、
+commit journal 与 barrier recovery；[`atomic-launch-machine-contract.md`](atomic-launch-machine-contract.md)
+唯一地定义 H-010 request/response、process-template preimage 与 consumed-transaction lifecycle。
+[`anchor-identity-verification-contract.md`](anchor-identity-verification-contract.md) 唯一地定义 exhaustive
+identity pointer closure 与 executable negative corpus。三者的 backend/platform 选择仍须维护者批准，
+owner/annex digests 必须一起绑定到 decision artifact。
+
 ## 当前事实
 
 截至 2026-07-27，仓库只有一个内置 `safe-bash` Guard Pack。它是现有 Core
@@ -110,6 +119,52 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 9. **H-009 — Privacy 与 precision 反馈**：是否以及如何上传本地 triage。
    **Recommended proposal（未批准）**：默认零上传、运行时零网络；precision 反馈只能
    由用户显式导出脱敏 bundle 后另行提交，安装/运行失败不得静默启用 telemetry。
+10. **H-010 — Monotonic anchor backend 与生命周期**：哪些平台可用、谁 provision/认证/恢复。
+    **Decision frame（未批准，无默认选项）**：维护者必须为每个受支持 OS/architecture 选择 closed
+    `anchor_block_v1` backend/conformance profile，或选择 `authenticated_no_block_v1` 明确
+    no conforming backend / no official block；不得从
+    recommendation、探测到的 TPM/Keychain/service 或环境变量自动选择。批准 artifact 必须分别
+    决定 Core 外、pre-launch、旧 binary/adapter 不可绕过的 nonrollback launch/version-floor authority、
+    closed launch-authority profile/policy 的 backend identity、trusted signer key ID + public-key
+    material digest、algorithm、quorum、maximum validity、resume-token minimum entropy、maximum suspended
+    lifetime 与 pre-hook binding，以及
+    canonical approved Core process template 的 entrypoint/argv/environment/cwd/principal/sandbox/IPC digests，
+    `platform_launch_floor_attestation` 的 challenge/session/transaction、current backend state/counter/
+    predecessor/floors、canonical launched-process preimage、suspended-handle/resume-token digests、单次 resume
+    protocol、measured binary、signature 与 bounded validity，
+    backend/service owner、independent authenticated per-leaf authority conformance、initial
+    provision 权限与 user/Core/device identity、IPC endpoint 的
+    server/client peer authentication/ACL/protocol/anti-replay、key/backend identity rotation、同设备
+    reinstall 是 reattach 还是新 root、device replacement/backup restore 是否禁止或走显式迁移、
+    target authorizer profile/key/trust root 与每种 leaf 的 authorized-operation transition rules、
+    backend/IPC unavailable 与 partial-CAS 的 repair authority/UX，以及 intentional reset 的确认、
+    evidence retention 和旧 receipts 处置。global platform registry 跨全部 conforming Core releases append-only；
+    `platform_id` 在 signed lineage 中唯一且 family/mode 不可改；一旦 no-block，后续 conforming
+    release 必须拒绝 family rename/block transition。没有 Core 外 monotonic authority 时，不声称能约束
+    entry 出现前的旧 binary 或随本地状态一起回滚的 coherent old release。
+    每个 claimed installed hook 必须填写 `hook_e2e_p50/p95/p99/max_ms`；只有 anchor-block 再填写
+    `cas_timeout_ms`、`ipc_timeout_ms`、`queue_wait_budget_ms`、`contention_total_budget_ms` 与
+    `contention_retry_limit_count`，no-block 禁止 backend/CAS budget；不得留空、
+    使用无单位“fast/bounded”或用专项 microbenchmark 替代 installed-path end-to-end budget。每次
+    gate 必须按 supporting contract 的独立 anchor/no-block closed schemas 输出 budget、initial、
+    confirmation/applicability、逐字段 breaches 与 blocking decision；hook 的 P50/P95/P99/max 与
+    anchor-block source-applicable 的 CAS、IPC、queue、
+    contention time/retry 任一项都不能被 P95-only
+    verdict 隐藏。result 必须 exact 绑定获批 H-010/decision artifact digest 与 authoritative
+    evaluation-policy digest/generation/validity evidence；任一 policy/budget rotation 或 mismatch 必须
+    nonzero 并全量重跑，不能沿用旧 result。no-block branch 必须引用 global terminal registry entry 与
+    `maximum_effective_decision=warn`；release pin 只绑定 compatibility，不定义 mode。该 platform/family
+    从首次验证该 entry 的 conforming release 起只 warn/off，expiry/pin mismatch 只使 status stale/nonzero。
+    没有上述 external launch TCB 的平台在当前与后续 conforming release 中保持 no-block，禁止
+    migration/official block；new identity、maintainer
+    authorization 或 Core 内检查不能替代 launch floor。anchor-block host adapter 必须在任何 Core hook
+    前验证 attestation，旧 binary/adapter 低于 floor 时 nonzero 拒绝启动且不得产生 decision；只有
+    anchor-block 的 Core 外 launch authority 才能保证 coherent whole-release rollback 不执行旧路径。
+    no-block backend/root/leaf 始终 `not_applicable`，不 provision/restart/CAS/IPC。
+    final CI 按 authority mode 分支：anchor-block 要求 launch authority + hardware/service conformance；
+    no-block 只要求 zero-backend installed-hook、独立 budget/batch/result 与 status evidence，不要求硬件/service。
+    未选 branch、block backend 不 conform、identity/IPC 无法认证时不得执行 committed/promoted block；
+    实现不能把 `tpm2_nv_v1` 或任何平台方案当作本 Draft 已批准。
 
 ## Behavior Invariants
 
@@ -139,7 +194,7 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
    bundle、digest mismatch 或 index 指向不存在对象时，不得创建 store、receipt、
    active pointer 或 host config 修改。
 6. B-006: 所有 official product/security choices 必须来自获批、versioned/digested
-   policy artifacts，并绑定 H-001–H-009 的选择。发布时的 immutable
+   policy artifacts，并绑定 H-001–H-010 的选择。发布时的 immutable
    `publication_policy_digest` 与每次 install/audit 使用的 current
    `evaluation_policy_digest` 是不同 role/identity；它们可以在发布当时引用同一 policy
    bytes，但不得用一个字段混同。build/publish 时 publication policy 必须在该操作时间有效
@@ -201,26 +256,45 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     result 与 commit/rollback status。receipt 与 active identity 只能从 verified staged
     状态经成功 audit 组成一个 immutable committed-state generation；该 generation 必须
     命名 plan 解析出的全部 pack/dependency receipts、ownership 与 active identities，并由
-    一个 installation-scope pointer 的一次原子 switch 共同生效，禁止逐 pack pointer
-    依次切换。该 switch 本身就是 durable commit boundary，runtime 只消费完整、
-    digest-valid 的 dependency-set generation，禁止 partial active。
-16. B-016: stage、verify、host apply、audit 或 receipt commit 任一步失败时，系统必须只
-    回滚本 transaction 已记录的 owned changes并恢复精确 before state；rollback 自身失败
-    必须 nonzero、保留 recovery evidence 并进入 `needs_repair`，不得声称 installed。
+    一个 installation-scope pointer 的一次 durable switch 共同生效，禁止逐 pack pointer
+    依次切换。rename 后必须重开/校验并 fsync replacement pointer，再 fsync containing directory；
+    两者完成才是 durable commit boundary，runtime 只消费完整、
+    digest-valid 的 dependency-set generation，禁止 partial active。pointer 必须携带 monotonic
+    installation generation；已 fsync 的 transaction journal 先记录目标 pointer/state，再推进
+    独立 durable generation floor，最后执行上述 rename+双 fsync。policy/installation floor 与 trusted-time
+    high-water/epoch/sequence 都必须绑定 B-027 定义的同一 authenticated root 下各自独立单调的
+    leaf authority；同一
+    user-state tree 内的 JSON 只可作 mirror，不能作为 anti-rollback authority。runtime 拒绝低于 floor 的旧 pointer replay；
+    floor fsync 是 roll-forward-only prepared boundary：此前失败可 rollback；此后必须保留
+    journal/generation/state 并重试或恢复 exact pointer switch，不能 rollback、降低 floor 或猜测
+    目标 generation。recovery 必须在原 canonical locks 下重验 exact host/adapter/config-root identity
+    与 applied manifest 的每个 file/config entry、reservation/owner、expected-after digest；只有 closed
+    set 全等才可 switch。任一 missing/extra/mismatch 都保留现场进入 `needs_repair`，不得重写漂移、
+    commit receipt/ownership 或声称 installed。
+16. B-016: stage、verify、host apply、audit 或 floor fsync 前的 receipt preparation 失败时，
+    系统必须只回滚本 transaction 已记录的 owned changes并恢复精确 before state；floor fsync
+    后则禁止 rollback，只能按 B-015 重验后 roll forward。post-floor drift 必须 append+fsync
+    repair transition、nonzero 并保留 journal/before/applied evidence；不得用 B-019 的 before/after
+    数据覆盖当前用户/host state，也不得生成 committed receipts。rollback/recovery 失败均进入
+    `needs_repair`，不得声称 installed。
 17. B-017: 取消、中断、超时或进程崩溃后不得留下未提交的新 active pointer。下一次任何
     mutation 必须先按 canonical order 取得 HOME-wide ownership lock 与对应 target locks，
     识别 unfinished transaction，并按 immutable
-    journal 完成 rollback/recovery；只有 recovery 完成并重新验证 committed generation
+    journal 完成 rollback/recovery；recovery 必须重算完整 applied-set digest 并逐项 CAS，而非抽样
+    或只验证 generation。只有 recovery 完成并重新验证 committed generation
     后才可进行新 transaction 的 discovery、staging、planning 或 confirmation。interactive
     confirmation 必须有获批的 bounded deadline，等待期间不得持有 exclusive mutation
-    locks；确认后必须按同一顺序重新取锁，并对 base generation、ownership、plan/evidence/
-    eligibility digests 做 CAS revalidation，drift 时废弃确认并重新 plan/confirm。不能用
+    locks；确认后必须按同一顺序重新取锁，并对 base generation、ownership、authoritative
+    policy pointer/floor、plan/evidence/eligibility digests 做 CAS revalidation，drift 时废弃
+    确认并重新 plan/confirm。不能用
     partial state 计算计划，也不能把旧 staging 或 partial receipt 当作成功安装。
 18. B-018: committed receipt 必须绑定 canonical identity、trust/provenance chain、
     publication/evaluation policy digests、precision/provenance/compatibility evidence
     digests，以及 source-applicable revocation binding：official 必须有 registry-event
     evidence digest，local 必须为 `not_applicable` 且该字段 absent。receipt 还必须绑定
-    `decision_valid_until`、expiry fallback/reason、source storage key、target/profile/capabilities、所有
+    `decision_valid_until`、source-applicable `override_valid_until`、expiry fallback/reason、
+    committed evaluation policy 的 exact digest、authoritative generation、validity-evidence
+    digest、source storage key、target/profile/capabilities、所有
     owned files 和 config entries 的 before/after digests、transaction ID、audit evidence
     与 effective decisions。source storage key 必须是 closed discriminated union：
     official 使用 normalized publisher + pack；local 使用完整 canonical local identity 的
@@ -283,15 +357,91 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 27. B-027: precision floor、minimum samples、freshness、no-FP window 与 evidence issuer
     必须来自 current approved `evaluation_policy_digest`，而不是 pack author、环境变量、
     README、install command 或 artifact-embedded publication policy 临时覆盖。policy
-    更新必须在不改写 bundle/index identity 的前提下重算 eligibility；status 同时显示
-    publication policy 与 current evaluation policy identities。
+    更新必须在不改写 bundle/index identity 的前提下重算 eligibility；launch selector 先验证 shipped signed
+    global registry 并选择 exact mode；no-block 不要求 attestation，只有 anchor host adapter 才在 Core hook 前验证 current attestation，其 closed
+    body/digest/signature/quorum/backend identity/platform generation/current backend counter/monotonic floor/
+    Core+adapter minimum version 任一无效或当前 binary/adapter 低于 floor 时，launch nonzero 且不得产生
+    decision；实测 binary digest+version 还必须 exact 匹配 H-010 获批 Core/adapter，只达到 minimum 不授权。
+    每次 launch 必须按 [`atomic-launch-machine-contract.md`](atomic-launch-machine-contract.md) 的 named
+    request/response 与六个 canonical subdigest preimage，用 never-reused nonce + session + transaction
+    直接挑战 external backend；backend 在同一 nonrollback TCB
+    `compare_current_state_consume_and_launch` 操作内 compare current state、永久消费 transaction 并按 H-010 canonical template 创建
+    `suspended_before_core_entry_v1` exact process，禁止 current read + local spawn。signed response 必须绑定可重算的
+    launched-process identity body/digest、opaque suspended handle 与 single-use resume token digests；raw handle/token
+    只经 authenticated IPC 交给 adapter，不落 HOME/log/receipt/status。adapter 验证全部 identity 后调用
+    `resume_suspended_process`；response 丢失只允许同一 peer/transaction 的 `recover_launch_handoff` 或
+    `query_or_abort_suspended_process`，不得创建第二 process。pending timeout/验证失败必须 external-TCB terminate，
+    保留 closed signed tombstone，并把 reuse guard 永久写入 nonrollback consumed-transaction set；cached、
+    predecessor、wrong process/handle/token、无法线性化到 state
+    compare 的 response，或仍未过期但已消费/非 current response 一律在 Core hook 前拒绝。通过后 runtime
+    才验证 global registry entry 与 release-pinned H-010 compatibility；terminal no-block
+    expiry/pin mismatch 只保留 warn ceiling + stale/audit status。`anchor_block_v1` 在每次 enforcement
+    接受 committed decision 前以 external per-leaf authorities 证明 policy/install pointer/floors current；
+    `authenticated_no_block_v1` 则验证 global family/release/install binding，合法 warn/off 不要求
+    external authority。两者再比较 policy exact `(digest, generation,
+    validity_evidence_digest)` 与 committed generation；任一
+    identity drift 即使 digest 后来相同，也立即使用 warn/off fallback、durably latch
+    `policy_changed + audit_required`；pointer/floor
+    anchor-block generation authority/pointer/floor 缺失、malformed、不可验证或低于 floor 时，block
+    candidate 必须拒绝并 nonzero；no-block backend/root/leaf 是 `not_applicable`，不得运行
+    provision/restart/CAS/IPC 或升级 denial。same-family/cross-release mode transition、duplicate platform
+    都 fail-visible；没有 Core 外 nonrollback launch TCB 的平台在当前与后续 conforming release 中
+    保持 no-block，禁止 migration/official block，但不声称能约束 coherent rollback 的旧 release。
+    两者都不能等旧 horizon 到期。status
+    同时显示 publication、committed evaluation 与 authoritative active evaluation policy
+    identities。anchor-block 的每次 policy activation 还必须在 Core-owned policy lock 下先写入并 fsync closed
+    pending intent，绑定目标 policy digest、validity evidence 及前后 generation，再原子推进并
+    fsync durable monotonic `policy_generation_floor`，最后 rename authoritative pointer、重开校验并
+    fsync pointer 与 parent directory；只有两次 fsync 成功才可标 journal complete/清理。其间崩溃
+    必须从 intent 确定性重放同一 pointer+fsync roll-forward，不能凭新 floor 猜目标 policy。
+    runtime 同时验证 pointer generation 不低于该 floor。floor mirror 必须绑定 Core installation、
+    user principal、anchor schema、root identity 与独立 policy `per_leaf_authority_id`，并与
+    signed H-010 `anchor_profile.backend_profile_id` 选定 backend 的当前 stable leaf counter/value identity 相等，并独立验证可刷新
+    proof 对该 state 的 binding；同 root 的
+    unrelated leaf 推进不得使 policy recovery 失败，但旧 policy leaf snapshot 必因该 leaf authority
+    不回退而失配。旧 pointer replay 即使 digest 再次
+    匹配 committed generation 也必须按 unavailable 拒绝，floor 缺失/损坏同样 fail closed。
+    management commit 必须在最终校验前取得同一 policy lock，并持有到 active-generation
+    pointer switch 完成；若使用等价 CAS，必须在 installation floor/external anchor 推进前完成
+    final compare-and-fence，并把 policy identity、anchor counter 与 activation fencing token 写入
+    journal，activation 在 fence 释放前不得切换。floor 后 recovery 才发现 policy drift 时不能
+    rollback：必须 journaled roll forward exact target pointer，同时先锁存
+    `policy_changed + audit_required + protection_suspended`；不得执行旧 block 或声称 healthy，fresh
+    audit 以新 generation 恢复。
 28. B-028: 某 rule 的 evidence 缺失、invalid、样本不足、过期或 precision 低于获批 floor
     时，其 official effective default 必须是 warn，绝不能 block；无数据必须显示空
     precision + closed reason，不能写 `0%` 或沿用旧证据。用户显式关闭属于 B-030 的
     local override，不能改写该 official default。任何 committed block 必须带 finite、
     本地可检查的 `decision_valid_until` 与预先计算的 warn/off expiry fallback；runtime
-    每次 enforcement 都检查该 horizon，到期、时钟回退或无法读取可信时间时立即忽略旧
-    block、使用 fallback 并显示 `audit_required`，不能等待用户手动运行管理命令。
+    每次 enforcement 都检查该 horizon，并通过 Core-owned、per-installation durable trusted
+    time high-water 检测回退：任意 `runtime_time < last_trusted_runtime_time`，即使仍位于
+    evaluation/expiry interval 内，也必须立即忽略旧 block、使用 fallback 并显示
+    `clock_rollback + audit_required`。该 anchor path 只适用于 committed record 带 official/local
+    block basis 且 pre-runtime decision 为 block 的候选；即使本次随后因 expiry/rollback 选择 fallback，
+    仍须推进 high-water 并锁存 reason，防止旧 block 复活。current generation 已由 B-027 验证且
+    committed decision 本就是 warn/off（包括 no-data/below-floor）的规则不访问 trusted-time leaf，
+    time-anchor failure 也不得把它升级为 denial。high-water state 必须按 active generation 隔离并由同一
+    installation-scope pointer 选择；runtime 必须按 canonical order 取得 policy lock 与
+    installation runtime-state lock，在锁内读取并直到 decision 执行后持续重验 policy
+    pointer/floor、active pointer/state，
+    同时验证 pointer 的 monotonic installation generation 不低于独立 floor，禁止使用取锁前
+    缓存或被 replay 的旧 generation。每个可信 `runtime_time >= high_water` 观测必须先 CAS
+    推进 high-water 再选择 block/fallback；expiry、policy drift 或其他 semantic fallback 还须
+    在同一 state 不可逆锁存 `audit_required` reason，runtime 不得自行清除。新 state 在 pointer
+    switch 前不可影响旧 generation。
+    management commit 必须在读取旧 high-water/sequence 前取得 installation runtime-state lock，
+    并持锁直到新 state fsync 与 active pointer switch 完成，禁止 runtime 在交接窗口推进旧 state。
+    候选 block 的 high-water 缺失、损坏、身份不匹配或 bounded retry 后仍无法锁定/原子推进时必须拒绝本次
+    操作并非零返回，不能降为 warn/off 后放行，也不能因进程重启静默降低 high-water。
+    high-water/`clock_epoch`/sequence 每次推进都须以 external root 内独立 authenticated time leaf
+    CAS 为 authority，本地 runtime-state 只是 mirror；其他 leaf 合法推进不影响本 leaf equality，
+    但 backend 缺失/不可验证或 restore 后本 leaf stable state 不等必须
+    `runtime_guard_unavailable`，不得执行旧 block。每个 CAS target 必须由 Core service 从 authenticated
+    operation 重构、逐 leaf 验证并以 H-010 approved authorizer 签名；客户端 hash 不具有授权效力。
+    rollback 后普通 fresh audit 不能降低同一 clock epoch 的 high-water；恢复必须走显式
+    trusted-clock reconciliation，在 locks 下验证 Core-approved time evidence、重新 audit，
+    递增 `clock_epoch` 并把 reconciliation evidence 与新 generation/runtime state 通过同一
+    atomic pointer commit。失败时旧 active/state 保持不变且 protection 不恢复。
 29. B-029: evidence 达标只授予 `block_eligible`，不会自动 block。只有 manifest 明确请求
     block、capability/host 支持、trust verified 且所有 policy gates 同时满足时才可成为
     official default block；任一前提失败时重新降为 warn/off，并列出全部 reason。
@@ -303,12 +453,20 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     registry/precision evidence 或改变其他用户的 default。local promotion 只可针对
     evidence-only ineligibility，且 trust、revocation、compatibility 与 policy 均允许；
     `revocation_status = revoked`、unknown/incompatible host、unsupported capability 与
-    missing Core 都是不可提升的终态 ceiling。任何越过 ceiling 的既有 block override
-    必须 suspended/rejected，effective decision 只能按获批 policy 降为 warn/off。
+    missing Core 都是不可提升的终态 ceiling。evidence-only promotion 必须由 current
+    evaluation policy 给出有限 `max_override_ttl`，并绑定独立的 confirmation issued/expires
+    evidence；只有 `confirmed_at <= evaluation_time < confirmation_expires_at` 才可接受，
+    future-dated、倒序或已过期 confirmation 必须拒绝。`override_valid_until` 取
+    `confirmed_at + max_override_ttl`、confirmation expiry、policy expiry 及所有仍适用的
+    provenance/revocation/compatibility horizons 的最早值，不得要求缺失/过期 precision
+    evidence 提供未来 horizon，也不得用 synthetic/unbounded 值补齐。缺少任一 required
+    override horizon、到期或 policy identity drift 时必须 suspended/rejected，并降为
+    warn/off；恢复 block 需要新的显式确认和 fresh audit。
 31. B-031: core-curated packs 与 community packs 使用同一 per-rule precision eligibility
     计算和 no-data降级语义；curated badge、仓库内置或 high severity 都不能绕过 floor。
     两者的 publisher/trust来源可以不同，但差异必须由 H-003/H-008 policy 明示。
-32. B-032: precision evidence digest、current evaluation policy digest、rule bytes、
+32. B-032: precision evidence digest、current evaluation policy exact digest/generation/validity
+    identity、rule bytes、
     capability mapping、provenance evidence digest、official registry-event evidence digest、
     compatibility contract digest、source-applicable revocation binding 或 normalized
     evaluation time 任一变化（包括 collapsed status 未变，或仅跨越 freshness/expiry/
@@ -316,9 +474,12 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     identity/digest 并触发 re-audit；publication policy 与 immutable artifact identity
     保持不变，旧 evidence 不得绑定新 bytes，same-content retry 也不得跳过。若 active block
     不再 eligible，下一次 audit 必须 fail visible 并按获批 evaluation policy 降级，而不是
-    继续静默 block。即使没有 add/update/audit，runtime 到达 `decision_valid_until` 也必须
-    先施加本地 expiry ceiling 并标记 `audit_required`；只有 fresh management audit 才可
-    恢复 block。
+    继续静默 block。即使没有 add/update/audit，runtime 发现 authoritative local policy
+    digest/generation/validity identity mismatch、到达 `decision_valid_until`/
+    `override_valid_until`，或发现 trusted-time
+    high-water rollback/drift，也必须先施加本地 fallback ceiling 并标记 `audit_required`；
+    只有 fresh management audit（clock rollback 另需 B-028 trusted-clock reconciliation；
+    promotion 另需 fresh explicit confirmation）才可恢复 block。
 33. B-033: 默认不得自动上传 event logs、源代码、用户路径、HOME、fixture payload、
     secrets 或 local triage。任何 feedback export 必须显式触发、先显示字段清单并脱敏，
     生成本地 artifact；发送/发布是另一个需确认动作，取消后零网络。
@@ -352,8 +513,17 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 41. B-041: `list`/`status`/`audit` 必须为每个 installed pack 展示 exact version/digest、
     trust、target、transaction/receipt health、revocation/cache age、每条 effective decision
     与 precision reason、`decision_valid_until`/expiry state/`audit_required`，以及
-    publication/current evaluation policy identities，并以
-    nonzero 区分 `{invalid, incompatible, revoked, needs_repair}`；
+    publication policy identity、committed 与 authoritative evaluation policy 各自的 exact
+    digest/generation/validity-evidence identity、policy generation floor、active installation
+    generation/floor、runtime-state sequence/latch、authority mode、source-applicable `override_valid_until`；
+    no-block 显示 global profile generation/install binding/warn ceiling/stale、独立 hook-only
+    budget/batch/result/CI identity，且 backend/root/leaf=`not_applicable`；anchor-block 显示 launch-floor
+    attestation/current floor、selected backend/root/per-leaf authority/counter、anchor budget/availability，以及
+    non-secret handoff state、request/process/handle digest、pending deadline、resume receipt/not-consumed/tombstone digest；
+    trusted-time high-water 与 `clock_epoch`，并以
+    nonzero 区分 `{invalid, incompatible, revoked, needs_repair, protection_suspended,
+    runtime_guard_unavailable}`；任何 `audit_required` 或 active protection 降级/暂停也必须
+    nonzero，不能让 automation 把失去保护误判为 healthy；
     空 pack 列表是成功且显示为空，不是错误或伪造内置 pack。
 42. B-042: registry/network 暂时不可用时，已安装、receipt-valid pack 的 runtime enforcement
     不得读取网络或删除用户状态；audit 必须诚实保留 provenance trust 并单独显示
@@ -363,9 +533,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     `current`，applicable revoke event 无论 cache age 都保持 `revoked` 并执行 ceiling；
     cache 缺失、malformed、identity mismatch 或 non-revocation proof 超过 window 时才是
     `unknown` 并按 policy 降级。runtime 不联网但必须检查 committed validity horizon：
-    horizon 到期即使用 warn/off fallback 并标记 `audit_required`。不能把 availability
-    failure 当成新的 current 证据，也不能把仍有效 cache 错报 unknown，或让已知 revoke
-    因过期恢复。
+    horizon 到期、authoritative policy digest/generation/validity identity mismatch 或
+    trusted-time high-water rollback
+    即使用 warn/off fallback 并标记 `audit_required`。不能把 availability failure 当成新的
+    current 证据，也不能把仍有效 cache 错报 unknown，或让已知 revoke 因过期恢复。
 
 ## 验收标准
 
@@ -382,8 +553,16 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 - [ ] legacy `safe-bash` registration 可解释、可迁移或可卸载，不被冒充为第三方 full
       install。
 - [ ] 默认无 telemetry；feedback export 与发送是分离、显式确认的动作。
-- [ ] H-001–H-009 均有 maintainer 选择与 security review evidence，未选择时 official
+- [ ] H-001–H-010 均有 maintainer 选择与 security review evidence，未选择时 official
       publish/install/default-block gate 明确阻断。
+- [ ] anchor-block 的 `two_release_whole_rollback`、`old_binary_prelaunch_rejected`、仍未过期旧 attestation 在 floor advance 后
+      replay、read-current+local-spawn、六个 process-template subdigest/domain/preimage 与 handle/token mutation、
+      named compare/recover/resume/query-or-abort response loss、prelinearization not-consumed cancel、resume receipt
+      durable-before-runnable、pending timeout/abort/tombstone compaction 后 transaction reuse、handoff status secret
+      canary、launch profile/policy/key/quorum/challenge/current-state mutation、
+      `duplicate_platform_across_releases` 与 `forbidden_cross_release_mode_transition` fixtures 证明 old Core
+      在 active block platform 上于 hook 前 nonzero；`no_block_status_without_backend` 证明独立
+      hook-only budget/batch/result、mode-specific lifecycle/status 与 no-hardware/service CI branch。
 
 ## 边界情况清单
 
@@ -404,7 +583,7 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 
 首次交付必须标为 pack contract v2 或其它获批的新 major identity，不得原地扩大 v1
 manifest 的语义。文档必须把 legacy Core adoption pack、verified third-party pack、
-unofficial local pack 与 revoked pack 分开说明，并记录 H-001–H-009 的最终选择。
+unofficial local pack 与 revoked pack 分开说明，并记录 H-001–H-010 的最终选择。
 
 公开 `vibeguard add` 前必须同时具备：GH-699 actual released launcher/no-clone evidence、
 获批 supplier/security policy、至少一个不在 VibeGuard 仓库内 author 的 end-to-end pack
