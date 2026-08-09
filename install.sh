@@ -1,104 +1,62 @@
 #!/usr/bin/env bash
-# One-command VibeGuard installer (GH699).
+# Hosted VibeGuard bootstrap seed (GH699).
 #
-# Usage:
-#   curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash
-#   curl ... | bash -s -- --profile full --with-scheduler
-#
-# This script downloads the pinned release payload and runtime, verifies
-# checksums, and runs the same setup.sh path as a git-clone install.
+# This entrypoint never installs from its own checkout. It downloads one exact
+# release payload, verifies it, extracts only the canonical bootstrap seed, and
+# delegates installation to scripts/setup/bootstrap.sh from that verified
+# payload.
 
 set -euo pipefail
+umask 077
 
-REPO_OWNER="${VIBEGUARD_INSTALL_REPO_OWNER:-majiayu000}"
-REPO_NAME="${VIBEGUARD_INSTALL_REPO_NAME:-vibeguard}"
-RELEASE_REPO="${REPO_OWNER}/${REPO_NAME}"
-
-VERSION="${VIBEGUARD_INSTALL_VERSION:-}"
+readonly RELEASE_REPO="majiayu000/vibeguard"
+VERSION=""
+REQUIRE_PROVENANCE=0
 INSTALL_TMP=""
+declare -a SETUP_ARGS=()
 
-err() { printf 'ERROR: %s\n' "$1" >&2; }
+error() { printf 'ERROR: %s\n' "$1" >&2; }
 
 cleanup() {
   if [[ -n "${INSTALL_TMP:-}" && -d "${INSTALL_TMP}" ]]; then
-    rm -rf "${INSTALL_TMP}" 2>/dev/null || true
+    rm -rf -- "${INSTALL_TMP}" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
 
-print_usage() {
+usage() {
   cat <<'USAGE'
-Usage: curl -fsSL .../install.sh | bash [ -- [setup-options] ]
+Usage: install.sh --version X.Y.Z [--require-provenance] [-- SETUP_ARGS...]
 
-The trailing arguments are forwarded to setup.sh. Common options:
-  --yes                  Apply installation without prompting
-  --profile minimal|core|full|strict
-  --languages lang1,...
-  --with-scheduler       Opt in to scheduled GC
-  --dry-run              Show diffs without writing
+Downloads one exact VibeGuard release payload, verifies it, and delegates to
+the canonical no-clone bootstrap contained in that verified payload.
 
-Environment overrides (mostly for tests):
-  VIBEGUARD_INSTALL_VERSION       e.g. 1.2.3
-  VIBEGUARD_INSTALL_REPO_OWNER
-  VIBEGUARD_INSTALL_REPO_NAME
+Examples:
+  install.sh --version 1.2.3
+  install.sh --version 1.2.3 --require-provenance -- --profile full
 USAGE
 }
 
-resolve_version() {
-  local version=""
+validate_version() {
+  local value="$1" core_and_prerelease core prerelease identifier
+  local -a identifiers=()
 
-  if [[ -n "${VERSION}" ]]; then
-    version="${VERSION}"
-  elif command -v curl >/dev/null 2>&1; then
-    version="$(
-      curl -fsSL "https://api.github.com/repos/${RELEASE_REPO}/releases/latest" 2>/dev/null \
-        | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v\{0,1\}\([^"]*\)".*/\1/p' \
-        | head -n 1
-    )" || true
+  [[ -n "${value}" && "${value}" != *[[:space:]]* ]] || return 1
+  core_and_prerelease="${value%%+*}"
+  [[ "${value}" != *+* || -n "${value#*+}" ]] || return 1
+  if [[ "${core_and_prerelease}" == *-* ]]; then
+    core="${core_and_prerelease%%-*}"
+    prerelease="${core_and_prerelease#*-}"
+    [[ -n "${prerelease}" ]] || return 1
+    IFS='.' read -r -a identifiers <<< "${prerelease}"
+    for identifier in "${identifiers[@]}"; do
+      [[ -n "${identifier}" && "${identifier}" =~ ^[0-9A-Za-z-]+$ ]] || return 1
+      [[ ! "${identifier}" =~ ^0[0-9]+$ ]] || return 1
+    done
+  else
+    core="${core_and_prerelease}"
   fi
-
-  if [[ -z "${version}" ]] && command -v curl >/dev/null 2>&1; then
-    version="$(
-      curl -fsSL "https://raw.githubusercontent.com/${RELEASE_REPO}/main/vibeguard-runtime/VERSION" 2>/dev/null \
-        | tr -d '[:space:]'
-    )" || true
-  fi
-
-  if [[ -z "${version}" ]]; then
-    err "could not resolve a release version (set VIBEGUARD_INSTALL_VERSION or ensure curl is available)"
-    return 1
-  fi
-
-  version="${version#v}"
-  printf '%s\n' "${version}"
-}
-
-detect_target() {
-  local os arch
-  os="$(uname -s)"
-  arch="$(uname -m)"
-  case "${os}:${arch}" in
-    Darwin:arm64|Darwin:aarch64)
-      printf 'aarch64-apple-darwin' ;;
-    Darwin:x86_64|Darwin:amd64)
-      printf 'x86_64-apple-darwin' ;;
-    Linux:x86_64|Linux:amd64)
-      printf 'x86_64-unknown-linux-musl' ;;
-    Linux:aarch64|Linux:arm64)
-      printf 'aarch64-unknown-linux-musl' ;;
-    *)
-      err "unsupported platform: ${os}/${arch}"
-      return 1 ;;
-  esac
-}
-
-download_file() {
-  local url="$1" dest="$2"
-  if ! command -v curl >/dev/null 2>&1; then
-    err "curl is required to download release assets"
-    return 1
-  fi
-  curl -fsSL -o "${dest}" "${url}"
+  [[ "${core}" =~ ^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$ ]]
 }
 
 sha256_file() {
@@ -108,76 +66,155 @@ sha256_file() {
   elif command -v shasum >/dev/null 2>&1; then
     shasum -a 256 "${path}" | awk '{print $1}'
   else
-    err "sha256sum or shasum is required to verify release assets"
+    error "sha256sum or shasum is required to verify the release payload."
     return 1
   fi
 }
 
-main() {
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --help|-h)
-        print_usage
-        exit 0 ;;
-      *)
-        break ;;
-    esac
-  done
-
-  local version target payload_asset base_url tmp_dir sums_file payload_file payload_dir
+verify_checksum() {
+  local asset_path="$1" sums_path="$2" asset_name="$3"
   local expected actual
 
-  version="$(resolve_version)"
-  target="$(detect_target)"
-
-  payload_asset="vibeguard-payload-${version}.tar.gz"
-  base_url="https://github.com/${RELEASE_REPO}/releases/download/v${version}"
-
-  INSTALL_TMP="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-install_XXXXXX")"
-  tmp_dir="${INSTALL_TMP}"
-  sums_file="${tmp_dir}/SHA256SUMS"
-  payload_file="${tmp_dir}/${payload_asset}"
-  payload_dir="${tmp_dir}/payload"
-
-  printf 'Installing VibeGuard %s for %s...\n' "${version}" "${target}"
-
-  printf 'Downloading %s...\n' "${payload_asset}"
-  download_file "${base_url}/${payload_asset}" "${payload_file}"
-  printf 'Downloading SHA256SUMS...\n'
-  download_file "${base_url}/SHA256SUMS" "${sums_file}"
-
-  expected="$(awk -v file="${payload_asset}" '($2 == file || $2 == "*" file) { print $1; exit }' "${sums_file}")"
-  if [[ -z "${expected}" ]]; then
-    err "SHA256SUMS missing entry for ${payload_asset}"
+  expected="$(
+    awk -v file="${asset_name}" '
+      ($2 == file || $2 == "*" file) { count += 1; digest = $1 }
+      END { if (count == 1) print digest; else exit 1 }
+    ' "${sums_path}"
+  )" || {
+    error "SHA256SUMS must contain exactly one entry for ${asset_name}."
+    return 1
+  }
+  if [[ ${#expected} -ne 64 || "${expected}" == *[!0-9a-f]* ]]; then
+    error "SHA256SUMS contains an invalid digest for ${asset_name}."
     return 1
   fi
-
-  if ! actual="$(sha256_file "${payload_file}")"; then
-    return 1
-  fi
+  actual="$(sha256_file "${asset_path}")"
   if [[ "${actual}" != "${expected}" ]]; then
-    err "checksum verification failed for ${payload_asset}"
-    err "  expected: ${expected}"
-    err "  actual:   ${actual}"
+    error "payload checksum verification failed for ${asset_name}."
     return 1
   fi
-  printf 'Checksum verified.\n'
-
-  mkdir -p "${payload_dir}"
-  tar -xzf "${payload_file}" -C "${payload_dir}"
-
-  if [[ ! -f "${payload_dir}/setup.sh" ]]; then
-    err "extracted payload is missing setup.sh"
-    return 1
-  fi
-
-  printf 'Running setup...\n'
-  bash "${payload_dir}/setup.sh" --yes "$@"
-
-  printf 'Verifying install...\n'
-  bash "${payload_dir}/setup.sh" verify-install
-
-  printf 'VibeGuard %s installed and verified.\n' "${version}"
 }
 
-main "$@"
+verify_provenance() {
+  local asset_path="$1" tag="$2"
+  command -v gh >/dev/null 2>&1 || {
+    error "payload provenance is required but gh is unavailable."
+    return 1
+  }
+  gh attestation verify --help >/dev/null 2>&1 || {
+    error "payload provenance is required but gh attestation verify is unavailable."
+    return 1
+  }
+  gh auth status >/dev/null 2>&1 || {
+    error "payload provenance is required but gh authentication is unavailable."
+    return 1
+  }
+  gh attestation verify "${asset_path}" \
+    --repo "${RELEASE_REPO}" \
+    --signer-workflow "github.com/${RELEASE_REPO}/.github/workflows/release.yml" \
+    --source-ref "refs/tags/${tag}" \
+    --deny-self-hosted-runners >/dev/null 2>&1 || {
+      error "payload provenance verification failed."
+      return 1
+    }
+}
+
+extract_bootstrap_seed() {
+  local archive="$1" seed_root="$2" path entry_type destination
+  local -a seed_paths=(
+    scripts/setup/bootstrap.sh
+    scripts/setup/bootstrap-lib.sh
+    scripts/setup/bootstrap_birth_token.jxa
+    scripts/setup/bootstrap_identity.sh
+    scripts/setup/bootstrap_lease_terminal.sh
+    scripts/setup/bootstrap_lease_retirement.sh
+    scripts/setup/bootstrap_process.sh
+    scripts/setup/bootstrap_termination.sh
+    scripts/setup/bootstrap_state.sh
+  )
+
+  mkdir -p "${seed_root}/scripts/setup"
+  for path in "${seed_paths[@]}"; do
+    entry_type="$(LC_ALL=C tar -tvzf "${archive}" "${path}" | awk 'NR == 1 { print substr($0, 1, 1) }')"
+    if [[ "${entry_type}" != "-" ]]; then
+      error "verified payload seed entry is missing or not a regular file: ${path}"
+      return 1
+    fi
+    destination="${seed_root}/${path}"
+    if ! tar -xOzf "${archive}" "${path}" > "${destination}"; then
+      error "could not extract verified bootstrap seed entry: ${path}"
+      return 1
+    fi
+  done
+  chmod 0755 "${seed_root}/scripts/setup/bootstrap.sh"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version)
+      [[ $# -ge 2 ]] || { error "--version requires an exact X.Y.Z value."; exit 64; }
+      [[ -z "${VERSION}" ]] || { error "--version may be provided only once."; exit 64; }
+      VERSION="${2#v}"
+      shift 2
+      ;;
+    --version=*)
+      [[ -z "${VERSION}" ]] || { error "--version may be provided only once."; exit 64; }
+      VERSION="${1#*=}"
+      VERSION="${VERSION#v}"
+      shift
+      ;;
+    --require-provenance)
+      [[ "${REQUIRE_PROVENANCE}" == "0" ]] || {
+        error "--require-provenance may be provided only once."
+        exit 64
+      }
+      REQUIRE_PROVENANCE=1
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      SETUP_ARGS=("$@")
+      break
+      ;;
+    *)
+      error "unknown installer argument: $1"
+      usage >&2
+      exit 64
+      ;;
+  esac
+done
+
+if ! validate_version "${VERSION}"; then
+  error "--version must be an exact semantic version; floating latest is forbidden."
+  exit 64
+fi
+command -v curl >/dev/null 2>&1 || { error "curl is required."; exit 1; }
+command -v tar >/dev/null 2>&1 || { error "tar is required."; exit 1; }
+
+TAG="v${VERSION}"
+ASSET="vibeguard-payload-${VERSION}.tar.gz"
+BASE_URL="https://github.com/${RELEASE_REPO}/releases/download/${TAG}"
+INSTALL_TMP="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-install.XXXXXX")"
+ARCHIVE="${INSTALL_TMP}/${ASSET}"
+SUMS="${INSTALL_TMP}/SHA256SUMS"
+SEED_ROOT="${INSTALL_TMP}/seed"
+
+printf 'Downloading exact VibeGuard release %s...\n' "${TAG}"
+curl -fsSL -o "${ARCHIVE}" "${BASE_URL}/${ASSET}"
+curl -fsSL -o "${SUMS}" "${BASE_URL}/SHA256SUMS"
+verify_checksum "${ARCHIVE}" "${SUMS}" "${ASSET}"
+if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
+  verify_provenance "${ARCHIVE}" "${TAG}"
+fi
+extract_bootstrap_seed "${ARCHIVE}" "${SEED_ROOT}"
+
+bootstrap_args=(--version "${VERSION}")
+if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
+  bootstrap_args+=(--require-provenance)
+fi
+bootstrap_args+=(-- --yes "${SETUP_ARGS[@]}")
+bash "${SEED_ROOT}/scripts/setup/bootstrap.sh" "${bootstrap_args[@]}"
