@@ -14,6 +14,8 @@ VERSION=""
 REQUIRE_PROVENANCE=0
 INSTALL_TMP=""
 declare -a SETUP_ARGS=()
+SETUP_ARG_COUNT=0
+DRY_RUN_REQUESTED=0
 
 error() { printf 'ERROR: %s\n' "$1" >&2; }
 
@@ -156,6 +158,61 @@ extract_bootstrap_seed() {
   chmod 0755 "${seed_root}/scripts/setup/bootstrap.sh"
 }
 
+setup_args_include_dry_run() {
+  local index=0
+  while [[ "${index}" -lt "${SETUP_ARG_COUNT}" ]]; do
+    if [[ "${SETUP_ARGS[${index}]}" == "--dry-run" ]]; then
+      return 0
+    fi
+    index=$((index + 1))
+  done
+  return 1
+}
+
+run_verified_dry_run() {
+  local archive="$1" seed_root="$2" payload_root="$3"
+  local names_file="${INSTALL_TMP}/archive-names"
+  local types_file="${INSTALL_TMP}/archive-types"
+  local setup_arg setup_has_pack
+
+  # Reuse the canonical bootstrap validators; do not add a second archive
+  # validation contract to the hosted seed.
+  # shellcheck source=scripts/setup/bootstrap-lib.sh
+  source "${seed_root}/scripts/setup/bootstrap-lib.sh"
+  mkdir -p "${payload_root}"
+  bootstrap_validate_archive_listing "${archive}" "${names_file}" "${types_file}"
+  if ! tar -xzf "${archive}" -C "${payload_root}"; then
+    error "payload extraction failed."
+    return 1
+  fi
+  bootstrap_validate_extracted_payload "${payload_root}" "${VERSION}"
+
+  if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
+    case "${SETUP_ARGS[0]:-}" in
+      install)
+        setup_has_pack=0
+        for setup_arg in "${SETUP_ARGS[@]:1}"; do
+          if [[ "${setup_arg}" == "--pack" || "${setup_arg}" == --pack=* ]]; then
+            setup_has_pack=1
+            break
+          fi
+        done
+        if [[ "${setup_has_pack}" == "0" ]]; then
+          SETUP_ARGS=(install --require-provenance "${SETUP_ARGS[@]:1}")
+        fi
+        ;;
+      doctor|verify-install|verify-project|verify-dev-repo|--check|--clean|--codex-status|packs|demo|--help|-h|help)
+        ;;
+      *)
+        SETUP_ARGS=(--require-provenance "${SETUP_ARGS[@]}")
+        ;;
+    esac
+  fi
+
+  printf 'Payload verified for dry run; dist/current is unchanged.\n'
+  bash "${payload_root}/setup.sh" "${SETUP_ARGS[@]}"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --version)
@@ -185,6 +242,7 @@ while [[ $# -gt 0 ]]; do
     --)
       shift
       SETUP_ARGS=("$@")
+      SETUP_ARG_COUNT=$#
       break
       ;;
     *)
@@ -218,6 +276,9 @@ if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
   verify_provenance "${ARCHIVE}" "${TAG}"
 fi
 extract_bootstrap_seed "${ARCHIVE}" "${SEED_ROOT}"
+if setup_args_include_dry_run; then
+  DRY_RUN_REQUESTED=1
+fi
 
 case "${SETUP_ARGS[0]:-}" in
   install)
@@ -235,9 +296,18 @@ case "${SETUP_ARGS[0]:-}" in
   doctor|verify-install|verify-project|verify-dev-repo|--check|--clean|--codex-status|packs|demo|--help|-h|help)
     ;;
   *)
-    SETUP_ARGS=(--yes "${SETUP_ARGS[@]}")
+    if [[ "${SETUP_ARG_COUNT}" == "0" ]]; then
+      SETUP_ARGS=(--yes)
+    else
+      SETUP_ARGS=(--yes "${SETUP_ARGS[@]}")
+    fi
     ;;
 esac
+
+if [[ "${DRY_RUN_REQUESTED}" == "1" ]]; then
+  run_verified_dry_run "${ARCHIVE}" "${SEED_ROOT}" "${INSTALL_TMP}/payload"
+  exit 0
+fi
 
 bootstrap_args=(--version "${VERSION}")
 if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then

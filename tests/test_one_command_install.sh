@@ -167,7 +167,7 @@ install_out="$(
       VIBEGUARD_TEST_RELEASE_DIR="${WORK}/release-assets" \
       VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
       bash -o pipefail -c \
-        'curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- --version "$1"' \
+        'curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | /bin/bash -s -- --version "$1"' \
         _ "${VERSION}" 2>&1
 )" || rc=$?
 rc=${rc:-0}
@@ -216,7 +216,8 @@ check "forwarded guard-pack install omits setup-only --yes" "${pack_rc}"
 header "dry-run and provenance boundaries"
 
 DRY_RUN_HOME="${WORK}/dry-run-home"
-mkdir -p "${DRY_RUN_HOME}"
+mkdir -p "${DRY_RUN_HOME}/.vibeguard/dist/previous"
+ln -s previous "${DRY_RUN_HOME}/.vibeguard/dist/current"
 dry_run_rc=0
 dry_run_out="$(
   cd "${REPO_DIR}" \
@@ -234,6 +235,12 @@ check "hosted installer dry-run succeeds" "${dry_run_rc}"
 rc=0
 [[ ! -e "${DRY_RUN_HOME}/.vibeguard/installed" ]] || rc=1
 check "dry-run does not create an installed snapshot" "${rc}"
+
+rc=0
+[[ -L "${DRY_RUN_HOME}/.vibeguard/dist/current" \
+  && "$(readlink "${DRY_RUN_HOME}/.vibeguard/dist/current")" == "previous" \
+  && ! -e "${DRY_RUN_HOME}/.vibeguard/dist/${VERSION}" ]] || rc=1
+check "dry-run preserves the active distribution" "${rc}"
 
 PROVENANCE_HOME="${WORK}/provenance-home"
 mkdir -p "${PROVENANCE_HOME}"
