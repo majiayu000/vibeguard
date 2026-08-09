@@ -101,6 +101,36 @@ fn help_lists_all_commands() {
             "expected '{name}' in help output: {stderr}"
         );
     }
+    assert!(
+        stderr.contains(
+            "setup-state-init  <state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot]"
+        ),
+        "setup-state-init help must advertise snapshot carry capability: {stderr}"
+    );
+}
+
+#[test]
+fn setup_state_capability_contract_is_exact_and_side_effect_free() {
+    let output = bin().arg("setup-state-capabilities").output().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"complete-snapshot-v1\n");
+    assert!(output.stderr.is_empty());
+
+    let extra = bin()
+        .args(["setup-state-capabilities", "unexpected"])
+        .output()
+        .unwrap();
+    assert_eq!(extra.status.code(), Some(1));
+    assert!(extra.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&extra.stderr),
+        "vibeguard-runtime error: Usage: vibeguard-runtime setup-state-capabilities\n"
+    );
+
+    let help = bin().output().unwrap();
+    assert!(String::from_utf8_lossy(&help.stderr).contains(
+        "setup-state-capabilities  — report the versioned install-state capability contract"
+    ));
 }
 
 #[test]

@@ -104,6 +104,27 @@ mkdir -p "${rm_cleanup_failure_home}/.vibeguard/_lib" \
   "${rm_cleanup_failure_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
   "${rm_cleanup_failure_skill}" "${rm_cleanup_failure_bin}"
 printf 'managed skill\n' > "${rm_cleanup_failure_skill}/SKILL.md"
+python3 - "${rm_cleanup_failure_skill}" \
+  "${rm_cleanup_failure_home}/.vibeguard/install-state.json" <<'PY'
+import hashlib, json, sys
+skill_dir, state_path = sys.argv[1:]
+content = open(f"{skill_dir}/SKILL.md", "rb").read()
+state = {
+    "version": 1,
+    "generation": 1,
+    "complete": True,
+    "files": {
+        f"{skill_dir}/SKILL.md": {
+            "source": "skills/vibeguard/SKILL.md",
+            "type": "copy",
+            "checksum": f"sha256:{hashlib.sha256(content).hexdigest()}",
+        }
+    },
+}
+with open(state_path, "w", encoding="utf-8") as f:
+    json.dump(state, f, indent=2)
+    f.write("\n")
+PY
 printf '#!/usr/bin/env bash\n' \
   > "${rm_cleanup_failure_home}/.vibeguard/run-hook-codex.sh"
 printf '#!/usr/bin/env bash\n' \

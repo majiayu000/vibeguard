@@ -28,12 +28,24 @@ pub fn write_text_atomic(path: &Path, content: &str) -> io::Result<()> {
         fs::create_dir_all(parent)?;
     }
     let tmp = temp_path_for(path);
-    {
+    let write_result = (|| {
         let mut file = File::create(&tmp)?;
         file.write_all(content.as_bytes())?;
         file.sync_all()?;
+        fs::rename(&tmp, path)?;
+        Ok::<(), io::Error>(())
+    })();
+    if let Err(error) = write_result {
+        if let Err(cleanup_error) = fs::remove_file(&tmp)
+            && cleanup_error.kind() != io::ErrorKind::NotFound
+        {
+            return Err(io::Error::new(
+                error.kind(),
+                format!("{error}; temporary-file cleanup failed: {cleanup_error}"),
+            ));
+        }
+        return Err(error);
     }
-    fs::rename(&tmp, path)?;
     if let Some(parent) = path.parent() {
         let _ = File::open(parent).and_then(|file| file.sync_all());
     }

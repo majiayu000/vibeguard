@@ -13,7 +13,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | `GH700/` | Draft | Public reproducible effectiveness benchmarks plus normative publication history, authority protocol/control wire, blocked-attempt ledger/API, and conformance-vector subcontracts |
 | `GH702/` | Draft | Published third-party guard-pack contracts, transactional lifecycle, supply-chain trust, and precision-gated defaults |
 | `GH706/` | Draft | Privacy-safe malformed-input diagnostics and shared protocol-error versus rule-interception block counts |
-| `GH719/` | Draft | Persistent per-skill opt-out for managed Codex/Claude skill copies, with reported rather than silent restores |
+| `GH719/` | Implementing | Persistent, ownership-safe per-skill opt-out for managed Codex workflow skill copies |
 | `GH704/` | Draft | Opt-in L2 semantic checks, trusted runtime identity, durable bounded projection, named W-rule deltas, structured precision evidence, and human-gated learning |
 | `GH686/` | Implemented reference | Paired with/without evaluation for prompt-injected rule target improvement and non-target regression evidence (#686 / PR #696) |
 | `GH687/` | Implemented reference | W-21 evidence-provenance rule plus the W-01 channel-trust step 0 |

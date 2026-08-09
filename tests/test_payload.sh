@@ -109,6 +109,43 @@ rc=0
 cmp -s "${UMASK_0002_ARCHIVE}" "${UMASK_0022_ARCHIVE}" || rc=1
 check "conflicting injected tar.umask values produce identical archives" "${rc}"
 
+GIT_CONFIG_COUNT=2 \
+  GIT_CONFIG_KEY_0=core.autocrlf \
+  GIT_CONFIG_VALUE_0=true \
+  GIT_CONFIG_KEY_1=core.eol \
+  GIT_CONFIG_VALUE_1=crlf \
+  bash "${BUILD_PAYLOAD}" --output "${WORK}/dist-eol-crlf" >/dev/null
+GIT_CONFIG_COUNT=2 \
+  GIT_CONFIG_KEY_0=core.autocrlf \
+  GIT_CONFIG_VALUE_0=input \
+  GIT_CONFIG_KEY_1=core.eol \
+  GIT_CONFIG_VALUE_1=lf \
+  bash "${BUILD_PAYLOAD}" --output "${WORK}/dist-eol-lf" >/dev/null
+EOL_CRLF_ARCHIVE="${WORK}/dist-eol-crlf/vibeguard-payload-${VERSION}.tar.gz"
+EOL_LF_ARCHIVE="${WORK}/dist-eol-lf/vibeguard-payload-${VERSION}.tar.gz"
+rc=0
+cmp -s "${EOL_CRLF_ARCHIVE}" "${EOL_LF_ARCHIVE}" || rc=1
+check "conflicting injected core.autocrlf/core.eol values produce identical archives" "${rc}"
+
+rc=0
+for eol_archive in "${EOL_CRLF_ARCHIVE}" "${EOL_LF_ARCHIVE}"; do
+  if tar -xOzf "${eol_archive}" scripts/release/payload-manifest.txt \
+    | LC_ALL=C grep -q $'\r'; then
+    rc=1
+  fi
+  archived_eol_manifest_sha="$(
+    tar -xOzf "${eol_archive}" scripts/release/payload-manifest.txt \
+      | shasum -a 256 \
+      | awk '{print $1}'
+  )"
+  marker_eol_manifest_sha="$(
+    tar -xOzf "${eol_archive}" .vibeguard-payload \
+      | awk -F= '$1 == "manifest_sha256" { print $2; exit }'
+  )"
+  [[ "${archived_eol_manifest_sha}" == "${marker_eol_manifest_sha}" ]] || rc=1
+done
+check "payload manifest stays LF-only and marker digest matches under conflicting EOL config" "${rc}"
+
 rc=0
 for umask_archive in "${UMASK_0002_ARCHIVE}" "${UMASK_0022_ARCHIVE}"; do
   setup_mode="$(tar -tvzf "${umask_archive}" | awk '$NF == "setup.sh" { mode = $1 } END { print mode }')"

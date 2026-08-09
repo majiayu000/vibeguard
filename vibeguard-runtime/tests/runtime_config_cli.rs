@@ -256,6 +256,54 @@ fn runtime_config_get_str_rejects_parse_type_enum_and_empty_errors() {
 }
 
 #[test]
+fn runtime_config_get_list_preserves_explicit_empty_override_and_rejects_bad_names() {
+    let dir = runtime_config_temp_dir("list");
+    fs::create_dir_all(&dir).expect("temp dir should be created");
+    let config = dir.join("config.json");
+    fs::write(&config, r#"{"disabled_skills":["plan-flow","fixflow"]}"#)
+        .expect("runtime config should be written");
+
+    let from_config = bin()
+        .arg("runtime-config-get-list")
+        .arg("VIBEGUARD_DISABLED_SKILLS")
+        .arg("disabled_skills")
+        .env("VIBEGUARD_CONFIG_FILE", &config)
+        .env_remove("VIBEGUARD_DISABLED_SKILLS")
+        .output()
+        .expect("runtime config command should run");
+    assert_eq!(from_config.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&from_config.stdout),
+        "plan-flow\nfixflow\n"
+    );
+
+    let explicit_empty = bin()
+        .arg("runtime-config-get-list")
+        .arg("VIBEGUARD_DISABLED_SKILLS")
+        .arg("disabled_skills")
+        .env("VIBEGUARD_CONFIG_FILE", &config)
+        .env("VIBEGUARD_DISABLED_SKILLS", "")
+        .output()
+        .expect("runtime config command should run");
+    assert_eq!(explicit_empty.status.code(), Some(0));
+    assert!(explicit_empty.stdout.is_empty());
+
+    for raw in ["plan-flow\nfixflow", "../plan-flow", "plan-flow,,fixflow"] {
+        let invalid = bin()
+            .arg("runtime-config-get-list")
+            .arg("VIBEGUARD_DISABLED_SKILLS")
+            .arg("disabled_skills")
+            .env("VIBEGUARD_CONFIG_FILE", &config)
+            .env("VIBEGUARD_DISABLED_SKILLS", raw)
+            .output()
+            .expect("runtime config command should run");
+        assert_config_failure(&invalid, "config_value_error");
+    }
+
+    fs::remove_dir_all(dir).expect("temp dir should be removed");
+}
+
+#[test]
 fn runtime_config_validate_classifies_missing_valid_and_invalid_content() {
     let dir = runtime_config_temp_dir("validate_content");
     fs::create_dir_all(&dir).expect("temp dir should be created");

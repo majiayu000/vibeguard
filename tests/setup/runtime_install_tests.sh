@@ -8,6 +8,7 @@ make_runtime_install_repo_copy() {
   mkdir -p "${dest}"
   git -C "${REPO_DIR}" archive HEAD | tar -x -C "${dest}"
   cp "${REPO_DIR}/scripts/setup/install.sh" "${dest}/scripts/setup/install.sh"
+  cp "${REPO_DIR}/scripts/lib/install-state.sh" "${dest}/scripts/lib/install-state.sh"
   if [[ -f "${RUNTIME_INSTALL_HELPER}" ]]; then
     cp "${RUNTIME_INSTALL_HELPER}" "${dest}/scripts/setup/runtime-install.sh"
   fi
