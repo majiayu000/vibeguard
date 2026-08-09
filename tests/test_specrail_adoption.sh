@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Focused smoke tests for VibeGuard's adopted SpecRail pack.
+# Focused smoke tests for VibeGuard's optional offline SpecRail tooling.
 
 set -euo pipefail
 
@@ -9,18 +9,9 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 
 cd "${REPO_DIR}"
 
-required_checks=(
-  checks/github_pr_evidence.py
-  checks/github_review_threads.py
-  checks/pr_gate.py
-  checks/runtime_ledger_gate.py
-  checks/check_workflow.py
-)
-
-required_locale_files=(
-  locales/en-US/messages.yaml
-  locales/zh-CN/messages.yaml
-)
+required_checks=(checks/github_pr_evidence.py checks/github_review_threads.py
+  checks/pr_gate.py checks/runtime_ledger_gate.py checks/check_workflow.py)
+required_locale_files=(locales/en-US/messages.yaml locales/zh-CN/messages.yaml)
 
 for check_path in "${required_checks[@]}"; do
   test -f "${check_path}"
@@ -46,6 +37,16 @@ from specrail_lib import artifact_templates, load_pack, resolve_repo_path
 usage_text = (repo / "AGENT_USAGE.md").read_text(encoding="utf-8")
 if expected_pin not in usage_text:
     raise SystemExit(f"AGENT_USAGE.md: missing SpecRail adoption pin {expected_pin}")
+normalized_usage_text = " ".join(usage_text.split())
+for token in ["SpecRail is optional", "only when explicitly requested", "does not authorize"]:
+    if token not in normalized_usage_text:
+        raise SystemExit(f"AGENT_USAGE.md: missing optional-tooling policy {token!r}")
+
+agents_text = (repo / "AGENTS.md").read_text(encoding="utf-8")
+if "## Optional SpecRail Tooling" not in agents_text:
+    raise SystemExit("AGENTS.md: missing optional SpecRail tooling boundary")
+if "## SpecRail Adoption" in agents_text:
+    raise SystemExit("AGENTS.md: mandatory SpecRail adoption section remains")
 
 config = load_pack(repo)
 artifacts = artifact_templates(config)
@@ -58,17 +59,26 @@ automation_policy = config.workflow.get("automation_policy", {})
 if automation_policy.get("auth_mode") != "review":
     raise SystemExit("workflow.yaml: persisted auth_mode must remain review")
 
-workflow_check_text = (
-    repo / ".github" / "workflows" / "workflow-check.yml"
-).read_text(encoding="utf-8")
-for token in [
-    "fetch-depth: 0",
-    'diff_range="${BASE_SHA}...${HEAD_SHA}"',
-    'diff_range="${BASE_SHA}..${HEAD_SHA}"',
-    'git diff --check "${diff_range}"',
-]:
-    if token not in workflow_check_text:
-        raise SystemExit(f"workflow-check.yml: missing committed diff check token {token}")
+workflow_dir = repo / ".github" / "workflows"
+removed = [name for name in ("workflow-check.yml", "workflow-check.yaml") if (workflow_dir / name).exists()]
+if removed:
+    raise SystemExit(f"{', '.join(removed)}: automatic SpecRail workflow still exists")
+workflow_paths = sorted({*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")})
+workflow_texts = {path.name: path.read_text(encoding="utf-8") for path in workflow_paths}
+for workflow_name, workflow_text in workflow_texts.items():
+    for forbidden in ["checks/check_workflow.py", "checks/route_gate.py",
+                      "checks/duplicate_work_gate.py", "checks/pr_gate.py",
+                      "checks/review_json_gate.py", "checks/runtime_ledger_gate.py",
+                      "tests/test_specrail_adoption.sh"]:
+        if forbidden in workflow_text:
+            raise SystemExit(f"{workflow_name}: automatic SpecRail invocation remains: {forbidden}")
+ci_text = workflow_texts.get("ci.yml", "")
+for token in ["CI (${{ matrix.os }})", "CI (windows-latest)",
+              'diff_range="${BASE_SHA}...${HEAD_SHA}"',
+              'diff_range="${BASE_SHA}..${HEAD_SHA}"',
+              'git diff --check "${diff_range}"']:
+    if token not in ci_text:
+        raise SystemExit(f"ci.yml: missing ordinary CI contract token {token}")
 
 matrix_path = repo / "examples" / "adoptions" / "matrix.json"
 matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
@@ -105,7 +115,12 @@ tmp = Path(sys.argv[2]).resolve()
 sys.path.insert(0, str(repo / "checks"))
 
 import check_workflow
-from check_workflow import discover_spec_packet_dirs, validate_pack_assets
+from check_workflow import (
+    discover_baseline_spec_packet_dirs,
+    discover_spec_packet_dirs,
+    git_path_exists,
+    validate_pack_assets,
+)
 import github_review_threads
 from github_evidence_common import EvidenceError
 from pr_gate import evaluate_pr_gate
@@ -201,6 +216,236 @@ for configured_root, expected in [
             "default workflow validator did not reject configured root "
             f"{configured_root}: rc={result.returncode}, output={output!r}"
         )
+
+(cli_repo / "workflow.yaml").write_text(base_workflow_text, encoding="utf-8")
+draft_packet = cli_repo / "docs" / "specs" / "GH999"
+draft_packet.mkdir(parents=True)
+for name in ["product.md", "tech.md"]:
+    (draft_packet / name).write_text("GitHub issue: `#999`\n", encoding="utf-8")
+
+draft_command = [
+    sys.executable,
+    str(repo / "checks" / "check_workflow.py"),
+    "--repo",
+    str(cli_repo),
+    "--spec-dir",
+    "docs/specs/GH999",
+    "--spec-stage",
+    "draft",
+]
+draft_result = subprocess.run(
+    draft_command,
+    check=False,
+    capture_output=True,
+    text=True,
+)
+if draft_result.returncode != 0:
+    raise SystemExit(
+        "draft packet without tasks.md was rejected: "
+        f"{draft_result.stdout + draft_result.stderr}"
+    )
+
+task_path = draft_packet / "tasks.md"
+task_path.mkdir()
+malformed_task_result = subprocess.run(
+    draft_command,
+    check=False,
+    capture_output=True,
+    text=True,
+)
+malformed_task_output = (
+    malformed_task_result.stdout + malformed_task_result.stderr
+)
+if (
+    malformed_task_result.returncode == 0
+    or "tasks.md must be a regular file" not in malformed_task_output
+):
+    raise SystemExit(
+        "draft validation accepted a non-file tasks.md path: "
+        f"rc={malformed_task_result.returncode}, output={malformed_task_output!r}"
+    )
+task_path.rmdir()
+
+task_path.symlink_to("missing-task-plan.md")
+dangling_task_result = subprocess.run(
+    draft_command,
+    check=False,
+    capture_output=True,
+    text=True,
+)
+dangling_task_output = (
+    dangling_task_result.stdout + dangling_task_result.stderr
+)
+if (
+    dangling_task_result.returncode == 0
+    or "tasks.md must be a regular file" not in dangling_task_output
+):
+    raise SystemExit(
+        "draft validation accepted a dangling tasks.md symlink: "
+        f"rc={dangling_task_result.returncode}, output={dangling_task_output!r}"
+    )
+task_path.unlink()
+
+complete_result = subprocess.run(
+    [*draft_command[:-1], "complete"],
+    check=False,
+    capture_output=True,
+    text=True,
+)
+complete_output = complete_result.stdout + complete_result.stderr
+if complete_result.returncode == 0 or "missing tasks.md" not in complete_output:
+    raise SystemExit(
+        "complete packet without tasks.md was not rejected: "
+        f"rc={complete_result.returncode}, output={complete_output!r}"
+    )
+
+task_path.write_text("invalid task plan\n", encoding="utf-8")
+invalid_task_result = subprocess.run(
+    draft_command,
+    check=False,
+    capture_output=True,
+    text=True,
+)
+invalid_task_output = invalid_task_result.stdout + invalid_task_result.stderr
+if (
+    invalid_task_result.returncode == 0
+    or "no task checklist items found" not in invalid_task_output
+):
+    raise SystemExit(
+        "draft validation ignored malformed tasks.md: "
+        f"rc={invalid_task_result.returncode}, output={invalid_task_output!r}"
+    )
+
+task_path.write_text(
+    "- [ ] `SP999-T1` Owner: agent; Done when: staged; Verify: focused test\n",
+    encoding="utf-8",
+)
+subprocess.run(["git", "-C", str(cli_repo), "init"], check=True, capture_output=True)
+subprocess.run(
+    ["git", "-C", str(cli_repo), "config", "user.name", "SpecRail Test"],
+    check=True,
+)
+subprocess.run(
+    ["git", "-C", str(cli_repo), "config", "user.email", "specrail@example.invalid"],
+    check=True,
+)
+subprocess.run(
+    [
+        "git",
+        "-C",
+        str(cli_repo),
+        "add",
+        "docs/specs/GH999/product.md",
+        "docs/specs/GH999/tech.md",
+        "docs/specs/GH999/tasks.md",
+    ],
+    check=True,
+)
+subprocess.run(
+    ["git", "-C", str(cli_repo), "commit", "-m", "test: complete packet baseline"],
+    check=True,
+    capture_output=True,
+)
+base_commit = subprocess.run(
+    ["git", "-C", str(cli_repo), "rev-parse", "HEAD"],
+    check=True,
+    capture_output=True,
+    text=True,
+).stdout.strip()
+
+unicode_repo = tmp / "unicode-baseline-repo"
+unicode_task = unicode_repo / "文档" / "GH999" / "tasks.md"
+unicode_task.parent.mkdir(parents=True)
+unicode_task.write_text("baseline task\n", encoding="utf-8")
+subprocess.run(["git", "-C", str(unicode_repo), "init"], check=True, capture_output=True)
+subprocess.run(
+    ["git", "-C", str(unicode_repo), "config", "user.name", "SpecRail Test"],
+    check=True,
+)
+subprocess.run(
+    [
+        "git",
+        "-C",
+        str(unicode_repo),
+        "config",
+        "user.email",
+        "specrail@example.invalid",
+    ],
+    check=True,
+)
+subprocess.run(
+    ["git", "-C", str(unicode_repo), "add", "文档/GH999/tasks.md"],
+    check=True,
+)
+subprocess.run(
+    ["git", "-C", str(unicode_repo), "commit", "-m", "test: unicode baseline"],
+    check=True,
+    capture_output=True,
+)
+unicode_commit = subprocess.run(
+    ["git", "-C", str(unicode_repo), "rev-parse", "HEAD"],
+    check=True,
+    capture_output=True,
+    text=True,
+).stdout.strip()
+if not git_path_exists(unicode_repo, unicode_commit, unicode_task):
+    raise SystemExit("NUL-delimited baseline lookup lost a non-ASCII tasks.md path")
+unicode_packets = discover_baseline_spec_packet_dirs(
+    unicode_repo,
+    unicode_commit,
+    PurePosixPath("文档"),
+)
+if unicode_packets != [unicode_repo / "文档" / "GH999"]:
+    raise SystemExit(
+        f"NUL-delimited baseline packet discovery failed: {unicode_packets!r}"
+    )
+
+task_path.unlink()
+baseline_result = subprocess.run(
+    [*draft_command, "--base-ref", base_commit],
+    check=False,
+    capture_output=True,
+    text=True,
+)
+baseline_output = baseline_result.stdout + baseline_result.stderr
+if (
+    baseline_result.returncode == 0
+    or "draft validation cannot remove tasks.md" not in baseline_output
+):
+    raise SystemExit(
+        "draft validation allowed a complete baseline packet downgrade: "
+        f"rc={baseline_result.returncode}, output={baseline_output!r}"
+    )
+
+shutil.rmtree(draft_packet)
+deleted_packet_result = subprocess.run(
+    [
+        sys.executable,
+        str(repo / "checks" / "check_workflow.py"),
+        "--repo",
+        str(cli_repo),
+        "--all-specs",
+        "--spec-stage",
+        "draft",
+        "--base-ref",
+        base_commit,
+    ],
+    check=False,
+    capture_output=True,
+    text=True,
+)
+deleted_packet_output = (
+    deleted_packet_result.stdout + deleted_packet_result.stderr
+)
+if (
+    deleted_packet_result.returncode == 0
+    or "spec packet does not exist" not in deleted_packet_output
+    or "GH999" not in deleted_packet_output
+):
+    raise SystemExit(
+        "draft all-spec validation allowed a baseline packet deletion: "
+        f"rc={deleted_packet_result.returncode}, output={deleted_packet_output!r}"
+    )
 
 
 def review_threads_payload(nodes, *, total_count, has_next_page, end_cursor):
@@ -411,18 +656,54 @@ for artifact_prefix in ["docs/specs", "docs/specs/."]:
         "satisfied", []
     ):
         raise SystemExit(f"normalized product path missing: {payload!r}")
+    complete_command = (
+        "python3 checks/check_workflow.py --repo . "
+        "--spec-dir=docs/specs/GH595 --spec-stage=complete"
+    )
+    if complete_command not in payload.get("verification_commands", []):
+        raise SystemExit(
+            f"implement route did not require complete packet validation: {payload!r}"
+        )
+
+write_spec_result = subprocess.run(
+    [
+        sys.executable,
+        str(repo / "checks" / "route_gate.py"),
+        "--repo",
+        str(route_repo),
+        "--route",
+        "write_spec",
+        "--issue",
+        "595",
+        "--state",
+        "ready_to_spec",
+        "--json",
+    ],
+    check=False,
+    capture_output=True,
+    text=True,
+)
+write_spec_payload = json.loads(write_spec_result.stdout)
+draft_verification = (
+    "python3 checks/check_workflow.py --repo . "
+    "--spec-dir=docs/specs/GH595 --spec-stage=draft"
+)
+if (
+    write_spec_result.returncode != 0
+    or write_spec_payload.get("decision") != "allowed"
+    or draft_verification not in write_spec_payload.get("verification_commands", [])
+):
+    raise SystemExit(
+        f"write_spec route did not emit draft packet validation: "
+        f"{write_spec_payload!r}"
+    )
 PY
 
 python3 checks/check_workflow.py --repo .
-python3 checks/check_workflow.py --repo . --all-specs
+python3 checks/check_workflow.py --repo . --all-specs --spec-stage complete
 python3 checks/github_pr_evidence.py --help >/dev/null
-
-python3 checks/route_gate.py \
-  --repo . \
-  --route implement \
-  --issue 539 \
-  --state ready_to_implement \
-  --artifact product_spec=README.md \
+python3 checks/route_gate.py --repo . --route implement --issue 539 \
+  --state ready_to_implement --artifact product_spec=README.md \
   --json > "${TMP_DIR}/configured-artifact-gate.json"
 
 python3 - "${TMP_DIR}/configured-artifact-gate.json" <<'PY'
@@ -445,15 +726,13 @@ if not any(
     raise SystemExit(f"{path.name}: configured path mismatch reason missing")
 PY
 
-python3 checks/pr_gate.py \
-  --repo . \
-  --evidence examples/fixtures/pr-clean-authorized.json \
-  --mode required \
+python3 checks/pr_gate.py --repo . \
+  --evidence examples/fixtures/pr-clean-authorized.json --mode required \
   --json > "${TMP_DIR}/pr-gate.json"
 
 python3 checks/runtime_ledger_gate.py \
-  --checkpoint examples/fixtures/runtime-budget-exhausted-handoff.json \
-  --json > "${TMP_DIR}/runtime-ledger-gate.json"
+  --checkpoint examples/fixtures/runtime-budget-exhausted-handoff.json --json \
+  > "${TMP_DIR}/runtime-ledger-gate.json"
 
 assert_not_allowed() {
   local output_path="$1"
@@ -475,13 +754,8 @@ PY
 }
 
 missing_auth_output="${TMP_DIR}/pr-missing-human-auth.json"
-assert_not_allowed \
-  "${missing_auth_output}" \
-  python3 checks/pr_gate.py \
-    --repo . \
-    --evidence examples/fixtures/pr-missing-human-auth.json \
-    --mode required \
-    --json
+assert_not_allowed "${missing_auth_output}" python3 checks/pr_gate.py --repo . \
+  --evidence examples/fixtures/pr-missing-human-auth.json --mode required --json
 
 python3 - "${missing_auth_output}" <<'PY'
 import json
@@ -500,18 +774,16 @@ for fixture in \
   examples/fixtures/pr-pending-ci.json \
   examples/fixtures/pr-unresolved-thread.json; do
   output_path="${TMP_DIR}/$(basename "${fixture}")"
-  assert_not_allowed \
-    "${output_path}" \
-    python3 checks/pr_gate.py --repo . --evidence "${fixture}" --mode required --json
+  assert_not_allowed "${output_path}" python3 checks/pr_gate.py --repo . \
+    --evidence "${fixture}" --mode required --json
 done
 
 for fixture in \
   examples/fixtures/runtime-lane-failure-unreported.json \
   examples/fixtures/runtime-full-queue-false-complete-needs-spec.json; do
   output_path="${TMP_DIR}/$(basename "${fixture}")"
-  assert_not_allowed \
-    "${output_path}" \
-    python3 checks/runtime_ledger_gate.py --checkpoint "${fixture}" --json
+  assert_not_allowed "${output_path}" python3 checks/runtime_ledger_gate.py \
+    --checkpoint "${fixture}" --json
 done
 
 python3 - "${TMP_DIR}/pr-gate.json" "${TMP_DIR}/runtime-ledger-gate.json" <<'PY'
@@ -525,5 +797,4 @@ for raw_path in sys.argv[1:]:
     if payload.get("decision") != "allowed":
         raise SystemExit(f"{path.name}: expected allowed, got {payload!r}")
 PY
-
-echo "SpecRail adoption smoke passed"
+echo "Optional SpecRail tooling smoke passed"

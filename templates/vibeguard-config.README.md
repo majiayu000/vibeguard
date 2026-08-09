@@ -27,6 +27,22 @@ weaken unrelated hook behavior.
 | _(env only)_ | `VIBEGUARD_W14_SKIP_TEMP` | unset | Set to exactly `0` to keep W-14 **and** churn active on system temp roots (`/tmp`, `/private/tmp`, `/var/folders`). By default those paths are exempt because a session-scoped scratchpad cannot have cross-session write conflicts. Repository paths are never exempt, including a repo-local `scratchpad/` directory. |
 | `paralysis.threshold` | `VG_PARALYSIS_THRESHOLD` | `7` | W-13 read-only-action streak before paralysis warning. |
 | `write_mode` | `VIBEGUARD_WRITE_MODE` | `warn` | `warn` = advisory; `block` = hard reject new source files without prior search. |
+| `disabled_skills` | `VIBEGUARD_DISABLED_SKILLS` | `[]` | Managed Codex workflow skill directory names to keep uninstalled. `setup.sh` removes only an exact install-state-owned copy; `setup.sh --check` reports `[DISABLED]`. Env form is a temporary comma-separated override; an explicit empty value enables all skills for that run. |
+
+## Example: keep Codex workflow skills uninstalled
+
+Deleting `~/.codex/skills/plan-flow` by hand is not durable — the next install
+restores it (and says so). Record the opt-out instead:
+
+```json
+{
+  "version": 1,
+  "disabled_skills": ["plan-flow", "fixflow"]
+}
+```
+
+Re-running `setup.sh` then removes those skills and leaves them removed.
+Re-enabling is explicit: drop the name from the list and re-run `setup.sh`.
 
 ## Example: raise U-16 for a Rust-heavy machine
 

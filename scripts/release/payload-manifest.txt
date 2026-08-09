@@ -41,6 +41,15 @@ scripts/lib/settings_json.py
 scripts/lib/status_report.sh
 scripts/lib/workflow_contracts.py
 scripts/project-init.sh
+scripts/setup/bootstrap-lib.sh
+scripts/setup/bootstrap_birth_token.jxa
+scripts/setup/bootstrap_identity.sh
+scripts/setup/bootstrap_lease_terminal.sh
+scripts/setup/bootstrap_lease_retirement.sh
+scripts/setup/bootstrap_process.sh
+scripts/setup/bootstrap_termination.sh
+scripts/setup/bootstrap_state.sh
+scripts/setup/bootstrap.sh
 scripts/setup/check.sh
 scripts/setup/clean.sh
 scripts/setup/codex-status.sh
@@ -48,8 +57,11 @@ scripts/setup/com.vibeguard.gc.plist
 scripts/setup/guard-packs.sh
 scripts/setup/install.sh
 scripts/setup/lib.sh
+scripts/setup/runtime-clean-pin.sh
 scripts/setup/runtime-install.sh
 scripts/setup/runtime_config_health.sh
+scripts/setup/setup-lock.sh
+scripts/setup/workflow-skills.sh
 scripts/setup/targets/claude-home.sh
 scripts/setup/targets/codex-home.sh
 scripts/systemd/vibeguard-gc.service

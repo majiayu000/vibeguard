@@ -6,8 +6,15 @@ This directory holds maintainer-facing specs. Most files here are implementation
 
 | Spec | Status | Use it for |
 |---|---|---|
+| `GH703/` | Draft | Privacy-safe default weekly value summaries, taxonomy accounting, scheduler lifecycle, and explicit share exports |
+| `GH720/` | Historical optional-tooling reference | Former automatic stage-aware packet validation, retained for explicitly invoked offline SpecRail checks |
 | `GH699/` | Draft | Clone-free installation through verified release payloads and Homebrew/npm entry points |
+| `GH701/` | Draft | Versioned host-adapter seam, real third-host proof, and dependency-gated agent-firewall positioning |
+| `GH700/` | Draft | Public reproducible effectiveness benchmarks plus normative publication history, authority protocol/control wire, blocked-attempt ledger/API, and conformance-vector subcontracts |
+| `GH702/` | Draft | Published third-party guard-pack contracts, transactional lifecycle, supply-chain trust, and precision-gated defaults |
 | `GH706/` | Draft | Privacy-safe malformed-input diagnostics and shared protocol-error versus rule-interception block counts |
+| `GH719/` | Implementing | Persistent, ownership-safe per-skill opt-out for managed Codex workflow skill copies |
+| `GH704/` | Draft | Opt-in L2 semantic checks, trusted runtime identity, durable bounded projection, named W-rule deltas, structured precision evidence, and human-gated learning |
 | `GH686/` | Implemented reference | Paired with/without evaluation for prompt-injected rule target improvement and non-target regression evidence (#686 / PR #696) |
 | `GH687/` | Implemented reference | W-21 evidence-provenance rule plus the W-01 channel-trust step 0 |
 | `GH675/` | Implemented reference | Manual precision-triage capture, empty-channel visibility, and the documented feedback loop |
@@ -30,7 +37,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | `GH621/` | Implemented reference | Behavior-preserving extraction of install-time runtime acquisition, provenance, and source fallback from the oversized setup entrypoint |
 | `codex-app-observability-plugin.md` | Implemented reference | Codex App plugin packaging, dashboard generation, observability commands, and plugin privacy boundaries |
 | `GH618/` | Implemented reference | Manifest-driven compliance language scope, guard-pack reporting, and fail-visible config handling |
-| `GH614/` | Implemented reference | Bounded macOS CI timeout headroom while preserving required check names and blocking setup coverage |
+| `GH614/` | Implemented reference | macOS CI headroom correction from 45 to 60 minutes, with required check names and blocking setup coverage preserved |
 | `GH611/` | Implemented reference | Stable multi-sample hook P95 latency gate replacing the flaky 3-sample max collapse |
 | `GH608/` | Implemented reference | Correct default `VIBEGUARD_DIR` resolution for standalone compliance-check runs |
 | `GH605/` | Implemented reference | Rust test-path classifier recognition of `*_tests.rs` for RS-03 precision |
@@ -38,7 +45,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | `GH588/` | Implemented reference | Scheduled GC execution freshness, platform-correct wrapper/internal log evidence, and preserved setup-check mode semantics |
 | `GH589/` | Implemented reference | Repo-scoped code-slop self-scan precision for Rust CLI stdout and line-scoped detector pattern sources |
 | `GH590/` | Implemented reference | Directed session-pair W-14 cooldown, fail-open bounded history, schema-valid suppression telemetry, and runtime config distribution |
-| `GH595/` | Implemented reference | SpecRail repository adoption, configured VibeGuard overrides, offline PR/runtime gates, target-local evidence, and preserved human merge boundaries |
+| `GH595/` | Historical optional-tooling reference | Original SpecRail adoption and offline gate design, retained as reference rather than repository authorization |
 | `GH556/` | Implemented reference | Weekly health report for rule trigger counts, precision risk, unclassified backlog, idle asset detection, and opt-in scheduling |
 | `GH566/` | Implemented reference | Codex unmanaged stale `PreToolUse` hook detection, explicit repair, and setup-test fixture isolation |
 | `GH551/` | Implemented reference | Hook hot-path collapse into a single vibeguard-runtime invocation to cut fork latency |

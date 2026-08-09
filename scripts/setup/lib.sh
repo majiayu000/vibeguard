@@ -74,7 +74,9 @@ setup_runtime_version_matches() {
 }
 
 setup_runtime_supports() {
-  local runtime="$1" probe_state="${TMPDIR:-/tmp}/vibeguard-runtime-probe.$$.json"
+  local runtime="$1" capability_out probe_state="${TMPDIR:-/tmp}/vibeguard-runtime-probe.$$.json"
+  capability_out="$("${runtime}" setup-state-capabilities 2>/dev/null)" || return 1
+  [[ "${capability_out}" == "complete-snapshot-v1" ]] || return 1
   "${runtime}" setup-state-list-symlinks-under "${probe_state}" "${TMPDIR:-/tmp}" >/dev/null 2>&1 || return 1
   setup_runtime_version_matches "${runtime}" || return 1
 
@@ -91,6 +93,19 @@ setup_runtime_supports() {
     setup-codex-hooks-check-stale \
     setup-codex-hooks-prune-stale-unmanaged \
     setup-codex-hooks-check-timeouts \
+    setup-state-init \
+    setup-state-list-tracked-under \
+    setup-state-verify-managed-tree \
+    setup-state-quarantine-managed-tree \
+    setup-state-quarantine-count \
+    setup-state-validate-managed-tree-transactions \
+    setup-state-release-quarantined-tree \
+    setup-state-generation \
+    setup-state-mark-complete \
+    setup-lock-acquire \
+    setup-lock-publish-owner \
+    setup-lock-release \
+    runtime-config-get-list \
     runtime-config-validate; do
     probe_out="$("${runtime}" "${command}" 2>&1 || true)"
     if printf '%s\n' "${probe_out}" | grep -q "Unknown command"; then
@@ -327,11 +342,8 @@ setup_download_prebuilt_runtime_quiet() {
   rm -rf "${download_dir}"
 }
 
-setup_runtime_bootstrap_cleanup() {
-  if [[ -n "${VIBEGUARD_SETUP_RUNTIME_BOOTSTRAP_TMP:-}" ]]; then
-    rm -rf "${VIBEGUARD_SETUP_RUNTIME_BOOTSTRAP_TMP}" 2>/dev/null || true
-  fi
-}
+# shellcheck source=runtime-clean-pin.sh
+source "${REPO_DIR}/scripts/setup/runtime-clean-pin.sh"
 
 ensure_setup_runtime_available() {
   local target tag tmp dest
@@ -555,21 +567,13 @@ cleanup_retired_manifest_skill_links() {
   done < <(state_list_tracked_symlinks_under "${dest_dir}")
 }
 
-install_manifest_skills() {
-  local target_uri="$1" dest_dir="$2" install_fn="$3"
-  local skill_links source_path skill
-
-  mkdir -p "${dest_dir}"
-  skill_links="$(manifest_skill_links_checked "${target_uri}")" || return 1
-  while IFS=$'\t' read -r source_path skill; do
-    [[ -n "${source_path}" && -n "${skill}" ]] || continue
-    if [[ -d "${REPO_DIR}/${source_path}" ]]; then
-      "${install_fn}" "${REPO_DIR}/${source_path}" "${dest_dir}/${skill}" "${source_path}" "${skill}" || return 1
-    else
-      yellow "  SKIP ${skill} (source not found: ${source_path})"
-    fi
-  done <<< "${skill_links}"
-}
+# shellcheck source=workflow-skills.sh
+source "${REPO_DIR}/scripts/setup/workflow-skills.sh"
+# shellcheck source=bootstrap_identity.sh
+source "${REPO_DIR}/scripts/setup/bootstrap_identity.sh"
+BOOTSTRAP_BIRTH_TOKEN_JXA="${REPO_DIR}/scripts/setup/bootstrap_birth_token.jxa"
+# shellcheck source=setup-lock.sh
+source "${REPO_DIR}/scripts/setup/setup-lock.sh"
 
 install_context_profiles() {
   local target_dir="$1" display_prefix="$2"
@@ -712,4 +716,58 @@ safe_symlink() {
     rmdir "${dst}"
   fi
   ln -sfn "${src}" "${dst}"
+}
+
+launchd_gc_script_path() {
+  local plist="$1"
+  [[ -f "${plist}" ]] || return 1
+  awk '
+    /<key>ProgramArguments<\/key>/ { in_args = 1; next }
+    in_args && /<\/array>/ { exit }
+    in_args && /gc-scheduled\.sh/ {
+      line = $0
+      sub(/^.*<string>/, "", line)
+      sub(/<\/string>.*$/, "", line)
+      print line
+      exit
+    }
+  ' "${plist}"
+}
+
+launchd_gc_script_path_from_print() {
+  awk '
+    /^[[:space:]]*arguments = \{/ { in_args = 1; next }
+    in_args && /^[[:space:]]*\}/ { exit }
+    in_args && /gc-scheduled\.sh/ {
+      line = $0
+      sub(/^[[:space:]]*/, "", line)
+      sub(/[[:space:]]*$/, "", line)
+      print line
+      exit
+    }
+  '
+}
+
+systemd_gc_script_path() {
+  local service="$1"
+  [[ -f "${service}" && ! -L "${service}" ]] || return 1
+  awk '
+    /^ExecStart=/ {
+      count++
+      if ($0 ~ /^ExecStart=\/bin\/bash "[^"]+"$/) {
+        path = $0
+        sub(/^ExecStart=\/bin\/bash "/, "", path)
+        sub(/"$/, "", path)
+      } else {
+        invalid = 1
+      }
+    }
+    END {
+      if (count == 1 && !invalid && path != "") {
+        print path
+        exit 0
+      }
+      exit 1
+    }
+  ' "${service}"
 }

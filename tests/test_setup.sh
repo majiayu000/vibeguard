@@ -499,55 +499,7 @@ EOF
 esac
 SH
 chmod +x "${TMP_HOME}/bin/launchctl"
-cat > "${TMP_HOME}/bin/systemctl" <<'SH'
-#!/usr/bin/env bash
-state="${HOME}/.systemctl-vibeguard-gc-active"
-if [[ "${1:-}" == "--user" ]]; then
-  shift
-fi
-case "${1:-}" in
-  daemon-reload)
-    exit 0
-    ;;
-  enable)
-    if [[ "${2:-}" == "--now" && "${3:-}" == "vibeguard-gc.timer" ]]; then
-      if [[ "${VIBEGUARD_TEST_SYSTEMD_ENABLE_FAIL:-0}" == "1" ]]; then
-        exit 1
-      fi
-      touch "$state"
-    fi
-    exit 0
-    ;;
-  start)
-    if [[ "${2:-}" == "vibeguard-gc.timer" ]]; then
-      touch "$state"
-    fi
-    exit 0
-    ;;
-  stop|disable)
-    rm -f "$state"
-    exit 0
-    ;;
-  is-active)
-    [[ "${2:-}" == "vibeguard-gc.timer" && -f "$state" ]] && exit 0
-    exit 3
-    ;;
-  status)
-    [[ "${2:-}" == "vibeguard-gc.timer" && -f "$state" ]] && exit 0
-    exit 3
-    ;;
-  list-timers)
-    if [[ -f "$state" ]]; then
-      printf 'NEXT LEFT LAST PASSED UNIT ACTIVATES\n'
-      printf 'Sun 03:00 - - - vibeguard-gc.timer vibeguard-gc.service\n'
-    fi
-    exit 0
-    ;;
-  *)
-    exit 0
-    ;;
-esac
-SH
+cp "${REPO_DIR}/tests/setup/systemctl_stub.sh" "${TMP_HOME}/bin/systemctl"
 chmod +x "${TMP_HOME}/bin/systemctl"
 cat > "${TMP_HOME}/bin/gh" <<'SH'
 #!/usr/bin/env bash
@@ -779,6 +731,7 @@ assert_cmd "quiet runtime download rejects manifest size mismatch" bash -c '
 
 for setup_test in \
   "${REPO_DIR}/tests/setup/syntax_manifest_tests.sh" \
+  "${REPO_DIR}/tests/setup/bootstrap_tests.sh" \
   "${REPO_DIR}/tests/setup/runtime_install_tests.sh" \
   "${REPO_DIR}/tests/setup/install_flow_tests.sh" \
   "${REPO_DIR}/tests/setup/protection_clean_tests.sh" \

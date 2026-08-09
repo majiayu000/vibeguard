@@ -1,15 +1,27 @@
+use crate::setup_quarantine_inventory::carry_incomplete_inventory;
 use crate::setup_support::{SetupResult, home_dir, sha256_file, write_json_atomic};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const STATE_VERSION: i64 = 1;
+const STATE_CAPABILITY_TOKEN: &str = "complete-snapshot-v1";
+const INIT_USAGE: &str = "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot]";
+
+pub fn capabilities(args: &[String]) -> SetupResult<()> {
+    if !args.is_empty() {
+        return Err("Usage: vibeguard-runtime setup-state-capabilities".into());
+    }
+    println!("{STATE_CAPABILITY_TOKEN}");
+    Ok(())
+}
 
 pub fn init(args: &[String]) -> SetupResult<()> {
-    if args.len() != 3 {
-        return Err(
-            "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages>".into(),
-        );
+    if !(3..=7).contains(&args.len()) {
+        return Err(INIT_USAGE.into());
+    }
+    if std::env::var_os("VIBEGUARD_TEST_SETUP_STATE_INIT_FAILURE").is_some() {
+        return Err("injected setup-state initialization failure".into());
     }
     let state_file = Path::new(&args[0]);
     let repo_dir = repo_dir_from_home();
@@ -21,15 +33,148 @@ pub fn init(args: &[String]) -> SetupResult<()> {
             .map(|item| Value::String(item.to_string()))
             .collect()
     };
-    let state = json!({
+    let generation = args
+        .get(3)
+        .map(|value| value.parse::<u64>())
+        .transpose()?
+        .unwrap_or(1);
+    let complete_snapshot = match args.get(6).map(String::as_str) {
+        None => false,
+        Some("complete-snapshot") => true,
+        Some(_) => return Err(INIT_USAGE.into()),
+    };
+    if complete_snapshot {
+        if !args[1].is_empty() || !args[2].is_empty() || args.get(4).is_some_and(|v| !v.is_empty())
+        {
+            return Err(
+                "complete snapshot merge does not accept profile, languages, or disabled skills"
+                    .into(),
+            );
+        }
+        let carry_path = args.get(5).filter(|value| !value.is_empty());
+        let merged = merge_complete_snapshot(state_file, carry_path.map(Path::new), generation)?;
+        if std::env::var_os("VIBEGUARD_TEST_SETUP_STATE_WRITE_FAILURE").is_some() {
+            return Err("injected setup-state write failure".into());
+        }
+        write_json_atomic(state_file, &merged)?;
+        return Ok(());
+    }
+    if generation == 0 {
+        return Err("install-state generation must be a positive integer".into());
+    }
+    let disabled_skills: Vec<&str> = args
+        .get(4)
+        .map(|value| value.split(',').filter(|name| !name.is_empty()).collect())
+        .unwrap_or_default();
+    let mut state = json!({
         "version": STATE_VERSION,
+        "generation": generation,
+        "complete": false,
         "installed_at": now_timestamp(),
         "profile": args[1],
         "languages": languages,
         "repo_dir": repo_dir,
         "files": {}
     });
+    let current_inventory = if state_file.exists() {
+        Some(read_state(state_file)?)
+    } else {
+        None
+    };
+    if let Some(existing) = current_inventory.as_ref() {
+        validate_state_for_preflight(existing)?;
+        carry_incomplete_inventory(existing, &mut state, generation, &disabled_skills)?;
+    }
+    if let Some(carry_path) = args.get(5).filter(|value| !value.is_empty()) {
+        let carry = read_state(Path::new(carry_path))?;
+        validate_state_for_preflight_with_released_inventory(
+            &carry,
+            current_inventory.as_ref().unwrap_or(&carry),
+        )?;
+        carry_incomplete_inventory(&carry, &mut state, 0, &[])?;
+    }
+    if std::env::var_os("VIBEGUARD_TEST_SETUP_STATE_WRITE_FAILURE").is_some() {
+        return Err("injected setup-state write failure".into());
+    }
     write_json_atomic(state_file, &state)?;
+    Ok(())
+}
+
+fn merge_complete_snapshot(
+    state_file: &Path,
+    carry_path: Option<&Path>,
+    generation: u64,
+) -> SetupResult<Value> {
+    let mut state = read_regular_state(state_file, "complete snapshot source")?;
+    validate_state_for_preflight(&state)?;
+    let (complete, actual_generation) = state_generation(&state)?;
+    if !complete || actual_generation != generation {
+        return Err("complete snapshot source must be complete and match its generation".into());
+    }
+    let Some(carry_path) = carry_path else {
+        return Ok(state);
+    };
+    if std::fs::canonicalize(state_file)? == std::fs::canonicalize(carry_path)? {
+        return Err("complete snapshot carry source must be a different file".into());
+    }
+    let carry = read_regular_state(carry_path, "complete snapshot carry source")?;
+    validate_state_for_preflight_with_released_inventory(&carry, &state)?;
+    let (carry_complete, carry_generation) = state_generation(&carry)?;
+    if !carry_complete || carry_generation > generation {
+        return Err("complete snapshot carry source must be a complete older generation".into());
+    }
+    reject_snapshot_inventory_conflicts(&state, &carry)?;
+    carry_incomplete_inventory(&carry, &mut state, 0, &[])?;
+    validate_state_for_preflight(&state)?;
+    Ok(state)
+}
+
+fn read_regular_state(path: &Path, label: &str) -> SetupResult<Value> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(format!("{label} must be a regular file").into());
+    }
+    read_state(path)
+}
+
+fn reject_snapshot_inventory_conflicts(current: &Value, carry: &Value) -> SetupResult<()> {
+    let current_files = current["files"]
+        .as_object()
+        .ok_or("install-state files must be an object")?;
+    let carry_files = carry["files"]
+        .as_object()
+        .ok_or("install-state files must be an object")?;
+    let current_records = current
+        .get("disabled_skill_quarantines")
+        .and_then(Value::as_object);
+    let carry_records = carry
+        .get("disabled_skill_quarantines")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for (carry_public, carry_record) in &carry_records {
+        let public = setup_absolute_path(&expand_home(carry_public));
+        if current_records.is_some_and(|records| {
+            records.iter().any(|(current_public, current_record)| {
+                setup_absolute_path(&expand_home(current_public)) == public
+                    && (current_public != carry_public || current_record != carry_record)
+            })
+        }) {
+            return Err("complete snapshot generations disagree on quarantine locator".into());
+        }
+        for (carry_path, entry) in carry_files {
+            let path = setup_absolute_path(&expand_home(carry_path));
+            if path != public && !path.starts_with(&public) {
+                continue;
+            }
+            if current_files.iter().any(|(current_path, current_entry)| {
+                setup_absolute_path(&expand_home(current_path)) == path
+                    && (current_path != carry_path || current_entry != entry)
+            }) {
+                return Err("complete snapshot generations disagree on tracked inventory".into());
+            }
+        }
+    }
     Ok(())
 }
 
@@ -88,70 +233,6 @@ pub fn record_project_hook(args: &[String]) -> SetupResult<()> {
         .ok_or("install-state project_hooks must be an object")?
         .insert(args[2].clone(), Value::Object(entry));
     write_json_atomic(state_file, &state)?;
-    Ok(())
-}
-
-pub fn check_drift(args: &[String]) -> SetupResult<()> {
-    if args.len() != 1 {
-        return Err("Usage: vibeguard-runtime setup-state-check-drift <state-file>".into());
-    }
-    let state_file = Path::new(&args[0]);
-    if !state_file.exists() {
-        println!("NO_STATE");
-        return Ok(());
-    }
-    let state = read_state(state_file)?;
-    let version = state
-        .get("version")
-        .and_then(Value::as_i64)
-        .unwrap_or(STATE_VERSION);
-    if version != STATE_VERSION {
-        println!("UNSUPPORTED_STATE_VERSION: {version} (expected {STATE_VERSION})");
-        return Ok(());
-    }
-    let files = state
-        .get("files")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    let mut missing_count = 0usize;
-    let mut drift_count = 0usize;
-    for (dest, info) in &files {
-        let dest_path = expand_home(dest);
-        let install_type = info.get("type").and_then(Value::as_str).unwrap_or("");
-        if install_type == "symlink" {
-            match std::fs::symlink_metadata(&dest_path) {
-                Ok(meta) if meta.file_type().is_symlink() => {}
-                Ok(_) => {
-                    println!("DRIFT: {dest} (was symlink, now regular file)");
-                    drift_count += 1;
-                }
-                Err(_) => {
-                    println!("MISSING: {dest}");
-                    missing_count += 1;
-                }
-            }
-        } else if !dest_path.exists() {
-            println!("MISSING: {dest}");
-            missing_count += 1;
-        } else if let Some(expected) = info.get("checksum").and_then(Value::as_str) {
-            let actual = format!("sha256:{}", sha256_file(&dest_path)?);
-            if actual != expected {
-                println!("DRIFT: {dest} (checksum mismatch)");
-                drift_count += 1;
-            }
-        }
-    }
-    println!("---");
-    println!(
-        "Total tracked: {}, Missing: {missing_count}, Drifted: {drift_count}",
-        files.len()
-    );
-    if missing_count + drift_count == 0 {
-        println!("STATUS: CLEAN");
-    } else {
-        println!("STATUS: DRIFT ({drift_count} drifted, {missing_count} missing)");
-    }
     Ok(())
 }
 
@@ -245,6 +326,70 @@ pub fn list_tracked_symlinks_under(args: &[String]) -> SetupResult<()> {
     Ok(())
 }
 
+/// Print every tracked path at or under `dest-dir`, regardless of install type.
+///
+/// Managed skill copies are recorded file-by-file, so "did VibeGuard ever
+/// install this skill?" is answered by whether any tracked path lives under the
+/// skill directory (GH719).
+pub fn list_tracked_under(args: &[String]) -> SetupResult<()> {
+    if args.len() != 2 {
+        return Err(
+            "Usage: vibeguard-runtime setup-state-list-tracked-under <state-file> <dest-dir>"
+                .into(),
+        );
+    }
+    let state_file = Path::new(&args[0]);
+    if !state_file.exists() {
+        return Ok(());
+    }
+    let state = read_state(state_file)?;
+    validate_state_for_preflight(&state)?;
+    let dest_dir = setup_absolute_path(&expand_home(&args[1]));
+    let files = state
+        .get("files")
+        .and_then(Value::as_object)
+        .ok_or("install-state files must be an object")?;
+    for dest in files.keys() {
+        let expanded = setup_absolute_path(&expand_home(dest));
+        if expanded == dest_dir || expanded.starts_with(&dest_dir) {
+            println!("{}", expanded.display());
+        }
+    }
+    Ok(())
+}
+
+pub fn generation(args: &[String]) -> SetupResult<()> {
+    if args.len() != 1 {
+        return Err("Usage: vibeguard-runtime setup-state-generation <state-file>".into());
+    }
+    let state = read_state(Path::new(&args[0]))?;
+    validate_state_for_preflight(&state)?;
+    let (complete, generation) = state_generation(&state)?;
+    println!(
+        "{}\t{generation}",
+        if complete { "COMPLETE" } else { "INCOMPLETE" }
+    );
+    Ok(())
+}
+
+pub fn mark_complete(args: &[String]) -> SetupResult<()> {
+    if args.len() != 1 {
+        return Err("Usage: vibeguard-runtime setup-state-mark-complete <state-file>".into());
+    }
+    let path = Path::new(&args[0]);
+    let mut state = read_state(path)?;
+    validate_state_for_preflight(&state)?;
+    let (_, generation) = state_generation(&state)?;
+    if generation == 0 {
+        return Err("legacy install-state must be prepared before completion".into());
+    }
+    state
+        .as_object_mut()
+        .ok_or("install-state root must be an object")?
+        .insert("complete".into(), Value::Bool(true));
+    write_json_atomic(path, &state)
+}
+
 pub fn list_project_hooks(args: &[String]) -> SetupResult<()> {
     if args.len() != 1 {
         return Err("Usage: vibeguard-runtime setup-state-list-project-hooks <state-file>".into());
@@ -287,7 +432,7 @@ pub fn list_project_hooks(args: &[String]) -> SetupResult<()> {
     Ok(())
 }
 
-fn read_state(path: &Path) -> SetupResult<Value> {
+pub(crate) fn read_state(path: &Path) -> SetupResult<Value> {
     let text = std::fs::read_to_string(path)?;
     let value: Value = serde_json::from_str(&text)?;
     if !value.is_object() {
@@ -303,7 +448,7 @@ fn read_state_or_empty(path: &Path) -> SetupResult<Value> {
     read_state(path)
 }
 
-fn ensure_state_version(state: &Value) -> SetupResult<()> {
+pub(crate) fn ensure_state_version(state: &Value) -> SetupResult<()> {
     let version = state
         .get("version")
         .and_then(Value::as_i64)
@@ -315,6 +460,100 @@ fn ensure_state_version(state: &Value) -> SetupResult<()> {
         .into());
     }
     Ok(())
+}
+
+pub(crate) fn validate_state_for_preflight(state: &Value) -> SetupResult<()> {
+    validate_state_for_preflight_with_released_inventory(state, state)
+}
+
+pub(crate) fn validate_state_for_preflight_with_released_inventory(
+    state: &Value,
+    released_inventory: &Value,
+) -> SetupResult<()> {
+    crate::setup_managed_tree_remove::validate_state_metadata(state)?;
+    crate::setup_managed_tree_remove::validate_state_artifacts_with_released_inventory(
+        state,
+        released_inventory,
+    )?;
+    let version = state
+        .get("version")
+        .and_then(Value::as_i64)
+        .ok_or("install-state version must be an integer")?;
+    if version != STATE_VERSION {
+        return Err(format!(
+            "Unsupported install-state version: {version} (expected {STATE_VERSION})"
+        )
+        .into());
+    }
+    let files = state
+        .get("files")
+        .and_then(Value::as_object)
+        .ok_or("install-state files must be an object")?;
+    for (dest, raw_entry) in files {
+        if dest.is_empty() {
+            return Err("install-state destination must be non-empty".into());
+        }
+        let entry = raw_entry
+            .as_object()
+            .ok_or_else(|| format!("install-state entry must be an object: {dest}"))?;
+        let source = entry
+            .get("source")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                format!("install-state entry source must be a non-empty string: {dest}")
+            })?;
+        if source.contains(['\n', '\r']) {
+            return Err(format!("install-state entry source must be a single line: {dest}").into());
+        }
+        let install_type = entry
+            .get("type")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("install-state entry type must be a string: {dest}"))?;
+        match install_type {
+            "copy" => {
+                let checksum = entry
+                    .get("checksum")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| format!("install-state copy checksum is required: {dest}"))?;
+                let digest = checksum.strip_prefix("sha256:").unwrap_or("");
+                if digest.len() != 64
+                    || !digest
+                        .bytes()
+                        .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+                {
+                    return Err(format!("install-state copy checksum is invalid: {dest}").into());
+                }
+            }
+            "symlink" => {
+                if entry.contains_key("checksum") {
+                    return Err(
+                        format!("install-state symlink checksum must be absent: {dest}").into(),
+                    );
+                }
+            }
+            _ => return Err(format!("install-state entry type is unsupported: {dest}").into()),
+        }
+    }
+    state_generation(state)?;
+    Ok(())
+}
+
+fn state_generation(state: &Value) -> SetupResult<(bool, u64)> {
+    match (state.get("generation"), state.get("complete")) {
+        (None, None) => Ok((true, 0)),
+        (Some(generation), Some(complete)) => {
+            let generation = generation
+                .as_u64()
+                .filter(|value| *value > 0)
+                .ok_or("install-state generation must be a positive integer")?;
+            let complete = complete
+                .as_bool()
+                .ok_or("install-state complete must be a boolean")?;
+            Ok((complete, generation))
+        }
+        _ => Err("install-state generation and complete must be declared together".into()),
+    }
 }
 
 fn repo_dir_from_home() -> String {
@@ -335,7 +574,7 @@ fn now_timestamp() -> String {
     format!("{seconds}")
 }
 
-fn expand_home(path: &str) -> PathBuf {
+pub(crate) fn expand_home(path: &str) -> PathBuf {
     if let Some(stripped) = path.strip_prefix("~/")
         && let Some(home) = home_dir()
     {
@@ -344,7 +583,7 @@ fn expand_home(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
-fn setup_absolute_path(path: &Path) -> PathBuf {
+pub(crate) fn setup_absolute_path(path: &Path) -> PathBuf {
     if path.is_absolute() {
         path.to_path_buf()
     } else {

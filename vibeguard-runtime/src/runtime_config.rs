@@ -1,6 +1,6 @@
 use crate::HandlerResult;
 use crate::runtime_config_validation::{
-    RuntimeConfigDecision, RuntimeConfigError, classify_runtime_config_file,
+    RuntimeConfigDecision, RuntimeConfigError, classify_runtime_config_file, is_skill_name,
     nonnegative_json_integer,
 };
 use serde_json::Value;
@@ -54,6 +54,63 @@ pub fn runtime_config_get_str(args: &[String]) -> HandlerResult {
         resolve_runtime_config_str(&args[0], &args[1], &args[2])?
     );
     Ok(())
+}
+
+/// Print one entry per line for a declared string-array field.
+///
+/// The whole config is validated before any value is read, so a malformed file
+/// exits non-zero here instead of degrading into an empty list — an empty list
+/// would silently reverse an explicit user opt-out (GH719).
+pub fn runtime_config_get_list(args: &[String]) -> HandlerResult {
+    if args.len() != 2 {
+        return Err(
+            "Usage: vibeguard-runtime runtime-config-get-list <env-name> <json-path>".into(),
+        );
+    }
+
+    for entry in resolve_runtime_config_list(&args[0], &args[1])? {
+        println!("{entry}");
+    }
+    Ok(())
+}
+
+fn resolve_runtime_config_list(
+    env_name: &str,
+    json_path: &str,
+) -> Result<Vec<String>, RuntimeConfigError> {
+    let config = loaded_runtime_config()?;
+    if let Ok(raw) = std::env::var(env_name) {
+        if raw.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut entries = Vec::new();
+        for entry in raw.split(',') {
+            let entry = entry.trim();
+            if !is_skill_name(entry) {
+                return Err(RuntimeConfigError {
+                    message: format!(
+                        "VibeGuard runtime config invalid: environment override {env_name}: path={json_path} category=config_value_error expected=comma_separated_skill_names"
+                    ),
+                    exit_code: 20,
+                });
+            }
+            entries.push(entry.to_string());
+        }
+        return Ok(entries);
+    }
+
+    let Some(items) = config
+        .and_then(|value| value_at_path(value, json_path))
+        .and_then(Value::as_array)
+    else {
+        return Ok(Vec::new());
+    };
+
+    Ok(items
+        .iter()
+        .filter_map(Value::as_str)
+        .map(|entry| entry.trim().to_string())
+        .collect())
 }
 
 pub(crate) fn runtime_config_int_value(

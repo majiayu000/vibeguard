@@ -30,6 +30,7 @@ pub enum RuntimeConfigDecision {
 enum FieldKind {
     Integer { minimum: u64, maximum: u64 },
     StringEnum { allowed: &'static [&'static str] },
+    StringArray { maximum_items: usize },
     Version,
 }
 
@@ -112,6 +113,10 @@ const RUNTIME_CONFIG_FIELDS: &[RuntimeConfigField] = &[
             minimum: 1,
             maximum: 268_435_456,
         },
+    },
+    RuntimeConfigField {
+        path: "disabled_skills",
+        kind: FieldKind::StringArray { maximum_items: 256 },
     },
 ];
 
@@ -315,6 +320,55 @@ fn validate_field(
                 ));
             }
         }
+        FieldKind::StringArray { maximum_items } => {
+            let items = value.as_array().ok_or_else(|| {
+                config_error(
+                    file_path,
+                    display_path,
+                    "config_type_error",
+                    "type=array",
+                    CONFIG_PARSE_ERROR,
+                )
+            })?;
+            if items.len() > maximum_items {
+                return Err(config_error(
+                    file_path,
+                    display_path,
+                    "config_range_error",
+                    &format!("array_max_items={maximum_items}"),
+                    CONFIG_PARSE_ERROR,
+                ));
+            }
+            for (index, item) in items.iter().enumerate() {
+                let Some(text) = item.as_str() else {
+                    return Err(config_error(
+                        file_path,
+                        &format!("{display_path}[{index}]"),
+                        "config_type_error",
+                        "type=nonempty_string",
+                        CONFIG_PARSE_ERROR,
+                    ));
+                };
+                if text.trim().is_empty() {
+                    return Err(config_error(
+                        file_path,
+                        &format!("{display_path}[{index}]"),
+                        "config_type_error",
+                        "type=nonempty_string",
+                        CONFIG_PARSE_ERROR,
+                    ));
+                }
+                if !is_skill_name(text) {
+                    return Err(config_error(
+                        file_path,
+                        &format!("{display_path}[{index}]"),
+                        "config_value_error",
+                        "pattern=^[A-Za-z0-9][A-Za-z0-9._-]*$",
+                        POLICY_ERROR,
+                    ));
+                }
+            }
+        }
         FieldKind::Version => {
             let version = if let Some(version) = nonnegative_json_integer(value) {
                 version
@@ -347,6 +401,15 @@ fn validate_field(
         }
     }
     Ok(())
+}
+
+pub(crate) fn is_skill_name(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+    first.is_ascii_alphanumeric()
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 pub(crate) fn nonnegative_json_integer(value: &Value) -> Option<u64> {

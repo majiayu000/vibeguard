@@ -9,6 +9,7 @@ python3 - "${REPO_DIR}" <<'PY'
 import copy
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -27,7 +28,7 @@ numeric_contract = {
     "write_escalate_threshold": (0, 1_000_000),
     "learn.metrics_tail_bytes": (1, 268_435_456),
 }
-expected_paths = {"version", "write_mode", *numeric_contract}
+expected_paths = {"version", "write_mode", "disabled_skills", *numeric_contract}
 
 
 def leaf_paths(node, prefix=""):
@@ -97,7 +98,20 @@ def validate(node, contract, path="$"):
             return [f"{path}: type"]
         if "enum" in contract and node not in contract["enum"]:
             return [f"{path}: enum"]
+        if len(node) < contract.get("minLength", 0):
+            return [f"{path}: range"]
+        if "pattern" in contract and re.fullmatch(contract["pattern"], node) is None:
+            return [f"{path}: pattern"]
         return []
+    if expected_type == "array":
+        if not isinstance(node, list):
+            return [f"{path}: type"]
+        if "maxItems" in contract and len(node) > contract["maxItems"]:
+            return [f"{path}: range"]
+        errors = []
+        for index, item in enumerate(node):
+            errors.extend(validate(item, contract["items"], f"{path}[{index}]"))
+        return errors
     return [f"{path}: unsupported_schema_type"]
 
 
@@ -156,6 +170,18 @@ assert_invalid("invalid write mode", {"write_mode": "invalid"}, "enum")
 assert_invalid("numeric string", {"u16": {"limit": "800"}}, "type")
 assert_invalid("boolean integer", {"paralysis": {"threshold": True}}, "type")
 assert_invalid("non-integral number", {"paralysis": {"threshold": 1.5}}, "type")
+assert_valid("empty disabled skills", {"disabled_skills": []})
+assert_valid("disabled skills list", {"disabled_skills": ["plan-flow", "fixflow"]})
+assert_invalid("disabled skills scalar", {"disabled_skills": "plan-flow"}, "type")
+assert_invalid("disabled skills non-string entry", {"disabled_skills": [1]}, "type")
+assert_invalid("disabled skills empty entry", {"disabled_skills": [""]}, "range")
+assert_invalid("disabled skills newline entry", {"disabled_skills": ["plan-flow\nfixflow"]}, "pattern")
+assert_invalid("disabled skills path entry", {"disabled_skills": ["../plan-flow"]}, "pattern")
+assert_invalid(
+    "disabled skills over max items",
+    {"disabled_skills": [f"skill-{index}" for index in range(257)]},
+    "range",
+)
 
 mutated_schema = copy.deepcopy(schema)
 del mutated_schema["properties"]["write_escalate_threshold"]

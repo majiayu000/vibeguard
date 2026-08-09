@@ -88,6 +88,17 @@
       "maximum": 1000000,
       "default": 5
     },
+    "disabled_skills": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+      },
+      "default": [],
+      "description": "Managed Codex workflow skill directory names to skip and remove only when exact install-state ownership is proven."
+    },
     "learn": {
       "type": "object",
       "additionalProperties": false,

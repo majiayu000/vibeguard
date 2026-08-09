@@ -369,9 +369,12 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
     verification_commands = ["python3 checks/check_workflow.py --repo ."]
     if args.issue:
         spec_dir = spec_packet_artifact_paths(config, args.issue, repo=repo)["spec_packet"]
+        spec_stage = "draft" if route == "write_spec" else "complete"
         verification_commands.append(
             "python3 checks/check_workflow.py --repo . --spec-dir="
             + shlex.quote(spec_dir)
+            + " --spec-stage="
+            + spec_stage
         )
 
     return {

@@ -2,7 +2,7 @@
 # VibeGuard status reporter — shared library for `setup.sh --check`.
 #
 # Purpose
-#   Turn the existing free-form `[OK]/[INFO]/[WARN]/[DRIFT]/[FAIL]/[BROKEN]/[MISSING]`
+#   Turn the existing free-form `[OK]/[INFO]/[DISABLED]/[WARN]/[DRIFT]/[FAIL]/[BROKEN]/[MISSING]`
 #   lines into a structured, summarized, exit-code-aware health report
 #   without rewriting every call site (lib.sh, targets/*.sh, etc.).
 #
@@ -35,6 +35,7 @@ _VG_STATUS_REPORT_LOADED=1
 _VG_STATUS_BUFFER=""
 _VG_STATUS_OK=0
 _VG_STATUS_INFO=0
+_VG_STATUS_DISABLED=0
 _VG_STATUS_WARN=0
 _VG_STATUS_DRIFT=0
 _VG_STATUS_FAIL=0
@@ -49,6 +50,7 @@ status_init() {
   _VG_STATUS_BUFFER="${1:-}"
   _VG_STATUS_OK=0
   _VG_STATUS_INFO=0
+  _VG_STATUS_DISABLED=0
   _VG_STATUS_WARN=0
   _VG_STATUS_DRIFT=0
   _VG_STATUS_FAIL=0
@@ -57,7 +59,7 @@ status_init() {
 }
 
 # status_classify_line <line>
-#   Echo the level (OK|INFO|WARN|DRIFT|FAIL|BROKEN|MISSING) or empty string.
+#   Echo the level (OK|INFO|DISABLED|WARN|DRIFT|FAIL|BROKEN|MISSING) or empty string.
 #   Strips ANSI color codes before matching. Pure function — no globals.
 status_plain_line() {
   local line="$1"
@@ -79,6 +81,7 @@ status_classify_line() {
   case "$plain" in
     "[OK]"*)      printf 'OK' ;;
     "[INFO]"*)    printf 'INFO' ;;
+    "[DISABLED]"*) printf 'DISABLED' ;;
     "[WARN]"*)    printf 'WARN' ;;
     "[DRIFT]"*)   printf 'DRIFT' ;;
     "[FAIL]"*)    printf 'FAIL' ;;
@@ -122,6 +125,7 @@ status_required_missing_count() {
 status_record_buffer() {
   _VG_STATUS_OK=0
   _VG_STATUS_INFO=0
+  _VG_STATUS_DISABLED=0
   _VG_STATUS_WARN=0
   _VG_STATUS_DRIFT=0
   _VG_STATUS_FAIL=0
@@ -134,6 +138,7 @@ status_record_buffer() {
     case "$level" in
       OK)      _VG_STATUS_OK=$((_VG_STATUS_OK + 1)) ;;
       INFO)    _VG_STATUS_INFO=$((_VG_STATUS_INFO + 1)) ;;
+      DISABLED) _VG_STATUS_DISABLED=$((_VG_STATUS_DISABLED + 1)) ;;
       WARN)    _VG_STATUS_WARN=$((_VG_STATUS_WARN + 1)) ;;
       DRIFT)   _VG_STATUS_DRIFT=$((_VG_STATUS_DRIFT + 1)) ;;
       FAIL)    _VG_STATUS_FAIL=$((_VG_STATUS_FAIL + 1)) ;;
@@ -176,6 +181,7 @@ status_print_summary() {
   printf -- '------------------------------\n'
   printf '  OK      : %d\n' "${_VG_STATUS_OK}"
   printf '  INFO    : %d\n' "${_VG_STATUS_INFO}"
+  printf '  DISABLED: %d\n' "${_VG_STATUS_DISABLED}"
   printf '  WARN    : %d\n' "${_VG_STATUS_WARN}"
   printf '  DRIFT   : %d\n' "${_VG_STATUS_DRIFT}"
   printf '  FAIL    : %d\n' "${_VG_STATUS_FAIL}"
@@ -209,8 +215,8 @@ status_emit_json() {
   if ! command -v python3 >/dev/null 2>&1; then
     # Conservative fallback. We escape backslash, double-quote, and control
     # characters so the result is valid JSON without python3.
-    printf '{"schema_version":1,"verdict":"%s","counts":{"ok":%d,"info":%d,"warn":%d,"drift":%d,"fail":%d,"broken":%d,"missing":%d},"events":[' \
-      "$verdict" "$_VG_STATUS_OK" "$_VG_STATUS_INFO" "$_VG_STATUS_WARN" "$_VG_STATUS_DRIFT" "$_VG_STATUS_FAIL" "$_VG_STATUS_BROKEN" "$_VG_STATUS_MISSING"
+    printf '{"schema_version":1,"verdict":"%s","counts":{"ok":%d,"info":%d,"disabled":%d,"warn":%d,"drift":%d,"fail":%d,"broken":%d,"missing":%d},"events":[' \
+      "$verdict" "$_VG_STATUS_OK" "$_VG_STATUS_INFO" "$_VG_STATUS_DISABLED" "$_VG_STATUS_WARN" "$_VG_STATUS_DRIFT" "$_VG_STATUS_FAIL" "$_VG_STATUS_BROKEN" "$_VG_STATUS_MISSING"
     local first=1 line level message esc
     if [[ -n "${_VG_STATUS_BUFFER}" && -f "${_VG_STATUS_BUFFER}" ]]; then
       while IFS= read -r line; do
@@ -233,14 +239,14 @@ status_emit_json() {
   fi
 
   VG_VERDICT="$verdict" \
-  VG_OK="$_VG_STATUS_OK" VG_INFO="$_VG_STATUS_INFO" VG_WARN="$_VG_STATUS_WARN" VG_DRIFT="$_VG_STATUS_DRIFT" \
+  VG_OK="$_VG_STATUS_OK" VG_INFO="$_VG_STATUS_INFO" VG_DISABLED="$_VG_STATUS_DISABLED" VG_WARN="$_VG_STATUS_WARN" VG_DRIFT="$_VG_STATUS_DRIFT" \
   VG_FAIL="$_VG_STATUS_FAIL" VG_BROKEN="$_VG_STATUS_BROKEN" VG_MISSING="$_VG_STATUS_MISSING" \
   VG_BUFFER="${_VG_STATUS_BUFFER:-}" \
   python3 - <<'PY'
 import json, os, re, sys
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-LEVELS = ("OK", "INFO", "WARN", "DRIFT", "FAIL", "BROKEN", "MISSING")
+LEVELS = ("OK", "INFO", "DISABLED", "WARN", "DRIFT", "FAIL", "BROKEN", "MISSING")
 
 def classify(line: str):
     plain = ANSI.sub("", line)
@@ -266,6 +272,7 @@ doc = {
     "counts": {
         "ok": int(os.environ["VG_OK"]),
         "info": int(os.environ["VG_INFO"]),
+        "disabled": int(os.environ["VG_DISABLED"]),
         "warn": int(os.environ["VG_WARN"]),
         "drift": int(os.environ["VG_DRIFT"]),
         "fail": int(os.environ["VG_FAIL"]),

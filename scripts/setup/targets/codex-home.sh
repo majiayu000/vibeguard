@@ -38,7 +38,7 @@ _install_codex_manifest_skill() {
 
 install_codex_home_assets() {
   echo "Step 6: Install Codex skills"
-  install_manifest_skills "~/.codex/skills/" "${CODEX_DIR}/skills" _install_codex_manifest_skill || return 1
+  install_manifest_skills "~/.codex/skills/" "${CODEX_DIR}/skills" _install_codex_manifest_skill 1 || return 1
   echo
 
   echo "Step 6.5: Install Codex hooks"
@@ -158,9 +158,25 @@ check_codex_home_installation() {
 
   local link skill_links source_path skill
   skill_links="$(manifest_skill_links_checked "~/.codex/skills/")" || return 1
+  disabled_skills >/dev/null || return 1
   while IFS=$'\t' read -r source_path skill; do
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
     link="${CODEX_DIR}/skills/${skill}"
+    if skill_is_disabled "${skill}"; then
+      if [[ -e "${link}" || -L "${link}" ]]; then
+        # Only an exact install-state-owned copy can actually be quarantined by
+        # the next setup run. Promising removal for a tree the installer will
+        # refuse would report healthy right before a guaranteed install failure.
+        if state_managed_tree_owned "${link}" "${source_path}"; then
+          yellow "[DISABLED] ${skill} skill disabled via $(disabled_skills_source_label) but still present; re-run setup.sh to remove it"
+        else
+          red "[BROKEN] ${skill} skill is disabled but ~/.codex/skills/${skill} is not a VibeGuard-owned copy; setup.sh will refuse to quarantine it"
+        fi
+      else
+        green "[DISABLED] ${skill} skill disabled via $(disabled_skills_source_label)"
+      fi
+      continue
+    fi
     if [[ -d "${link}" && ! -L "${link}" ]]; then
       if diff -qr "$(_codex_source_path "${source_path}")" "${link}" >/dev/null 2>&1; then
         green "[OK] ${skill} skill copied to ~/.codex/skills/"
@@ -489,27 +505,29 @@ check_codex_agents_hygiene() {
 }
 
 clean_codex_home_installation() {
+  local agents_md_result="NOT_FOUND"
+  local hooks_cleanup_result="SKIP"
+
   if [[ -f "${CODEX_DIR}/AGENTS.md" ]]; then
-    local agents_md_result
-    agents_md_result=$(setup_runtime setup-md-remove "${CODEX_DIR}/AGENTS.md" 2>/dev/null || echo "ERROR")
+    agents_md_result="$(
+      setup_runtime setup-md-remove "${CODEX_DIR}/AGENTS.md" 2>/dev/null
+    )" || agents_md_result="ERROR"
     case "${agents_md_result}" in
       REMOVED) yellow "Removed VibeGuard rules from ~/.codex/AGENTS.md" ;;
       NOT_FOUND) yellow "No VibeGuard rules found in ~/.codex/AGENTS.md" ;;
-      *) red "Failed to clean ~/.codex/AGENTS.md" ;;
+      *)
+        red "Failed to clean ~/.codex/AGENTS.md"
+        return 1
+        ;;
     esac
   fi
 
-  local skill_links source_path skill
-  skill_links="$(manifest_skill_links_for_cleanup "~/.codex/skills/")"
-  while IFS=$'\t' read -r source_path skill; do
-    [[ -n "${source_path}" && -n "${skill}" ]] || continue
-    rm -rf "${CODEX_DIR}/skills/${skill}"
-  done <<< "${skill_links}"
-  cleanup_retired_manifest_skill_links "~/.codex/skills/" "${CODEX_DIR}/skills"
-
-  # Remove only VibeGuard-managed entries from hooks.json (do not delete third-party hooks)
-  local hooks_cleanup_result
-  hooks_cleanup_result=$(setup_runtime setup-codex-hooks-remove "${REPO_DIR}" "${CODEX_DIR}/hooks.json" 2>/dev/null || echo "ERROR")
+  # Remove only VibeGuard-managed entries from hooks.json (do not delete third-party hooks).
+  # This high-context edit must succeed before wrappers or recovery payloads disappear.
+  hooks_cleanup_result="$(
+    setup_runtime setup-codex-hooks-remove \
+      "${REPO_DIR}" "${CODEX_DIR}/hooks.json" 2>/dev/null
+  )" || hooks_cleanup_result="ERROR"
   case "${hooks_cleanup_result}" in
     CHANGED)
       yellow "Removed VibeGuard hook entries from ~/.codex/hooks.json"
@@ -519,8 +537,23 @@ clean_codex_home_installation() {
       ;;
     *)
       red "Failed to clean VibeGuard entries in ~/.codex/hooks.json"
+      return 1
       ;;
   esac
+
+  local skill_links source_path skill skill_path
+  skill_links="$(manifest_skill_links_for_cleanup "~/.codex/skills/")"
+  while IFS=$'\t' read -r source_path skill; do
+    [[ -n "${source_path}" && -n "${skill}" ]] || continue
+    skill_path="${CODEX_DIR}/skills/${skill}"
+    [[ -e "${skill_path}" || -L "${skill_path}" ]] || continue
+    if state_managed_tree_owned "${skill_path}" "${source_path}"; then
+      rm -rf "${skill_path}"
+    else
+      red "Refusing to clean unowned Codex skill tree: ${skill_path/#${HOME}/~}"
+    fi
+  done <<< "${skill_links}"
+  cleanup_retired_manifest_skill_links "~/.codex/skills/" "${CODEX_DIR}/skills"
 
   rm -f "${HOME}/.vibeguard/run-hook-codex.sh"
   rm -f "${HOME}/.vibeguard/_lib/codex_diag.sh"
