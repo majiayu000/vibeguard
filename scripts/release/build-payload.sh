@@ -127,7 +127,7 @@ ARCHIVE="${OUTPUT_DIR}/vibeguard-payload-${VERSION}.tar.gz"
 # Keep the archived bytes independent of the caller's checkout line-ending
 # configuration. The marker digest is computed from the repository blob, so
 # the archive must contain those same LF bytes on every platform.
-git -c core.autocrlf=false -c tar.umask=0022 -C "${REPO_DIR}" archive \
+git -c core.autocrlf=false -c core.eol=lf -c tar.umask=0022 -C "${REPO_DIR}" archive \
   --format=tar \
   --add-virtual-file="${MARKER_NAME}:${marker_content}" \
   "${GIT_REF}" \

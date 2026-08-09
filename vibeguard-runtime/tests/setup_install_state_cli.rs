@@ -1,25 +1,11 @@
 mod common;
 
-use common::{bin, unique_temp_dir};
+use common::{
+    assert_output, bin, path_text, read_json, run_with_home as run, unique_temp_dir, write_json,
+};
 use serde_json::{Value, json};
 use std::fs;
-use std::path::Path;
 use std::process::Output;
-
-fn run(root: &Path, args: &[&str]) -> Output {
-    bin()
-        .args(args)
-        .env("HOME", root.join("home"))
-        .current_dir(root)
-        .output()
-        .expect("vibeguard-runtime command should run")
-}
-
-fn assert_output(output: &Output, code: i32, stdout: &str, stderr: &str) {
-    assert_eq!(output.status.code(), Some(code));
-    assert_eq!(String::from_utf8_lossy(&output.stdout), stdout);
-    assert_eq!(String::from_utf8_lossy(&output.stderr), stderr);
-}
 
 fn assert_io_error(output: &Output) {
     assert_eq!(output.status.code(), Some(1));
@@ -29,31 +15,6 @@ fn assert_io_error(output: &Output) {
     assert!(stderr.trim().len() > "vibeguard-runtime error:".len());
 }
 
-fn write_json(path: &Path, value: &Value) {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("JSON parent should be created");
-    }
-    fs::write(
-        path,
-        format!(
-            "{}\n",
-            serde_json::to_string_pretty(value).expect("fixture should serialize")
-        ),
-    )
-    .expect("JSON fixture should be written");
-}
-
-fn read_json(path: &Path) -> Value {
-    serde_json::from_slice(&fs::read(path).expect("state file should be readable"))
-        .expect("state file should contain JSON")
-}
-
-fn path_text(path: &Path) -> String {
-    path.to_str()
-        .expect("temporary paths should be UTF-8")
-        .to_string()
-}
-
 #[test]
 fn setup_state_commands_reject_invalid_arity_with_exact_usage() {
     let root = unique_temp_dir("install_state_arity");
@@ -61,7 +22,19 @@ fn setup_state_commands_reject_invalid_arity_with_exact_usage() {
     let cases = [
         (
             "setup-state-init",
-            "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages>",
+            "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot]",
+        ),
+        (
+            "setup-state-generation",
+            "Usage: vibeguard-runtime setup-state-generation <state-file>",
+        ),
+        (
+            "setup-state-mark-complete",
+            "Usage: vibeguard-runtime setup-state-mark-complete <state-file>",
+        ),
+        (
+            "setup-lock-publish-owner",
+            "Usage: vibeguard-runtime setup-lock-publish-owner <lock-dir> <pid> <nonce> [reclaiming]",
         ),
         (
             "setup-state-record-file",
@@ -82,6 +55,10 @@ fn setup_state_commands_reject_invalid_arity_with_exact_usage() {
         (
             "setup-state-list-symlinks-under",
             "Usage: vibeguard-runtime setup-state-list-symlinks-under <state-file> <dest-dir>",
+        ),
+        (
+            "setup-state-verify-managed-tree",
+            "Usage: vibeguard-runtime setup-state-verify-managed-tree <state-file> <dest-dir> <source-prefix> [tracked-dest-dir]",
         ),
         (
             "setup-state-list-project-hooks",
@@ -122,8 +99,17 @@ fn init_and_record_commands_persist_expected_schema() {
     assert_output(&output, 0, "", "");
     let initialized = read_json(&state);
     assert_eq!(initialized["version"], 1);
+    assert_eq!(initialized["generation"], 1);
+    assert_eq!(initialized["complete"], false);
     assert_eq!(initialized["profile"], "full");
     assert_eq!(initialized["languages"], json!(["rust", "python"]));
+
+    let generation = run(&root, &["setup-state-generation", &path_text(&state)]);
+    assert_output(&generation, 0, "INCOMPLETE\t1\n", "");
+    let completed = run(&root, &["setup-state-mark-complete", &path_text(&state)]);
+    assert_output(&completed, 0, "", "");
+    let generation = run(&root, &["setup-state-generation", &path_text(&state)]);
+    assert_output(&generation, 0, "COMPLETE\t1\n", "");
     assert_eq!(initialized["repo_dir"], "/repo/source");
     assert_eq!(initialized["files"], json!({}));
     let installed_at = initialized["installed_at"]
@@ -131,7 +117,7 @@ fn init_and_record_commands_persist_expected_schema() {
         .expect("installed_at should be a string");
     assert!(installed_at.len() >= 10);
     assert!(installed_at.chars().all(|ch| ch.is_ascii_digit()));
-    assert_eq!(initialized.as_object().unwrap().len(), 6);
+    assert_eq!(initialized.as_object().unwrap().len(), 8);
 
     let no_home_state = root.join("no-home-state.json");
     let no_home = bin()
@@ -664,70 +650,150 @@ fn symlink_cleanup_listing_handles_bad_state_and_filters_paths() {
 }
 
 #[test]
-fn project_hook_cleanup_listing_handles_bad_state_and_filters_rows() {
-    let root = unique_temp_dir("install_state_project_hooks");
-    let home = root.join("home");
-    fs::create_dir_all(&home).expect("temp root should be created");
+fn managed_tree_lookup_fails_on_bad_state_and_verifies_exact_ownership() {
+    let root = unique_temp_dir("install_state_managed_tree");
+    fs::create_dir_all(root.join("home")).expect("temp root should be created");
     let state = root.join("state.json");
-    let output = run(
-        &root,
-        &["setup-state-list-project-hooks", &path_text(&state)],
-    );
-    assert_output(&output, 0, "", "");
+    let skill = root.join("skills/plan-flow");
+    let managed_file = skill.join("SKILL.md");
+    fs::create_dir_all(&skill).expect("managed skill should be created");
+    fs::write(&managed_file, "managed\n").expect("managed file should be written");
 
-    fs::write(&state, "{").expect("corrupt state should be written");
-    let output = run(
-        &root,
-        &["setup-state-list-project-hooks", &path_text(&state)],
-    );
-    assert_output(&output, 0, "", "");
+    fs::write(&state, "{").expect("malformed state should be written");
+    let state_text = path_text(&state);
+    let skill_text = path_text(&skill);
+    for command in [
+        "setup-state-list-tracked-under",
+        "setup-state-verify-managed-tree",
+    ] {
+        let mut args = vec![command, state_text.as_str(), skill_text.as_str()];
+        let source_prefix = "skills/plan-flow";
+        if command == "setup-state-verify-managed-tree" {
+            args.push(source_prefix);
+        }
+        let output = run(&root, &args);
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+    }
 
-    write_json(&state, &json!({"version": 1, "project_hooks": []}));
-    let output = run(
-        &root,
-        &["setup-state-list-project-hooks", &path_text(&state)],
-    );
-    assert_output(&output, 0, "", "");
-
-    write_json(&state, &json!({"version": 3, "project_hooks": {}}));
-    let output = run(
-        &root,
-        &["setup-state-list-project-hooks", &path_text(&state)],
-    );
-    assert_output(
-        &output,
-        0,
-        "",
-        "WARN: unsupported install-state version; skipping project hook cleanup\n",
-    );
-
-    let absolute_hook = root.join("project/.git/hooks/pre-push");
     write_json(
         &state,
         &json!({
             "version": 1,
-            "project_hooks": {
-                "": {"repo_dir": "/ignored", "hook_name": "pre-commit"},
-                "/missing-name": {"repo_dir": "/ignored"},
-                path_text(&absolute_hook): {"repo_dir": path_text(&root.join("project")), "hook_name": "pre-push"},
-                "~/project/.git/hooks/pre-commit": {"repo_dir": "~/project", "hook_name": "pre-commit"}
+            "files": []
+        }),
+    );
+    let invalid_files = run(
+        &root,
+        &[
+            "setup-state-list-tracked-under",
+            &path_text(&state),
+            &path_text(&skill),
+        ],
+    );
+    assert_output(
+        &invalid_files,
+        1,
+        "",
+        "vibeguard-runtime error: install-state files must be an object\n",
+    );
+
+    for invalid_state in [
+        r#"{"version":"1","files":{}}"#,
+        r#"{"version":1,"files":{"/managed":[]}}"#,
+        r#"{"version":1,"files":{"/managed":{"source":7,"type":"copy","checksum":"sha256:5b4bc29f140e30c01417d810e700ecc54a84a0107566d84215b42e5742ef8d96"}}}"#,
+        r#"{"version":1,"files":{"/managed":{"source":"skills/plan-flow/SKILL.md","type":"copy","checksum":"bad"}}}"#,
+    ] {
+        fs::write(&state, invalid_state).expect("invalid state should be written");
+        let invalid_entry = run(
+            &root,
+            &["setup-state-list-tracked-under", &state_text, &skill_text],
+        );
+        assert_eq!(invalid_entry.status.code(), Some(1));
+        assert!(invalid_entry.stdout.is_empty());
+    }
+
+    write_json(
+        &state,
+        &json!({
+            "version": 1,
+            "files": {
+                path_text(&managed_file): {
+                    "source": "skills/plan-flow/SKILL.md",
+                    "type": "copy",
+                    "checksum": "sha256:5b4bc29f140e30c01417d810e700ecc54a84a0107566d84215b42e5742ef8d96"
+                }
             }
         }),
     );
-    let output = run(
+    let owned = run(
         &root,
-        &["setup-state-list-project-hooks", &path_text(&state)],
+        &[
+            "setup-state-verify-managed-tree",
+            &path_text(&state),
+            &path_text(&skill),
+            "skills/plan-flow",
+        ],
     );
-    assert_output(
-        &output,
-        0,
-        &format!(
-            "{}\tpre-push\t{}\n{}\tpre-commit\t~/project\n",
-            absolute_hook.display(),
-            root.join("project").display(),
-            home.join("project/.git/hooks/pre-commit").display()
-        ),
-        "",
+    assert_output(&owned, 0, "OWNED\n", "");
+
+    let quarantined = root.join("skills/.plan-flow.vibeguard-remove");
+    fs::rename(&skill, &quarantined).expect("managed skill should be quarantined");
+    let relocated_owned = run(
+        &root,
+        &[
+            "setup-state-verify-managed-tree",
+            &path_text(&state),
+            &path_text(&quarantined),
+            "skills/plan-flow",
+            &path_text(&skill),
+        ],
     );
+    assert_output(&relocated_owned, 0, "OWNED\n", "");
+    fs::rename(&quarantined, &skill).expect("managed skill should be restored");
+
+    fs::write(skill.join("user.txt"), "custom\n").expect("custom file should be written");
+    let extra_file = run(
+        &root,
+        &[
+            "setup-state-verify-managed-tree",
+            &path_text(&state),
+            &path_text(&skill),
+            "skills/plan-flow",
+        ],
+    );
+    assert_output(&extra_file, 0, "UNOWNED:untracked_path\n", "");
+
+    fs::remove_file(skill.join("user.txt")).expect("custom file should be removed");
+    fs::write(&managed_file, "modified\n").expect("managed file should be modified");
+    let modified = run(
+        &root,
+        &[
+            "setup-state-verify-managed-tree",
+            &path_text(&state),
+            &path_text(&skill),
+            "skills/plan-flow",
+        ],
+    );
+    assert_output(&modified, 0, "UNOWNED:checksum_mismatch\n", "");
+
+    write_json(
+        &state,
+        &json!({
+            "version": 2,
+            "files": {}
+        }),
+    );
+    let unsupported = run(
+        &root,
+        &[
+            "setup-state-list-tracked-under",
+            &path_text(&state),
+            &path_text(&skill),
+        ],
+    );
+    assert_eq!(unsupported.status.code(), Some(1));
+    assert!(unsupported.stdout.is_empty());
+
     fs::remove_dir_all(root).expect("temp root should be removed");
 }
