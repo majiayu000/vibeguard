@@ -181,7 +181,7 @@ Three complementary perspectives, each focusing on a different failure mode:
 - Adding a backward compatibility layer (L7) is not recommended
 - When duplicate code is found, it is recommended to extend the existing implementation rather than create a new one (L1)
 - AI generated tags are not included in review reports
-- When Codex times out or is abnormal, it is downgraded to a single model result without blocking the process.
+- When Codex times out or returns no parseable verdict, stop automated review and hand the available evidence to a human.
 - One PR receives at most two review rounds; zero findings plus `APPROVED` ends review immediately.
 - Lens allocation is strictly based on the number of changed rows and cannot be overwritten manually (to ensure consistency)
 

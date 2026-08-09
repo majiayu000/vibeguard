@@ -124,36 +124,35 @@ When tests fail, fix the production code rather than manipulating the test harne
 - If you modify `conftest.py`, pytest config, `jest.config`, or shared test helpers, explain why.
 - If source and tests both change, test changes must not reduce assertion strength; run `bash guards/universal/check_test_weakening.sh --base origin/main --head HEAD` during PR review when a diff is available.
 
-## W-14: Parallel-agent file ownership (strict)
-**Compact guidance:** Parallel agents must have explicit, disjoint file ownership; no shared writable file.
-When multiple agents work in parallel, prompts must assign explicit file ownership so agents cannot silently overwrite one another.
+## W-14: Single-writer repository ownership (strict)
+**Compact guidance:** At most one writable session may operate on a repository; parallel helpers must remain read-only.
+Concurrent writers make repository state and review evidence ambiguous even when their intended file sets do not overlap.
 
 **Root cause** (source: GitHub Copilot CLI / fleet docs, 2026):
-Parallel sub-agents share a file system without file locks. The last writer silently wins and no conflict is reported.
+Parallel sessions and sub-agents can share a file system without file locks. The last writer can silently win, while disjoint edits can still invalidate another session's assumptions and verification evidence.
 
 **Rules**:
-- Every parallel task must receive a disjoint set of files.
-- Two agents must never write the same file at the same time, even if they intend to change different lines.
-- If shared output is unavoidable, use "write to a temporary path, then have the orchestrator merge later."
-- Background agents, worktree agents, and long-lived agents must also declare writable, read-only, and forbidden file sets.
-- Default to keeping background execution away from files the user is actively editing in the main workspace unless the user explicitly authorizes that write.
-- When multiple results need to be combined, prefer temporary outputs or an isolated worktree, then let one primary executor perform the final merge.
+- Assign exactly one primary writable session for a repository.
+- Parallel helpers may inspect the repository and return findings, but must not modify repository files, create commits, or push branches.
+- A helper may write only to a session-scoped temporary path outside the repository when its output must be materialized; the primary writer applies any accepted result.
+- A separate worktree protects existing user changes but does not authorize a second concurrent writer for the same repository.
+- Background and long-lived sessions remain read-only while the primary writer is active.
+- If writable ownership cannot be established, stop before editing and hand control to the repository's current writer.
 
 **Prompt template**:
 ```
-Agent A owns: src/auth.rs, src/session.rs (only modify these files)
-Agent B owns: src/api.rs, src/middleware.rs (only modify these files)
+Primary session: owns all repository writes and final verification.
+Helper A: read-only review of src/auth.rs and src/session.rs; return findings only.
+Helper B: read-only review of src/api.rs and src/middleware.rs; return findings only.
 ```
 
 **Mechanical checks (agent execution rules)**:
-- When you receive a parallel subtask, confirm your file boundary first.
-- If the task description does not specify file ownership, ask the orchestrator to clarify before editing.
-- Do not modify a shared file in a "read first, write later" flow unless you have exclusive ownership.
-- If a background or long-lived agent does not have an explicit writable file set, it must not start a write task.
-- If a recent event shows the same file being edited by another session or agent, emit a `W-14` warning and recommend an isolated worktree or single-owner merge path.
-- When file boundaries overlap, prefer shrinking the writable scope over adding more coordination rules.
+- Before editing, confirm that this session is the repository's sole writer.
+- Treat all helpers as read-only and have the primary session apply accepted findings.
+- If a background or long-lived agent is already writing, do not start another write task.
+- If a recent event shows the same repository being edited by another session or agent, emit a `W-14` warning and stop the newer writer.
 - **Observability hook**: `hooks/post-edit-guard.sh` detects recent same-file edits across sessions or agents.
-- **Downgrade path**: if reliable file ownership cannot be declared, fall back to a single primary writer or an isolated worktree.
+- **Downgrade path**: if reliable repository ownership cannot be declared, remain read-only until a single primary writer is chosen.
 - **Known FP exemptions** (U-32 compliance): session-scoped temp paths (`*/scratchpad/*`, `$TMPDIR`, system temp roots) are single-session-exclusive by construction — W-14 and churn skip them (`VIBEGUARD_W14_SKIP_TEMP=0` opts back in). When the current session identity is unknown, the overlap comparison is skipped entirely so prior self-writes are never misattributed as another writer.
 
 ## W-15: Low-information loop detection (strict)

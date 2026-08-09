@@ -69,8 +69,11 @@ assert_cmd "only untouched legacy skill copies are quarantined" bash -c '
   repo="$1"
   root="$2/retired-skill-migration"
   skills="$root/codex/skills"
+  actual_skills="$root/codex/actual-skills"
   quarantine="$root/vibeguard/retired-codex-skills"
   source "$repo/scripts/setup/lib.sh"
+  mkdir -p "$actual_skills"
+  ln -s "$actual_skills" "$skills"
   official="official legacy skill"
   for name in implx specrail-implement specrail-workflow specrail-install specrail-pr-gate; do
     mkdir -p "$skills/$name"
@@ -89,6 +92,7 @@ assert_cmd "only untouched legacy skill copies are quarantined" bash -c '
   printf "earlier backup\n" > "$quarantine/implx/SKILL.md"
 
   retire_legacy_codex_skills "$skills" "$quarantine"
+  test -L "$skills"
   test ! -e "$skills/implx"
   test "$(cat "$quarantine/implx.1/SKILL.md")" = "$official"
   test "$(cat "$skills/specrail-implement/SKILL.md")" = "user edit"

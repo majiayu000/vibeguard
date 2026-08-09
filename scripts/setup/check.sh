@@ -663,13 +663,6 @@ run_legacy_checks() {
     fi
   fi
 
-  # Check AUTO_RUN_AGENT_DIR
-  if [[ -n "${AUTO_RUN_AGENT_DIR:-}" ]] && [[ -d "${AUTO_RUN_AGENT_DIR}" ]]; then
-    green "[OK] AUTO_RUN_AGENT_DIR=${AUTO_RUN_AGENT_DIR}"
-  else
-    yellow "[INFO] AUTO_RUN_AGENT_DIR not set (auto-optimize Phase 4 requires it)"
-  fi
-
   # Check ast-grep (required by TS and Rust AST-level guards)
   if command -v ast-grep >/dev/null 2>&1; then
     green "[OK] ast-grep: $(ast-grep --version 2>/dev/null | head -1)"

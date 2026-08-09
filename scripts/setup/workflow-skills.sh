@@ -22,12 +22,17 @@ retired_codex_skill_hash() {
 }
 
 retire_legacy_codex_skills() {
-  local skills_dir="$1" quarantine_dir="$2"
+  local skills_dir="$1" quarantine_dir="$2" resolved_skills_dir
   [[ ! -e "${skills_dir}" && ! -L "${skills_dir}" ]] && return 0
-  if [[ -L "${skills_dir}" || ! -d "${skills_dir}" ]]; then
+  if [[ ! -d "${skills_dir}" ]]; then
     red "  ERROR: Codex skills root is not a real directory: ${skills_dir}"
     return 1
   fi
+  if ! resolved_skills_dir="$(cd "${skills_dir}" && pwd -P)"; then
+    red "  ERROR: cannot resolve Codex skills root: ${skills_dir}"
+    return 1
+  fi
+  skills_dir="${resolved_skills_dir}"
   if [[ -L "${quarantine_dir}" || ( -e "${quarantine_dir}" && ! -d "${quarantine_dir}" ) ]]; then
     red "  ERROR: retired Codex skill quarantine is not a real directory: ${quarantine_dir}"
     return 1

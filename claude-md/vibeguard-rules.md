@@ -76,7 +76,7 @@ Security > Logic > Data Splitting > Repeating Types > Unwrap > Naming
 | W-02 | Strict | After 3 consecutive failed fixes on the same problem, stop and challenge the hypothesis or architecture. |
 | W-03 | Strict | Verify before claiming completion: produce fresh command output proving the claim. |
 | W-12 | Strict | Protect test integrity: fix production code, never weaken assertions or tamper with test infrastructure. |
-| W-14 | Strict | Parallel agents must have explicit, disjoint file ownership; no shared writable file. |
+| W-14 | Strict | At most one writable session may operate on a repository; parallel helpers must remain read-only. |
 | W-16 | Strict | Verification commands must come from this session. "Earlier passed" / "should work" do not count. |
 | SEC-01 | Critical | No SQL / NoSQL / OS command injection: use parameterized queries and array argument lists. |
 | SEC-02 | Critical | No hardcoded keys, credentials, or API tokens. Load from env / secret manager. |

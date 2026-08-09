@@ -99,10 +99,11 @@ No routing packet, runtime snapshot, or execution handoff is required. Ask a foc
    - Record the current number of violations as a baseline (cannot be increased after modification)
    - Output: `Guard Baseline`
 
-   **[Stop] Displays baseline data and waits for user confirmation before generating a constraint set. **
+   **[Conditional stop] Ask before generating a constraint set only when a `[UNCLEAR]` item exists or the user requested a planning checkpoint.**
    - Show all findings from steps 1-4
-   - Use AskUserQuestion to let users confirm that baseline data and project understanding are correct
-   - If there is a `[UNCLEAR]` item, it must be confirmed with an AskUserQuestion here
+   - If the user requested a checkpoint, ask them to confirm the baseline and project understanding
+   - If there is a `[UNCLEAR]` item, confirm it with AskUserQuestion here
+   - Otherwise continue directly to the constraint set
 
 5. **Generate constraint set**
 
@@ -154,10 +155,10 @@ No routing packet, runtime snapshot, or execution handoff is required. Ask a foc
    - [UNCLEAR] ...
    ```
 
-7. **User Confirmation**
+7. **Conditional User Confirmation**
    - Show the complete constraint set
-   - Confirm `[UNCLEAR]` item with AskUserQuestion
-   - After user confirmation, the constraints are integrated into hard constraints for subsequent coding
+   - Use AskUserQuestion only for a remaining `[UNCLEAR]` item or a user-requested checkpoint
+   - Otherwise integrate the constraints directly into subsequent coding
 
 **Follow-up use**
 - During the coding process, self-check against the constraint set before each modification

@@ -6,7 +6,7 @@ Agent harness evaluation must audit the trajectory, not only final task completi
 **Sources** (2026-05):
 - arXiv:2605.14271, "Auditing Agent Harness Safety" — evaluates agent harnesses across tasks, domains, frameworks, and frontier models, and defines boundary compliance, execution fidelity, and system stability as separate audit axes.
 - W-18 baseline: output-only evaluation misses tool, step, and confidence failures.
-- W-14 baseline: parallel agents need explicit ownership; W-30 extends that concern to information flow and resource boundaries.
+- W-14 baseline: one repository has one writable session; W-30 extends that concern to information flow and resource boundaries for read-only helpers.
 - W-12 baseline: an eval that ignores trajectory violations is a weakened safety gate.
 
 **Required audit axes (strict)**:
@@ -18,7 +18,7 @@ Agent harness evaluation must audit the trajectory, not only final task completi
 **Mechanical checks (agent execution rules)**:
 - Reject agent harness eval reports that claim safety or readiness without all applicable audit axes.
 - Per-step logs must include at least: declared scope, declared plan step or replan id, actual action, resource touched, tool result status, and violation classification.
-- Multi-agent harnesses must include an information-flow log before they can claim W-14-style isolation or safe delegation.
+- Multi-agent harnesses must keep helpers read-only and include an information-flow log before they can claim W-14-style isolation or safe delegation.
 - If violation counts grow with trajectory length, the release must treat that as a stability failure even when short runs pass.
 
 **Downgrade path**:

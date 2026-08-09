@@ -27,7 +27,10 @@ An ExecPlan records:
 It does not require a routing object, fixed handoff fields, or delegation lanes.
 Because an ExecPlan is cross-session work, it must record the W-20 snapshot for
 the runtime, tools, and loaded rules. Ordinary one-session tasks do not create
-this snapshot.
+this snapshot. During `init`, write the tool inventory and run
+`bash guards/universal/check_runtime_drift.sh snapshot`; store both resulting
+paths in the ExecPlan Context section. Resume runs the same guard in `check`
+mode and stops on drift.
 
 ## Resume
 

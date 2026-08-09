@@ -53,6 +53,11 @@ Generate ExecPlan files from SPEC.
    - Check if there is a preflight constraint set to reference
    - Document existing code locations related to SPEC
 
+3.5. **Capture the W-20 execution snapshot**
+   - Write the active runtime, model, tool/MCP/skill names, and stable description hashes to `.vibeguard/execplan/<task>-tool-inventory.txt`; each non-comment line must be `<kind> <name> <description_sha256>`
+   - Run `bash guards/universal/check_runtime_drift.sh snapshot --snapshot .vibeguard/execplan/<task>-runtime.snapshot --tool-inventory .vibeguard/execplan/<task>-tool-inventory.txt`
+   - Stop if the inventory or snapshot cannot be created; do not generate a resumable ExecPlan without them
+
 4. **Generate ExecPlan**
    - Populate 8 chapters by template (`workflows/plan-flow/references/execplan-template.md`)
    - Purpose extracted directly from the SPEC overview
@@ -61,6 +66,7 @@ Generate ExecPlan files from SPEC.
    - **Nyquist Rule**: Each Step must contain the `verify_cmd` field - a verification command that can be executed within 60 seconds (such as `cargo test --lib`, `curl localhost:8080/health`). Steps that cannot be verified within 60s are marked as `unverifiable` and need to be split or supplemented with verification methods.
    - Validation converted from SPEC acceptance criteria (AC-XX)
    - Decision Log is initially empty and records the selection decisions during generation.
+   - Record the W-20 snapshot and tool-inventory paths in Context.
 
 5. **Save and Confirm**
    - Save to `<project name>-execplan.md` (project root directory)
@@ -77,6 +83,8 @@ Appends discoveries and status changes during execution.
 
 1. **Read ExecPlan**
    - Read the ExecPlan file specified by $ARGUMENTS
+   - Run `bash guards/universal/check_runtime_drift.sh check --snapshot <recorded snapshot> --tool-inventory <recorded tool inventory>` before reporting resumable status
+   - If drift is detected, show it and stop for a human decision
    - Parse the current Progress and Concrete Steps status
 
 2. **Identify update type**
@@ -112,6 +120,8 @@ View a summary of execution progress.
 
 1. **Read ExecPlan**
    - Read the ExecPlan file specified by $ARGUMENTS
+   - Run `bash guards/universal/check_runtime_drift.sh check --snapshot <recorded snapshot> --tool-inventory <recorded tool inventory>` before reporting resumable status
+   - If drift is detected, show it and stop for a human decision
 
 2. **Output progress report**
    ```
