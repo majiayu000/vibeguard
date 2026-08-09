@@ -44,6 +44,7 @@ check "build-payload.sh succeeds" "${rc}"
 PAYLOAD_ASSET="vibeguard-payload-${VERSION}.tar.gz"
 rc=0; [[ -f "${WORK}/release-assets/${PAYLOAD_ASSET}" ]] || rc=1
 check "payload archive exists" "${rc}"
+cp "${REPO_DIR}/install.sh" "${WORK}/release-assets/install.sh"
 
 header "prepare runtime fixture"
 
@@ -94,10 +95,15 @@ while [[ $# -gt 0 ]]; do
   fi
   shift
 done
-[[ -n "${dest}" && -n "${VIBEGUARD_TEST_RELEASE_DIR:-}" ]] || exit 1
+[[ -n "${VIBEGUARD_TEST_RELEASE_DIR:-}" ]] || exit 1
 basename="$(basename "${url}")"
 [[ -f "${VIBEGUARD_TEST_RELEASE_DIR}/${basename}" ]] || exit 1
-cp "${VIBEGUARD_TEST_RELEASE_DIR}/${basename}" "${dest}"
+if [[ -z "${dest}" ]]; then
+  [[ "${VIBEGUARD_TEST_FAIL_STDOUT_DOWNLOAD:-0}" != "1" ]] || exit 22
+  command cat "${VIBEGUARD_TEST_RELEASE_DIR}/${basename}"
+else
+  cp "${VIBEGUARD_TEST_RELEASE_DIR}/${basename}" "${dest}"
+fi
 SH
 chmod +x "${WORK}/fake-bin/curl"
 
@@ -160,7 +166,9 @@ install_out="$(
       PATH="${WORK}/fake-bin:${PATH}" \
       VIBEGUARD_TEST_RELEASE_DIR="${WORK}/release-assets" \
       VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
-      bash "${REPO_DIR}/install.sh" --version "${VERSION}" 2>&1
+      bash -o pipefail -c \
+        'curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- --version "$1"' \
+        _ "${VERSION}" 2>&1
 )" || rc=$?
 rc=${rc:-0}
 if [[ "${rc}" -ne 0 ]]; then
@@ -175,6 +183,20 @@ check "installed runtime binary exists" "${rc}"
 rc=0
 [[ -L "${TEST_HOME}/.vibeguard/dist/current" ]] || rc=1
 check "verified payload is persisted under dist/current" "${rc}"
+
+doctor_rc=0
+doctor_out="$(
+  cd "${REPO_DIR}" \
+    && HOME="${TEST_HOME}" \
+      PATH="${WORK}/fake-bin:${PATH}" \
+      VIBEGUARD_TEST_RELEASE_DIR="${WORK}/release-assets" \
+      VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
+      bash "${REPO_DIR}/install.sh" --version "${VERSION}" -- doctor --json 2>&1
+)" || doctor_rc=$?
+if [[ "${doctor_rc}" -ne 0 ]]; then
+  printf '%s\n' "${doctor_out}" >&2
+fi
+check "forwarded doctor command preserves dispatcher position" "${doctor_rc}"
 
 header "dry-run and provenance boundaries"
 
@@ -218,6 +240,33 @@ check "required provenance failure stops the installer" "${rc}"
 rc=0
 [[ ! -e "${PROVENANCE_HOME}/.vibeguard" ]] || rc=1
 check "provenance failure creates no VibeGuard state" "${rc}"
+
+PIPE_FAIL_HOME="${WORK}/pipe-fail-home"
+mkdir -p "${PIPE_FAIL_HOME}"
+pipe_fail_rc=0
+pipe_fail_out="$(
+  cd "${REPO_DIR}" \
+    && HOME="${PIPE_FAIL_HOME}" \
+      PATH="${WORK}/fake-bin:${PATH}" \
+      VIBEGUARD_TEST_FAIL_STDOUT_DOWNLOAD=1 \
+      VIBEGUARD_TEST_RELEASE_DIR="${WORK}/release-assets" \
+      VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
+      bash -o pipefail -c \
+        'curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- --version "$1"' \
+        _ "${VERSION}" 2>&1
+)" || pipe_fail_rc=$?
+rc=0
+[[ "${pipe_fail_rc}" -ne 0 ]] || rc=1
+check "published pipefail form reports installer download failure" "${rc}"
+
+network_rows_before="$(wc -l < "${NETWORK_SENTINEL}" | tr -d '[:space:]')"
+invalid_version_rc=0
+bash "${REPO_DIR}/install.sh" --version '1.2.3+bad..meta' >/dev/null 2>&1 \
+  || invalid_version_rc=$?
+network_rows_after="$(wc -l < "${NETWORK_SENTINEL}" | tr -d '[:space:]')"
+rc=0
+[[ "${invalid_version_rc}" -eq 64 && "${network_rows_before}" == "${network_rows_after}" ]] || rc=1
+check "malformed build metadata fails before network access" "${rc}"
 
 set +e
 printf '\nResults: %d passed, %d failed, %d total\n' "${PASS}" "${FAIL}" "${TOTAL}"

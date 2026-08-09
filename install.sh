@@ -38,20 +38,27 @@ USAGE
 }
 
 validate_version() {
-  local value="$1" core_and_prerelease core prerelease identifier
+  local value="$1"
+  local core_and_prerelease="${value}"
+  local core prerelease="" build="" identifier
   local -a identifiers=()
 
-  [[ -n "${value}" && "${value}" != *[[:space:]]* ]] || return 1
-  core_and_prerelease="${value%%+*}"
-  [[ "${value}" != *+* || -n "${value#*+}" ]] || return 1
+  if [[ "${core_and_prerelease}" == *+* ]]; then
+    build="${core_and_prerelease#*+}"
+    core_and_prerelease="${core_and_prerelease%%+*}"
+    [[ "${build}" != *+* ]] || return 1
+    [[ "${build}" =~ ^[0-9A-Za-z-]+([.][0-9A-Za-z-]+)*$ ]] || return 1
+  fi
   if [[ "${core_and_prerelease}" == *-* ]]; then
     core="${core_and_prerelease%%-*}"
     prerelease="${core_and_prerelease#*-}"
-    [[ -n "${prerelease}" ]] || return 1
+    [[ "${prerelease}" =~ ^[0-9A-Za-z-]+([.][0-9A-Za-z-]+)*$ ]] || return 1
     IFS='.' read -r -a identifiers <<< "${prerelease}"
     for identifier in "${identifiers[@]}"; do
-      [[ -n "${identifier}" && "${identifier}" =~ ^[0-9A-Za-z-]+$ ]] || return 1
-      [[ ! "${identifier}" =~ ^0[0-9]+$ ]] || return 1
+      if [[ "${identifier}" =~ ^[0-9]+$ \
+        && "${identifier}" == 0* && "${identifier}" != "0" ]]; then
+        return 1
+      fi
     done
   else
     core="${core_and_prerelease}"
@@ -212,9 +219,20 @@ if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
 fi
 extract_bootstrap_seed "${ARCHIVE}" "${SEED_ROOT}"
 
+case "${SETUP_ARGS[0]:-}" in
+  install)
+    SETUP_ARGS=(install --yes "${SETUP_ARGS[@]:1}")
+    ;;
+  doctor|verify-install|verify-project|verify-dev-repo|--check|--clean|--codex-status|packs|demo|--help|-h|help)
+    ;;
+  *)
+    SETUP_ARGS=(--yes "${SETUP_ARGS[@]}")
+    ;;
+esac
+
 bootstrap_args=(--version "${VERSION}")
 if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
   bootstrap_args+=(--require-provenance)
 fi
-bootstrap_args+=(-- --yes "${SETUP_ARGS[@]}")
+bootstrap_args+=(-- "${SETUP_ARGS[@]}")
 bash "${SEED_ROOT}/scripts/setup/bootstrap.sh" "${bootstrap_args[@]}"

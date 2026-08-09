@@ -335,14 +335,14 @@ release payload, verifies its checksum, and delegates to the canonical
 no-clone bootstrap contained in that verified payload:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- --version 1.1.13
+bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- --version 1.1.13'
 ```
 
 Require GitHub release attestation verification and forward `setup.sh` options
 after the second `--`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- --version 1.1.13 --require-provenance -- --profile full --with-scheduler
+bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- --version 1.1.13 --require-provenance -- --profile full --with-scheduler'
 ```
 
 Then verify:
