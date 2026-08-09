@@ -40,7 +40,6 @@ export PYTHONPATH="${REPO_DIR}/scripts/lib:${PYTHONPATH:-}"
 header "shared helper syntax"
 assert_cmd "file_ops.py syntax is correct" python3 -m py_compile "${REPO_DIR}/scripts/lib/file_ops.py"
 assert_cmd "hook_config_model.py syntax is correct" python3 -m py_compile "${REPO_DIR}/scripts/lib/hook_config_model.py"
-assert_cmd "retired Codex skill helper syntax is correct" python3 -m py_compile "${REPO_DIR}/scripts/setup/retire_codex_skills.py"
 assert_cmd "shared setup primitives are declared" bash -c "
   source '${REPO_DIR}/scripts/setup/lib.sh'
   declare -F install_manifest_skills install_context_profiles inject_vibeguard_rules retire_legacy_codex_skills >/dev/null
@@ -65,56 +64,38 @@ assert sha256_file(text_path) == "edeaaff3f1774ad2888673770c6d64097e391bc362d7d6
 PY
 
 header "retired Codex skill migration"
-assert_cmd "only untouched legacy skill copies are quarantined" python3 - <<'PY' "${REPO_DIR}" "${TMP_DIR}"
-import hashlib
-import importlib.util
-import sys
-from pathlib import Path
+assert_cmd "only untouched legacy skill copies are quarantined" bash -c '
+  set -euo pipefail
+  repo="$1"
+  root="$2/retired-skill-migration"
+  skills="$root/codex/skills"
+  quarantine="$root/vibeguard/retired-codex-skills"
+  source "$repo/scripts/setup/lib.sh"
+  official="official legacy skill"
+  for name in implx specrail-implement specrail-workflow specrail-install specrail-pr-gate; do
+    mkdir -p "$skills/$name"
+    printf "%s\n" "$official" > "$skills/$name/SKILL.md"
+  done
+  digest="$(setup_runtime_sha256_file "$skills/implx/SKILL.md")"
+  retired_codex_skill_hash() { printf "%s\n" "$digest"; }
+  printf "user edit\n" > "$skills/specrail-implement/SKILL.md"
+  printf "user file\n" > "$skills/specrail-workflow/notes.md"
+  mv "$skills/specrail-install" "$skills/specrail-install-source"
+  ln -s "$skills/specrail-install-source" "$skills/specrail-install"
+  unlink "$skills/specrail-pr-gate/SKILL.md"
+  rmdir "$skills/specrail-pr-gate"
+  printf "user-owned\n" > "$skills/specrail-pr-gate"
+  mkdir -p "$quarantine/implx"
+  printf "earlier backup\n" > "$quarantine/implx/SKILL.md"
 
-repo = Path(sys.argv[1])
-root = Path(sys.argv[2]) / "retired-skill-migration"
-skills = root / "codex" / "skills"
-quarantine = root / "vibeguard" / "retired-codex-skills"
-official = b"official legacy skill\n"
-digest = hashlib.sha256(official).hexdigest()
-
-spec = importlib.util.spec_from_file_location(
-    "retire_codex_skills", repo / "scripts/setup/retire_codex_skills.py"
-)
-module = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-spec.loader.exec_module(module)
-module.RETIRED_SKILL_HASHES = {
-    "implx": digest,
-    "specrail-implement": digest,
-    "specrail-workflow": digest,
-    "specrail-install": digest,
-    "specrail-pr-gate": digest,
-}
-
-for name in module.RETIRED_SKILL_HASHES:
-    (skills / name).mkdir(parents=True)
-    (skills / name / "SKILL.md").write_bytes(official)
-(skills / "specrail-implement" / "SKILL.md").write_text("user edit\n", encoding="utf-8")
-(skills / "specrail-workflow" / "notes.md").write_text("user file\n", encoding="utf-8")
-(skills / "specrail-install").rename(skills / "specrail-install-source")
-(skills / "specrail-install").symlink_to(skills / "specrail-install-source", target_is_directory=True)
-(skills / "specrail-pr-gate" / "SKILL.md").unlink()
-(skills / "specrail-pr-gate").rmdir()
-(skills / "specrail-pr-gate").write_text("user-owned\n", encoding="utf-8")
-quarantine.mkdir(parents=True)
-(quarantine / "implx").mkdir()
-(quarantine / "implx" / "SKILL.md").write_text("earlier backup\n", encoding="utf-8")
-
-retired, preserved = module.retire_codex_skills(skills, quarantine)
-assert (retired, preserved) == (1, 4)
-assert not (skills / "implx").exists()
-assert (quarantine / "implx.1" / "SKILL.md").read_bytes() == official
-assert (skills / "specrail-implement" / "SKILL.md").read_text() == "user edit\n"
-assert (skills / "specrail-workflow" / "notes.md").is_file()
-assert (skills / "specrail-install").is_symlink()
-assert (skills / "specrail-pr-gate").read_text() == "user-owned\n"
-PY
+  retire_legacy_codex_skills "$skills" "$quarantine"
+  test ! -e "$skills/implx"
+  test "$(cat "$quarantine/implx.1/SKILL.md")" = "$official"
+  test "$(cat "$skills/specrail-implement/SKILL.md")" = "user edit"
+  test -f "$skills/specrail-workflow/notes.md"
+  test -L "$skills/specrail-install"
+  test "$(cat "$skills/specrail-pr-gate")" = "user-owned"
+' _ "${REPO_DIR}" "${TMP_DIR}"
 
 assert_cmd "Codex setup retires legacy skills before installing active skills" python3 - <<'PY' "${REPO_DIR}"
 from pathlib import Path

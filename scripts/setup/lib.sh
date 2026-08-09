@@ -567,13 +567,6 @@ cleanup_retired_manifest_skill_links() {
   done < <(state_list_tracked_symlinks_under "${dest_dir}")
 }
 
-retire_legacy_codex_skills() {
-  local skills_dir="$1" quarantine_dir="$2"
-  python3 "${REPO_DIR}/scripts/setup/retire_codex_skills.py" \
-    --skills-dir "${skills_dir}" \
-    --quarantine-dir "${quarantine_dir}"
-}
-
 # shellcheck source=workflow-skills.sh
 source "${REPO_DIR}/scripts/setup/workflow-skills.sh"
 # shellcheck source=bootstrap_identity.sh

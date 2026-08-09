@@ -50,7 +50,6 @@ grep -qx 'vibeguard-runtime/VERSION' "${MANIFEST}" || rc=1
 grep -qx 'hooks' "${MANIFEST}" || rc=1
 grep -qx 'rules' "${MANIFEST}" || rc=1
 grep -qx 'scripts/setup/install.sh' "${MANIFEST}" || rc=1
-grep -qx 'scripts/setup/retire_codex_skills.py' "${MANIFEST}" || rc=1
 grep -qx 'scripts/setup/bootstrap.sh' "${MANIFEST}" || rc=1
 grep -qx 'scripts/setup/bootstrap-lib.sh' "${MANIFEST}" || rc=1
 grep -qx 'scripts/lib/install-state.sh' "${MANIFEST}" || rc=1
@@ -189,7 +188,6 @@ for required in \
   scripts/setup/bootstrap.sh \
   scripts/setup/bootstrap-lib.sh \
   scripts/setup/install.sh \
-  scripts/setup/retire_codex_skills.py \
   scripts/lib/install-state.sh \
   scripts/release/payload-manifest.txt; do
   [[ -e "${WORK}/unpacked/${required}" ]] || { echo "missing: ${required}" >&2; rc=1; }

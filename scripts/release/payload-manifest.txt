@@ -57,7 +57,6 @@ scripts/setup/com.vibeguard.gc.plist
 scripts/setup/guard-packs.sh
 scripts/setup/install.sh
 scripts/setup/lib.sh
-scripts/setup/retire_codex_skills.py
 scripts/setup/runtime-clean-pin.sh
 scripts/setup/runtime-install.sh
 scripts/setup/runtime_config_health.sh
