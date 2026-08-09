@@ -149,7 +149,7 @@ fi
 check "install.sh completes with a local release payload" "${rc}"
 
 rc=0
-[[ -f "${WORK}/home/.vibeguard/installed/bin/vibeguard-runtime" ]] || rc=1
+[[ -f "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" ]] || rc=1
 check "installed runtime binary exists" "${rc}"
 
 set +e
