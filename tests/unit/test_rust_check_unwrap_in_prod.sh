@@ -40,6 +40,19 @@ assert_output_not_contains() {
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
+# Build a minimal PATH that deliberately omits ast-grep so the supported awk
+# fallback is exercised even on developer machines that have ast-grep installed.
+fallback_bin="${tmpdir}/fallback-bin"
+mkdir -p "$fallback_bin"
+for command_name in awk cat cp dirname find git grep head mktemp rm sed tr wc; do
+  command_path="$(command -v "$command_name")"
+  ln -s "$command_path" "${fallback_bin}/${command_name}"
+done
+
+run_guard_without_ast_grep() {
+  env PATH="$fallback_bin" /bin/bash "$GUARD" "$@"
+}
+
 runtime_wrapper="${tmpdir}/runtime-wrapper"
 cat > "$runtime_wrapper" <<'EOF'
 #!/usr/bin/env bash
@@ -242,6 +255,150 @@ run_staged_guard() {
 assert_fail "staged production unwrap remains visible" run_staged_guard
 assert_output_contains "staged output contains foo.rs" "src/foo.rs" run_staged_guard
 assert_output_not_contains "staged output excludes foo_tests.rs" "foo_tests.rs" run_staged_guard
+
+# --- PASS: raw string with unbalanced braces does not end `mod tests` early ---
+# Regression: _count_braces used to strip only ordinary string literals, so a
+# raw-string JSON/regex fixture inside `mod tests` skewed the brace depth to
+# zero and every following test line was reported as production code.
+proj5f="${tmpdir}/raw_string_mod_tests"
+mkdir -p "${proj5f}/src"
+cat > "${proj5f}/src/config.rs" <<'EOF'
+pub fn load() -> Option<String> {
+    Some(String::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn helper<'a>() -> &'a str {
+        let _closing_brace = '\u{7d}';
+        "lifetime braces must remain structural"
+    }
+
+    #[test]
+    fn parses_hook_config() {
+        let raw = r#"{"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"command":"jq '.hookSpecificOutput.updatedToolOutput=\"ok\"'"}]}]}}"#;
+        assert!(!raw.is_empty());
+    }
+
+    #[test]
+    fn parses_multiline_fixture() {
+        let raw = br##"
+}}}
+"##;
+        assert!(!raw.is_empty());
+        assert!(!helper().is_empty());
+    }
+
+    #[test]
+    fn parses_multiline_c_fixture() {
+        let raw = cr##"
+}}}
+"##;
+        assert!(!raw.is_empty());
+    }
+
+    #[test]
+    fn uses_temp_root() {
+        let root = std::env::var("HOME").expect("test root");
+        assert!(!root.is_empty());
+    }
+
+    #[test]
+    fn uses_unwrap_after_raw_string() {
+        let value: Option<i32> = Some(1);
+        assert_eq!(value.unwrap(), 1);
+    }
+}
+EOF
+assert_ok "raw string in mod tests keeps later test lines ignored" \
+  bash "$GUARD" --strict "$proj5f"
+assert_output_not_contains "no RS-03 finding for config.rs test body" "config.rs" \
+  bash "$GUARD" --strict "$proj5f"
+assert_ok "raw string fixture passes without ast-grep" \
+  run_guard_without_ast_grep --strict "$proj5f"
+assert_output_not_contains "awk fallback excludes config.rs test body" "config.rs" \
+  run_guard_without_ast_grep --strict "$proj5f"
+
+# --- STAGED: same regression through the pre-commit diff path ---
+proj5g="${tmpdir}/staged_raw_string"
+mkdir -p "${proj5g}/src"
+git -C "$proj5g" init -q
+git -C "$proj5g" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj5g" config user.name "VibeGuard Tests"
+cp "${proj5f}/src/config.rs" "${proj5g}/src/config.rs"
+git -C "$proj5g" add src/config.rs
+staged_raw_files="${proj5g}/staged-files"
+printf '%s\n' "src/config.rs" > "$staged_raw_files"
+run_staged_raw_guard() {
+  (
+    cd "$proj5g"
+    env \
+      VIBEGUARD_STAGED_FILES="$staged_raw_files" \
+      bash "$GUARD" --strict "$proj5g"
+  )
+}
+assert_ok "staged raw string in mod tests produces no RS-03" run_staged_raw_guard
+assert_output_not_contains "staged output excludes config.rs test body" "config.rs" \
+  run_staged_raw_guard
+
+# --- FAIL: comment/string lexer state must not hide later production code ---
+proj5h="${tmpdir}/multiline_lexer_state"
+mkdir -p "${proj5h}/src"
+cat > "${proj5h}/src/block_comment.rs" <<'EOF'
+#[cfg(test)]
+mod tests {
+    /* Outer { comment /* mentions unmatched r#" */ and closes here. */
+}
+
+fn production() { let _ = Some(1).unwrap(); }
+EOF
+cat > "${proj5h}/src/multiline_string.rs" <<'EOF'
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn accepts_multiline_string() {
+        let text = "first line {
+second line"; }
+}
+
+fn production() { let _ = Some(1).expect("production finding"); }
+EOF
+assert_fail "block comments and multiline strings keep production findings visible" \
+  bash "$GUARD" --strict "$proj5h"
+assert_output_contains "block-comment raw prefix does not hide production" \
+  "block_comment.rs" bash "$GUARD" --strict "$proj5h"
+assert_output_contains "multiline ordinary string does not hide production" \
+  "multiline_string.rs" bash "$GUARD" --strict "$proj5h"
+assert_fail "awk fallback keeps production findings visible" \
+  run_guard_without_ast_grep --strict "$proj5h"
+assert_output_contains "awk fallback keeps block-comment production visible" \
+  "block_comment.rs" run_guard_without_ast_grep --strict "$proj5h"
+assert_output_contains "awk fallback keeps multiline-string production visible" \
+  "multiline_string.rs" run_guard_without_ast_grep --strict "$proj5h"
+
+# --- STAGED: the same lexer-state regressions must not bypass pre-commit ---
+git -C "$proj5h" init -q
+git -C "$proj5h" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj5h" config user.name "VibeGuard Tests"
+git -C "$proj5h" add src/block_comment.rs src/multiline_string.rs
+staged_lexer_files="${proj5h}/staged-files"
+printf '%s\n' "src/block_comment.rs" "src/multiline_string.rs" > "$staged_lexer_files"
+run_staged_lexer_guard() {
+  (
+    cd "$proj5h"
+    env \
+      VIBEGUARD_STAGED_FILES="$staged_lexer_files" \
+      bash "$GUARD" --strict "$proj5h"
+  )
+}
+assert_fail "staged lexer state keeps production findings visible" \
+  run_staged_lexer_guard
+assert_output_contains "staged block-comment case remains visible" \
+  "block_comment.rs" run_staged_lexer_guard
+assert_output_contains "staged multiline-string case remains visible" \
+  "multiline_string.rs" run_staged_lexer_guard
 
 # --- PASS: empty project (no .rs files) ---
 proj6="${tmpdir}/pass_empty"
