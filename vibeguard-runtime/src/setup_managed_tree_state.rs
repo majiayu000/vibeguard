@@ -1,11 +1,11 @@
 use crate::setup_install_state::{
     ensure_state_version, expand_home, read_state, setup_absolute_path,
 };
-use crate::setup_support::{SetupResult, sha256_file, sha256_text, write_json_atomic};
+use crate::setup_support::{SetupResult, home_dir, sha256_file, sha256_text, write_json_atomic};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use super::{TRANSACTION_VERSION, absolute, valid_digest, valid_text};
 
@@ -326,6 +326,92 @@ pub(crate) fn intent_quarantine_for_dest(dest: &Path) -> SetupResult<Option<Path
         }
     }
     Ok(found)
+}
+
+/// Recover the locator that would have been published immediately after an
+/// intent rename. A later manifest may no longer enumerate the skill, so the
+/// install loop cannot be relied on to revisit its public destination. Only an
+/// intent whose hidden tree is an exact match for this state's tracked
+/// inventory is eligible for carry.
+pub(crate) fn orphan_intent_records(state: &Value) -> SetupResult<Map<String, Value>> {
+    let Some(home) = home_dir() else {
+        return Ok(Map::new());
+    };
+    let directory = setup_absolute_path(&home.join(".codex/skills"));
+    match fs::symlink_metadata(&directory) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Map::new()),
+        Err(error) => return Err(error.into()),
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err("managed-tree transaction root must be a directory or absent".into());
+        }
+        Ok(_) => {}
+    }
+    let active = state
+        .get("disabled_skill_quarantines")
+        .and_then(Value::as_object);
+    let mut records = Map::new();
+    for entry in fs::read_dir(&directory)? {
+        let path = entry?.path();
+        let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let Some((name, nonce)) = file_name
+            .strip_prefix('.')
+            .and_then(|value| value.strip_suffix(".json"))
+            .and_then(|value| value.rsplit_once(".vibeguard-transaction."))
+        else {
+            continue;
+        };
+        if name.is_empty() || nonce.is_empty() {
+            continue;
+        }
+        let mut components = Path::new(name).components();
+        if !matches!(
+            (components.next(), components.next()),
+            (Some(Component::Normal(_)), None)
+        ) {
+            return Err(format!(
+                "managed-tree transaction name must be one normal path component: {name}"
+            )
+            .into());
+        }
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(format!(
+                "managed-tree transaction path is not a regular file: {}",
+                path.display()
+            )
+            .into());
+        }
+        let transaction = super::read_transaction(&path)?;
+        if transaction.phase != "intent" {
+            continue;
+        }
+        let dest = directory.join(name);
+        super::validate_transaction(&transaction, &path, &dest, &directory, name, None)?;
+        let dest_text = super::path_text(&dest);
+        if active.is_some_and(|active| active.contains_key(&dest_text))
+            || tracked_inventory_digest(state, &dest)?.is_none()
+        {
+            continue;
+        }
+        let record = super::record_value(&transaction);
+        validate_record_artifacts(
+            &dest_text,
+            record
+                .as_object()
+                .ok_or("durable quarantine intent record must be an object")?,
+            state,
+            state,
+        )?;
+        if records
+            .insert(dest_text, record.clone())
+            .is_some_and(|previous| previous != record)
+        {
+            return Err("multiple durable quarantine intents match tracked inventory".into());
+        }
+    }
+    Ok(records)
 }
 
 pub(super) fn prune_missing_tracked_files(state_path: &Path, dest: &Path) -> SetupResult<()> {

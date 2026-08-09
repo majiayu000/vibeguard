@@ -3,7 +3,8 @@ use crate::setup_install_state::{
     validate_state_for_preflight_with_released_inventory,
 };
 use crate::setup_managed_tree_remove::{
-    tree_state::intent_quarantine_for_dest, validate_state_artifacts, validate_state_metadata,
+    tree_state::{intent_quarantine_for_dest, orphan_intent_records},
+    validate_state_artifacts, validate_state_metadata,
 };
 use crate::setup_support::{SetupResult, sha256_file};
 use serde_json::Value;
@@ -117,6 +118,9 @@ fn tracked_path(state: &Value, dest: &Path) -> SetupResult<PathBuf> {
         if dest != public && !dest.starts_with(&public) {
             continue;
         }
+        if quarantine_record_phase(record)? == "released" {
+            continue;
+        }
         let quarantine = record
             .get("quarantine")
             .and_then(Value::as_str)
@@ -136,6 +140,19 @@ fn tracked_path(state: &Value, dest: &Path) -> SetupResult<PathBuf> {
     Ok(selected.map_or(dest, |(_, path)| path))
 }
 
+fn quarantine_record_phase(record: &Value) -> SetupResult<String> {
+    let transaction = record
+        .get("transaction")
+        .and_then(Value::as_str)
+        .ok_or("quarantine locator must name a transaction")?;
+    let value: Value = serde_json::from_slice(&std::fs::read(transaction)?)?;
+    value
+        .get("phase")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| "managed-tree transaction phase must be a string".into())
+}
+
 pub(crate) fn carry_incomplete_inventory(
     existing: &Value,
     target: &mut Value,
@@ -151,11 +168,19 @@ pub(crate) fn carry_incomplete_inventory(
     // tree would be lost for good on the following install.
     let resume = existing.get("complete").and_then(Value::as_bool) == Some(false)
         && existing.get("generation").and_then(Value::as_u64) == Some(generation);
-    let records = existing
+    let mut records = existing
         .get("disabled_skill_quarantines")
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
+    for (public, record) in orphan_intent_records(existing)? {
+        if records
+            .insert(public, record.clone())
+            .is_some_and(|previous| previous != record)
+        {
+            return Err("install-state conflicts with durable quarantine intent".into());
+        }
+    }
     if records.is_empty() && !resume {
         return Ok(());
     }
