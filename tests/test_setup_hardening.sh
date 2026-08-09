@@ -116,15 +116,15 @@ assert (skills / "specrail-install").is_symlink()
 assert (skills / "specrail-pr-gate").read_text() == "user-owned\n"
 PY
 
-assert_cmd "setup invokes legacy skill migration outside dry-run" python3 - <<'PY' "${REPO_DIR}"
+assert_cmd "Codex setup retires legacy skills before installing active skills" python3 - <<'PY' "${REPO_DIR}"
 from pathlib import Path
 import sys
 
-text = (Path(sys.argv[1]) / "scripts/setup/install.sh").read_text(encoding="utf-8")
-dry_run = 'if [[ "${VIBEGUARD_SETUP_DRY_RUN}" != "1" ]]; then'
+text = (Path(sys.argv[1]) / "scripts/setup/targets/codex-home.sh").read_text(encoding="utf-8")
 call = "retire_legacy_codex_skills"
-assert dry_run in text and call in text
-assert text.index(dry_run) < text.index(call) < text.index("state_init")
+install = "install_manifest_skills"
+assert call in text and install in text
+assert text.index(call) < text.index(install)
 PY
 
 assert_cmd "vibeguard-runtime builds for install-state tests" cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet

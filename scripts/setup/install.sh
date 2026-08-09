@@ -563,9 +563,6 @@ if [[ "${VIBEGUARD_SETUP_DRY_RUN}" != "1" ]]; then
   echo "Step 1.5: Clean retired skill links"
   cleanup_retired_manifest_skill_links "~/.claude/skills/" "${CLAUDE_DIR}/skills"
   cleanup_retired_manifest_skill_links "~/.codex/skills/" "${CODEX_DIR}/skills"
-  retire_legacy_codex_skills \
-    "${CODEX_DIR}/skills" \
-    "${VIBEGUARD_HOME}/retired-codex-skills"
   echo
 fi
 # Initialize install state tracking
