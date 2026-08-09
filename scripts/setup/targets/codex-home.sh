@@ -541,11 +541,17 @@ clean_codex_home_installation() {
       ;;
   esac
 
-  local skill_links source_path skill
+  local skill_links source_path skill skill_path
   skill_links="$(manifest_skill_links_for_cleanup "~/.codex/skills/")"
   while IFS=$'\t' read -r source_path skill; do
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
-    rm -rf "${CODEX_DIR}/skills/${skill}"
+    skill_path="${CODEX_DIR}/skills/${skill}"
+    [[ -e "${skill_path}" || -L "${skill_path}" ]] || continue
+    if state_managed_tree_owned "${skill_path}" "${source_path}"; then
+      rm -rf "${skill_path}"
+    else
+      red "Refusing to clean unowned Codex skill tree: ${skill_path/#${HOME}/~}"
+    fi
   done <<< "${skill_links}"
   cleanup_retired_manifest_skill_links "~/.codex/skills/" "${CODEX_DIR}/skills"
 
