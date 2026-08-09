@@ -410,7 +410,7 @@ stage_install_snapshot() {
     return 0
   fi
   _INSTALL_TMP="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-installed_tmp_XXXXXX")"
-  trap cleanup_install_temps EXIT
+  trap cleanup_install_lifecycle EXIT
   cp -r "${REPO_DIR}/hooks" "${_INSTALL_TMP}/"
   cp -r "${REPO_DIR}/guards" "${_INSTALL_TMP}/"
   cp -r "${REPO_DIR}/rules" "${_INSTALL_TMP}/"
@@ -481,6 +481,8 @@ if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
   yellow "Dry run complete. No files were written by setup.sh --dry-run."
   exit 0
 fi
+# Staging may precede this gate; active install mutation may not.
+setup_preflight_and_lock || exit 1
 # 1. Make sure the directory exists
 echo "Step 1: Prepare directories"
 mkdir -p "${CLAUDE_DIR}"
@@ -537,7 +539,7 @@ else
 fi
 rm -rf "${_INSTALL_TMP}" 2>/dev/null || true
 _INSTALL_TMP=""
-trap - EXIT
+trap cleanup_install_lifecycle EXIT
 green "  ~/.vibeguard/installed/ hooks+guards snapshot ($(cat "${INSTALLED_DIR}/version"))"
 if [[ -f "${INSTALLED_DIR}/runtime-provenance" ]]; then
   runtime_provenance_status="$(awk -F= '$1 == "status" { print $2; exit }' "${INSTALLED_DIR}/runtime-provenance")"
@@ -767,7 +769,6 @@ fi
 echo
 inject_claude_home_rules
 inject_codex_home_rules
-
 # 11. Verification
 echo "Step 11: Verification"
 echo "=============================="
@@ -775,6 +776,7 @@ if ! bash "${SCRIPT_DIR}/check.sh" --install; then
   red "ERROR: strict install verification failed. Run 'bash setup.sh --check --install' for details."
   exit 2
 fi
+state_mark_complete
 echo
 green "Setup complete! All components installed."
 echo
@@ -791,9 +793,7 @@ echo "  VIBEGUARD_DISABLED_HOOKS=hook1,hook2           Disable project hooks"
 echo "  VIBEGUARD_GC_*                                 Project GC thresholds; see schemas/vibeguard-project.schema.json"
 echo
 echo "User runtime tuning (~/.vibeguard/config.json or env vars):"
-echo "  VIBEGUARD_WRITE_MODE=warn|block                New-source write guard mode"
-echo "  VG_U16_WARN_LIMIT / VG_U16_LIMIT               U-16 advisory and hard limits"
+printf '%s\n' "  VIBEGUARD_WRITE_MODE=warn|block                New-source write guard mode" "  VG_U16_WARN_LIMIT / VG_U16_LIMIT               U-16 advisory and hard limits" "  VIBEGUARD_DISABLED_SKILLS=plan-flow,fixflow     Temporary Codex managed-skill override"
 echo
-echo "Git Hooks:"
-echo "Automatically installed to VibeGuard repository (pre-commit + pre-push)"
-echo "Other projects: bash scripts/project-init.sh <project_dir>"
+printf '%s\n' "Git Hooks:" "Automatically installed to VibeGuard repository (pre-commit + pre-push)" "Other projects: bash scripts/project-init.sh <project_dir>"
+setup_lock_release

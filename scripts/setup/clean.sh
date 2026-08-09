@@ -27,6 +27,20 @@ USAGE
   esac
 done
 
+cleanup_clean_lifecycle() {
+  local status=0
+  # Releasing the canonical lock runs the runtime, and clean_vibeguard_home may
+  # already have deleted the installed binary, so the pinned copy has to outlive
+  # the release. Swallowing a failed release would leave ~/.vibeguard/setup.lock
+  # behind and block every later install and clean.
+  if ! setup_lock_release; then
+    red "ERROR: failed to release the VibeGuard setup lock; remove it before retrying"
+    status=1
+  fi
+  setup_runtime_bootstrap_cleanup
+  return "${status}"
+}
+
 clean_abs_path() {
   local path="$1" base_dir="${2:-}" path_dir path_base
   if [[ "${path}" != /* ]]; then
@@ -399,6 +413,15 @@ if ! ensure_setup_runtime_available >/dev/null 2>&1; then
   red "ERROR: vibeguard-runtime is required to safely remove managed high-context files"
   exit 1
 fi
+if ! pin_setup_runtime_for_clean; then
+  red "ERROR: failed to preserve vibeguard-runtime for the full clean lifecycle"
+  exit 1
+fi
+if ! setup_lock_acquire; then
+  exit 1
+fi
+trap cleanup_clean_lifecycle EXIT
+state_prepare_clean
 
 clean_repo_git_hooks
 clean_tracked_project_git_hooks
@@ -409,6 +432,11 @@ clean_scheduled_gc
 
 # Remove install state
 state_clean
-yellow "Removed install state"
+if [[ "${_VG_STATE_CLEAN_RESULT:-}" == "RETAINED" ]]; then
+  yellow "Retained install state for ${_VG_STATE_CLEAN_QUARANTINE_COUNT} disabled-skill quarantine(s): ${STATE_FILE}"
+else
+  yellow "Removed install state"
+fi
 
+setup_lock_release
 green "VibeGuard cleaned."

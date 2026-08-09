@@ -19,6 +19,8 @@ check_file() {
 
 check_file "${REPO_DIR}/tests/test_hooks.sh" 100
 check_file "${REPO_DIR}/tests/test_self_application_ci.sh" 399
+check_file "${REPO_DIR}/scripts/setup/lib.sh" 800
+check_file "${REPO_DIR}/scripts/setup/runtime-clean-pin.sh" 200
 
 for file in "${REPO_DIR}"/tests/hooks/*.sh; do
   [[ -f "${file}" ]] || continue

@@ -474,6 +474,8 @@ cp "${REPO_DIR}/scripts/setup/clean.sh" \
   "${scheduler_payload_root}/scripts/setup/clean.sh"
 cp "${REPO_DIR}/scripts/setup/lib.sh" \
   "${scheduler_payload_root}/scripts/setup/lib.sh"
+cp "${REPO_DIR}/scripts/lib/install-state.sh" \
+  "${scheduler_payload_root}/scripts/lib/install-state.sh"
 cp "${REPO_DIR}/scripts/install-systemd.sh" \
   "${scheduler_payload_root}/scripts/install-systemd.sh"
 python3 - "${scheduler_release}/${BOOTSTRAP_ASSET}" "${scheduler_payload_root}" <<'PY'

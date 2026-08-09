@@ -38,7 +38,7 @@ _install_codex_manifest_skill() {
 
 install_codex_home_assets() {
   echo "Step 6: Install Codex skills"
-  install_manifest_skills "~/.codex/skills/" "${CODEX_DIR}/skills" _install_codex_manifest_skill || return 1
+  install_manifest_skills "~/.codex/skills/" "${CODEX_DIR}/skills" _install_codex_manifest_skill 1 || return 1
   echo
 
   echo "Step 6.5: Install Codex hooks"
@@ -164,9 +164,16 @@ check_codex_home_installation() {
     link="${CODEX_DIR}/skills/${skill}"
     if skill_is_disabled "${skill}"; then
       if [[ -e "${link}" || -L "${link}" ]]; then
-        yellow "[DISABLED] ${skill} skill disabled in ~/.vibeguard/config.json but still present; re-run setup.sh to remove it"
+        # Only an exact install-state-owned copy can actually be quarantined by
+        # the next setup run. Promising removal for a tree the installer will
+        # refuse would report healthy right before a guaranteed install failure.
+        if state_managed_tree_owned "${link}" "${source_path}"; then
+          yellow "[DISABLED] ${skill} skill disabled via $(disabled_skills_source_label) but still present; re-run setup.sh to remove it"
+        else
+          red "[BROKEN] ${skill} skill is disabled but ~/.codex/skills/${skill} is not a VibeGuard-owned copy; setup.sh will refuse to quarantine it"
+        fi
       else
-        green "[DISABLED] ${skill} skill disabled in ~/.vibeguard/config.json"
+        green "[DISABLED] ${skill} skill disabled via $(disabled_skills_source_label)"
       fi
       continue
     fi
@@ -534,11 +541,17 @@ clean_codex_home_installation() {
       ;;
   esac
 
-  local skill_links source_path skill
+  local skill_links source_path skill skill_path
   skill_links="$(manifest_skill_links_for_cleanup "~/.codex/skills/")"
   while IFS=$'\t' read -r source_path skill; do
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
-    rm -rf "${CODEX_DIR}/skills/${skill}"
+    skill_path="${CODEX_DIR}/skills/${skill}"
+    [[ -e "${skill_path}" || -L "${skill_path}" ]] || continue
+    if state_managed_tree_owned "${skill_path}" "${source_path}"; then
+      rm -rf "${skill_path}"
+    else
+      red "Refusing to clean unowned Codex skill tree: ${skill_path/#${HOME}/~}"
+    fi
   done <<< "${skill_links}"
   cleanup_retired_manifest_skill_links "~/.codex/skills/" "${CODEX_DIR}/skills"
 

@@ -23,6 +23,8 @@ PROJECT_HOOK_HOME=""
 PROJECT_HOOK_REPO=""
 STALE_RUNTIME_DIR=""
 SYSTEMD_CHECK_HOME=""
+INVALID_DISABLED_SKILLS_HOME=""
+INVALID_QUARANTINE_STATE_HOME=""
 
 cleanup() {
   if [[ -n "${AWK_PORTABILITY_FIXTURE}" ]]; then
@@ -51,6 +53,12 @@ cleanup() {
   fi
   if [[ -n "${SYSTEMD_CHECK_HOME}" ]]; then
     rm -rf "${SYSTEMD_CHECK_HOME}"
+  fi
+  if [[ -n "${INVALID_DISABLED_SKILLS_HOME}" ]]; then
+    rm -rf "${INVALID_DISABLED_SKILLS_HOME}"
+  fi
+  if [[ -n "${INVALID_QUARANTINE_STATE_HOME}" ]]; then
+    rm -rf "${INVALID_QUARANTINE_STATE_HOME}"
   fi
 }
 trap cleanup EXIT
@@ -124,9 +132,8 @@ assert_cmd() {
 }
 
 # Establish one current-source runtime before any setup behavior invocation.
-# The hostile fixture first proves that version/command probes alone cannot
-# distinguish a same-version stale binary, then the suite overrides every
-# freshness-affecting caller input with the worktree build.
+# The hostile fixture proves that the exact quarantine capability rejects a
+# same-version stale binary before any setup behavior can invoke it.
 STALE_RUNTIME_DIR="$(mktemp -d)"
 STALE_RUNTIME="${STALE_RUNTIME_DIR}/vibeguard-runtime"
 STALE_RUNTIME_MARKER="${STALE_RUNTIME_DIR}/called"
@@ -138,19 +145,24 @@ if [[ -n "${VIBEGUARD_STALE_RUNTIME_MARKER:-}" ]]; then
 fi
 case "${1:-}" in
   version) printf '%s\n' "${VIBEGUARD_STALE_RUNTIME_VERSION:?}" ;;
+  setup-state-capabilities) printf '%s\n' 'complete-snapshot-v1' ;;
+  setup-state-quarantine-managed-tree)
+    printf '%s\n' "Unknown command: setup-state-quarantine-managed-tree" >&2
+    exit 2
+    ;;
   *) exit 0 ;;
 esac
 SH
 chmod +x "${STALE_RUNTIME}"
 
-if ! env \
+if env \
   VIBEGUARD_REPO_DIR="${REPO_DIR}" \
   VIBEGUARD_SETUP_RUNTIME_VERSION="${CURRENT_RUNTIME_VERSION}" \
   VIBEGUARD_STALE_RUNTIME_MARKER= \
   VIBEGUARD_STALE_RUNTIME_VERSION="${CURRENT_RUNTIME_VERSION}" \
   bash -c 'source "$1"; setup_runtime_supports "$2"' \
     _ "${REPO_DIR}/scripts/setup/lib.sh" "${STALE_RUNTIME}"; then
-  printf 'ERROR: stale runtime fixture did not satisfy the legacy setup probe\n' >&2
+  printf 'ERROR: stale runtime fixture unexpectedly satisfied the exact capability probe\n' >&2
   exit 1
 fi
 rm -f "${STALE_RUNTIME_MARKER}"
@@ -273,6 +285,15 @@ assert_contains "$info_summary" "HEALTHY"      "info: verdict still HEALTHY"
 info_rc="$(run_with_buffer "$info_buf" 'status_exit_code')"
 assert_eq "$info_rc" "0" "info: exit code 0"
 
+# [DISABLED] is an intentional, neutral state that remains visible in summaries
+# and JSON without appearing in quiet-mode problem output.
+disabled_buf=$'[OK] base\n[DISABLED] plan-flow skill disabled in ~/.vibeguard/config.json\n'
+disabled_summary="$(run_with_buffer "$disabled_buf" 'status_print_summary')"
+assert_contains "$disabled_summary" "DISABLED: 1" "disabled: count"
+assert_contains "$disabled_summary" "HEALTHY" "disabled: verdict still HEALTHY"
+disabled_rc="$(run_with_buffer "$disabled_buf" 'status_exit_code')"
+assert_eq "$disabled_rc" "0" "disabled: exit code 0"
+
 # --- Quiet-mode problem filter ---
 header "status_report quiet filter"
 quiet_out="$(run_with_buffer "$broken_buf" 'status_print_summary --quiet')"
@@ -288,6 +309,8 @@ assert_contains "$quiet_drift" "[DRIFT]"           "quiet+drift: includes DRIFT 
 # Healthy + quiet → no Problems block.
 quiet_healthy="$(run_with_buffer "$healthy_buf" 'status_print_summary --quiet')"
 assert_not_contains "$quiet_healthy" "Problems"    "quiet+healthy: no Problems block"
+quiet_disabled="$(run_with_buffer "$disabled_buf" 'status_print_summary --quiet')"
+assert_not_contains "$quiet_disabled" "Problems" "quiet+disabled: no Problems block"
 
 # --- JSON shape ---
 header "status_report JSON output"
@@ -307,6 +330,10 @@ drift_json="$(run_with_buffer "$drift_buf" 'status_emit_json')"
 assert_json_path "$drift_json" 'd["counts"]["drift"]' "1" "json: drift count"
 assert_json_path "$drift_json" 'd["verdict"]' "broken" "json: drift verdict"
 assert_json_path "$drift_json" 'd["events"][1]["level"]' "DRIFT" "json: drift event level"
+disabled_json="$(run_with_buffer "$disabled_buf" 'status_emit_json')"
+assert_json_path "$disabled_json" 'd["counts"]["disabled"]' "1" "json: disabled count"
+assert_json_path "$disabled_json" 'd["verdict"]' "healthy" "json: disabled verdict"
+assert_json_path "$disabled_json" 'd["events"][1]["level"]' "DISABLED" "json: disabled event level"
 
 # JSON must be parseable.
 TOTAL=$((TOTAL + 1))
@@ -442,3 +469,44 @@ else
 fi
 assert_json_path "$json_full_out" 'd["schema_version"]' "1" "json end-to-end: schema_version=1"
 assert_json_path "$json_full_out" 'd["verdict"] in ("healthy","degraded","broken")' "True" "json end-to-end: verdict in expected set"
+
+INVALID_DISABLED_SKILLS_HOME="$(mktemp -d)"
+invalid_disabled_json_rc=0
+invalid_disabled_json="$(
+  HOME="${INVALID_DISABLED_SKILLS_HOME}" \
+    VIBEGUARD_DISABLED_SKILLS='plan-flow,,fixflow' \
+    bash "${SETUP_SCRIPT}" --check --json 2>/dev/null
+)" || invalid_disabled_json_rc=$?
+assert_eq "${invalid_disabled_json_rc}" "2" \
+  "invalid disabled-skills override: JSON check exits broken"
+assert_json_path "${invalid_disabled_json}" \
+  'any("Codex home installation check failed" in event["message"] for event in d["events"])' \
+  "True" "invalid disabled-skills override: JSON exposes a FAIL event"
+
+invalid_disabled_verify_rc=0
+invalid_disabled_verify_out="$(
+  HOME="${INVALID_DISABLED_SKILLS_HOME}" \
+    VIBEGUARD_DISABLED_SKILLS='plan-flow,,fixflow' \
+    bash "${SETUP_SCRIPT}" verify-install 2>&1
+)" || invalid_disabled_verify_rc=$?
+assert_eq "${invalid_disabled_verify_rc}" "2" \
+  "invalid disabled-skills override: verify-install exits broken"
+assert_contains "${invalid_disabled_verify_out}" \
+  "[FAIL] Codex home installation check failed" \
+  "invalid disabled-skills override: verify-install exposes the failure"
+
+INVALID_QUARANTINE_STATE_HOME="$(mktemp -d)"
+mkdir -p "${INVALID_QUARANTINE_STATE_HOME}/.vibeguard"
+printf '%s\n' '{"version":1,"files":{},"disabled_skill_quarantines":{"/tmp/plan-flow":{"version":1,"quarantine":7,"transaction":"/tmp/.plan-flow.vibeguard-transaction.nonce.json","source_prefix":"skills/plan-flow","tracked_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","install_state_generation":1,"nonce":"nonce"}}}' \
+  > "${INVALID_QUARANTINE_STATE_HOME}/.vibeguard/install-state.json"
+invalid_quarantine_json_rc=0
+invalid_quarantine_json="$(
+  HOME="${INVALID_QUARANTINE_STATE_HOME}" \
+    VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" --check --json 2>/dev/null
+)" || invalid_quarantine_json_rc=$?
+assert_eq "${invalid_quarantine_json_rc}" "2" \
+  "invalid quarantine state: JSON check exits broken"
+assert_json_path "${invalid_quarantine_json}" \
+  'any("Install state drift check failed" in event["message"] for event in d["events"])' \
+  "True" "invalid quarantine state: JSON exposes a FAIL event"
