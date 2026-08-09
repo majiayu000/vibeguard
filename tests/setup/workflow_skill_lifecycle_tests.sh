@@ -455,29 +455,35 @@ gh719_retry_quarantine="${gh719_retry_state_home}/.codex/skills/.plan-flow.vibeg
 gh719_retry_transaction="${gh719_retry_state_home}/.codex/skills/.plan-flow.vibeguard-transaction.retry.json"
 python3 - "${gh719_retry_state_home}/.vibeguard/install-state.json" \
   "${gh719_retry_dest}" "${gh719_retry_quarantine}" "${gh719_retry_transaction}" <<'PY'
-import json, sys
+import hashlib, json, sys
 path, dest, quarantine, transaction = sys.argv[1:]
+entry = {"source": "skills/plan-flow/SKILL.md", "type": "copy",
+         "checksum": "sha256:5b4bc29f140e30c01417d810e700ecc54a84a0107566d84215b42e5742ef8d96"}
+files = {dest + "/SKILL.md": entry}
+canonical = json.dumps(files, sort_keys=True, separators=(",", ":"))
+digest = "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
 record = {"version": 1, "quarantine": quarantine, "transaction": transaction,
-          "source_prefix": "skills/plan-flow", "tracked_digest": "sha256:" + "a" * 64,
+          "source_prefix": "skills/plan-flow", "tracked_digest": digest,
           "install_state_generation": 5, "nonce": "retry"}
 state = {"version": 1, "generation": 5, "complete": False,
-         "files": {dest + "/SKILL.md": {"source": "skills/plan-flow/SKILL.md", "type": "copy",
-                                         "checksum": "sha256:" + "b" * 64}},
+         "files": files,
          "disabled_skill_quarantines": {dest: record}}
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(state, handle)
 PY
 # Preflight proves the durable artifacts an active record names, so the
 # fixture must materialize the quarantine directory and its transaction.
-mkdir -p "${gh719_retry_quarantine}"
+mkdir -p "${gh719_retry_quarantine}" && printf 'managed\n' > "${gh719_retry_quarantine}/SKILL.md"
 python3 - "${gh719_retry_transaction}" "${gh719_retry_dest}" \
-  "${gh719_retry_quarantine}" <<'PY'
+  "${gh719_retry_quarantine}" "${gh719_retry_state_home}/.vibeguard/install-state.json" <<'PY'
 import json, sys
-path, dest, quarantine = sys.argv[1:]
+path, dest, quarantine, state_path = sys.argv[1:]
+state = json.load(open(state_path, encoding="utf-8"))
+digest = state["disabled_skill_quarantines"][dest]["tracked_digest"]
 transaction = {"version": 1, "phase": "committed", "dest": dest,
                "quarantine": quarantine, "transaction": path,
                "source_prefix": "skills/plan-flow",
-               "tracked_digest": "sha256:" + "a" * 64,
+               "tracked_digest": digest,
                "install_state_generation": 5, "nonce": "retry"}
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(transaction, handle)
@@ -507,15 +513,18 @@ python3 - "${gh719_previous_only_home}/.vibeguard/install-state.json" \
   "${gh719_previous_only_quarantine}" "${gh719_current_owned}" <<'PY'
 import hashlib, json, sys
 current_path, previous_path, transaction_path, dest, quarantine, current_owned = sys.argv[1:]
+entry = {"source": "skills/retired/SKILL.md", "type": "copy",
+         "checksum": "sha256:" + hashlib.sha256(b"managed\n").hexdigest()}
+files = {dest + "/SKILL.md": entry}
+canonical = json.dumps(files, sort_keys=True, separators=(",", ":"))
+digest = "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
 record = {"version": 1, "quarantine": quarantine, "transaction": transaction_path,
-          "source_prefix": "skills/retired", "tracked_digest": "sha256:" + "a" * 64,
+          "source_prefix": "skills/retired", "tracked_digest": digest,
           "install_state_generation": 4, "nonce": "kept"}
 transaction = dict(record, phase="committed", dest=dest)
 json.dump(transaction, open(transaction_path, "w", encoding="utf-8"))
-entry = {"source": "skills/retired/SKILL.md", "type": "copy",
-         "checksum": "sha256:" + hashlib.sha256(b"managed\n").hexdigest()}
 previous = {"version": 1, "generation": 4, "complete": True,
-            "files": {dest + "/SKILL.md": entry},
+            "files": files,
             "disabled_skill_quarantines": {dest: record}}
 current_entry = {"source": "skills/current/SKILL.md", "type": "copy",
                  "checksum": "sha256:" + hashlib.sha256(b"current-owned\n").hexdigest()}

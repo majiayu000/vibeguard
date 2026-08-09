@@ -1,7 +1,7 @@
 use crate::setup_install_state::{
     ensure_state_version, expand_home, read_state, setup_absolute_path,
 };
-use crate::setup_support::{SetupResult, sha256_file, write_json_atomic};
+use crate::setup_support::{SetupResult, sha256_file, sha256_text, write_json_atomic};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -111,6 +111,7 @@ pub(super) fn validate_record(dest: &str, record: &Map<String, Value>) -> SetupR
 pub(super) fn validate_record_artifacts(
     dest: &str,
     record: &Map<String, Value>,
+    state: &Value,
     released_inventory: &Value,
 ) -> SetupResult<()> {
     let quarantine = record["quarantine"]
@@ -205,6 +206,9 @@ pub(super) fn validate_record_artifacts(
             .into());
         }
     }
+    if matches!(phase, "intent" | "committed") {
+        validate_active_quarantine_tree(state, Path::new(dest), quarantine, record)?;
+    }
     match fs::symlink_metadata(dest) {
         Ok(_) if phase != "released" => {
             return Err(format!("disabled public destination unexpectedly exists: {dest}").into());
@@ -214,6 +218,51 @@ pub(super) fn validate_record_artifacts(
         Err(error) => return Err(error.into()),
     }
     Ok(())
+}
+
+fn validate_active_quarantine_tree(
+    state: &Value,
+    dest: &Path,
+    quarantine: &Path,
+    record: &Map<String, Value>,
+) -> SetupResult<()> {
+    let dest = setup_absolute_path(dest);
+    let source_prefix = record["source_prefix"]
+        .as_str()
+        .ok_or("active quarantine record has no source prefix")?;
+    let decision = managed_tree_decision_for_state(state, quarantine, source_prefix, &dest)?;
+    if decision != "OWNED" {
+        return Err(
+            format!("active quarantine is not an exact VibeGuard-owned tree: {decision}").into(),
+        );
+    }
+    let actual_digest = tracked_inventory_digest(state, &dest)?
+        .ok_or("active quarantine has no tracked file inventory")?;
+    if record["tracked_digest"].as_str() != Some(actual_digest.as_str()) {
+        return Err("active quarantine tracked digest does not match canonical inventory".into());
+    }
+    Ok(())
+}
+
+pub(super) fn tracked_inventory_digest(
+    state: &Value,
+    tracked_dest: &Path,
+) -> SetupResult<Option<String>> {
+    let files = state["files"]
+        .as_object()
+        .ok_or("install-state files must be an object")?;
+    let tracked = files
+        .iter()
+        .filter(|(path, _)| {
+            let expanded = setup_absolute_path(&expand_home(path));
+            expanded == tracked_dest || expanded.starts_with(tracked_dest)
+        })
+        .collect::<BTreeMap<_, _>>();
+    if tracked.is_empty() {
+        return Ok(None);
+    }
+    let canonical = serde_json::to_string(&tracked)?;
+    Ok(Some(format!("sha256:{}", sha256_text(&canonical))))
 }
 
 pub(crate) fn intent_quarantine_for_dest(dest: &Path) -> SetupResult<Option<PathBuf>> {
@@ -376,6 +425,15 @@ pub(crate) fn managed_tree_decision(
     }
     let state = read_state(state_file)?;
     ensure_state_version(&state)?;
+    managed_tree_decision_for_state(&state, dest_dir, source_prefix, tracked_dest_dir)
+}
+
+fn managed_tree_decision_for_state(
+    state: &Value,
+    dest_dir: &Path,
+    source_prefix: &str,
+    tracked_dest_dir: &Path,
+) -> SetupResult<&'static str> {
     let source_prefix = source_prefix.trim_end_matches('/');
     match std::fs::symlink_metadata(dest_dir) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}

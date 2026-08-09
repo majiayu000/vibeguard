@@ -399,6 +399,7 @@ state_list_project_hooks() {
 
 state_prepare_clean() {
   local current_count=0 previous_count=0 total_count
+  state_reject_legacy_publish_artifacts || return 1
   state_reject_nonregular_paths || return 1
   if [[ -f "$STATE_FILE" ]]; then
     current_count="$(state_runtime setup-state-quarantine-count "$STATE_FILE")" || return 1

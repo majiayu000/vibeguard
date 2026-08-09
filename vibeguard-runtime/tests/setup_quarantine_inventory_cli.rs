@@ -3,6 +3,28 @@ mod common;
 use common::{assert_output, bin, path_text, unique_temp_dir, write_json};
 use serde_json::json;
 use std::fs;
+use std::process::Command;
+
+fn tracked_digest(dest: &std::path::Path, source: &str) -> String {
+    let inventory = json!({
+        path_text(&dest.join("SKILL.md")): {
+            "source": source,
+            "type": "copy",
+            "checksum": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        }
+    });
+    let canonical = serde_json::to_string(inventory.as_object().unwrap()).unwrap();
+    let output = Command::new("python3")
+        .args([
+            "-c",
+            "import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())",
+            &canonical,
+        ])
+        .output()
+        .expect("Python must compute the fixture's canonical inventory digest");
+    assert!(output.status.success());
+    format!("sha256:{}", String::from_utf8_lossy(&output.stdout).trim())
+}
 
 /// Preflight requires an active quarantine record to name durable artifacts
 /// that exist and describe the record, so fixtures must materialize them.
@@ -14,6 +36,8 @@ fn materialize_quarantine_artifacts(
     phase: &str,
 ) {
     fs::create_dir_all(quarantine).expect("quarantine directory should be created");
+    fs::write(quarantine.join("SKILL.md"), "hello")
+        .expect("tracked quarantine file should be created");
     let mut value = record.clone();
     let object = value.as_object_mut().expect("record should be an object");
     object.insert("dest".into(), json!(path_text(dest)));
@@ -61,7 +85,7 @@ fn quarantine_count_reports_missing_empty_and_active_inventory() {
         "quarantine": path_text(&quarantine),
         "transaction": path_text(&transaction),
         "source_prefix": "skills/plan-flow",
-        "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+        "tracked_digest": tracked_digest(&dest, "skills/plan-flow/SKILL.md"),
         "install_state_generation": 1,
         "nonce": "nonce"
     });
@@ -70,7 +94,10 @@ fn quarantine_count_reports_missing_empty_and_active_inventory() {
         &state,
         &json!({
             "version": 1,
-            "files": {},
+            "files": { path_text(&dest.join("SKILL.md")): {
+                "source": "skills/plan-flow/SKILL.md", "type": "copy",
+                "checksum": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+            }},
             "disabled_skill_quarantines": { path_text(&dest): record }
         }),
     );
@@ -116,7 +143,7 @@ fn drift_rejects_quarantine_locators_that_do_not_match_nonce() {
                     "quarantine": path_text(&parent.join(".plan-flow.vibeguard-quarantine.wrong")),
                     "transaction": path_text(&parent.join(".plan-flow.vibeguard-transaction.wrong.json")),
                     "source_prefix": "skills/plan-flow",
-                    "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+                    "tracked_digest": tracked_digest(&dest, "skills/plan-flow/SKILL.md"),
                     "install_state_generation": 1,
                     "nonce": "expected"
                 }
@@ -150,7 +177,7 @@ fn drift_checks_active_quarantine_bytes_instead_of_public_path() {
         "quarantine": path_text(&quarantine),
         "transaction": path_text(&transaction),
         "source_prefix": "skills/plan-flow",
-        "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+        "tracked_digest": tracked_digest(&dest, "skills/plan-flow/SKILL.md"),
         "install_state_generation": 1,
         "nonce": "nonce"
     });
@@ -184,15 +211,8 @@ fn drift_checks_active_quarantine_bytes_instead_of_public_path() {
         .args(["setup-state-check-drift", &path_text(&state)])
         .output()
         .expect("drift command should rerun");
-    assert_output(
-        &drifted,
-        0,
-        &format!(
-            "DRIFT: {} (checksum mismatch)\n---\nTotal tracked: 1, Missing: 0, Drifted: 1\nSTATUS: DRIFT (1 drifted, 0 missing)\n",
-            dest.join("SKILL.md").display()
-        ),
-        "",
-    );
+    assert_eq!(drifted.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&drifted.stderr).contains("UNOWNED:checksum_mismatch"));
     fs::remove_file(&transaction).expect("transaction should be removed");
     let missing_transaction = bin()
         .args(["setup-state-check-drift", &path_text(&state)])
@@ -219,7 +239,7 @@ fn init_retry_preserves_incomplete_quarantine_locator_and_inventory() {
         "quarantine": path_text(&quarantine),
         "transaction": path_text(&transaction),
         "source_prefix": "skills/plan-flow",
-        "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+        "tracked_digest": tracked_digest(&dest, "skills/plan-flow/SKILL.md"),
         "install_state_generation": 5,
         "nonce": "nonce"
     });
@@ -380,7 +400,7 @@ fn init_retry_preserves_inventory_after_an_intent_quarantine_rename() {
             "quarantine": path_text(&quarantine),
             "transaction": path_text(&transaction),
             "source_prefix": "workflows/plan-flow",
-            "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+            "tracked_digest": tracked_digest(&dest, "workflows/plan-flow/SKILL.md"),
             "install_state_generation": 5,
             "nonce": "intent"
         }),
@@ -419,7 +439,7 @@ fn init_carries_active_quarantine_for_a_retired_manifest_skill() {
         "quarantine": path_text(&quarantine),
         "transaction": path_text(&transaction),
         "source_prefix": "skills/plan-flow",
-        "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+        "tracked_digest": tracked_digest(&dest, "skills/plan-flow/SKILL.md"),
         "install_state_generation": 5,
         "nonce": "nonce"
     });
@@ -480,7 +500,7 @@ fn preflight_rejects_an_active_quarantine_whose_artifacts_are_gone() {
         "quarantine": path_text(&quarantine),
         "transaction": path_text(&transaction),
         "source_prefix": "skills/plan-flow",
-        "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+        "tracked_digest": tracked_digest(&dest, "skills/plan-flow/SKILL.md"),
         "install_state_generation": 1,
         "nonce": "nonce"
     });
@@ -489,7 +509,10 @@ fn preflight_rejects_an_active_quarantine_whose_artifacts_are_gone() {
         &state,
         &json!({
             "version": 1,
-            "files": {},
+            "files": { path_text(&dest.join("SKILL.md")): {
+                "source": "skills/plan-flow/SKILL.md", "type": "copy",
+                "checksum": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+            }},
             "disabled_skill_quarantines": { path_text(&dest): record }
         }),
     );
@@ -522,7 +545,7 @@ fn preflight_rejects_public_replacements_terminal_phases_and_schema_drift() {
         "quarantine": path_text(&quarantine),
         "transaction": path_text(&transaction),
         "source_prefix": "skills/plan-flow",
-        "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+        "tracked_digest": tracked_digest(&dest, "skills/plan-flow/SKILL.md"),
         "install_state_generation": 1,
         "nonce": "nonce"
     });
@@ -531,7 +554,10 @@ fn preflight_rejects_public_replacements_terminal_phases_and_schema_drift() {
         &state,
         &json!({
             "version": 1,
-            "files": {},
+            "files": { path_text(&dest.join("SKILL.md")): {
+                "source": "skills/plan-flow/SKILL.md", "type": "copy",
+                "checksum": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+            }},
             "disabled_skill_quarantines": { path_text(&dest): record }
         }),
     );
@@ -612,7 +638,7 @@ fn complete_snapshot_merge_preserves_current_inventory_and_previous_only_ownersh
         "quarantine": path_text(&quarantine),
         "transaction": path_text(&transaction),
         "source_prefix": "skills/retired",
-        "tracked_digest": format!("sha256:{}", "a".repeat(64)),
+        "tracked_digest": tracked_digest(&dest, "skills/retired/SKILL.md"),
         "install_state_generation": 4,
         "nonce": "nonce"
     });

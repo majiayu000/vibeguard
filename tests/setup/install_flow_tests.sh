@@ -5,3 +5,5 @@ source "${REPO_DIR}/tests/setup/install_core_flow_tests.sh"
 source "${REPO_DIR}/tests/setup/install_scheduler_health_tests.sh"
 # shellcheck source=setup/workflow_skill_lifecycle_tests.sh
 source "${REPO_DIR}/tests/setup/workflow_skill_lifecycle_tests.sh"
+# shellcheck source=setup/gh719_clean_preflight_tests.sh
+source "${REPO_DIR}/tests/setup/gh719_clean_preflight_tests.sh"

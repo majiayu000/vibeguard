@@ -1,8 +1,6 @@
 use crate::setup_install_state::read_state;
-use crate::setup_support::{SetupResult, sha256_text, write_json_atomic};
+use crate::setup_support::{SetupResult, write_json_atomic};
 use serde_json::{Map, Value, json};
-use std::collections::BTreeMap;
-
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -451,18 +449,8 @@ fn owned_digest(
             continue;
         }
         let state = read_state(state_path)?;
-        let files = state["files"]
-            .as_object()
-            .ok_or("install-state files must be an object")?;
-        let mut tracked = BTreeMap::new();
-        for (path, entry) in files {
-            let expanded = absolute(Path::new(path));
-            if expanded == tracked_dest || expanded.starts_with(tracked_dest) {
-                tracked.insert(path, entry);
-            }
-        }
-        let canonical = serde_json::to_string(&tracked)?;
-        let candidate = format!("sha256:{}", sha256_text(&canonical));
+        let candidate = tree_state::tracked_inventory_digest(&state, tracked_dest)?
+            .ok_or("owned managed tree has no tracked inventory")?;
         if digest.as_ref().is_some_and(|value| value != &candidate) {
             return Err("install-state generations disagree on managed-tree digest".into());
         }
@@ -629,7 +617,7 @@ pub(crate) fn validate_state_artifacts_with_released_inventory(
         let record = record
             .as_object()
             .ok_or("disabled skill quarantine record must be an object")?;
-        tree_state::validate_record_artifacts(dest, record, released_inventory)?;
+        tree_state::validate_record_artifacts(dest, record, state, released_inventory)?;
     }
     Ok(())
 }
