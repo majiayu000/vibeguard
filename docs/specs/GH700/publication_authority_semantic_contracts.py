@@ -400,6 +400,7 @@ class PublicationAuthoritySemanticContracts:
             if expected_key is not None and (not records or self.enumeration_record_key_wire(records[0]) != expected_key):
                 raise self.error("list_blocked_attempts: cursor next record key mismatch")
             receipt = result["enumeration_snapshot_receipt"]
+            if receipt["repo_node_id"] != request["repo_node_id"]: raise self.error("list_blocked_attempts: snapshot receipt repo mismatch")
             if receipt["snapshot_frontier"] != request["expected_blocked_attempt_frontier_or_null"]: raise self.error("list_blocked_attempts: snapshot frontier mismatch")
             if receipt["page_size"] != body["page_size"]: raise self.error("list_blocked_attempts: snapshot page size mismatch")
             if len(records) > receipt["page_size"]: raise self.error("list_blocked_attempts: page exceeds the signed page size")
@@ -496,13 +497,14 @@ class PublicationAuthoritySemanticContracts:
             validate(response, pointer(schema, "#/$defs/client_success_list_blocked_attempts"), schema)
         self.check_enumeration_pages(pages)
 
-        def signed_single_page(query_patch, visible_records, page_size, label):
+        def signed_single_page(query_patch, visible_records, page_size, label, receipt_patch=None):
             request, response = copy.deepcopy((list_request, list_response))
             request["body"].update(query_patch); request["body"]["page_size"] = page_size
             request["operation_request_digest"] = {"$derive": "operation_request_digest"}
             response["result"]["attempt_records"] = copy.deepcopy(visible_records)
             response["result"]["next_page_cursor_or_null"] = None
             target = response["result"]["enumeration_snapshot_receipt"]
+            target.update(receipt_patch or {})
             target["page_size"] = page_size
             for key in ("query_digest", "snapshot_record_set_digest", "signing_preimage_digest", "signature_b64u", "signature_digest"):
                 target[key] = {"$derive": key}
@@ -530,6 +532,12 @@ class PublicationAuthoritySemanticContracts:
             try: self.check_enumeration_pages(out_of_filter)
             except error: rejected += 1
             else: raise error(f"list_blocked_attempts: signed schema-valid out-of-filter {query_key} record accepted")
+        wrong_repo = signed_single_page(
+            {}, [records[0]], 1, "receipt repo mismatch", {"repo_node_id": "R_GH700_OTHER"},
+        )
+        try: self.check_enumeration_pages(wrong_repo)
+        except error: rejected += 1
+        else: raise error("list_blocked_attempts: authority-resigned receipt repo mismatch accepted")
         try: self.c["response_digests"](copy.deepcopy(second_response), second_request, "client", second_op, second_nonce)
         except error: rejected += 1
         else: raise error("list_blocked_attempts: final page verified without the accumulated full record set")
