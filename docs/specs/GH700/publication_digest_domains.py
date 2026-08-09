@@ -34,8 +34,8 @@ CANONICAL_RUNTIME_DOMAIN_SETS = {
     }),
     "receipt_digest": frozenset({
         "GH700:capsule-read-receipt:v1", "GH700:control-receipt:v1",
-        "GH700:enumeration-snapshot-receipt:v1", "GH700:frontier-receipt:v1",
-        "GH700:ledger-receipt:v1", "GH700:transition-receipt:v1",
+        "GH700:frontier-receipt:v1", "GH700:ledger-receipt:v1",
+        "GH700:prebootstrap-time-ceremony-receipt:v1", "GH700:transition-receipt:v1",
     }),
     "result_digest": frozenset({"GH700:client-result:v1", "GH700:control-result:v1"}),
     "response_nonce_digest": frozenset({

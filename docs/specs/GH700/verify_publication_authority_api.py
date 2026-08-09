@@ -17,15 +17,13 @@ from publication_authorization_semantics import (
     relation_mutations, row_for_model,
     validate_binding_matrix, validate_common_bindings, validate_pair_bindings,
 )
-from publication_digest_domains import allowed_domains, check_contextual_domain_rejections, require_domain, validate_domain_sets
+from publication_authority_semantic_contracts import PublicationAuthoritySemanticContracts
+from publication_digest_domains import check_contextual_domain_rejections, require_domain
 from publication_schema_validator import make_validator
 from publication_signature_contract import self_test as signature_self_test
 from publication_signature_contract import verify_or_materialize
 from publication_structural_mutations import check_structural_mutations
-from publication_wire_registries import (
-    SIGNING_BRANCHES, anchor_digest, check_error_branches, check_registry_anchor_mutations,
-    check_registry_anchors,
-)
+from publication_wire_registries import anchor_digest, check_error_branches, check_registry_anchor_mutations, check_registry_anchors
 from publication_typed_contracts import (
     bind_nested_receipts, check_nested_kms_mutations, materialize_kms_manifest, validate_nested_capsules,
 )
@@ -34,11 +32,27 @@ SAFE_MAX = 9_007_199_254_740_991
 U64_MAX = 18_446_744_073_709_551_615
 CLIENT = ("get_publication_head", "claim_publication_owner", "renew_publication_owner", "takeover_publication_owner", "append_publication_transition", "plan_release_mutation", "deliver_release_mutation", "recover_release_mutation", "plan_generated_pr", "deliver_generated_pr", "recover_generated_pr", "append_blocked_attempt", "bind_blocked_attempt", "list_blocked_attempts", "commit_reconciliation_watermark", "get_blocked_attempt_frontier", "read_secret_capsule")
 CONTROL = ("prepare_bootstrap_trusted_time", "bootstrap", "migrate", "recover", "ready")
+EXPECTED_MODEL_IDS = (
+    "client.get_publication_head", "client.claim_publication_owner", "client.renew_publication_owner",
+    "client.takeover_publication_owner", "client.append_publication_transition", "client.plan_release_mutation",
+    "client.deliver_release_mutation", "client.deliver_release_mutation.recovery_pending",
+    "client.recover_release_mutation", "client.plan_generated_pr", "client.deliver_generated_pr",
+    "client.recover_generated_pr", "client.append_blocked_attempt", "client.bind_blocked_attempt",
+    "client.list_blocked_attempts", "client.commit_reconciliation_watermark",
+    "client.get_blocked_attempt_frontier", "client.read_secret_capsule",
+    "control.prepare_bootstrap_trusted_time", "control.bootstrap", "control.migrate", "control.recover",
+    "control.ready", "client.bind_blocked_attempt.source_snapshot",
+    "client.recover_generated_pr.merged_existing", "control.recover.backup", "control.recover.anchor",
+    "client.recover_release_mutation.recovery_pending", "client.recover_release_mutation.not_applied",
+    "client.recover_release_mutation.compensated", "client.recover_release_mutation.blocked",
+    "client.recover_generated_pr.not_applied", "client.recover_generated_pr.blocked",
+    "client.deliver_generated_pr.recovery_required", "client.read_secret_capsule.claim",
+)
 COVERAGE = {"source_binding", "genesis", "key_attestation", "client_replay", "control_replay", "terminal_binding", "snapshot_binding", "merged_existing_receipts", "recover_selector_database", "recover_selector_backup", "recover_selector_anchor", "control_not_found", "prebootstrap_policy", "release_recovery_pending", "release_not_applied", "release_compensated", "release_blocked", "generated_pr_not_applied", "generated_pr_blocked", "delivery_recovery_required", "capsule_source_plan", "capsule_source_claim"}
-REQUIRED_DIGEST_NODES = {"attempt_subject_key", "blocked_attempt_object_digest", "kms_encryption_context_digest", "release_identity_attestation_digest", "liveness_policy_digest", "authorization_signing_preimage_digest", "signature_digest", "client_request_nonce_digest", "control_request_nonce_digest", "time_bound_request_id", "execution_identity_digest", "operation_id", "release_broker_delivery_id", "generated_pr_delivery_id", "delivery_scope_digest", "recovery_query_digest", "capsule_source_request_id", "read_challenge_digest", "secret_channel_request_core_digest", "tls_exporter_context_digest", "tls_exporter_keying_material_digest", "secret_channel_binding_digest", "operation_request_digest", "receipt_digest", "result_digest", "response_nonce_digest", "response_digest", "prior_anchor_binding_digest", "backup_aad_digest", "describe_key_material_attestation_digest", "manifest_key_binding_digest", "generate_data_key_request_digest", "generate_data_key_material_attestation_digest", "key_attestation_digest", "capsule_receipt_digest", "replay_row_digest"}
 DIGEST_SCHEMA = None
 KMS_MANIFEST = None
 BINDING_MATRIX = None
+SEMANTICS = None
 
 
 class ContractError(Exception):
@@ -54,9 +68,17 @@ def pairs_no_duplicates(pairs):
     return result
 
 
+def parse_contract_json(raw, label):
+    def reject_nonfinite(value):
+        raise ContractError(f"{label}: non-finite JSON number forbidden: {value}")
+    return json.loads(
+        raw, object_pairs_hook=pairs_no_duplicates, parse_constant=reject_nonfinite,
+    )
+
+
 def load(path):
     try:
-        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=pairs_no_duplicates)
+        value = parse_contract_json(path.read_text(encoding="utf-8"), path)
     except (OSError, json.JSONDecodeError) as exc:
         raise ContractError(f"cannot load {path}: {exc}") from exc
     if not isinstance(value, dict):
@@ -220,6 +242,11 @@ def capsule_read_challenge_digest(request):
 def request_digests(request, surface):
     method, body = request["method"], request["body"]
     nonce = decode_b64u(request["request_nonce"], 32, f"{method}.request_nonce")
+    if method == "prepare_bootstrap_trusted_time":
+        derive(
+            request["policy_binding"], "projection_digest",
+            SEMANTICS.bootstrap_projection_digest(body["bootstrap_time_manifest_projection"]), method,
+        )
     if "release_identity_attestation" in body:
         attestation = body["release_identity_attestation"]
         core = {
@@ -316,7 +343,7 @@ def request_digests(request, surface):
     return op_id, nonce_digest
 
 
-def response_digests(response, request, surface, op_id, nonce_digest):
+def response_digests(response, request, surface, op_id, nonce_digest, enumeration_records=None):
     method = request["method"]
     if BINDING_MATRIX is not None:
         validate_common_bindings(request, response, BINDING_MATRIX, ContractError)
@@ -338,6 +365,23 @@ def response_digests(response, request, surface, op_id, nonce_digest):
             f"{method}.result", capsule_read_challenge_digest(request),
         )
         validate_nested_capsules(response["result"], KMS_MANIFEST, derive, dg, ContractError)
+        if method == "prepare_bootstrap_trusted_time":
+            prepared = response["result"]
+            receipt = prepared["prebootstrap_time_ceremony_receipt"]
+            derive(
+                receipt,
+                "initial_time_proof_bundle_digest",
+                sha(jcs(prepared["initial_time_proof_bundle"])),
+                method,
+            )
+        if method == "list_blocked_attempts":
+            listed = response["result"]
+            receipt = listed["enumeration_snapshot_receipt"]
+            if enumeration_records is None:
+                if request["body"]["page_cursor_or_null"] is not None or listed["next_page_cursor_or_null"] is not None:
+                    raise ContractError("list_blocked_attempts: multi-page response digest verification requires the accumulated full record set")
+                enumeration_records = listed["attempt_records"]
+            SEMANTICS.enumeration_receipt_digests(request, receipt, enumeration_records, method)
         receipt_digests(response["result"])
         derive(response, "result_digest", dg("result_digest", f"GH700:{surface}-result:v1", response["result"], context=surface), method)
     preimage = {key: item for key, item in response.items() if key != "response_digest"}
@@ -345,12 +389,18 @@ def response_digests(response, request, surface, op_id, nonce_digest):
     derive(response, "response_digest", dg("response_digest", f"GH700:{surface}-response:v1", preimage, context=surface), method)
 
 
-def materialize(model, fixtures):
+def materialize(model, fixtures, request_context=None):
     request = {**expand({"$fixture": model["request_base"]}, fixtures), **expand(model["request_patch"], fixtures)}
+    if request_context is not None:
+        request = context(request, request_context)
     op_id, nonce_digest = request_digests(request, model["surface"])
     channel = request["body"].get("secret_channel_binding", {})
     source = request["body"].get("capsule_source", {})
     values = {"method": request["method"], "operation_id": op_id, "source_operation_id": source.get("source_operation_id", op_id), "operation_request_digest": request["operation_request_digest"], "generated_pr_delivery_id": dg("generated_pr_delivery_id", "GH700:generated-pr-delivery-id:v1", {"repo_node_id": request["repo_node_id"], "planned_operation_id": op_id}), "publication_frontier": request.get("expected_publication_frontier_or_null"), "blocked_frontier": request.get("expected_blocked_attempt_frontier_or_null"), "source_request_id": source.get("source_request_id"), "read_challenge_digest": capsule_read_challenge_digest(request), "secret_channel_binding_digest": channel.get("secret_channel_binding_digest"), "issuance_secret_channel_binding_digest": source.get("issuance_secret_channel_binding_digest", channel.get("secret_channel_binding_digest")), "release_identity_attestation_digest": request["body"].get("release_identity_attestation", {}).get("attestation_digest")}
+    if request["method"] == "prepare_bootstrap_trusted_time":
+        values["prebootstrap_time_ceremony_id"] = prebootstrap_time_ceremony_id(request)
+        values["projection_digest"] = request["policy_binding"]["projection_digest"]
+        values["prebootstrap_time_approval_digest"] = request["policy_binding"]["prebootstrap_time_approval_digest"]
     response = context({**expand({"$fixture": model["success_base"]}, fixtures), **expand(model["success_patch"], fixtures)}, values)
     response_digests(response, request, model["surface"], op_id, nonce_digest)
     if any(isinstance(item, dict) and ({"$derive", "$context"} & set(item)) for item in walk((request, response))):
@@ -388,107 +438,46 @@ def check_scalars(schema):
             raise ContractError(f"bad uint64 accepted: {bad}")
 
 
-def check_schema(schema, root):
-    global DIGEST_SCHEMA; DIGEST_SCHEMA = schema
-    if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
-        raise ContractError("Draft 2020-12 declaration missing")
-    refs = []
-    for item in walk(schema):
-        if isinstance(item, dict) and "$ref" in item:
-            refs.append(item["$ref"])
-            pointer(schema, item["$ref"])
-    check_scalars(schema)
-    defs = schema["$defs"]
-    if any(item.get("x-gh700-semantic-validator") != "uint64" for item in walk(schema) if isinstance(item, dict) and "x-gh700-semantic-validator" in item): raise ContractError("unknown semantic validator in schema")
-    if defs["uint64"].get("x-gh700-semantic-validator") != "uint64":
-        raise ContractError("uint64 semantic validator binding missing")
-    unevaluated_count = sum(
-        item.get("unevaluatedProperties") is False
-        for item in walk(schema)
-        if isinstance(item, dict)
-    )
-    if unevaluated_count == 0:
-        raise ContractError("closed allOf wire schemas missing unevaluatedProperties")
-    methods = {"client": CLIENT, "control": CONTROL}
-    for name, surface in (("client_request_envelope", "client"), ("client_success_envelope", "client"), ("control_request_envelope", "control"), ("control_success_envelope", "control")):
-        if tuple(defs[name]["properties"]["method"].get("enum", ())) != methods[surface]:
-            raise ContractError(f"{name}: open or reordered method enum")
-    for name, surface in (("client_api_replay_row", "client"), ("control_api_replay_row", "control")):
-        if tuple(defs[name]["properties"]["method"].get("enum", ())) != methods[surface]:
-            raise ContractError(f"{name}: missing closed method enum")
-    for name in ("transition_receipt", "frontier_receipt", "control_receipt", "enumeration_snapshot_receipt"):
-        if not 8 <= len(defs[name]["required"]) <= 11:
-            raise ContractError(f"{name}: receipt must have 8-11 fields")
-    if "receipt" in defs and len(defs["receipt"].get("required", ())) == 2:
-        raise ContractError("generic two-field receipt remains")
-    signing = {"signing_key_id", "signing_key_material_id", "signing_preimage_digest", "signature_b64u", "signature_digest"}
-    signing_meta = schema.get("x-gh700-signing-preimages", {})
-    # The four authorization branches are the exact schema-owned signing
-    # registry. Reading only the expected names would let an extra branch reuse
-    # an existing domain and still certify, so the registry is closed by set.
-    if set(signing_meta) != set(SIGNING_BRANCHES):
-        raise ContractError(f"signing preimage registry is not exactly {sorted(SIGNING_BRANCHES)}")
-    for name in SIGNING_BRANCHES:
-        if not signing <= set(defs[name]["required"]):
-            raise ContractError(f"{name}: incomplete signing contract")
-        meta = signing_meta.get(name, {})
-        expected_fields = [field for field in defs[name]["required"] if field not in {"signing_preimage_digest", "signature_b64u", "signature_digest"}]
-        if meta.get("domain") != defs[name]["properties"]["schema_version"]["const"].replace(":v1", ":signing-preimage:v1") or meta.get("preimage_fields") != expected_fields or "manifest-pinned" not in meta.get("key_binding", ""):
-            raise ContractError(f"{name}: signing preimage/key metadata mismatch")
-    material_schema = defs["authority_capsule_key_attestation"]["properties"]["kms_key_material_id"]
-    if material_schema.get("$ref"):
-        material_schema = pointer(schema, material_schema["$ref"])
-    if material_schema.get("pattern") != "^[0-9a-f]{64}$":
-        raise ContractError("KeyMaterialId is not exact 64hex")
-    if "selector" not in defs["control_body_recover"]["required"]:
-        raise ContractError("control recovery selector missing")
-    deployment = defs["deployment_manifest"]
-    if deployment["properties"].get("deployment_policy") != {"$ref": "#/$defs/deployment_policy_binding"} or any(item.get("$ref") == "#/$defs/prebootstrap_policy_binding" for item in walk(deployment) if isinstance(item, dict)):
-        raise ContractError("history deployment manifest policy branch is not deployment-only")
-    owners = {"authorization": "#/$defs/authorization", "receipt": "#/$defs/typed_receipt", "digest": "#/x-gh700-digest-formulas", "replay": "#/$defs/replay_row", "kms": "#/$defs/authority_kms_manifest"}
-    if schema.get("x-gh700-wire-owners") != owners or len(set(owners.values())) != 5:
-        raise ContractError("wire owner map mismatch")
-    for ref in owners.values():
-        pointer(schema, ref)
-    forbidden = set(schema["x-gh700-forbidden-aliases"])
-    for name, definition in defs.items():
-        if name in forbidden:
-            raise ContractError(f"forbidden alias definition: {name}")
-        for item in walk(definition):
-            if isinstance(item, dict) and (forbidden & (set(item.get("required", ())) | set(item.get("properties", {})))):
-                raise ContractError(f"forbidden alias field in {name}")
-    compact = "".join((root / name).read_text(encoding="utf-8").replace(" ", "") for name in ("publication_history_contract.md", "publication_ledger_contract.md", "publication_authority_protocol_contract.md"))
-    for marker in ('"schema_version":"GH700:append-authorization:v1"', '"schema_version":"GH700:delivery-authorization:v1"', '"schema_version":"GH700:ledger-append-authorization:v1"', '"receipt_version":"GH700:'):
-        if marker in compact:
-            raise ContractError(f"duplicate prose wire owner: {marker}")
-    return len(refs), unevaluated_count
+def prebootstrap_time_ceremony_id(request):
+    return SEMANTICS.prebootstrap_time_ceremony_id(request)
 
 
-def check_dag(schema):
-    dag, formulas = schema["x-gh700-digest-dag"], schema["x-gh700-digest-formulas"]
-    nodes = dag["nodes"]
-    if schema.get("x-gh700-digest-framing") != "digest = lowercase sha256:<64hex> of SHA256(JCS({v:domain,...preimage_fields})); callers may not supply v":
-        raise ContractError("digest framing mismatch")
-    if len(nodes) != len(set(nodes)) or set(nodes) != set(formulas) or set(nodes) != REQUIRED_DIGEST_NODES:
-        raise ContractError("digest formula/DAG node mismatch")
-    validate_domain_sets(schema, ContractError)
-    for name, formula in formulas.items():
-        if set(formula) != {"domain", "preimage", "wire_consumers"} or not all(formula.values()):
-            raise ContractError(f"incomplete digest formula: {name}")
-    outgoing, indegree = {node: [] for node in nodes}, {node: 0 for node in nodes}
-    for source, target in dag["edges"]:
-        if source not in outgoing or target not in outgoing or source == target:
-            raise ContractError("invalid digest DAG edge")
-        outgoing[source].append(target); indegree[target] += 1
-    queue, seen = [node for node in nodes if indegree[node] == 0], 0
-    while queue:
-        node = queue.pop(0); seen += 1
-        for target in outgoing[node]:
-            indegree[target] -= 1
-            if indegree[target] == 0: queue.append(target)
-    if seen != len(nodes):
-        raise ContractError("digest DAG cycle")
-    return len(nodes), len(dag["edges"])
+def check_enumeration_pages(pages):
+    return SEMANTICS.check_enumeration_pages(pages)
+
+
+def check_enumeration_snapshot(request, response):
+    return SEMANTICS.check_enumeration_pages(((request, response),))
+
+
+def check_prebootstrap_ceremony(pairs):
+    return SEMANTICS.check_prebootstrap_ceremony(pairs)
+
+
+def check_cross_contract_mutations(pairs, schema):
+    return SEMANTICS.check_cross_contract_mutations(pairs, schema)
+def check_replay_state_mutations(auxiliary_values, schema):
+    rejected = 0
+    expected_states = {
+        (surface, state)
+        for surface in ("client", "control")
+        for state in ("reserved", "effect_frozen", "response_frozen")
+    }
+    actual_states = set()
+    for model_id, schema_ref, value in auxiliary_values:
+        surface = "client" if "client_" in schema_ref else "control"
+        actual_states.add((surface, value["replay_state"]))
+        mutated = copy.deepcopy(value)
+        mutated["response_digest_or_null"] = None if value["response_digest_or_null"] is not None else "sha256:" + "e" * 64
+        try:
+            validate(mutated, pointer(schema, schema_ref), schema)
+        except ContractError:
+            rejected += 1
+        else:
+            raise ContractError(f"{model_id}: replay state/nullability mutation accepted")
+    if actual_states != expected_states:
+        raise ContractError(f"replay state positive coverage mismatch: {sorted(actual_states)}")
+    return rejected
 
 
 def semantic_pair(request, response, model):
@@ -504,6 +493,8 @@ def semantic_pair(request, response, model):
             raise ContractError("recover_generated_pr receipt sequence")
     if method == "recover" and request["body"]["selector"] not in {"database", "backup", "anchor"}:
         raise ContractError("unknown recovery selector")
+    if method == "list_blocked_attempts":
+        check_enumeration_snapshot(request, response)
 
 
 def verify_pair(request, response, model, registry_row, schema):
@@ -610,24 +601,7 @@ def check_uint64_instance_mutations(pairs, models, registry_by_method, schema):
 
 
 def check_digest_node_mutations(schema):
-    count = 0
-    validate_domain_sets(schema, ContractError)
-    for node in schema["x-gh700-digest-dag"]["nodes"]:
-        original = schema["x-gh700-digest-formulas"][node]["domain"]
-        for kind, replacement in (("added", original + f" or GH700:mutation-added:{node}:v1"), ("removed", ""), ("replaced", f"GH700:mutation-replaced:{node}:v1")):
-            mutated = copy.deepcopy(schema)
-            mutated["x-gh700-digest-formulas"][node]["domain"] = replacement
-            try:
-                validate_domain_sets(mutated, ContractError)
-            except ContractError:
-                count += 1
-                continue
-            raise ContractError(f"digest node {kind} mutation accepted: {node}")
-    if count != 3 * len(REQUIRED_DIGEST_NODES):
-        raise ContractError("digest mutation matrix is incomplete")
-    return count
-
-
+    return SEMANTICS.check_digest_node_mutations(schema)
 def negative(case, pairs, schema):
     kind = case["mutation"]
     scalar_bad = {"nonce_padding": lambda: decode_b64u("A" * 43 + "=", 32, kind), "nonce_noncanonical_last_char": lambda: decode_b64u("A" * 42 + "B", 32, kind), "uint64_leading_zero": lambda: uint64("01", kind), "uint64_overflow": lambda: uint64(str(U64_MAX + 1), kind)}
@@ -682,15 +656,27 @@ def negative(case, pairs, schema):
 
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent); parser.add_argument("--emit-materialized", type=Path); args = parser.parse_args()
-    global BINDING_MATRIX, KMS_MANIFEST, SIGNING_MANIFEST
+    global BINDING_MATRIX, DIGEST_SCHEMA, KMS_MANIFEST, SEMANTICS, SIGNING_MANIFEST
     root = args.root.resolve(); schema = load(root / "publication_authority_api.schema.json"); models = load(root / "publication_authority_api.models.json")
-    refs, unevaluated = check_schema(schema, root); dag_nodes, dag_edges = check_dag(schema); digest_mutations = check_digest_node_mutations(schema)
+    DIGEST_SCHEMA = schema
+    SEMANTICS = PublicationAuthoritySemanticContracts({
+        "error": ContractError, "get_signing_manifest": lambda: SIGNING_MANIFEST,
+        "get_digest_schema": lambda: DIGEST_SCHEMA, "sha": sha, "jcs": jcs, "b64u": b64u,
+        "decode_b64u": decode_b64u, "parse_json": parse_contract_json, "derive": derive,
+        "walk": walk, "pointer": pointer, "check_scalars": check_scalars,
+        "client_methods": CLIENT, "control_methods": CONTROL, "validate": validate,
+        "request_digests": request_digests, "response_digests": response_digests,
+    })
+    refs, unevaluated = SEMANTICS.check_schema(schema, root); dag_nodes, dag_edges = SEMANTICS.check_dag(schema); digest_mutations = SEMANTICS.check_digest_node_mutations(schema)
     anchors = check_registry_anchors(schema, jcs, ContractError)
     anchor_mutations = check_registry_anchor_mutations(schema, jcs, ContractError)
     SIGNING_MANIFEST = expand({"$fixture": "authority_signing_manifest"}, models["fixtures"])
     validate(SIGNING_MANIFEST, pointer(schema, "#/$defs/authority_signing_manifest"), schema)
     signature_primitives = signature_self_test(ContractError)
     KMS_MANIFEST, kms_digests = materialize_kms_manifest(schema, models["fixtures"], expand, validate, pointer, derive, dg, ContractError)
+    model_ids = tuple(model["model_id"] for model in models["models"])
+    if model_ids != EXPECTED_MODEL_IDS:
+        raise ContractError("positive model IDs do not match the pinned exact 35-model set")
     expected_rows = [("client", method) for method in CLIENT] + [("control", method) for method in CONTROL]
     BINDING_MATRIX = validate_binding_matrix(
         schema, models["models"], expected_rows, pointer, ContractError,
@@ -705,14 +691,22 @@ def main():
     registry_by_method = {(row["surface"], row["method"]): row for row in registry}
     pairs, coverage, digest_count = {}, set(), 0
     for model in models["models"]:
-        request, response = materialize(model, models["fixtures"])
+        request_context = None
+        if model["model_id"] == "control.bootstrap":
+            prepared = pairs["control.prepare_bootstrap_trusted_time"][1]["result"]["prebootstrap_time_ceremony_receipt"]
+            request_context = {
+                "prebootstrap_time_ceremony_id": prepared["prebootstrap_time_ceremony_id"],
+                "prebootstrap_time_ceremony_receipt_digest": prepared["receipt_digest"],
+            }
+        request, response = materialize(model, models["fixtures"], request_context)
         row = row_for_model(BINDING_MATRIX, model, ContractError)
         verify_pair(request, response, model, row, schema)
         pairs[model["model_id"]] = (request, response); coverage.update(model.get("coverage_tags", ()))
         digests = [item for item in walk((request, response)) if isinstance(item, str) and item.startswith("sha256:")]
         if not digests or "sha256:" + "0" * 64 in digests: raise ContractError(f"{model['model_id']}: missing/zero digest")
         digest_count += len(digests)
-    if len(models["models"]) < 22: raise ContractError("fewer than 22 positive models")
+    check_prebootstrap_ceremony(pairs)
+    cross_contract_mutations = check_cross_contract_mutations(pairs, schema)
     positive_mutations = 0
     for model in models["models"]:
         row = row_for_model(BINDING_MATRIX, model, ContractError)
@@ -735,6 +729,7 @@ def main():
     kms_mutations = check_nested_kms_mutations(pairs, KMS_MANIFEST, derive, dg, ContractError)
     uint64_mutations = check_uint64_instance_mutations(pairs, models["models"], registry_by_method, schema)
     auxiliary = models.get("auxiliary_positive_instances", ())
+    auxiliary_values = []
     for item in auxiliary:
         value = expand(item["value"], models["fixtures"])
         if item["schema_ref"].endswith("replay_row"):
@@ -744,6 +739,9 @@ def main():
             derive(value, f"{surface}_request_nonce_digest", nonce_digest, item["model_id"])
             derive(value, "replay_row_digest", dg("replay_row_digest", "GH700:api-replay-row:v1", {key: child for key, child in value.items() if key != "replay_row_digest"}), item["model_id"])
         validate(value, pointer(schema, item["schema_ref"]), schema); coverage.update(item.get("coverage_tags", ()))
+        if item["schema_ref"].endswith("replay_row"):
+            auxiliary_values.append((item["model_id"], item["schema_ref"], value))
+    replay_mutations = check_replay_state_mutations(auxiliary_values, schema)
     errors = models.get("error_models", ())
     for item in errors:
         request = pairs[item["request_model_id"]][0]
@@ -762,7 +760,7 @@ def main():
         args.emit_materialized.mkdir(parents=True, exist_ok=True)
         for model_id, (request, response) in pairs.items():
             (args.emit_materialized / f"{model_id}.request.json").write_bytes(jcs(request)); (args.emit_materialized / f"{model_id}.response.json").write_bytes(jcs(response))
-    print(f"PUBLICATION_AUTHORITY_API_OK registry=17+5 models={len(models['models'])} auxiliary={len(auxiliary)} errors={len(errors)} refs={refs} unevaluated={unevaluated} digests={digest_count}+{kms_digests}kms mismatches=0 dag={dag_nodes}/{dag_edges} positive_mutations={positive_mutations} matrix_mutations={matrix_mutations} contextual_domain_mutations={contextual_domain_mutations} kms_mutations={kms_mutations} uint64_mutations={uint64_mutations} digest_mutations={digest_mutations} negatives={len(negatives)} coverage={len(coverage)} row_fields={row_fields} profile_selectors={profile_selectors} structural_mutations={structural_mutations} anchors={anchors}/{anchor_mutations} error_branches={error_branches} signature_primitives={signature_primitives}")
+    print(f"PUBLICATION_AUTHORITY_API_OK registry=17+5 models={len(models['models'])} auxiliary={len(auxiliary)} errors={len(errors)} refs={refs} unevaluated={unevaluated} digests={digest_count}+{kms_digests}kms mismatches=0 dag={dag_nodes}/{dag_edges} positive_mutations={positive_mutations} matrix_mutations={matrix_mutations} contextual_domain_mutations={contextual_domain_mutations} kms_mutations={kms_mutations} uint64_mutations={uint64_mutations} digest_mutations={digest_mutations} negatives={len(negatives)} coverage={len(coverage)} row_fields={row_fields} profile_selectors={profile_selectors} structural_mutations={structural_mutations} cross_contract_mutations={cross_contract_mutations} replay_mutations={replay_mutations} anchors={anchors}/{anchor_mutations} error_branches={error_branches} signature_primitives={signature_primitives}")
 
 
 if __name__ == "__main__":
