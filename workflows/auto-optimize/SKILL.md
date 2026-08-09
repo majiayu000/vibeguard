@@ -12,52 +12,25 @@ Integrate the project autonomous optimization workflow of the VibeGuard guard sy
 - A project needs a rotating scan across security, quality, reliability, performance, and maintainability.
 - Existing guard or audit findings should be converted into prioritized implementation work.
 - The task needs an optimization report before deciding which fixes to execute.
-- The task is already routed to executable optimization work, not open-ended discovery.
-- A planning handoff selected this workflow and supplied lane ownership plus stop conditions.
 - The user explicitly asks for autonomous optimization across quality, reliability, security, or DX dimensions.
 
 ## Red Flags
 
-- The workflow starts from `clarify_first` or `plan_first` without a completed handoff.
-- Delegated lanes share writable files or lack explicit ownership.
+- The workflow starts without a bounded target or explicit authorization to implement.
+- More than one writable session operates on the repository.
 - A finding is repaired before it has evidence, classification, and a verification command.
 
 ## Checklist
 
-- [ ] Confirm routing readiness and lane ownership before execution.
+- [ ] Confirm target, authorization, and done-when before execution.
 - [ ] Classify every finding as FIX, SKIP, or DEFER with evidence.
 - [ ] Run VibeGuard deterministic checks before and after implemented fixes.
 
-## Routing Contract Integration
+## Execution Boundary
 
-Auto-Optimize follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md) and requires its exact validated `precedence`.
+Start only when the user authorizes implementation and the optimization target is bounded. Keep one writable session for the repository and one short issue-sized batch per run.
 
-Start autonomous optimization only when both conditions are true:
-
-- `work_surface` resolved to `code_execution` rather than `writing_research` or `chat_support`
-- readiness already resolved to executable work (`execute_direct`, or a planning handoff selected this workflow)
-- `lane_map` assigns clear ownership for every delegated lane used by the run
-
-Do not start autonomous execution when:
-
-- readiness is `clarify_first`
-- readiness is `plan_first` and no execution handoff exists yet
-- delegation ownership is missing, shared, or contradictory
-
-When Auto-Optimize consumes a planning handoff, it must honor:
-
-- `mode`
-- `artifacts`
-- `runtime_pinning_snapshot`
-- `verification_owner`
-- `stop_conditions`
-- `lane_map`
-
-Workflow-local judgment does not replace the shared readiness or delegation contract in [`workflows/references/delegation-contract.md`](../references/delegation-contract.md).
-
-If a new user instruction changes the requested deliverable surface, return
-to the canonical router before continuing; Auto-Optimize must not reclassify
-the request locally.
+Do not build coordinator/reviewer lanes by default. If the user explicitly requests delegation, follow [`workflows/references/delegation-contract.md`](../references/delegation-contract.md).
 
 ## Core principles (extracted from 30+ practical sessions)
 
@@ -97,7 +70,7 @@ The user can specify the dimensions, otherwise the most needed dimensions will b
    for guard in guards/python/check_*.sh; do bash "$guard" /path/to/project; done
    for guard in guards/rust/check_*.sh; do bash "$guard" /path/to/project; done
    ```
-4. Scan in parallel according to the current dimension only after creating delegation assignments with `task_slice`, `allowed_files`, `forbidden_files`, `authority`, `required_evidence`, `blocker_conditions`, and `integration_owner`
+4. Scan the selected dimension; use read-only parallel help only when explicitly requested and useful.
 5. **Merge guard results + LLM scan results**, output the evaluation report to the user, and confirm the optimization direction
 
 ### Phase 2: Classification and design (comply with VibeGuard specification)

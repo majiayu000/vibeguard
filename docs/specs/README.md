@@ -1,20 +1,23 @@
 # VibeGuard Specs Index
 
-This directory holds maintainer-facing specs. Most files here are implementation evidence or scoped design contracts, not a raw backlog. Before opening new work, check the status below and verify linked issues or PRs.
+This directory holds maintainer-facing historical design and implementation evidence.
+It is not an execution queue. SpecRail is retired; no packet here authorizes an
+agent to start work. New work requires an explicit current request or a freshly
+verified, narrowly scoped issue.
 
 ## Current Specs
 
 | Spec | Status | Use it for |
 |---|---|---|
-| `GH703/` | Draft | Privacy-safe default weekly value summaries, taxonomy accounting, scheduler lifecycle, and explicit share exports |
-| `GH720/` | Historical optional-tooling reference | Former automatic stage-aware packet validation, retained for explicitly invoked offline SpecRail checks |
-| `GH699/` | Draft | Clone-free installation through verified release payloads and Homebrew/npm entry points |
-| `GH701/` | Draft | Versioned host-adapter seam, real third-host proof, and dependency-gated agent-firewall positioning |
-| `GH700/` | Draft | Public reproducible effectiveness benchmarks plus normative publication history, authority protocol/control wire, blocked-attempt ledger/API, and conformance-vector subcontracts |
-| `GH702/` | Draft | Published third-party guard-pack contracts, transactional lifecycle, supply-chain trust, and precision-gated defaults |
-| `GH706/` | Draft | Privacy-safe malformed-input diagnostics and shared protocol-error versus rule-interception block counts |
-| `GH719/` | Implementing | Persistent, ownership-safe per-skill opt-out for managed Codex workflow skill copies |
-| `GH704/` | Draft | Opt-in L2 semantic checks, trusted runtime identity, durable bounded projection, named W-rule deltas, structured precision evidence, and human-gated learning |
+| `GH703/` | Implemented reference | Privacy-safe default weekly value summaries, taxonomy accounting, scheduler lifecycle, and explicit share exports |
+| `GH720/` | Historical retired-tooling reference | Former automatic stage-aware SpecRail packet validation; not executable |
+| `GH699/` | Implemented reference | Clone-free installation through verified release payloads and Homebrew/npm entry points |
+| `GH701/` | Historical roadmap reference | README and host-adapter design evidence; a real new host adapter was not delivered |
+| `GH700/` | Historical roadmap reference | Benchmark design evidence; a released-binary `vibeguard bench` command was not delivered |
+| `GH702/` | Historical roadmap reference | Guard-pack design evidence; third-party publish-and-install was not delivered |
+| `GH706/` | Implemented reference | Privacy-safe malformed-input diagnostics and shared protocol-error versus rule-interception block counts |
+| `GH719/` | Implemented reference | Persistent, ownership-safe per-skill opt-out for managed Codex workflow skill copies |
+| `GH704/` | Historical research reference | L2 semantic-defense research; no supported model-backed runtime entry point was delivered |
 | `GH686/` | Implemented reference | Paired with/without evaluation for prompt-injected rule target improvement and non-target regression evidence (#686 / PR #696) |
 | `GH687/` | Implemented reference | W-21 evidence-provenance rule plus the W-01 channel-trust step 0 |
 | `GH675/` | Implemented reference | Manual precision-triage capture, empty-channel visibility, and the documented feedback loop |
@@ -45,7 +48,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | `GH588/` | Implemented reference | Scheduled GC execution freshness, platform-correct wrapper/internal log evidence, and preserved setup-check mode semantics |
 | `GH589/` | Implemented reference | Repo-scoped code-slop self-scan precision for Rust CLI stdout and line-scoped detector pattern sources |
 | `GH590/` | Implemented reference | Directed session-pair W-14 cooldown, fail-open bounded history, schema-valid suppression telemetry, and runtime config distribution |
-| `GH595/` | Historical optional-tooling reference | Original SpecRail adoption and offline gate design, retained as reference rather than repository authorization |
+| `GH595/` | Historical retired-tooling reference | Original SpecRail adoption and offline gate design; not executable |
 | `GH556/` | Implemented reference | Weekly health report for rule trigger counts, precision risk, unclassified backlog, idle asset detection, and opt-in scheduling |
 | `GH566/` | Implemented reference | Codex unmanaged stale `PreToolUse` hook detection, explicit repair, and setup-test fixture isolation |
 | `GH551/` | Implemented reference | Hook hot-path collapse into a single vibeguard-runtime invocation to cut fork latency |
@@ -61,7 +64,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 ## Reading Rules
 
 - Treat `Status: Implemented` as current implementation context, not pending scope.
-- Treat `Draft` as a design contract that still needs live code and issue verification before implementation.
+- Treat `Draft` as design context only. It does not authorize implementation.
 - Keep linked issues and PRs in the spec when they are part of the execution contract.
 - Do not move a spec into `docs/internal/` while active issues or public docs still point to it.
 - Update this index when a spec is implemented, superseded, or split.

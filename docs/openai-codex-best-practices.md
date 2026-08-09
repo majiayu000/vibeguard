@@ -195,9 +195,9 @@ The Codex app UI makes thread management easiest because you can pin threads and
 
 Keep one thread per coherent unit of work. If the work is still part of the same problem, staying in the same thread is often better because it preserves the reasoning trail. Fork only when the work truly branches.
 
-> Use Codex's [multi-agent](/codex/concepts/multi-agents) workflows to offload bounded work from the main thread. Keep the main agent focused on the core problem, and use subagents for tasks like exploration, tests, or triage.
-
-In VibeGuard repositories, apply [`workflows/references/delegation-contract.md`](../workflows/references/delegation-contract.md) before starting parallel write lanes so each child agent has explicit file ownership, evidence requirements, blockers, and a single integration owner.
+Use one short thread per issue and at most one writable session per repository.
+Multi-agent work is opt-in: when explicitly requested, keep helpers bounded and
+read-only where possible, with one integration owner.
 
 ## Common mistakes
 

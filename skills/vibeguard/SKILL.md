@@ -1,122 +1,73 @@
 ---
 name: vibeguard
-description: "AI-assisted development of anti-hallucination specifications. Check out the seven-layer defense architecture, quantitative indicators, execution templates and practical cases. Used for code review, task startup inspection, and weekly review."
+description: "Use VibeGuard anti-hallucination rules, hooks, guards, and verification practices for task startup checks, code review, risk assessment, and weekly review."
 ---
 
-#VibeGuard — Anti-hallucination specification Skill
+# VibeGuard
 
-## Overview
+VibeGuard prevents common AI-assisted development failures through compact rules, executable guards, hooks, focused tests, and evidence-based review.
 
-VibeGuard is an anti-hallucination framework for AI-assisted development that systematically blocks common failure modes in LLM code generation through a seven-layer defense architecture.
+Canonical sources:
 
-Canonical contract sources for this skill:
-- `README.md` — product entry and current Core vs Workflow boundary
-- `docs/rule-reference.md` — public rule/guard summary
-- `workflows/references/routing-contract.md` — canonical `readiness` decisions and execution handoff fields
+- `README.md` — product entry and core/workflow boundary
+- `docs/rule-reference.md` — public rule and guard summary
 - `schemas/install-modules.json` — install/runtime contract
+- `rules/claude-rules/`, `hooks/`, `guards/`, and `vibeguard-runtime/` — implementation
 
-`docs/internal/history/spec.md` remains a historical design snapshot and should not be treated as the authoritative implementation contract.
-
-Calling `/vibeguard` can:
-- View the complete anti-hallucination specifications
-- Get task startup checklist
-- View the scoring matrix for risk assessment
-- Get weekly review template
+Historical specs and plans are context, not an automatic work queue.
 
 ## When to Activate
 
-Triggered when user mentions:
-- "Check anti-hallucination specifications", "vibeguard"
-- "task startup check", "task contract"
-- "Weekly review", "review template"
-- "risk assessment", "risk scoring"
-- "code quality guard", "guard rules"
+Use this skill when the user asks for VibeGuard, anti-hallucination checks, task startup constraints, guard rules, risk scoring, code review, or weekly review.
+
+For ordinary implementation work:
+
+- execute clear, bounded tasks directly;
+- plan only major architecture or explicitly requested planning;
+- keep normal specs to two files and about 300 lines total;
+- avoid delegation unless the user asks or ownership is genuinely independent;
+- use focused tests during iteration and broader checks before submission.
 
 ## Red Flags
 
-- A new guard or rule is proposed without a corresponding automated detection method.
-- A workflow skips the routing contract, omits `work_surface`, or omits `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, or `lane_map`.
-- A completion claim lacks fresh verification output from the current session.
+- A new rule has no executable guard, hook, test, or evaluation path.
+- A clear small task is blocked on a process packet, schema, receipt, or runtime snapshot.
+- Multiple writable sessions or agents operate on the same repository.
+- A PR continues reviewing after `Findings: 0` and `PASS`, or exceeds two initiated review rounds.
+- A completion claim lacks fresh verification from the current session.
 
 ## Checklist
 
-- [ ] Confirm the task goal, data source, constraints, and done-when condition.
-- [ ] Map the work to the relevant L1-L7 layer before changing rules or hooks.
-- [ ] Run the focused guard, hook, or documentation check that covers the changed surface.
+- [ ] Confirm goal, context, constraints, and done-when.
+- [ ] Search for existing rules, hooks, workflows, skills, and tests.
+- [ ] Make the smallest requested change.
+- [ ] Run the focused verification command for the changed behavior.
+- [ ] Stop review immediately on zero findings and pass.
+- [ ] Preserve unrelated worktree changes.
 
-## Quick review of seven-layer defense architecture
+## Seven-Layer Summary
 
-| Hierarchy | Name | Key Tools/Rules |
-|------|------|---------------|
-| L1 | Anti-duplicate system | `check_duplicates.py` / Search first then write |
-| L2 | Naming constraints | `check_naming_convention.py`/snake_case |
-| L3 | Pre-commit Hooks | ruff / gitleaks / shellcheck |
-| L4 | Architecture guard testing | `test_code_quality_guards.py` Five rules |
-| L5 | Skill/Workflow | plan-flow / fixflow / optflow |
-| L6 | Prompt embedded rules | CLAUDE.md mandatory rules |
-| L7 | Weekly review | review-template.md |
+| Layer | Purpose |
+|---|---|
+| L1 | Search before creating |
+| L2 | Naming and boundary conversion |
+| L3 | Hooks and fail-visible interception |
+| L4 | Architecture and code-quality guards |
+| L5 | Small delivery workflows |
+| L6 | Compact injected behavior rules |
+| L7 | Human review and trend feedback |
 
-## Quick use
+## References
 
-### Task startup check
-
-```
-Refer to references/task-contract.yaml and confirm:
-1. Goals are clear and verifiable
-2. The data source has been determined
-3. Acceptance criteria can be tested
-```
-
-### risk assessment
-
-```
-Refer to references/scoring-matrix.md to score each finding:
-- impact: 1-5
-- effort: 1-5
-- risk: 1-5
-- confidence: 1-5
-Formula: priority = (impact × confidence) - (effort + risk)
-```
-
-### Weekly review
-
-```
-Refer to references/review-template.md, record:
-1. Return event this week
-2. Guard interception statistics
-3. Indicator trends
-4. Highlights for next week
-```
-
-## Reference documentation
-
-- `references/task-contract.yaml` — Task startup Checklist (machine verification format)
+- `references/task-contract.yaml` — startup checklist
 - `references/review-template.md` — weekly review template
-- `references/scoring-matrix.md` — risk-impact scoring matrix
-- `README.md` (repository root directory) — current product entrypoint
-- `docs/rule-reference.md` (repository root directory) — current rule/guard summary
-- `schemas/install-modules.json` (repository root directory) — current install/runtime contract
+- `references/scoring-matrix.md` — risk/impact scoring
+- `workflows/references/delivery-base.md` — delivery and review convergence rules
 
-## Execution rules
+## Guardrails
 
-- Go through the task contract before starting each development task
-- Conduct a review every Friday, using review template
-- When a regression is discovered, first locate the failed defense line and then strengthen the rules.
-- New rules must have corresponding automatic detection methods (guard/hook/test)
-
-## Red Flags
-
-- **Rule-only fix** - adding prose without a guard, hook, test, or eval creates an illusion of enforcement.
-- **Unsearched new surface** - new rules, hooks, workflows, or skills must be searched against existing ones first.
-- **Silent degradation** - user-visible missing data or wrong output must fail loudly.
-- **Workflow drift** - routing decisions must follow the shared routing contract rather than ad hoc judgment.
-
-## Checklist
-
-- [ ] Confirm the task goal, context, constraints, and done-when criteria.
-- [ ] Search for existing rules, hooks, workflows, skills, and tests before adding new ones.
-- [ ] Require exact `precedence`, then classify `work_surface` as `code_execution`, `writing_research`, or `chat_support` before choosing a routing lane.
-- [ ] Pick the correct routing lane by setting `readiness`: `execute_direct`, `plan_first`, or `clarify_first`.
-- [ ] Carry `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map` when planning hands off to execution.
-- [ ] Attach a focused verification command to every behavior change.
-- [ ] Preserve the L1-L7 constraint summary in handoffs and compactions.
+- Do not add prose-only enforcement.
+- Do not invent APIs, fields, or success evidence.
+- Do not swallow user-visible errors.
+- Do not turn roadmap or historical documents into work without current user intent.
+- Do not build a validator for another spec validator.

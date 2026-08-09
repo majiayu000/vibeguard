@@ -1,6 +1,6 @@
 # Remove Mandatory SpecRail Gates
 
-Status: Active execution plan
+Status: Completed record; superseded by full SpecRail control-plane retirement
 
 Linked issue: [#722](https://github.com/majiayu000/vibeguard/issues/722)
 
@@ -51,7 +51,10 @@ runtime, hook, guard, setup, release, and security enforcement.
 - [x] Preserve and retest optional offline SpecRail tooling.
 - [x] Reclassify GH595 and GH720 as historical optional-tooling references.
 - [x] Run focused and broad local verification.
-- [ ] Obtain independent review and fresh CI for the linked PR head.
+- [x] Obtain independent review and fresh CI for the linked PR head.
+
+This plan is historical evidence only. Its optional SpecRail tooling was later
+retired and must not be treated as a runnable queue or authorization source.
 
 ## Verification
 

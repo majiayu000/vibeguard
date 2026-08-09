@@ -443,10 +443,8 @@ assert_cmd_fail "guard pack explain rejects unknown pack" python3 "${GUARD_PACKS
 
 header "workflow contracts"
 assert_cmd "workflow contracts validate from schema registry" python3 "${WORKFLOW_CONTRACT_HELPER}" validate
-handoff_required_out="$(python3 "${WORKFLOW_CONTRACT_HELPER}" list-required execution_handoff)"
-assert_contains "${handoff_required_out}" "runtime_pinning_snapshot" "execution handoff required keys come from schema"
-delegation_required_out="$(python3 "${WORKFLOW_CONTRACT_HELPER}" list-required delegation_assignment)"
-assert_contains "${delegation_required_out}" "handoff_artifacts" "delegation assignment required keys come from schema"
+review_required_out="$(python3 "${WORKFLOW_CONTRACT_HELPER}" list-required review_output)"
+assert_contains "${review_required_out}" "findings" "review output required keys come from schema"
 
 header "codex config helper"
 CONFIG_FILE="${TMP_DIR}/config.toml"

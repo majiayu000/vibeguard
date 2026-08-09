@@ -7,193 +7,32 @@
     "live_truth_output": "command-live-truth-output.schema.json",
     "preflight_output": "command-preflight-output.schema.json",
     "review_output": "command-review-output.schema.json",
-    "skill_validate_output": "command-skill-validate-output.schema.json",
-    "routing_decision": "workflow-routing-decision.schema.json",
-    "execution_handoff": "workflow-execution-handoff.schema.json",
-    "delegation_assignment": "workflow-delegation-assignment.schema.json",
-    "lane_map": "workflow-lane-map.schema.json",
-    "verification_gate": "workflow-verification-gate.schema.json"
+    "skill_validate_output": "command-skill-validate-output.schema.json"
   },
   "markdown_examples": [
-    {
-      "path": "docs/command-schemas.md",
-      "heading": "routing decision Schema",
-      "schema": "routing_decision"
-    },
-    {
-      "path": "docs/command-schemas.md",
-      "heading": "execution handoff Schema",
-      "schema": "execution_handoff"
-    },
-    {
-      "path": "docs/command-schemas.md",
-      "heading": "delegation assignment Schema",
-      "schema": "delegation_assignment"
-    },
-    {
-      "path": "docs/command-schemas.md",
-      "heading": "lane map ownership Schema",
-      "schema": "lane_map"
-    },
-    {
-      "path": "docs/command-schemas.md",
-      "heading": "verification gate Schema",
-      "schema": "verification_gate"
-    },
-    {
-      "path": "docs/command-schemas.md",
-      "heading": "preflight output Schema",
-      "schema": "preflight_output"
-    },
-    {
-      "path": "docs/command-schemas.md",
-      "heading": "check output Schema",
-      "schema": "check_output"
-    },
-    {
-      "path": "docs/command-schemas.md",
-      "heading": "live_truth output Schema",
-      "schema": "live_truth_output"
-    },
-    {
-      "path": "docs/command-schemas.md",
-      "heading": "skill_validate output Schema",
-      "schema": "skill_validate_output"
-    },
-    {
-      "path": "docs/command-schemas.md",
-      "heading": "skill_validate format output Schema",
-      "schema": "skill_validate_output"
-    },
-    {
-      "path": "docs/command-schemas.md",
-      "heading": "review output Schema",
-      "schema": "review_output"
-    },
-    {
-      "path": "docs/command-schemas.md",
-      "heading": "learn output Schema",
-      "schema": "learn_output"
-    },
-    {
-      "path": "docs/command-schemas.md",
-      "heading": "learn signal Schema",
-      "schema": "learn_signal"
-    }
+    {"path": "docs/command-schemas.md", "heading": "preflight output Schema", "schema": "preflight_output"},
+    {"path": "docs/command-schemas.md", "heading": "check output Schema", "schema": "check_output"},
+    {"path": "docs/command-schemas.md", "heading": "live_truth output Schema", "schema": "live_truth_output"},
+    {"path": "docs/command-schemas.md", "heading": "skill_validate output Schema", "schema": "skill_validate_output"},
+    {"path": "docs/command-schemas.md", "heading": "skill_validate format output Schema", "schema": "skill_validate_output"},
+    {"path": "docs/command-schemas.md", "heading": "review output Schema", "schema": "review_output"},
+    {"path": "docs/command-schemas.md", "heading": "learn output Schema", "schema": "learn_output"},
+    {"path": "docs/command-schemas.md", "heading": "learn signal Schema", "schema": "learn_signal"}
   ],
   "consumers": [
     {
-      "path": "workflows/references/routing-contract.md",
-      "references": ["delegation-contract.md"],
-      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
-    },
-    {
-      "path": "workflows/references/delegation-contract.md",
-      "references": ["routing-contract.md"],
-      "requires": ["delegation_assignment", "lane_map", "verification_gate"]
-    },
-    {
-      "path": "workflows/references/delivery-base.md",
-      "references": ["routing-contract.md", "delegation-contract.md"],
-      "requires": ["routing_decision", "execution_handoff", "delegation_assignment", "lane_map", "verification_gate"]
-    },
-    {
-      "path": "agents/dispatcher.md",
-      "references": ["routing-contract.md", "delegation-contract.md"],
-      "requires": ["routing_decision", "execution_handoff", "delegation_assignment", "lane_map", "verification_gate"]
-    },
-    {
-      "path": ".claude/commands/vibeguard/preflight.md",
-      "references": ["routing-contract.md"],
-      "requires": ["routing_decision"]
-    },
-    {
-      "path": "workflows/fixflow/SKILL.md",
-      "references": ["routing-contract.md", "delegation-contract.md"],
-      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
-    },
-    {
-      "path": "workflows/optflow/SKILL.md",
-      "references": ["routing-contract.md", "delegation-contract.md"],
-      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
-    },
-    {
-      "path": "workflows/plan-flow/SKILL.md",
-      "references": ["routing-contract.md", "delegation-contract.md"],
-      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
-    },
-    {
-      "path": "workflows/plan-mode/SKILL.md",
-      "references": ["routing-contract.md", "delegation-contract.md"],
-      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
-    },
-    {
-      "path": "workflows/auto-optimize/SKILL.md",
-      "references": ["routing-contract.md", "delegation-contract.md"],
-      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
-    },
-    {
-      "path": "workflows/plan-flow/references/execplan-integration.md",
-      "references": ["routing-contract.md", "delegation-contract.md"],
-      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
-    },
-    {
       "path": "docs/command-schemas.md",
-      "references": ["routing-contract.md", "delegation-contract.md"],
-      "requires": ["routing_decision", "execution_handoff", "delegation_assignment", "lane_map", "verification_gate"]
-    },
-    {
-      "path": "README.md",
-      "references": ["routing-contract.md", "delegation-contract.md"],
-      "requires": []
-    },
-    {
-      "path": "AGENTS.md",
-      "references": ["routing-contract.md"],
-      "requires": ["routing_decision", "execution_handoff"]
-    },
-    {
-      "path": "skills/vibeguard/SKILL.md",
-      "references": ["routing-contract.md"],
-      "requires": ["routing_decision", "execution_handoff"]
-    },
-    {
-      "path": "docs/CLAUDE.md.example",
-      "references": ["routing-contract.md", "delegation-contract.md"],
-      "requires": []
-    },
-    {
-      "path": "docs/openai-codex-best-practices.md",
-      "references": ["delegation-contract.md"],
-      "requires": []
-    },
-    {
-      "path": "docs/README_CN.md",
-      "references": ["routing-contract.md", "delegation-contract.md"],
-      "requires": []
-    },
-    {
-      "path": "claude-md/vibeguard-rules.md",
-      "references": ["routing-contract.md"],
-      "requires": []
-    },
-    {
-      "path": "templates/AGENTS.md",
-      "references": ["routing-contract.md"],
-      "requires": []
+      "references": [],
+      "requires": [
+        "check_output",
+        "learn_output",
+        "learn_signal",
+        "live_truth_output",
+        "preflight_output",
+        "review_output",
+        "skill_validate_output"
+      ]
     }
   ],
-  "legacy_routing_markers": [
-    "1-2 files",
-    "3-5 files",
-    "6+ files",
-    "1-2 File",
-    "3-5 File",
-    "6+ Documentation",
-    "1-2 个文件",
-    "3-5 个文件",
-    "6 个及以上文件",
-    "1-2 file directly",
-    "3-5 `/vibeguard:preflight`"
-  ]
+  "legacy_routing_markers": []
 }

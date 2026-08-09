@@ -35,36 +35,13 @@ Trigger this skill when the user asks for one or more of:
 - [ ] Map each feature step to at least one concrete validation command.
 - [ ] Complete the current step, run its checks, and record status before starting the next step.
 
-## Routing Contract Integration
+## Delivery Selection
 
-Use the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md) and require its exact validated `precedence`.
+Start Fixflow when the user requests implementation and the bounded outcome is clear. Small fixes execute directly; major architecture or migration work may consume a concise existing plan.
 
-Fixflow can start directly only when upstream `work_surface` resolved to `code_execution` rather than `writing_research` or `chat_support`, and either of these is true:
+Clarify only a missing choice that would materially change the result or safety. No routing packet or fixed handoff fields are required.
 
-- upstream readiness resolved to `execute_direct`
-- a planning workflow already emitted a handoff that preselects Fixflow for execution
-
-Fixflow must not start execution when either of these is true:
-
-- upstream readiness resolved to `clarify_first`
-- upstream readiness resolved to `plan_first` and no execution handoff exists yet
-
-When Fixflow receives a planning handoff, it must honor all required keys:
-
-- `mode`
-- `artifacts`
-- `runtime_pinning_snapshot`
-- `verification_owner`
-- `stop_conditions`
-- `lane_map`
-
-If `lane_map` does not assign Fixflow-owned work clearly, stop and clarify before editing.
-
-If a new user instruction changes the requested deliverable surface, return
-to the canonical router before continuing; Fixflow must not reclassify the
-request locally.
-
-If Fixflow delegates any task to a child agent or parallel worker, it must use [`workflows/references/delegation-contract.md`](../references/delegation-contract.md) and keep a single integration owner for shared outputs.
+Do not delegate by default. If the user explicitly asks for delegation, follow [`workflows/references/delegation-contract.md`](../references/delegation-contract.md).
 
 ## Workflow
 
@@ -154,7 +131,7 @@ For `per_step` (default):
 
 ## Checklist
 
-- [ ] Confirm routing readiness is `execute_direct` or a valid handoff selected Fixflow.
+- [ ] Confirm the requested outcome and done-when condition.
 - [ ] Build a step plan with owned files, checks, and stop conditions.
 - [ ] Run step-level verification before moving to the next step.
 - [ ] Commit per step unless the user requested `final_only` or `milestone`.

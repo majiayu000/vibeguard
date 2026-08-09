@@ -12,43 +12,33 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 - Progress updates: for non-trivial or tool-heavy work, send a short update at start, after discovery, before edits, after verification, and when blocked.
 - Default verbosity: keep answers concise by default; use short paragraphs for simple tasks and expand only when the work is complex or the user asks for depth.
 - Formatting: use Markdown only when it helps; prefer prose first, flat bullets only for natural lists, and avoid decorative structure.
-- Work surface: classify the request as `code_execution`, `writing_research`, or `chat_support` before applying workflow routing.
-- Writing/research: keep factual/source verification and the requested tone, but do not force build/test/changed-files/PR-readiness/root-cause framing unless code, generated site content, or repository files are edited.
+- Clear, bounded work executes directly. Clarify missing facts before changing files.
+- Writing/research stays read-only unless the user also asks for an edit or implementation.
 
-## Workflow Orchestration
+## Workflow Delivery
 
-### 1. Routing Contract
+### 1. Direct Or Planned
 
-Follow the canonical router in `workflows/references/routing-contract.md`.
-
-- Precedence: `user_override` → `work_surface classifier` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
-- Work surfaces: `code_execution`, `writing_research`, `chat_support`
-- Readiness outputs: `execute_direct`, `plan_first`, `clarify_first`
-- Planning handoff keys: `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, `lane_map`
-
-Do not recreate a separate file-count router inside project-specific CLAUDE instructions.
-
-### 2. Spec-Driven (Spec-Driven)
-
-When the routing contract resolves to `plan_first`, write the spec/plan before implementation:
+Execute small bugs, docs, and mechanical changes directly. Write a plan only for
+major architecture, migrations, cross-system policy changes, or explicit user requests:
 1. **Understand first** — read the relevant code and draw the current data flow
 2. **Write spec** — what to change, why, which files are affected, and interface definitions
 3. **Implement according to spec** — do not deviate, update spec first if problems are found
 4. **Verification** — Check each item against the spec
 
-When readiness resolves to `execute_direct`, make the change directly without overdoing the process.
+Normal specs stay within about two files and 300 lines. Do not add validators for
+spec validators or process artifacts that do not prove product behavior.
 
-### 3. Subagent Strategy
+### 2. Optional Helpers
 
-- Use child agents to keep the main context window clean only after the routing contract allows delegation
-- Follow `workflows/references/delegation-contract.md` for every child-agent assignment
-- Research, exploration, and parallel analysis can run in `readonly` mode before write ownership is clear
-- Write lanes require a task slice, allowed files, forbidden files, read-only files, authority, required evidence, blockers, a single integration owner, verification owner, and handoff artifacts
-- One focused task per sub-agent
+- Do not delegate by default.
+- When the user explicitly requests delegation, prefer bounded read-only work.
+- Keep one writable session per repository and one integration owner.
+- Use one short session per issue; avoid long-running task queues.
 
-### 4. Autonomous Execution
+### 3. Execution
 
-- Receive bug report: **Fix it directly only when readiness resolves to `execute_direct`**
+- Receive a clear bug report: reproduce and fix it directly.
 - See logs/error reports/failed tests — locate the root cause and resolve it
 - User zero context switch
 
@@ -61,7 +51,7 @@ The context window is the most important resource and is actively managed:
 - **Two Correction Rules**: After correcting the same problem twice → `/clear` restart, the dirty context will only become more and more wrong as it is corrected
 - **Inter-task `/clear`**: Clear the context between unrelated tasks, do not let history interfere with new tasks
 - **Compact Preservation Directive**: When compacting, always preserve: modified file lists, constraint sets, test commands, architectural decisions
-- **Sub-agent isolation**: A large number of file reads are handed over to the sub-agent without polluting the main context.
+- **Optional helper isolation**: If delegation was explicitly selected, give each helper one bounded, read-only task.
 - **Long Session Alert**: Performance degrades when the context is almost full, active `/clear` or `/compact`
 
 ---
@@ -91,7 +81,7 @@ Rules, guard scripts, hooks, and workflow commands provide the coverage. Not eve
 | **L3** | Disable silent exception swallowing; disable Any type | **Hook warning** |
 | **L4** | Blank display with no data; API not invented | **Hook Warning** |
 | **L5** | Only do what is asked | Review constraints |
-| **L6** | Classify `work_surface`, then follow the canonical routing contract in `workflows/references/routing-contract.md` | Process constraints |
+| **L6** | Execute clear bounded work directly; plan only major or explicitly requested work | Process constraints |
 | **L7** | Disable AI tag / force push / key | Agent/review contract + pre-commit quality/build checks + git pre-push remote-history block |
 
 ---

@@ -12,20 +12,14 @@ tags: [vibeguard, preflight, constraints, prevention]
 - The constraint set guides all subsequent coding, eliminating the need to make architectural decisions during the implementation phase
 - Each constraint must be verifiable — either by writing a guard script or by writing a test assertion
 
-**Routing**
+**Selection**
 
-Follow the canonical router in `workflows/references/routing-contract.md` before starting preflight. Require its complete exact `precedence`; first classify `work_surface` as `code_execution`, `writing_research`, or `chat_support`, then classify `readiness`. The `readiness` decision has exactly three outputs:
+Skip preflight for docs-only work, small bugs, focused tests, and explicit mechanical changes. Run it only for major architecture, migration, cross-system policy work, or when the user explicitly requests preflight.
 
-- `execute_direct`: skip preflight when the task is bounded, the next edit is clear, and verification can be owned immediately.
-- `plan_first`: run preflight when the task is well-specified but broad enough that a constraint set or planning handoff is needed before code changes.
-- `clarify_first`: ask for the missing scope, non-goals, decision boundaries, or delegation ownership before reading further or planning.
-
-File count can inform the routing decision as a secondary signal, but it is not the routing contract and must not replace `execute_direct`, `plan_first`, or `clarify_first`.
-
-For `writing_research` or `chat_support`, keep source/fact verification when needed but do not run code preflight unless repository edits are requested.
+No routing packet, runtime snapshot, or execution handoff is required. Ask a focused question only when a missing decision would materially change the constraints.
 
 **Trigger Condition**
-- Changes involving several file levels or cross-cutting areas
+- Major cross-cutting architecture or migration work
 - Added new entry point (binary/service/CLI subcommand)
 - Modify the data layer (database, cache, file storage)
 - Cross-module refactoring
@@ -33,7 +27,7 @@ For `writing_research` or `chat_support`, keep source/fact verification when nee
 **Guardrails**
 - No code modification, only reading and analysis
 - No guessing - Uncertainty is marked as `[UNCLEAR]`, and subsequently confirmed with AskUserQuestion
-- The constraint set must be shown to the user for confirmation before coding can begin
+- Show the constraint set before coding when the user requested a planning checkpoint
 
 **Steps**
 

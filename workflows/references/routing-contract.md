@@ -1,224 +1,27 @@
 # Routing Contract
 
-Canonical routing contract for VibeGuard workflow selection. All workflow prompts, public docs, and dispatcher guidance must reference this document instead of redefining routing rules locally.
+Use the smallest workflow that safely delivers the user's request.
 
-Delegated execution is defined by [`delegation-contract.md`](delegation-contract.md). This routing contract decides whether delegation can start; the delegation contract defines assignments, parallelism, verification, and reintegration.
+## Direct Work
 
-Executable schema sources:
+Execute directly when the goal, scope, and verification are clear. Small bugs, focused docs, tests, and mechanical changes do not require a routing artifact, spec, or handoff packet.
 
-- `schemas/workflow-routing-decision.schema.json`
-- `schemas/workflow-execution-handoff.schema.json`
-- `schemas/workflow-lane-map.schema.json`
-- `schemas/workflow-verification-gate.schema.json`
+## Plan First
 
-## Precedence
+Write a concise plan only for major architecture, migrations, cross-system policy changes, or when the user explicitly asks for one. A plan should name the outcome, boundaries, ordered steps, verification, and true blockers. It does not require fixed metadata fields.
 
-Apply routing in this order:
+## Clarify First
 
-1. `user_override`
-2. `work_surface classifier`
-3. `risk/destructive gate`
-4. `ambiguity gate`
-5. `readiness classifier`
-6. `execution/delegation lane`
+Ask one focused question only when an unknown choice would materially change the result, authorization, or safety. Continue with reasonable assumptions when the missing detail is low risk and can be verified.
 
-Later stages must not override an earlier decision without an explicit new user instruction.
+## Changes During Work
 
-## Decision Model
+When the user changes scope, restate the new goal and update the active plan if one exists. Do not build a routing packet.
 
-### 1. User Override
+## Constraints
 
-- If the user explicitly selects a workflow or says to plan first, treat that as the requested lane.
-- User override does not bypass the risk/destructive gate or the ambiguity gate.
-
-### 2. Work Surface Classifier
-
-Classify the requested deliverable before applying execution routing:
-
-- `code_execution`: source changes, build/test repair, migrations, deployment, repository settings, generated site content, or any task where filesystem/runtime state is the deliverable.
-- `writing_research`: prose, research, strategy, critique, prompt wording, or a saved/report artifact where the proof surface is source accuracy, argument quality, requested tone, citation coverage, and artifact delivery.
-- `chat_support`: direct explanation, debugging advice, or lightweight Q&A where no durable artifact or execution handoff is requested.
-
-`writing_research` keeps verification, but translates it to the writing domain: cite or name sources when claims depend on external facts, separate facts from interpretation, preserve the requested audience and tone, and inspect the saved/rendered artifact when one is produced. Do not force build/test/changed-files/PR-readiness/root-cause framing unless code, generated site content, or repository files are edited.
-
-Use this deterministic priority when categories overlap:
-
-| Priority | Observed deliverable | `work_surface` |
-|---|---|---|
-| 1 | Any repository, runtime, deployment, executable-state, or generated-site mutation | `code_execution` |
-| 2 | No project-state mutation, but a durable prose or research artifact is requested | `writing_research` |
-| 3 | Neither project-state mutation nor a durable artifact is requested | `chat_support` |
-
-Mixed work containing project-state mutation is `code_execution`, while its
-prose portion keeps writing-domain verification. If facts are missing or
-conflicting, keep the classification internal and unresolved, advance to the
-ambiguity gate, and request clarification. The router must not emit a partial
-`routing_decision`, invent a default surface, or expose an unresolved enum
-value; it emits the payload only after classification is complete.
-
-### 3. Risk / Destructive Gate
-
-- Route to a safety-first lane before execution when the requested action is destructive, high-risk, or irreversible.
-- Examples: force-push, schema/data deletion, production config mutation, broad automated rewrites.
-
-### 4. Ambiguity Gate
-
-Route to `clarify_first` when execution or planning would require guessing any of:
-
-- the concrete goal
-- explicit non-goals
-- decision boundaries
-- ownership for delegated work
-
-Planning is not a substitute for missing task boundaries.
-
-### 5. Readiness Classifier
-
-The readiness classifier has exactly three outputs:
-
-- `execute_direct`
-- `plan_first`
-- `clarify_first`
-
-Choose `execute_direct` when the task is bounded, the next edits are clear, and verification can be owned immediately.
-
-Choose `plan_first` when the task is well-specified but multi-step enough that execution needs an explicit artifact handoff before code changes begin.
-
-Choose `clarify_first` when required scope or decision boundaries are missing.
-
-File count may be used as a secondary hint, but it is not the contract and must not replace the readiness outputs above.
-
-### 6. Execution / Delegation Lane
-
-- `execute_direct` enters an execution workflow immediately.
-- `plan_first` enters a planning workflow that emits the shared handoff block below.
-- Delegation is allowed only when `lane_map` assigns a single owner to each lane and no lane is left ownerless.
-- Delegated child-agent work must use the assignment template in [`delegation-contract.md`](delegation-contract.md) before any write lane starts.
-- Long tasks that cross 3 or more agent steps, run for 10 minutes or longer, or enter `/vibeguard:interview` / `/vibeguard:exec-plan` must capture a W-20 runtime pinning snapshot before execution starts.
-
-If delegation ownership is missing or conflicting, stop and return `clarify_first`.
-
-Every downstream consumer receives and validates the complete
-`routing_decision`. `execute_direct` proceeds with that object and does not create an execution handoff. `plan_first` planners preserve the same routing
-decision beside the handoff, and later executors require both objects. If a
-new user instruction changes the requested deliverable surface, the consumer
-returns the request to this canonical router and reruns the full precedence
-ladder before starting or continuing execution. Consumers never reclassify locally.
-
-## Shared Planning Handoff
-
-Planning workflows must preserve the validated routing decision and emit the
-same execution handoff payload beside it:
-
-```yaml
-routing_decision:
-  precedence: [user_override, work_surface_classifier, risk_destructive_gate, ambiguity_gate, readiness_classifier, execution_or_delegation_lane]
-  work_surface:
-    decision: code_execution | writing_research | chat_support
-    reason: <nonempty classification evidence>
-  readiness:
-    decision: plan_first
-    reason: <nonempty readiness evidence>
-handoff:
-  mode: <execution mode selected by the planner>
-  artifacts:
-    - <paths to the plan, spec, or other required artifacts>
-  runtime_pinning_snapshot: <path to W-20 snapshot | None for short direct tasks>
-  verification_owner: <who owns verification for this handoff>
-  stop_conditions:
-    - <conditions that must halt execution>
-  lane_map:
-    <lane_name>: <owner>
-```
-
-Required keys:
-
-- `mode`
-- `artifacts`
-- `runtime_pinning_snapshot`
-- `verification_owner`
-- `stop_conditions`
-- `lane_map`
-
-Consumption rules:
-
-- The complete validated `routing_decision` remains authoritative and is not
-  nested inside or reconstructed from the handoff.
-- Execution workflows must honor all required keys.
-- `mode` is preselected by planning; execution workflows do not re-route back to planning on their own.
-- `artifacts` are the canonical inputs for downstream execution.
-- `runtime_pinning_snapshot` records the pinned runtime, tool inventory, and VibeGuard rule hash for long tasks.
-- `verification_owner` names who closes the verification loop.
-- `stop_conditions` are hard boundaries, not suggestions.
-- `lane_map` must show ownership for every delegated lane before parallel work starts, and every delegated lane must receive a matching delegation assignment.
-
-## Workflow Ownership
-
-- `plan-mode` owns one-session planning after the route resolves to `plan_first`.
-- `plan-flow` owns traceable multi-step planning when a durable `plan/*.md` artifact is needed.
-- `fixflow` and other execution workflows own direct execution after `execute_direct`, or after a planning handoff preselects them.
-- `auto-optimize` only runs autonomously when readiness and delegation ownership are already explicit.
-- `agents/dispatcher.md` chooses a specialist inside the already selected lane; it does not infer `plan` vs `execute`.
-- `workflows/references/delegation-contract.md` owns child-agent assignment, team pipeline stages, parallelism limits, and reintegration rules.
-
-## Examples
-
-### Explicit User Override
-
-User says: "Use plan mode first, then hand off execution."
-
-- `user_override`: select planning lane
-- if no ambiguity remains: readiness resolves to `plan_first`
-- planner emits shared handoff block
-
-### Ambiguous Request with Missing Non-Goals
-
-User says: "Clean up the workflow system."
-
-- ambiguity gate fails because non-goals and decision boundaries are missing
-- output: `clarify_first`
-
-### Destructive or High-Risk Task
-
-User says: "Delete the legacy schema and push directly to production."
-
-- risk/destructive gate triggers before readiness
-- route to a safety-first planning/review lane
-
-### Small, Clear Task
-
-User says: "Update the README link that points to the wrong file."
-
-- ambiguity gate passes
-- work surface: `code_execution`
-- readiness output: `execute_direct`
-
-### Writing Or Research Task
-
-User says: "Draft a short analysis of why this agent style feels too execution-heavy."
-
-- work surface: `writing_research`
-- verify factual claims and preserve the requested tone
-- do not force code build/test, changed-files, PR-readiness, or root-cause framing unless the user asks to edit repository files
-
-### Large, Well-Specified Task
-
-User says: "Implement the approved routing contract across workflows and docs."
-
-- ambiguity gate passes
-- readiness output: `plan_first`
-- planner emits shared handoff block before execution
-
-### Delegation Without Lane Ownership
-
-Planner proposes parallel execution but omits who owns doc verification.
-
-- `lane_map` is incomplete
-- output: `clarify_first` until ownership is explicit
-
-### Delegation Without Assignment Boundaries
-
-Planner names lane owners but does not provide allowed files, forbidden files, authority, evidence, blockers, or integration owner.
-
-- delegation assignment is incomplete
-- output: `clarify_first` until the missing assignment fields are explicit
+- No file-count routing rules.
+- No mandatory execution handoff.
+- No routine runtime-pinning snapshot.
+- No automatic delegation lane.
+- No process artifact whose only purpose is validating another process artifact.

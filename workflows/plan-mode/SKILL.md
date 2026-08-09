@@ -14,7 +14,7 @@ Goal: Develop a implementable and traceable technical execution plan for the tas
 - User explicitly says `/plan`, `/prompts:plan`, or "enter Plan mode".
 - User wants a structured execution plan written under `plan/`.
 - User asks for planning before implementation and does not want code changes yet.
-- The task should be decomposed before implementation instead of executed directly.
+- The user explicitly wants the task decomposed before implementation.
 - A previous plan needs a deliberate update or replacement with traceable scope.
 
 > Note: This skill only takes effect when the user explicitly triggers Plan mode and does not affect normal conversations.
@@ -25,7 +25,7 @@ Goal: Develop a implementable and traceable technical execution plan for the tas
 
 ## Red Flags
 
-- The task is treated as executable while non-goals, decision boundaries, or lane ownership are unknown.
+- The plan ignores a material unresolved product or safety choice.
 - A new plan is created when the user meant to update the current plan.
 - The plan lacks verification commands, risks, or a clear plan file path.
 
@@ -35,17 +35,11 @@ Goal: Develop a implementable and traceable technical execution plan for the tas
 - [ ] Write or update a `plan/*.md` artifact with snake_case metadata.
 - [ ] Include executable phases, key decisions, risks, references, and verification.
 
-## Routing Contract Integration
+## Planning Boundary
 
-Plan Mode follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
+Explicit `/plan` usage selects planning. Ask a focused question only when a missing product, authorization, or safety choice would materially change the plan.
 
-- Explicit `/plan` usage is a user override that selects the planning lane.
-- Require a complete validated `routing_decision`, including exact `precedence`, `work_surface` (`code_execution`, `writing_research`, or `chat_support`), and `readiness` (`execute_direct`, `plan_first`, or `clarify_first`); preserve it unchanged beside any execution handoff.
-- User override does not bypass the ambiguity gate. If non-goals, decision boundaries, or delegation ownership are missing, return `clarify_first` questions before writing the plan.
-- Once ambiguity is resolved, Plan Mode operates as the `plan_first` planner for one-session work.
-- When execution is expected after planning, emit the shared handoff fields: `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map`.
-- When the plan delegates work, include assignments from [`workflows/references/delegation-contract.md`](../references/delegation-contract.md) before any child-agent write lane starts.
-- If a new user instruction changes the deliverable surface, return to the canonical router and rerun the full precedence ladder; never reclassify locally.
+Write the plan without a routing packet or fixed handoff fields. Do not add runtime snapshots for ordinary work and do not propose delegation unless the user explicitly asks or ownership is genuinely independent.
 
 ## 1. Overall behavioral agreement (must be observed)
 
@@ -224,12 +218,13 @@ Always keep the plan simple, clear, and executable, avoid over-designing for the
 - **Editing during Plan mode** - this mode produces a plan and must not change code unless the user exits planning.
 - **Creating a new plan for a continuation** - repeated Plan prompts often mean update the existing plan, not start over.
 - **Vague implementation steps** - a plan without files, tests, and done conditions cannot be executed safely.
-- **Ignoring routing readiness** - unclear or risky requirements should remain in `clarify_first` or `plan_first`.
+- **Planning through ambiguity** - ask when a missing decision would materially change the plan.
 
 ## Checklist
 
 - [ ] Determine whether this is a new plan or an update to the current plan.
 - [ ] Capture goal, context, constraints, and done-when criteria.
-- [ ] Include artifacts, runtime pinning, verification owner, stop conditions, and lane map.
+- [ ] Include the outcome, affected paths, key decisions, verification, and real stop conditions.
+- [ ] If execution must resume across sessions, use an ExecPlan instead of extending this ordinary plan.
 - [ ] Keep implementation work out of Plan mode unless explicitly requested.
 - [ ] Record the plan file path when a plan artifact is created or updated.

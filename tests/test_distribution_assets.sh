@@ -55,7 +55,6 @@ new_fixture() {
   local root="${TMP_DIR}/${name}"
   mkdir -p "$root/schemas"
   printf '{"modules": []}\n' > "$root/schemas/install-modules.json"
-  printf '{}\n' > "$root/skills-lock.json"
   printf '# Fixture contributing guide\n' > "$root/CONTRIBUTING.md"
   git -C "$root" init -q
   git -C "$root" add .
@@ -188,8 +187,7 @@ assert_fails_with "self/spec/plan/test/validator/doc/docstring/comments fail" \
 structured_fixture="$(new_fixture structured-consumers)"
 mkdir -p \
   "$structured_fixture/scripts/runtime" \
-  "$structured_fixture/templates" \
-  "$structured_fixture/tools"
+  "$structured_fixture/templates"
 for name in python toml json; do
   printf '# owned fixture\n' > "$structured_fixture/templates/${name}-owned.yaml"
 done
@@ -200,8 +198,6 @@ printf '%s\n' 'assets = ["tag#x", "templates/toml-owned.yaml"]' > \
   "$structured_fixture/scripts/runtime/consumer.toml"
 printf '%s\n' '{"assets":["tag#x","templates/json-owned.yaml"]}' > \
   "$structured_fixture/scripts/runtime/consumer.json"
-printf '%s\n' 'lock_path = "skills-lock.json"' > \
-  "$structured_fixture/tools/install.py"
 git -C "$structured_fixture" add .
 assert_cmd "supported formats preserve executable strings" \
   python3 "$VALIDATOR" "$structured_fixture"
@@ -209,8 +205,7 @@ assert_cmd "supported formats preserve executable strings" \
 unsupported_shell_fixture="$(new_fixture unsupported-shell)"
 mkdir -p \
   "$unsupported_shell_fixture/scripts/runtime" \
-  "$unsupported_shell_fixture/templates" \
-  "$unsupported_shell_fixture/tools"
+  "$unsupported_shell_fixture/templates"
 printf '# unsupported shell fixture\n' > \
   "$unsupported_shell_fixture/templates/orphan.yaml"
 printf '%s\n' \
@@ -220,8 +215,6 @@ printf '%s\n' \
   '    echo ok;;' \
   'esac)"' > \
   "$unsupported_shell_fixture/scripts/runtime/consumer.sh"
-printf '%s\n' 'lock_path = "skills-lock.json"' > \
-  "$unsupported_shell_fixture/tools/install.py"
 git -C "$unsupported_shell_fixture" add .
 assert_fails_with "shell consumers fail closed without a declared parser" \
   "unowned distribution asset: templates/orphan.yaml" \
@@ -230,28 +223,23 @@ assert_fails_with "shell consumers fail closed without a declared parser" \
 unsupported_yaml_fixture="$(new_fixture unsupported-yaml)"
 mkdir -p \
   "$unsupported_yaml_fixture/.github/workflows" \
-  "$unsupported_yaml_fixture/templates" \
-  "$unsupported_yaml_fixture/tools"
+  "$unsupported_yaml_fixture/templates"
 printf '# unsupported YAML fixture\n' > \
   "$unsupported_yaml_fixture/templates/orphan.yaml"
 printf '%s\n' \
   'steps:' \
   '  - run: cp templates/orphan.yaml /tmp/owned' > \
   "$unsupported_yaml_fixture/.github/workflows/consumer.yml"
-printf '%s\n' 'lock_path = "skills-lock.json"' > \
-  "$unsupported_yaml_fixture/tools/install.py"
 git -C "$unsupported_yaml_fixture" add .
 assert_fails_with "YAML consumers fail closed without a declared parser" \
   "unowned distribution asset: templates/orphan.yaml" \
   python3 "$VALIDATOR" "$unsupported_yaml_fixture"
 
 noop_fixture="$(new_fixture python-noop)"
-mkdir -p "$noop_fixture/scripts/runtime" "$noop_fixture/templates" "$noop_fixture/tools"
+mkdir -p "$noop_fixture/scripts/runtime" "$noop_fixture/templates"
 printf '# no-op fixture\n' > "$noop_fixture/templates/noop.yaml"
 printf '%s\n' 'value = 1' '"templates/noop.yaml"' > \
   "$noop_fixture/scripts/runtime/noop.py"
-printf '%s\n' 'lock_path = "skills-lock.json"' > \
-  "$noop_fixture/tools/install.py"
 git -C "$noop_fixture" add .
 assert_fails_with "standalone Python strings do not establish ownership" \
   "unowned distribution asset: templates/noop.yaml" \
@@ -260,24 +248,18 @@ assert_fails_with "standalone Python strings do not establish ownership" \
 positive_fixture="$(new_fixture positive)"
 mkdir -p \
   "$positive_fixture/skills/installed" \
-  "$positive_fixture/skills/locked" \
   "$positive_fixture/templates" \
-  "$positive_fixture/guards/universal" \
-  "$positive_fixture/tools"
+  "$positive_fixture/guards/universal"
 printf '# installed\n' > "$positive_fixture/skills/installed/SKILL.md"
-printf '# locked\n' > "$positive_fixture/skills/locked/SKILL.md"
 printf 'layers: []\n' > "$positive_fixture/templates/vibeguard-architecture.yaml"
 printf 'ruleDirs: []\n' > "$positive_fixture/sgconfig.yml"
 printf '{"modules": [{"paths": ["skills/installed/"]}]}\n' > \
   "$positive_fixture/schemas/install-modules.json"
-printf '{"skills/locked/SKILL.md": {}}\n' > "$positive_fixture/skills-lock.json"
 printf '%s\n' 'Path("templates/vibeguard-architecture.yaml").read_text()' > \
   "$positive_fixture/guards/universal/check_dependency_layers.py"
-printf '%s\n' 'lock_path = "skills-lock.json"' > \
-  "$positive_fixture/tools/install.py"
 printf '%s\n' 'Manual config: `sgconfig.yml`.' > "$positive_fixture/CONTRIBUTING.md"
 git -C "$positive_fixture" add .
-assert_cmd "install, lock, consumer, and exact manual evidence pass" \
+assert_cmd "install, consumer, and exact manual evidence pass" \
   python3 "$VALIDATOR" "$positive_fixture"
 
 echo

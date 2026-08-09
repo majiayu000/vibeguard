@@ -1,64 +1,42 @@
-# Summary
+# 摘要
 
-用 1-3 句话描述本次变更。
+用 1-3 句话说明用户可见结果。
 
-## Linked Work
+## 关联工作
 
-- Issue:
-- Spec packet:
+- Issue（如有）：
 
-## Readiness Gate
+## 验证
 
-- [ ] 关联 issue 已有 `ready_to_implement`，或这是一个已说明的小型 bug fix。
-- [ ] 需要 product/tech spec 时，已链接 spec。
-- [ ] 涉及安全敏感区域时，已走私有流程或获得维护者批准。
+- [ ] 聚焦测试：
+- [ ] 更广的相关检查：
+- [ ] 用户可见变更的截图或日志：
 
-## Review Gate
+## Review
 
-- [ ] 已完成 agent first-pass review，或明确说明跳过原因。
-- [ ] 已请求 human final review。
-- [ ] 需要 ownership approval 时，已明确 owner。
-
-## Merge Gate
-
-- [ ] 已记录 PR head SHA。
-- [ ] CI/check rollup 已完成且通过。
-- [ ] 已检查 review threads，未解决的 actionable threads 已处理。
-- [ ] native threads 可用时，已记录独立 reviewer 或 merge-reviewer lane evidence。
-- [ ] merge state 为 clean。
-- [ ] merge 前已记录 human merge authorization。
-- [ ] `python3 checks/github_pr_evidence.py --github-repo OWNER/REPO --pr <pr-number> --json > pr-evidence.json` 结果：
-- [ ] `python3 checks/pr_gate.py --repo . --evidence <evidence.json>` 结果：
-
-## Verification
-
-- [ ] Tests:
-- [ ] Manual proof:
-- [ ] 用户可见变更附 screenshots 或 logs:
+- [ ] 已处理具体的正确性、安全和回归问题。
+- [ ] `Findings: 0` 且 `PASS` 时已停止 Review。
+- [ ] Review 不超过两轮。
+- [ ] 剩余纯流程决策已明确交给人工。
 
 ## 配对 Prompt 规则评测
 
-- [ ] 本 PR 未新增或修改 prompt 注入的原生规则。
-- [ ] 本 PR 新增或修改了 prompt 注入的原生规则，并已附配对评测报告：
+- [ ] 本 PR 未新增或修改 prompt-injected 原生规则。
+- [ ] 本 PR 新增或修改了 prompt-injected 原生规则，并已附配对评测报告：
   - 候选规则 ID：
-  - 报告或 artifact 链接：
-  - 目标轴 delta 与样本量：
-  - 非目标轴 delta 与样本量：
-  - Producer model ID：
-  - Judge model ID：
+  - 报告或产物链接：
+  - 目标集 delta 与样本数：
+  - 非目标集 delta 与样本数：
+  - Producer 模型 ID：
+  - Judge 模型 ID：
   - Judge prompt digest：
-  - 阈值标定：`calibrated: false` 时附包含两轴 delta、样本量和模型证据的 `inconclusive` 报告，不得声称 `pass`。
-  - 注意：CI 不会机器核验上述数字与所附报告是否一致，reviewer 需对照 `report.json` 人工核对。
-- [ ] 仅为非 prompt 注入类变更申请豁免：
-  - 理由：
+  - 阈值校准：当 `calibrated: false` 时，附带包含两组 delta、样本数和模型证据的 `inconclusive` 报告，不得声称 `pass`。
+  - 注意：CI 不会自动核验这些数字；reviewer 需对照 `report.json` 人工核对。
+- [ ] 仅对非 prompt-injection 变更申请豁免：
+  - 原因：
   - 维护者批准：
 
-## Release Notes
+## 发布说明
 
 - [ ] 需要 changelog 或 release note。
-- [ ] 非用户可见。
-
-## Agent Disclosure
-
-- [ ] No agent was used.
-- [ ] Agent assisted; human author reviewed the full diff.
+- [ ] 对用户不可见。

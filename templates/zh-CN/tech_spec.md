@@ -1,56 +1,28 @@
-# Tech Spec
+# 技术规格：<标题>
 
-## Linked Issue
+> 仅在重大工作中与 `product_spec.md` 配套使用；两份规格合计约 300 行。
 
-GH-
+## 当前证据
 
-## Product Spec
+<现有代码路径、行为与约束。>
 
-Link to `product.md`.
+## 设计
 
-## Codebase Context
+<满足验收条件的最小设计。>
 
-Files 列使用写作时经 Read/grep 核实的 `path:line` 锚点；禁止凭记忆猜测。
-无法核实的引用删除或标注"待定位"。
+## 影响路径
 
-| Area | Files | Current behavior | Why relevant |
-| --- | --- | --- | --- |
-|  |  |  |  |
+- `<path>` — <修改>
 
-## 设计方案
+## 验证
 
-说明计划中的实现方式。
+- `<聚焦命令>` — <证明的行为>
+- `<提交前命令>` — <更广回归边界>
 
-## Product-to-Test Mapping
+## 回滚
 
-枚举 `product.md` 的全部 `B-xxx`，不允许孤儿 invariant。Verification 为
-可执行命令或具体的人工复核步骤；禁止留空或 TBD。
+<如何安全停用或回退。>
 
-| Behavior invariant | Implementation area | Verification |
-| --- | --- | --- |
-| B-001 |  |  |
+## 延后工作
 
-## 数据流
-
-描述输入、输出、持久化和外部调用。
-
-## 备选方案
-
-- <!-- 备选方案 -->
-
-## 风险
-
-- Security:
-- Compatibility:
-- Performance:
-- Maintenance:
-
-## 测试计划
-
-- [ ] Unit tests:
-- [ ] Integration tests:
-- [ ] Manual verification:
-
-## 回滚方案
-
-描述如何回滚或禁用该变更。
+- <如有，记录超出范围的后续。>

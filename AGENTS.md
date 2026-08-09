@@ -8,15 +8,12 @@ VibeGuard is an anti-hallucination rules, hooks, runtime, installer, and workflo
 
 ## Start Here
 
-1. Check the worktree with `git status --short --branch`.
+1. Check `git status --short --branch` and preserve unrelated work.
 2. Search before adding files, functions, rules, hooks, workflows, or tests.
 3. Read `docs/directory-map.md` before moving files or changing public paths.
-4. Read `docs/specs/README.md` before treating a spec as pending work.
-5. Read `plan/README.md` before treating files under `plan/` as active backlog.
-6. For runtime, hook, setup, or workflow changes, read the closest scoped `CLAUDE.md` in that subtree.
-7. For GitHub issue or PR work, read `AGENT_USAGE.md`, search live remote
-   state, and use an isolated worktree for changes. Load SpecRail files only
-   when the user explicitly requests SpecRail tooling.
+4. Read `docs/specs/README.md` and `plan/README.md` before treating documents as pending work.
+5. For runtime, hook, setup, or workflow changes, read the closest scoped `CLAUDE.md`.
+6. For GitHub work, verify live remote state and use an isolated worktree based on the current remote base.
 
 ## Core Rules
 
@@ -24,84 +21,48 @@ VibeGuard is an anti-hallucination rules, hooks, runtime, installer, and workflo
 - Do not swallow errors silently. User-visible missing data or wrong output must fail loudly.
 - Do only the requested scope; avoid opportunistic refactors.
 - Preserve VibeGuard's core enforcement model: rules, hooks, setup scripts, and `vibeguard-runtime/` are the source implementation.
-- Treat plugin, pack, docs, and workflow changes as distribution layers unless a spec explicitly changes runtime behavior.
-- High-context files such as `AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, setup scripts, hooks, and workflow contracts must not be modified by generated output without explicit intent.
+- Treat plugin, pack, docs, and workflow changes as distribution layers unless a current design explicitly changes runtime behavior.
+- High-context files such as `AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, setup scripts, hooks, and workflow contracts require explicit intent.
 - Never add AI-generated markers or hidden attribution text to commits, docs, or generated artifacts.
 
-## Routing
+## Delivery Policy
 
-Follow `workflows/references/routing-contract.md` for non-trivial work.
+- Implement clear, bounded tasks directly. Do not require a spec, routing packet, schema, receipt, runtime snapshot, or multi-agent handoff for ordinary work.
+- Clarify only when a missing choice would materially change the result or make execution unsafe.
+- Write a plan for major architecture, migration, cross-system policy work, or when the user explicitly requests one.
+- A normal spec is at most two files and about 300 lines total. Docs-only changes, small bugs, and explicit mechanical edits are spec-exempt.
+- Do not create validators for spec validators or add process artifacts merely to satisfy another process artifact.
+- Use focused tests while iterating. Run the broader relevant suite before submission; leave exhaustive platform coverage to CI.
 
-Classify `work_surface` as `code_execution`, `writing_research`, or
-`chat_support` through the exact `precedence` ladder before setting `readiness` to `execute_direct`, `plan_first`, or
-`clarify_first`. If classification lacks or finds conflicting facts, clarify
-before emitting a routing decision; downstream consumers must not reclassify
-the surface locally.
+## Session And Review Limits
 
-| Change | Default readiness |
-|---|---|
-| Focused docs or test-only cleanup | `execute_direct` |
-| Small bug with clear reproduction and local test | `execute_direct` |
-| Runtime, hook, setup, policy, schema, or installer change | `plan_first` |
-| Ambiguous behavior, missing done-when, or conflicting specs | `clarify_first` |
-| Generated surface or high-context file rewrite | `plan_first` |
+- At most one writable session may operate on this repository at a time. Read-only helpers are allowed only when useful and explicitly scoped.
+- Keep one issue in one short session. Stop and hand off before repeated compaction or an unbounded queue drain.
+- Do not delegate by default. Use another agent only when the user explicitly asks or a major task has genuinely independent ownership.
+- A PR gets at most two review rounds initiated by this workflow.
+- When review reports `Findings: 0` and `PASS`, stop immediately.
+- If code and tests pass but a process-only gate remains unmet, hand the decision to a human; do not manufacture more documents or review loops.
 
-`plan_first` handoffs must always carry `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map`; use `None` or a minimal value when a field does not otherwise apply.
+## GitHub Safety
 
-## GitHub Queue And Review
-
-- Search live issues, PRs, branches, and review threads before creating
-  competing work.
-- Keep remote truth separate from local worktree state. Use isolated worktrees
-  based on the current remote base for writable lanes.
-- Use native `threads` when explicitly requested or when the selected queue
-  workflow requires independent lanes. Give writable lanes disjoint ownership.
-- Merge-readiness evidence must include the current head SHA, required CI,
-  independent review, unresolved review-thread state, and merge state.
-- Never merge, change repository permissions, force push, or publish private
-  security details without the required human authorization.
-
-## Optional SpecRail Tooling
-
-- Local SpecRail evaluators, configs, templates, schemas, packets, and skills
-  are optional offline tools.
-- `github_issue_evidence.py`, `github_duplicate_evidence.py`, and
-  `github_pr_evidence.py` are optional read-only live adapters. They require
-  network access and an authenticated `gh` session.
-- Neither optional class auto-activates or authorizes remote mutations.
-- Use SpecRail only when the user explicitly requests it. Its packets remain
-  under `docs/specs/GH<number>/`; do not create a second `specs/` root.
-- The adopted source commit, optional commands, and consumer overrides are
-  recorded in `AGENT_USAGE.md`.
-- Optional SpecRail output never replaces live GitHub, CI, review-thread, or
-  merge-state evidence.
+- Search live issues, PRs, branches, CI, and review threads before creating competing work.
+- Keep remote truth separate from local worktree state.
+- Merge-readiness evidence must use the current head SHA, required CI, unresolved review-thread state, and merge state.
+- Never merge, change repository permissions, force push, close disputed work, or publish private security details without explicit human authorization.
 
 ## Repository Map
 
 - `rules/claude-rules/`: canonical native rule source.
 - `hooks/`: installed hook scripts and adapters.
 - `guards/`: universal and language-specific guard scripts.
-- `vibeguard-runtime/`: Rust runtime for hook-side JSON, metrics, package rewrite logic, and Codex app-server wrapper.
+- `vibeguard-runtime/`: Rust runtime for hook-side JSON, metrics, package rewrite logic, and the Codex app-server wrapper.
 - `scripts/setup/` and `setup.sh`: public setup entrypoints.
 - `scripts/ci/`: CI contract validators.
-- `tests/`: shell and Rust regression coverage for hooks, setup, workflows, and contracts.
+- `tests/`: shell and Rust regression coverage.
 - `skills/`, `workflows/`, `agents/`, `.claude/commands/`: shipped agent workflow surfaces.
 - `plugins/vibeguard/`: Codex App plugin wrapper and observability commands.
-- `docs/specs/`: maintainer specs with status index.
-- `plan/`: workflow output and historical execution plans; not all files are active backlog.
-
-## Spec And Plan Context
-
-| Situation | Start with |
-|---|---|
-| Work on existing spec | Check `docs/specs/README.md` for status and linked issue state |
-| Work on existing plan | Check `plan/README.md` for active, draft, historical, or snapshot status |
-| New multi-step or policy work | Use `plan/` when the routing decision is `plan_first` |
-| Rust-only production path | Start with `docs/specs/rust-only-production-path.md` and `plan/2026-06-05_22-28-rust-only-production-path.md` |
-| Codex plugin or dashboard | Start with `docs/specs/codex-app-observability-plugin.md` and `plugins/vibeguard/README.md` |
-| Install friction, release binaries, scheduler defaults | Start with `docs/specs/install-friction-reduction.md` |
-
-If code and an older spec disagree, verify the current implementation before changing either. Update the spec index when a draft becomes implemented or obsolete.
+- `docs/specs/`: maintainer design history and explicitly selected current specs; it is not an automatic backlog.
+- `plan/`: mixed workflow output and historical execution plans; it is not an automatic backlog.
 
 ## High-Risk Areas
 
@@ -114,16 +75,16 @@ If code and an older spec disagree, verify the current implementation before cha
 
 ## Validation
 
-Before completion, run the focused command that proves the changed surface. Before submission, run the relevant gate from this table.
+Before completion, run the focused command that proves the changed surface. Before submission, run the relevant gate.
 
 | Changed surface | Commands |
 |---|---|
 | Rust runtime | `cargo check --manifest-path vibeguard-runtime/Cargo.toml` and `cargo test --manifest-path vibeguard-runtime/Cargo.toml` |
-| Hooks or guard behavior | `bash scripts/ci/validate-hooks.sh`, `bash scripts/ci/validate-hooks-manifest.sh`, and the focused test under `tests/hooks/` or `tests/codex_runtime/` |
-| Setup or installed hook state | `bash tests/test_setup.sh` and the focused setup test |
-| Manifest, schema, routing, or workflow contracts | `bash tests/test_manifest_contract.sh` and `bash tests/test_workflow_contracts.sh` |
+| Hooks or guards | `bash scripts/ci/validate-hooks.sh`, `bash scripts/ci/validate-hooks-manifest.sh`, and focused tests |
+| Setup | Focused setup test locally; `bash tests/test_setup.sh` before submission when feasible; full platform matrix in CI |
+| Manifest or workflow contracts | `bash tests/test_manifest_contract.sh` and `bash tests/test_workflow_contracts.sh` |
 | Skills or workflows | `bash scripts/ci/validate-skill-format.sh` and `bash scripts/ci/validate-workflow-contracts.sh` |
-| Documentation paths or commands | `bash scripts/ci/validate-doc-paths.sh` and `bash scripts/ci/validate-doc-command-paths.sh` |
-| Rule docs or rule IDs | `bash scripts/ci/validate-rules.sh`, `bash scripts/ci/validate-generated-rule-docs.sh`, and `bash scripts/verify/doc-freshness-check.sh --strict` |
+| Documentation | `bash scripts/ci/validate-doc-paths.sh` and `bash scripts/ci/validate-doc-command-paths.sh` |
+| Rules | `bash scripts/ci/validate-rules.sh`, `bash scripts/ci/validate-generated-rule-docs.sh`, and `bash scripts/verify/doc-freshness-check.sh --strict` |
 
-Run `bash scripts/local-contract-check.sh --quick` for a broad local contract pass when the change crosses multiple surfaces. If a validation command cannot run, report the exact blocker instead of claiming completion.
+Run `bash scripts/local-contract-check.sh --quick` for a broad local pass when a change crosses multiple surfaces. Report exact blockers instead of claiming unrun checks passed.
