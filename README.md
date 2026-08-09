@@ -328,6 +328,29 @@ Extracts non-obvious solutions as structured Skill files for future reuse.
 
 ## Installation
 
+### One-command no-clone install
+
+On supported macOS and Linux targets, the hosted seed downloads one exact
+release payload, verifies its checksum, and delegates to the canonical
+no-clone bootstrap contained in that verified payload:
+
+```bash
+bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- --version 1.1.13'
+```
+
+Require GitHub release attestation verification and forward `setup.sh` options
+after the second `--`:
+
+```bash
+bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- --version 1.1.13 --require-provenance -- --profile full --with-scheduler'
+```
+
+Then verify:
+
+```bash
+bash ~/.vibeguard/dist/current/setup.sh verify-install
+```
+
 ### Runtime prerequisites
 
 Default setup downloads and verifies the pinned `vibeguard-runtime` release for
