@@ -1,4 +1,5 @@
 mod active_constraints;
+mod bench;
 mod circuit_breaker;
 mod codex_app_server;
 mod codex_app_server_core;
@@ -69,6 +70,11 @@ struct Command {
 }
 
 static COMMANDS: &[Command] = &[
+    Command {
+        name: "bench",
+        usage: "[--json]  — run the built-in effectiveness and hook-latency benchmark",
+        handler: bench::run,
+    },
     Command {
         name: "version",
         usage: "  — print the vibeguard-runtime package version",

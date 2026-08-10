@@ -149,7 +149,7 @@ fn toolchain_verify_command(git_root: &Path) -> Option<&'static str> {
     }
 }
 
-fn is_verification_command(command: &str) -> bool {
+pub(crate) fn is_verification_command(command: &str) -> bool {
     const PATTERNS: [&str; 33] = [
         "cargo test",
         "cargo check",

@@ -44,6 +44,7 @@ fn help_lists_all_commands() {
     let out = bin().output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     for name in &[
+        "bench",
         "version",
         "json-field",
         "json-bool-field",
