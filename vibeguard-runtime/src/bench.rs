@@ -72,7 +72,7 @@ fn run_cases(root: &Path, runtime: &Path) -> Result<Vec<CaseResult>> {
     let mut cases = Vec::with_capacity(10);
     cases.extend(invented_api_cases(root, runtime)?);
     cases.extend(duplicate_module_cases(root, runtime)?);
-    cases.extend(swallowed_exception_cases(root)?);
+    cases.extend(swallowed_exception_cases(root, runtime)?);
     cases.extend(dangerous_shell_cases(root, runtime)?);
     cases.extend(unverified_done_cases());
     Ok(cases)
@@ -183,30 +183,35 @@ fn duplicate_module_cases(root: &Path, runtime: &Path) -> Result<Vec<CaseResult>
     ])
 }
 
-fn swallowed_exception_cases(root: &Path) -> Result<Vec<CaseResult>> {
-    let guard = code_slop_guard()?;
+fn swallowed_exception_cases(root: &Path, runtime: &Path) -> Result<Vec<CaseResult>> {
     let project = root.join("swallowed-exception");
-    fs::create_dir_all(&project)?;
+    fs::create_dir_all(project.join(".git"))?;
+    fs::create_dir_all(project.join("src"))?;
     let source = project.join("service.js");
+    let log = project.join("events.jsonl");
 
     let run = |content: &str| -> Result<bool> {
-        fs::write(&source, content)?;
-        let output = Command::new("bash")
-            .arg(&guard)
-            .arg(&project)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()?;
-        match output.status.code() {
-            Some(0) => Ok(false),
-            Some(1) => Ok(true),
-            _ => Err(format!(
-                "code-slop guard failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )
-            .into()),
-        }
+        let input = json!({"tool_input": {
+            "file_path": source,
+            "content": content
+        }})
+        .to_string();
+        let output = run_runtime(
+            runtime,
+            &[
+                "post-write-check",
+                "800",
+                "400",
+                "100",
+                "100",
+                "10",
+                path_str(&log)?,
+            ],
+            &input,
+            root,
+        )?;
+        require_success(&output, "post-write swallowed-exception benchmark")?;
+        Ok(String::from_utf8_lossy(&output.stdout).contains("empty exception handler"))
     };
 
     Ok(vec![
@@ -281,25 +286,6 @@ fn require_success(output: &Output, label: &str) -> Result {
         String::from_utf8_lossy(&output.stderr)
     )
     .into())
-}
-
-fn code_slop_guard() -> Result<PathBuf> {
-    let installed = std::env::current_exe()?
-        .parent()
-        .and_then(Path::parent)
-        .map(|root| root.join("guards/universal/check_code_slop.sh"));
-    if let Some(path) = installed.filter(|path| path.is_file()) {
-        return Ok(path);
-    }
-    let checkout = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .ok_or("runtime manifest has no repository parent")?
-        .join("guards/universal/check_code_slop.sh");
-    if checkout.is_file() {
-        Ok(checkout)
-    } else {
-        Err("installed code-slop guard is unavailable".into())
-    }
 }
 
 fn path_str(path: &Path) -> Result<&str> {

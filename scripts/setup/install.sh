@@ -430,6 +430,7 @@ stage_install_snapshot() {
   # Runtime must be prepared before project config validation, but the staged
   # snapshot lives in TMPDIR until validation has passed.
   prepare_runtime_binary
+  ln -s vibeguard-runtime "${_INSTALL_TMP}/bin/vibeguard"
   write_runtime_provenance_state "${_INSTALL_TMP}/runtime-provenance"
 }
 echo "=============================="

@@ -665,6 +665,10 @@ assert_cmd "setup install removes tracked retired Claude skill" test ! -L "${HOM
 assert_cmd "setup install removes tracked retired Codex skill" test ! -L "${HOME}/.codex/skills/old-flow"
 assert_cmd "vg shortcut commands are installed after setup" test -L "${HOME}/.claude/commands/vg"
 assert_cmd "vibeguard-runtime binary installed after setup" test -x "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+assert_cmd "vibeguard command installed after setup" test -x "${HOME}/.vibeguard/installed/bin/vibeguard"
+assert_cmd "vibeguard command targets the installed runtime" bash -c '
+  [[ "$(readlink "$1")" == "vibeguard-runtime" ]]
+' _ "${HOME}/.vibeguard/installed/bin/vibeguard"
 assert_cmd "vibeguard-runtime version matches VERSION after setup" bash -c '
   runtime="$1"
   version_file="$2"

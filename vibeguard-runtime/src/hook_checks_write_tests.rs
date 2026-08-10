@@ -178,3 +178,30 @@ fn stubs_and_u16_are_reported() {
     assert!(warnings.contains("[U-16]"), "{warnings}");
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn empty_javascript_catch_warns_without_flagging_handled_errors() {
+    let root = temp_post_write_project("empty_catch");
+    let src = root.join("src");
+    fs::create_dir_all(&src).expect("src dir");
+    let file_path = src.join("service.js");
+
+    let outcome = evaluate_post_write(
+        file_path.to_string_lossy().as_ref(),
+        "try { run(); } catch (error) { }\n",
+        config(),
+    );
+    let PostWriteOutcome::Warn { warnings } = outcome else {
+        panic!("expected swallowed-exception warning");
+    };
+    assert!(warnings.contains("[U-17]"), "{warnings}");
+    assert!(warnings.contains("empty exception handler"), "{warnings}");
+
+    let handled = evaluate_post_write(
+        file_path.to_string_lossy().as_ref(),
+        "try { run(); } catch (error) { report(error); }\n",
+        config(),
+    );
+    assert_eq!(handled, PostWriteOutcome::Pass { reason: "" });
+    let _ = fs::remove_dir_all(root);
+}
