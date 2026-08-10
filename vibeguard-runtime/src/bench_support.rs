@@ -78,26 +78,29 @@ pub(super) fn run_runtime(
     input: &str,
     root: &Path,
 ) -> Result<Output> {
-    let git = trusted_git_executable()?;
-    let git_parent = git
-        .parent()
-        .ok_or_else(|| format!("benchmark Git path has no parent: {}", git.display()))?;
+    let git = trusted_git_executable();
+    let git_parent = git.as_deref().and_then(Path::parent);
     let mut child = Command::new(runtime);
     child
         .args(args.iter().map(OsStr::new))
         .current_dir(root)
         .env_clear()
-        .env("PATH", git_parent)
+        .env("PATH", git_parent.unwrap_or_else(|| Path::new("")))
         .env("HOME", root.join("home"))
         .env("USERPROFILE", root.join("home"))
         .env("TMPDIR", root.join("tmp"))
         .env("TMP", root.join("tmp"))
         .env("TEMP", root.join("tmp"))
         .env("LC_ALL", "C")
-        .env("VIBEGUARD_GIT_EXECUTABLE", &git)
         .env("VIBEGUARD_PRE_EDIT_SUGGEST", "0")
         .env("VIBEGUARD_PROJECT_HASH", "bench-project")
         .env("VIBEGUARD_SESSION_ID", "bench-session")
+        .env("VIBEGUARD_CLI", "codex")
+        .env("VIBEGUARD_CLIENT", "codex")
+        .env("VIBEGUARD_CALLER_EVIDENCE", "benchmark")
+        .env("VIBEGUARD_WRAPPER", "benchmark")
+        .env("VIBEGUARD_SOURCE_CONFIG", "benchmark")
+        .env("VIBEGUARD_HOOK_PROTOCOL_VERSION", "1")
         .env("VIBEGUARD_LOG_DIR", root.join("logs"))
         .env(
             "VIBEGUARD_PROJECT_LOG_DIR",
@@ -107,6 +110,9 @@ pub(super) fn run_runtime(
             "VIBEGUARD_LOG_FILE",
             root.join("logs/projects/bench-project/events.jsonl"),
         );
+    if let Some(git) = git {
+        child.env("VIBEGUARD_GIT_EXECUTABLE", git);
+    }
     copy_required_windows_environment(&mut child);
     let mut child = child
         .stdin(Stdio::piped())
@@ -133,11 +139,9 @@ fn copy_required_windows_environment(command: &mut Command) {
 #[cfg(not(windows))]
 fn copy_required_windows_environment(_: &mut Command) {}
 
-fn trusted_git_executable() -> Result<PathBuf> {
+fn trusted_git_executable() -> Option<PathBuf> {
     static GIT: OnceLock<Option<PathBuf>> = OnceLock::new();
-    GIT.get_or_init(find_trusted_git)
-        .clone()
-        .ok_or_else(|| "benchmark requires a trusted Git executable in a standard location".into())
+    GIT.get_or_init(find_trusted_git).clone()
 }
 
 fn find_trusted_git() -> Option<PathBuf> {
@@ -186,9 +190,19 @@ pub(super) fn post_write_decision(output: &Output) -> Result<Decision> {
     Ok(Decision::Warn)
 }
 
-pub(super) fn path_str(path: &Path) -> Result<&str> {
-    path.to_str()
-        .ok_or_else(|| format!("benchmark path is not UTF-8: {}", path.display()).into())
+pub(super) fn policy_decision(output: &Output, label: &str) -> Result<Decision> {
+    require_success(output, label)?;
+    let stdout = String::from_utf8(output.stdout.clone())?;
+    if stdout.trim().is_empty() {
+        return Ok(Decision::Allow);
+    }
+    let payload: Value = serde_json::from_str(&stdout)?;
+    match payload.get("decision").and_then(Value::as_str) {
+        Some("block" | "deny" | "gate" | "escalate") => Ok(Decision::Block),
+        Some("warn") => Ok(Decision::Warn),
+        Some("allow" | "pass") => Ok(Decision::Allow),
+        _ => Err(format!("{label} returned unknown policy output").into()),
+    }
 }
 
 pub(super) fn build_report(cases: &[CaseResult]) -> Value {

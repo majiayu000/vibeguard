@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::bench_support::{
-    CaseResult, Decision, build_report, measured_case, path_str, post_write_decision,
+    CaseResult, Decision, build_report, measured_case, policy_decision, post_write_decision,
     render_benchmark_human, require_success, run_runtime,
 };
 
@@ -101,11 +101,11 @@ fn reset_dir(path: &Path) -> Result {
 
 fn hallucinated_edit_target_cases(root: &Path, runtime: &Path) -> Result<Vec<CaseResult>> {
     let project = root.join("hallucinated-edit-target");
+    fs::create_dir_all(project.join(".git"))?;
     fs::create_dir_all(project.join("src"))?;
     let existing = project.join("src/service.rs");
     fs::write(&existing, "pub fn existing_api() {}\n")?;
     let missing = project.join("src/invented_api.rs");
-    let log = project.join("events.jsonl");
 
     let positive_input = json!({"tool_input": {
         "file_path": missing,
@@ -125,52 +125,30 @@ fn hallucinated_edit_target_cases(root: &Path, runtime: &Path) -> Result<Vec<Cas
             "hallucinated_edit_target",
             true,
             || {
-                reset_file(&log)?;
+                reset_dir(&project.join("logs"))?;
                 reset_file(&missing)?;
                 fs::write(&existing, "pub fn existing_api() {}\n")?;
                 Ok(())
             },
             || {
-                let output = run_runtime(
-                    runtime,
-                    &["pre-edit-check", "800", "400", path_str(&log)?],
-                    &positive_input,
-                    root,
-                )?;
-                require_success(&output, "pre-edit positive")?;
-                Ok(
-                    if String::from_utf8_lossy(&output.stdout).contains("\"decision\": \"block\"") {
-                        Decision::Block
-                    } else {
-                        Decision::Allow
-                    },
-                )
+                let output =
+                    run_runtime(runtime, &["hook", "pre-edit"], &positive_input, &project)?;
+                policy_decision(&output, "pre-edit positive")
             },
         )?,
         measured_case(
             "hallucinated_edit_target",
             false,
             || {
-                reset_file(&log)?;
+                reset_dir(&project.join("logs"))?;
                 reset_file(&missing)?;
                 fs::write(&existing, "pub fn existing_api() {}\n")?;
                 Ok(())
             },
             || {
-                let output = run_runtime(
-                    runtime,
-                    &["pre-edit-check", "800", "400", path_str(&log)?],
-                    &negative_input,
-                    root,
-                )?;
-                require_success(&output, "pre-edit negative")?;
-                Ok(
-                    if String::from_utf8_lossy(&output.stdout).contains("\"decision\": \"block\"") {
-                        Decision::Block
-                    } else {
-                        Decision::Allow
-                    },
-                )
+                let output =
+                    run_runtime(runtime, &["hook", "pre-edit"], &negative_input, &project)?;
+                policy_decision(&output, "pre-edit negative")
             },
         )?,
     ])
@@ -185,7 +163,6 @@ fn duplicate_definition_cases(root: &Path, runtime: &Path) -> Result<Vec<CaseRes
         "pub fn load_account() {}\n",
     )?;
     let target = project.join("src/new_service.rs");
-    let log = project.join("events.jsonl");
 
     let run = |content: &str| -> Result<Decision> {
         let input = json!({"tool_input": {
@@ -193,20 +170,7 @@ fn duplicate_definition_cases(root: &Path, runtime: &Path) -> Result<Vec<CaseRes
             "content": content
         }})
         .to_string();
-        let output = run_runtime(
-            runtime,
-            &[
-                "post-write-check",
-                "800",
-                "400",
-                "100",
-                "100",
-                "10",
-                path_str(&log)?,
-            ],
-            &input,
-            root,
-        )?;
+        let output = run_runtime(runtime, &["hook", "post-write"], &input, &project)?;
         post_write_decision(&output)
     };
 
@@ -215,7 +179,7 @@ fn duplicate_definition_cases(root: &Path, runtime: &Path) -> Result<Vec<CaseRes
             "duplicate_definition",
             true,
             || {
-                reset_file(&log)?;
+                reset_dir(&project.join("logs"))?;
                 reset_file(&target)
             },
             || run("pub fn load_account() {}\n"),
@@ -224,7 +188,7 @@ fn duplicate_definition_cases(root: &Path, runtime: &Path) -> Result<Vec<CaseRes
             "duplicate_definition",
             false,
             || {
-                reset_file(&log)?;
+                reset_dir(&project.join("logs"))?;
                 reset_file(&target)
             },
             || run("pub fn save_account() {}\n"),
@@ -237,7 +201,6 @@ fn swallowed_exception_cases(root: &Path, runtime: &Path) -> Result<Vec<CaseResu
     fs::create_dir_all(project.join(".git"))?;
     fs::create_dir_all(project.join("src"))?;
     let source = project.join("service.js");
-    let log = project.join("events.jsonl");
 
     let run = |content: &str| -> Result<Decision> {
         let input = json!({"tool_input": {
@@ -245,20 +208,7 @@ fn swallowed_exception_cases(root: &Path, runtime: &Path) -> Result<Vec<CaseResu
             "content": content
         }})
         .to_string();
-        let output = run_runtime(
-            runtime,
-            &[
-                "post-write-check",
-                "800",
-                "400",
-                "100",
-                "100",
-                "10",
-                path_str(&log)?,
-            ],
-            &input,
-            root,
-        )?;
+        let output = run_runtime(runtime, &["hook", "post-write"], &input, &project)?;
         post_write_decision(&output)
     };
 
@@ -267,7 +217,7 @@ fn swallowed_exception_cases(root: &Path, runtime: &Path) -> Result<Vec<CaseResu
             "swallowed_exception",
             true,
             || {
-                reset_file(&log)?;
+                reset_dir(&project.join("logs"))?;
                 reset_file(&source)
             },
             || run("try { run(); } catch (error) { }\n"),
@@ -276,7 +226,7 @@ fn swallowed_exception_cases(root: &Path, runtime: &Path) -> Result<Vec<CaseResu
             "swallowed_exception",
             false,
             || {
-                reset_file(&log)?;
+                reset_dir(&project.join("logs"))?;
                 reset_file(&source)
             },
             || run("try { run(); } catch (error) { report(error); }\n"),
@@ -285,29 +235,24 @@ fn swallowed_exception_cases(root: &Path, runtime: &Path) -> Result<Vec<CaseResu
 }
 
 fn dangerous_shell_cases(root: &Path, runtime: &Path) -> Result<Vec<CaseResult>> {
+    let project = root.join("dangerous-shell");
+    fs::create_dir_all(project.join(".git"))?;
     let run = |command: &str| -> Result<Decision> {
         let input = json!({"tool_input": {"command": command}}).to_string();
-        let output = run_runtime(runtime, &["pre-bash-check", path_str(root)?], &input, root)?;
-        require_success(&output, "pre-bash benchmark")?;
-        Ok(
-            if String::from_utf8_lossy(&output.stdout).starts_with("BLOCK\n") {
-                Decision::Block
-            } else {
-                Decision::Allow
-            },
-        )
+        let output = run_runtime(runtime, &["hook", "pre-bash"], &input, &project)?;
+        policy_decision(&output, "pre-bash benchmark")
     };
     Ok(vec![
         measured_case(
             "dangerous_shell_or_git",
             true,
-            || reset_dir(&root.join("logs")),
+            || reset_dir(&project.join("logs")),
             || run("git restore ."),
         )?,
         measured_case(
             "dangerous_shell_or_git",
             false,
-            || reset_dir(&root.join("logs")),
+            || reset_dir(&project.join("logs")),
             || run("git restore -- src/lib.rs"),
         )?,
     ])

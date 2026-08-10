@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 #[derive(Clone, Copy)]
 enum LexState {
     Code,
@@ -15,6 +17,7 @@ pub(crate) fn empty_catch_count(source: &str) -> usize {
 
 fn count_empty_catch_clauses(code: &str) -> usize {
     let chars = code.chars().collect::<Vec<_>>();
+    let try_closings = try_block_closing_braces(&chars);
     let mut count = 0;
     let mut index = 0;
     while index < chars.len() {
@@ -28,7 +31,7 @@ fn count_empty_catch_clauses(code: &str) -> usize {
             index += 1;
         }
         if chars[start..index].iter().collect::<String>() == "catch"
-            && is_empty_catch_clause(&chars, start, index)
+            && is_empty_catch_clause(&chars, &try_closings, start, index)
         {
             count += 1;
         }
@@ -36,8 +39,53 @@ fn count_empty_catch_clauses(code: &str) -> usize {
     count
 }
 
-fn is_empty_catch_clause(chars: &[char], start: usize, end: usize) -> bool {
-    if previous_non_whitespace(chars, start) != Some('}') {
+fn try_block_closing_braces(chars: &[char]) -> HashSet<usize> {
+    let mut closings = HashSet::new();
+    let mut blocks = Vec::new();
+    let mut pending_try = false;
+    let mut index = 0;
+    while index < chars.len() {
+        if chars[index].is_whitespace() {
+            index += 1;
+            continue;
+        }
+        if is_identifier_start(chars[index]) {
+            let start = index;
+            index += 1;
+            while index < chars.len() && is_identifier_continue(chars[index]) {
+                index += 1;
+            }
+            pending_try = chars[start..index].iter().collect::<String>() == "try";
+            continue;
+        }
+        match chars[index] {
+            '{' => {
+                blocks.push(pending_try);
+                pending_try = false;
+            }
+            '}' => {
+                if blocks.pop() == Some(true) {
+                    closings.insert(index);
+                }
+                pending_try = false;
+            }
+            _ => pending_try = false,
+        }
+        index += 1;
+    }
+    closings
+}
+
+fn is_empty_catch_clause(
+    chars: &[char],
+    try_closings: &HashSet<usize>,
+    start: usize,
+    end: usize,
+) -> bool {
+    let Some(previous) = previous_non_whitespace_index(chars, start) else {
+        return false;
+    };
+    if !try_closings.contains(&previous) {
         return false;
     }
 
@@ -55,12 +103,10 @@ fn is_empty_catch_clause(chars: &[char], start: usize, end: usize) -> bool {
     chars.get(cursor) == Some(&'}')
 }
 
-fn previous_non_whitespace(chars: &[char], before: usize) -> Option<char> {
+fn previous_non_whitespace_index(chars: &[char], before: usize) -> Option<usize> {
     chars[..before]
         .iter()
-        .rev()
-        .copied()
-        .find(|character| !character.is_whitespace())
+        .rposition(|character| !character.is_whitespace())
 }
 
 fn skip_whitespace(chars: &[char], mut index: usize) -> usize {
@@ -313,5 +359,6 @@ mod tests {
             empty_catch_count("const handlers = { catch(error) {} };"),
             0
         );
+        assert_eq!(empty_catch_count("class Cache { get() {} catch() {} }"), 0);
     }
 }
