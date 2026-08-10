@@ -27,10 +27,12 @@ An ExecPlan records:
 It does not require a routing object, fixed handoff fields, or delegation lanes.
 Because an ExecPlan is cross-session work, it must record the W-20 snapshot for
 the runtime, tools, and loaded rules. Ordinary one-session tasks do not create
-this snapshot. During `init`, write the tool inventory and run
-`bash guards/universal/check_runtime_drift.sh snapshot`; store both resulting
-paths in the ExecPlan Context section. Resume runs the same guard in `check`
-mode and stops on drift.
+this snapshot. During `init`, resolve the execution source from
+`${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}`, write the tool inventory, and
+run its `guards/universal/check_runtime_drift.sh` with an explicit `--rules-dir`
+pointing to the same source's `rules/claude-rules`. Store both resulting paths
+in the ExecPlan Context section. Resume runs the same installed guard in
+`check` mode with the same explicit rules directory and stops on drift.
 
 ## Resume
 

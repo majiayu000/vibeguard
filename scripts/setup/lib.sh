@@ -4,7 +4,7 @@
 
 REPO_DIR="${VIBEGUARD_REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 CLAUDE_DIR="${HOME}/.claude"
-CODEX_DIR="${HOME}/.codex"
+CODEX_DIR="${CODEX_HOME:-${HOME}/.codex}"
 SETTINGS_HELPER="${REPO_DIR}/scripts/lib/settings_json.py"
 CODEX_HOOKS_HELPER="${REPO_DIR}/scripts/lib/codex_hooks_json.py"
 CODEX_CONFIG_HELPER="${REPO_DIR}/scripts/lib/codex_config_toml.py"

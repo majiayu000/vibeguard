@@ -64,6 +64,19 @@ assert sha256_file(text_path) == "edeaaff3f1774ad2888673770c6d64097e391bc362d7d6
 PY
 
 header "retired Codex skill migration"
+assert_cmd "configured CODEX_HOME selects the Codex install root" env \
+  HOME="${TMP_DIR}/default-home" \
+  CODEX_HOME="${TMP_DIR}/custom-codex" \
+  EXPECTED_CODEX_DIR="${TMP_DIR}/custom-codex" \
+  bash -c '
+    source "$1/scripts/setup/lib.sh"
+    test "$CODEX_DIR" = "$EXPECTED_CODEX_DIR"
+  ' _ "${REPO_DIR}"
+
+assert_cmd "retired skill enumeration avoids GNU-only find flags" bash -c '
+  ! grep -Eq -- "-mindepth|-maxdepth" "$1/scripts/setup/workflow-skills.sh"
+' _ "${REPO_DIR}"
+
 assert_cmd "only untouched legacy skill copies are quarantined" bash -c '
   set -euo pipefail
   repo="$1"

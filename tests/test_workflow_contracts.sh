@@ -290,5 +290,25 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+TOTAL=$((TOTAL + 1))
+if python3 - "${REPO_DIR}" >/dev/null <<'PY'; then
+from pathlib import Path
+import sys
+
+repo = Path(sys.argv[1])
+command = (repo / ".claude/commands/vibeguard/exec-plan.md").read_text(encoding="utf-8")
+installed_root = '${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}'
+if command.count(installed_root) < 5:
+    raise SystemExit("ExecPlan does not resolve its installed VibeGuard source in init/update/status")
+if command.count('--rules-dir') != 3:
+    raise SystemExit("ExecPlan does not pin the installed rules directory in all drift commands")
+PY
+  printf '\033[32m  PASS: ExecPlan drift checks resolve the installed guard and rules\033[0m\n'
+  PASS=$((PASS + 1))
+else
+  printf '\033[31m  FAIL: ExecPlan drift checks resolve the installed guard and rules\033[0m\n'
+  FAIL=$((FAIL + 1))
+fi
+
 printf '\nResults: %d passed, %d failed, %d total\n' "${PASS}" "${FAIL}" "${TOTAL}"
 exit "${FAIL}"

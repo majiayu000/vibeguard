@@ -63,9 +63,10 @@ retire_legacy_codex_skills() {
     fi
 
     entries=()
-    while IFS= read -r -d '' entry; do
+    for entry in "${source}"/* "${source}"/.[!.]* "${source}"/..?*; do
+      [[ -e "${entry}" || -L "${entry}" ]] || continue
       entries+=("${entry}")
-    done < <(find "${source}" -mindepth 1 -maxdepth 1 -print0)
+    done
     skill_file="${source}/SKILL.md"
     if [[ "${#entries[@]}" -ne 1 || "${entries[0]}" != "${skill_file}" || ! -f "${skill_file}" || -L "${skill_file}" ]]; then
       yellow "  SKIP modified or user-owned retired Codex skill: ${source}"
