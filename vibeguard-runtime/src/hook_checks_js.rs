@@ -1,5 +1,3 @@
-use regex::Regex;
-
 #[derive(Clone, Copy)]
 enum LexState {
     Code,
@@ -12,9 +10,107 @@ enum LexState {
 
 pub(crate) fn empty_catch_count(source: &str) -> usize {
     let code = mask_javascript_non_code(source);
-    Regex::new(r"(?s)\bcatch\s*(?:\([^)]*\))?\s*\{\s*\}")
-        .map(|regex| regex.find_iter(&code).count())
-        .unwrap_or(0)
+    count_empty_catch_clauses(&code)
+}
+
+fn count_empty_catch_clauses(code: &str) -> usize {
+    let chars = code.chars().collect::<Vec<_>>();
+    let mut count = 0;
+    let mut index = 0;
+    while index < chars.len() {
+        if !is_identifier_start(chars[index]) {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        index += 1;
+        while index < chars.len() && is_identifier_continue(chars[index]) {
+            index += 1;
+        }
+        if chars[start..index].iter().collect::<String>() == "catch"
+            && is_empty_catch_clause(&chars, start, index)
+        {
+            count += 1;
+        }
+    }
+    count
+}
+
+fn is_empty_catch_clause(chars: &[char], start: usize, end: usize) -> bool {
+    if previous_non_whitespace(chars, start) != Some('}') {
+        return false;
+    }
+
+    let mut cursor = skip_whitespace(chars, end);
+    if chars.get(cursor) == Some(&'(') {
+        let Some(binding_end) = balanced_end(chars, cursor, '(', ')') else {
+            return false;
+        };
+        cursor = skip_whitespace(chars, binding_end);
+    }
+    if chars.get(cursor) != Some(&'{') {
+        return false;
+    }
+    cursor = skip_whitespace(chars, cursor + 1);
+    chars.get(cursor) == Some(&'}')
+}
+
+fn previous_non_whitespace(chars: &[char], before: usize) -> Option<char> {
+    chars[..before]
+        .iter()
+        .rev()
+        .copied()
+        .find(|character| !character.is_whitespace())
+}
+
+fn skip_whitespace(chars: &[char], mut index: usize) -> usize {
+    while chars.get(index).is_some_and(|value| value.is_whitespace()) {
+        index += 1;
+    }
+    index
+}
+
+fn balanced_end(chars: &[char], start: usize, open: char, close: char) -> Option<usize> {
+    let mut depth = 0;
+    for (offset, character) in chars[start..].iter().copied().enumerate() {
+        if character == open {
+            depth += 1;
+        } else if character == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(start + offset + 1);
+            }
+        }
+    }
+    None
+}
+
+fn is_identifier_start(character: char) -> bool {
+    character == '_' || character == '$' || character.is_alphabetic()
+}
+
+fn is_identifier_continue(character: char) -> bool {
+    is_identifier_start(character) || character.is_ascii_digit()
+}
+
+fn keyword_allows_regex_after(token: &str) -> bool {
+    matches!(
+        token,
+        "await"
+            | "case"
+            | "delete"
+            | "do"
+            | "else"
+            | "in"
+            | "instanceof"
+            | "new"
+            | "of"
+            | "return"
+            | "throw"
+            | "typeof"
+            | "void"
+            | "yield"
+    )
 }
 
 fn mask_javascript_non_code(source: &str) -> String {
@@ -77,13 +173,20 @@ fn mask_javascript_non_code(source: &str) -> String {
                     state = LexState::Template;
                 }
             }
+            LexState::Code if is_identifier_start(current) => {
+                let start = index;
+                index += 1;
+                while index < chars.len() && is_identifier_continue(chars[index]) {
+                    index += 1;
+                }
+                let token = chars[start..index].iter().collect::<String>();
+                masked.push_str(&token);
+                regex_can_start = keyword_allows_regex_after(&token);
+            }
             LexState::Code => {
                 masked.push(current);
                 if !current.is_whitespace() {
-                    regex_can_start = !matches!(
-                        current,
-                        ')' | ']' | '}' | '.' | '_' | '$' | 'a'..='z' | 'A'..='Z' | '0'..='9'
-                    );
+                    regex_can_start = !matches!(current, ')' | ']' | '}' | '.' | '0'..='9');
                 }
                 index += 1;
             }
@@ -192,10 +295,23 @@ mod tests {
             0
         );
         assert_eq!(empty_catch_count(r"const matcher = /catch\s*\{\}/;"), 0);
+        assert_eq!(
+            empty_catch_count("function matcher() { return /catch {}/; }"),
+            0
+        );
         assert_eq!(empty_catch_count("const text = `catch {}`;"), 0);
         assert_eq!(
             empty_catch_count("const result = `${(() => { try { run(); } catch {} })()}`;"),
             1
+        );
+        assert_eq!(
+            empty_catch_count("try { run(); } catch ({[String('x')]: value}) {}"),
+            1
+        );
+        assert_eq!(empty_catch_count("class Cache { catch() {} }"), 0);
+        assert_eq!(
+            empty_catch_count("const handlers = { catch(error) {} };"),
+            0
         );
     }
 }

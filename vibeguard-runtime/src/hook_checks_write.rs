@@ -188,9 +188,11 @@ pub(crate) fn evaluate_post_write(
     }
 }
 
-fn empty_exception_warning(file_path: &str, content: &str) -> Option<String> {
-    if !matches!(extension(file_path).as_str(), "ts" | "tsx" | "js" | "jsx")
-        || !content.contains("catch")
+pub(crate) fn empty_exception_warning(file_path: &str, content: &str) -> Option<String> {
+    if !matches!(
+        extension(file_path).as_str(),
+        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs"
+    ) || !content.contains("catch")
     {
         return None;
     }

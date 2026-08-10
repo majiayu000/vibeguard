@@ -214,7 +214,7 @@ if [[ "${1:-}" == "release" && "${2:-}" == "download" ]]; then
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" == "bench" && "${2:-}" == "--json" ]]; then
-  printf '%s\n' '{"corpus_id":"builtin-paired-v1","case_total":10,"interception_rate_percent":100.0,"false_positive_rate_percent":0.0,"latency_ms":{"p50":0.1,"p95":0.2}}'
+  printf '%s\n' "{\"corpus_id\":\"builtin-paired-v1\",\"provenance_status\":\"embedded-release-build\",\"source_commit\":\"${EVENT_SHA}\",\"target\":\"fixture-target\",\"case_total\":10,\"interception_rate_percent\":100.0,\"false_positive_rate_percent\":0.0,\"latency_ms\":{\"p50\":0.1,\"p95\":0.2}}"
   exit 0
 fi
 exit 64

@@ -231,7 +231,10 @@ fn changed_source_files() -> Vec<String> {
 }
 
 fn git_diff_names(args: &[&str]) -> Option<Vec<String>> {
-    let output = Command::new("git")
+    let executable = env::var_os("VIBEGUARD_GIT_EXECUTABLE")
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "git".into());
+    let output = Command::new(executable)
         .args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())

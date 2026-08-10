@@ -122,6 +122,8 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           BUILDER: ${{ matrix.builder }}
+          CARGO_VIBEGUARD_BUILD_COMMIT: ${{ github.sha }}
+          CARGO_VIBEGUARD_BUILD_TARGET: ${{ matrix.target }}
         run: |
           if [[ "${BUILDER}" == "cross" ]]; then
             cross build --release --locked --target "${TARGET}" --manifest-path "${RUNTIME_MANIFEST}"
@@ -148,11 +150,15 @@ jobs:
           bench_json="$("dist/${TARGET}/vibeguard-runtime-${TARGET}" bench --json)"
           python3 - "${bench_json}" README.md <<'PY'
           import json
+          import os
           import pathlib
           import sys
 
           report = json.loads(sys.argv[1])
           readme = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+          assert report["provenance_status"] == "embedded-release-build"
+          assert report["source_commit"] == os.environ["GITHUB_SHA"]
+          assert report["target"] == os.environ["TARGET"]
           assert report["interception_rate_percent"] == 100.0
           assert report["false_positive_rate_percent"] == 0.0
           assert report["latency_ms"]["p50"] >= 0
@@ -675,10 +681,14 @@ jobs:
           bench_json="$(HOME="${FRESH_HOME}" "${FRESH_HOME}/.vibeguard/installed/bin/vibeguard" bench --json)"
           python3 - "${bench_json}" <<'PY'
           import json
+          import os
           import sys
 
           report = json.loads(sys.argv[1])
           assert report["corpus_id"] == "builtin-paired-v1"
+          assert report["provenance_status"] == "embedded-release-build"
+          assert report["source_commit"] == os.environ["EVENT_SHA"]
+          assert report["target"] != "unknown-unverified-target"
           assert report["case_total"] == 10
           assert report["interception_rate_percent"] == 100.0
           assert report["false_positive_rate_percent"] == 0.0

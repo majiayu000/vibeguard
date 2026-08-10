@@ -1,5 +1,6 @@
 mod active_constraints;
 mod bench;
+mod bench_support;
 mod circuit_breaker;
 mod codex_app_server;
 mod codex_app_server_core;

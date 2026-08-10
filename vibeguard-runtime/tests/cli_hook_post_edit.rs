@@ -179,6 +179,24 @@ fn post_edit_rust_warning_is_visible_and_logged() {
 }
 
 #[test]
+fn post_edit_inspects_resulting_module_for_empty_catch() {
+    let (root, repo, log_root, log_file) = case_paths("post-edit-empty-catch");
+    let source = repo.join("src/service.mjs");
+    fs::create_dir_all(source.parent().unwrap()).unwrap();
+    fs::write(&source, "try { run(); } catch (error) { }\n").unwrap();
+    let input = edit_input(source.to_string_lossy().as_ref(), "report(error);", "");
+    let out = run_post_edit(&repo, &log_root, &log_file, &input);
+
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("[U-17]"), "{stdout}");
+    assert!(stdout.contains("empty exception handler"), "{stdout}");
+    let events = parse_test_event_log(&log_file);
+    assert_eq!(events.last().unwrap()["decision"], "warn");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn post_edit_rs10_warning_is_visible_logged_and_rule_scoped() {
     let (root, repo, log_root, log_file) = case_paths("post-edit-rs10-warning");
     let new_string = concat!(

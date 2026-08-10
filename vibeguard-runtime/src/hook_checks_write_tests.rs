@@ -220,5 +220,23 @@ fn empty_javascript_catch_warns_without_flagging_handled_errors() {
         config(),
     );
     assert_eq!(misleading_text, PostWriteOutcome::Pass { reason: "" });
+
+    let module_path = src.join("module.cjs");
+    let module_outcome = evaluate_post_write(
+        module_path.to_string_lossy().as_ref(),
+        "try { run(); } catch {}\n",
+        config(),
+    );
+    let PostWriteOutcome::Warn { warnings } = module_outcome else {
+        panic!("expected CommonJS swallowed-exception warning");
+    };
+    assert!(warnings.contains("empty exception handler"), "{warnings}");
+
+    let method = evaluate_post_write(
+        file_path.to_string_lossy().as_ref(),
+        "class Cache { catch() {} }\nconst handlers = { catch(error) {} };\n",
+        config(),
+    );
+    assert_eq!(method, PostWriteOutcome::Pass { reason: "" });
     let _ = fs::remove_dir_all(root);
 }
