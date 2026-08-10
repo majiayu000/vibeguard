@@ -4,7 +4,7 @@ use common::bin;
 use serde_json::Value;
 
 const FAILURE_CLASSES: [&str; 5] = [
-    "invented_api",
+    "hallucinated_edit_target",
     "duplicate_module",
     "swallowed_exception",
     "dangerous_shell_or_git",
@@ -22,7 +22,9 @@ fn bench_json_reports_complete_effectiveness_and_latency_metrics() {
     assert!(output.stderr.is_empty());
 
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema_version"], 1);
+    assert_eq!(report["schema_version"], 2);
+    assert_eq!(report["corpus_id"], "builtin-paired-v1");
+    assert_eq!(report["production_surface"], "native-runtime-cli");
     assert_eq!(report["runtime_version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(report["case_total"], 10);
     assert_eq!(report["positive_total"], 5);
@@ -35,11 +37,20 @@ fn bench_json_reports_complete_effectiveness_and_latency_metrics() {
     assert_eq!(report["false_positive_rate_percent"], 0.0);
     assert!(report["latency_ms"]["p50"].as_f64().is_some());
     assert!(report["latency_ms"]["p95"].as_f64().is_some());
+    assert_eq!(report["latency_ms"]["sample_total"], 50);
+    assert_eq!(report["latency_ms"]["samples_per_case"], 5);
 
     for failure_class in FAILURE_CLASSES {
-        assert_eq!(report["by_class"][failure_class]["positive_detected"], true);
+        assert_ne!(
+            report["by_class"][failure_class]["positive_decision"],
+            "allow"
+        );
         assert_eq!(
-            report["by_class"][failure_class]["negative_detected"],
+            report["by_class"][failure_class]["negative_decision"],
+            "allow"
+        );
+        assert_eq!(
+            report["by_class"][failure_class]["negative_intercepted"],
             false
         );
     }
@@ -54,6 +65,10 @@ fn bench_human_output_names_the_three_user_metrics() {
     assert!(stdout.contains("False-positive rate: 0.0%"), "{stdout}");
     assert!(stdout.contains("Hook latency: p50="), "{stdout}");
     assert!(stdout.contains("Cases: 10"), "{stdout}");
+    assert!(
+        stdout.contains("Interception definition: warn or block"),
+        "{stdout}"
+    );
 }
 
 #[test]

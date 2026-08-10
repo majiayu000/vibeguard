@@ -157,8 +157,16 @@ jobs:
           assert report["false_positive_rate_percent"] == 0.0
           assert report["latency_ms"]["p50"] >= 0
           assert report["latency_ms"]["p95"] >= 0
-          assert "| Interception rate | 100.0% (5/5) |" in readme
-          assert "| False-positive rate | 0.0% (0/5) |" in readme
+          expected_interception = (
+              f'| Interception rate | {report["interception_rate_percent"]:.1f}% '
+              f'({report["true_positive"]}/{report["positive_total"]}) |'
+          )
+          expected_false_positive = (
+              f'| False-positive rate | {report["false_positive_rate_percent"]:.1f}% '
+              f'({report["false_positive"]}/{report["negative_total"]}) |'
+          )
+          assert expected_interception in readme
+          assert expected_false_positive in readme
           PY
 
       - name: Upload runtime artifact
@@ -670,6 +678,7 @@ jobs:
           import sys
 
           report = json.loads(sys.argv[1])
+          assert report["corpus_id"] == "builtin-paired-v1"
           assert report["case_total"] == 10
           assert report["interception_rate_percent"] == 100.0
           assert report["false_positive_rate_percent"] == 0.0

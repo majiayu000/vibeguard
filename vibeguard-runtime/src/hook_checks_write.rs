@@ -5,6 +5,7 @@ use std::path::Path;
 use crate::hook_checks_common::{
     count_lines, is_source_path, is_test_path, nested_str, read_stdin, write_log_event,
 };
+use crate::hook_checks_js::empty_catch_count;
 use crate::hook_checks_scan::find_project_dir;
 use crate::hook_checks_write_scan::{
     duplicate_definition_scan, scan_project_files, scan_project_files_with_same_name,
@@ -193,8 +194,7 @@ fn empty_exception_warning(file_path: &str, content: &str) -> Option<String> {
     {
         return None;
     }
-    let regex = Regex::new(r"(?s)catch\s*\([^)]*\)\s*\{\s*\}").ok()?;
-    let count = regex.find_iter(content).count();
+    let count = empty_catch_count(content);
     (count > 0).then(|| {
         format!(
             "[U-17] [review] [this-file] OBSERVATION: {count} empty exception handler(s) swallow errors\nFIX: handle, report, or rethrow each caught error\nDO NOT: leave the catch block empty"

@@ -16,6 +16,7 @@ mod hook_checks;
 mod hook_checks_bash;
 mod hook_checks_common;
 mod hook_checks_history;
+mod hook_checks_js;
 mod hook_checks_scan;
 mod hook_checks_write;
 mod hook_checks_write_scan;

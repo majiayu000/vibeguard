@@ -197,11 +197,28 @@ fn empty_javascript_catch_warns_without_flagging_handled_errors() {
     assert!(warnings.contains("[U-17]"), "{warnings}");
     assert!(warnings.contains("empty exception handler"), "{warnings}");
 
+    let optional_binding = evaluate_post_write(
+        file_path.to_string_lossy().as_ref(),
+        "try { run(); } catch {}\n",
+        config(),
+    );
+    let PostWriteOutcome::Warn { warnings } = optional_binding else {
+        panic!("expected optional-binding swallowed-exception warning");
+    };
+    assert!(warnings.contains("empty exception handler"), "{warnings}");
+
     let handled = evaluate_post_write(
         file_path.to_string_lossy().as_ref(),
         "try { run(); } catch (error) { report(error); }\n",
         config(),
     );
     assert_eq!(handled, PostWriteOutcome::Pass { reason: "" });
+
+    let misleading_text = evaluate_post_write(
+        file_path.to_string_lossy().as_ref(),
+        "const example = \"catch (error) { }\";\n// catch {}\n/* catch (e) {} */\n",
+        config(),
+    );
+    assert_eq!(misleading_text, PostWriteOutcome::Pass { reason: "" });
     let _ = fs::remove_dir_all(root);
 }
