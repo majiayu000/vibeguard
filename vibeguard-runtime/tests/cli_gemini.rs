@@ -85,6 +85,9 @@ fn run_wrapper(project: &Path, home: &Path, log_root: &Path, input: &str) -> Out
         .env("HOME", home)
         .env("PATH", path)
         .env("VIBEGUARD_LOG_DIR", log_root);
+    if let Some(profile_file) = env::var_os("LLVM_PROFILE_FILE") {
+        command.env("LLVM_PROFILE_FILE", profile_file);
+    }
     run_with_stdin(&mut command, input)
 }
 
@@ -115,12 +118,21 @@ fn gemini_wrapper_blocks_dangerous_shell_and_allows_safe_shell() {
     );
     assert!(blocked.status.success(), "{:?}", blocked.status);
     let blocked_json: Value = serde_json::from_slice(&blocked.stdout).unwrap();
-    assert_eq!(blocked_json["decision"], "deny");
+    assert_eq!(
+        blocked_json["decision"],
+        "deny",
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&blocked.stdout),
+        String::from_utf8_lossy(&blocked.stderr)
+    );
     assert!(
         blocked_json["reason"]
             .as_str()
             .unwrap()
-            .contains("VIBEGUARD")
+            .contains("VIBEGUARD"),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&blocked.stdout),
+        String::from_utf8_lossy(&blocked.stderr)
     );
 
     let event = first_project_event(&log_root);
@@ -161,7 +173,13 @@ fn gemini_wrapper_preserves_advisories_corrections_and_denies_timeouts() {
         ),
     );
     let correction_json: Value = serde_json::from_slice(&correction.stdout).unwrap();
-    assert_eq!(correction_json["decision"], "allow");
+    assert_eq!(
+        correction_json["decision"],
+        "allow",
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&correction.stdout),
+        String::from_utf8_lossy(&correction.stderr)
+    );
     assert_eq!(
         correction_json["hookSpecificOutput"]["tool_input"]["command"],
         "pnpm add lodash"
