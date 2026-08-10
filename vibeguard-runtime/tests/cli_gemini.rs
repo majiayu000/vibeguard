@@ -84,6 +84,7 @@ fn run_wrapper(project: &Path, home: &Path, log_root: &Path, input: &str) -> Out
         .env_clear()
         .env("HOME", home)
         .env("PATH", path)
+        .env("VIBEGUARD_RUNTIME", &runtime)
         .env("VIBEGUARD_LOG_DIR", log_root);
     if let Some(profile_file) = env::var_os("LLVM_PROFILE_FILE") {
         command.env("LLVM_PROFILE_FILE", profile_file);
