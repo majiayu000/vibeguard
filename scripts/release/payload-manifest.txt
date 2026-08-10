@@ -64,6 +64,7 @@ scripts/setup/setup-lock.sh
 scripts/setup/workflow-skills.sh
 scripts/setup/targets/claude-home.sh
 scripts/setup/targets/codex-home.sh
+scripts/setup/targets/gemini-home.sh
 scripts/systemd/vibeguard-gc.service
 scripts/systemd/vibeguard-gc.timer
 scripts/release/payload-manifest.txt

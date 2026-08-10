@@ -6,7 +6,7 @@
 
 [English README](../README.md) | [规则索引](rule-reference.md) | [贡献指南](../CONTRIBUTING.md)
 
-无论你在用 Claude Code 还是 Codex，AI 都很容易出现同一类失误：编造不存在的 API、重复造轮子、硬编码假数据、顺手做一堆你没要求的“优化”。VibeGuard 通过 **规则注入 + 实时拦截 + 静态扫描** 三层防线，把能机械覆盖的高风险场景先告警或拦截；未被 hook/guard 覆盖的规则则通过审查、工作流和验证契约约束。
+无论你在用 Claude Code、Codex 还是 Gemini CLI，AI 都很容易出现同一类失误：编造不存在的 API、重复造轮子、硬编码假数据、顺手做一堆你没要求的“优化”。VibeGuard 通过 **规则注入 + 实时拦截 + 静态扫描** 三层防线，把能机械覆盖的高风险场景先告警或拦截；未被 hook/guard 覆盖的规则则通过审查、工作流和验证契约约束。
 
 > **VibeGuard vs Everything Claude Code：** ECC 更偏通用生产力工具箱；VibeGuard 更偏“防守系统”，重点是约束、拦截、验证和回放。两者不是互斥关系，反而适合一起使用。
 
@@ -275,6 +275,20 @@ Codex 中的 hook 命令名会使用 `vibeguard-*.sh` 命名空间，避免与�
 
 ## 安装选项
 
+### Gemini CLI（显式启用）
+
+Gemini CLI 适配器会修改高上下文文件 `~/.gemini/settings.json`，因此默认不启用：
+
+```bash
+bash ~/vibeguard/setup.sh --yes --host gemini
+bash ~/vibeguard/setup.sh --check --host gemini
+```
+
+它为 `run_shell_command`、`write_file`、`replace` 注册一个同步
+`BeforeTool` hook，复用现有 Bash/Write/Edit guards，并把拦截结果转换成
+Gemini 原生的 `decision: deny`。重复安装是幂等的，保留其他 Gemini 设置和
+hooks；`--clean` 只移除 VibeGuard 管理的 hook 与 wrapper。
+
 ### 运行时依赖
 
 默认安装会下载并校验与当前版本钉住的 `vibeguard-runtime` release binary。
@@ -307,6 +321,7 @@ bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
 # 运行时 / 调度器
 bash ~/vibeguard/setup.sh --build-from-source          # 强制使用 Cargo 本地构建
 bash ~/vibeguard/setup.sh --with-scheduler             # opt in 安装 launchd/systemd 定时 GC
+bash ~/vibeguard/setup.sh --yes --host gemini          # opt in Gemini CLI BeforeTool 防护
 bash ~/vibeguard/scripts/install-health-report-scheduler.sh --dry-run
 bash ~/vibeguard/scripts/install-health-report-scheduler.sh --install  # opt in 安装每周健康报告
 

@@ -1,6 +1,6 @@
 # hooks/ directory
 
-AI coded agent hooks script, automatically triggered before and after the operation. Both Claude Code and Codex CLI are supported.
+AI coding-agent hook scripts, automatically triggered around tool operations. Claude Code, Codex CLI, and the opt-in Gemini CLI BeforeTool adapter are supported.
 
 ## File description
 
@@ -10,6 +10,7 @@ AI coded agent hooks script, automatically triggered before and after the operat
 | `log.sh` | Used by other hook sources | Log module, providing shared functions such as vg_log, JSON parsing, source code judgment, etc. | - |
 | `circuit-breaker.sh` | Checked by other hook sources | Circuit breaker library: CLOSED to OPEN to HALF-OPEN state machine, CI guard, stop_hook_active. | - |
 | `run-hook-codex.sh` | Codex wrapper | Codex output format adapter (decision:block to permissionDecision:deny). | - |
+| `run-hook-gemini.sh` | Gemini wrapper | Gemini BeforeTool routing and output adapter (decision:block to decision:deny). | - |
 | `pre-bash-guard.sh` | PreToolUse(Bash) | Intercept destructive local cleanup commands: dangerous rm -rf paths, git clean -f, and batch git checkout/restore .; force-push protection lives in the git pre-push hook. | native |
 | `pre-edit-guard.sh` | PreToolUse(Edit) | Block editing of non-existent files (anti-hallucination). | native |
 | `pre-write-guard.sh` | PreToolUse(Write) | Remind you to search for existing implementation before creating a new source code file. | native |
@@ -29,20 +30,21 @@ AI coded agent hooks script, automatically triggered before and after the operat
 
 Codex entries use namespaced hook script names (`vibeguard-*.sh`) and are resolved by `run-hook-codex.sh` to the actual local script files.
 
-## Dual platform deployment architecture
+## Host deployment architecture
 
 ```
-Claude Code                          Codex CLI
-~/.claude/settings.json              ~/.codex/hooks.json
-  ↓                                    ↓
-run-hook.sh (wrapper) run-hook-codex.sh (wrapper + format adaptation)
-  ↓                                    ↓
-~/.vibeguard/installed/hooks/* ~/.vibeguard/installed/hooks/* (shared)
+Claude Code                 Codex CLI                  Gemini CLI (opt-in)
+~/.claude/settings.json     ~/.codex/hooks.json        ~/.gemini/settings.json
+  ↓                           ↓                          ↓
+run-hook.sh                 run-hook-codex.sh          run-hook-gemini.sh
+  └───────────────────────────┴──────────────────────────┘
+                    ~/.vibeguard/installed/hooks/*
 ```
 
 - Claude Code: hooks are registered in `settings.json` and distributed through `run-hook.sh`
 - Codex CLI: hooks are registered in `hooks.json`, distributed through `run-hook-codex.sh`, normalized for apply_patch payloads, and adapted to the output format
-- Both share the same hook script snapshot (`~/.vibeguard/installed/hooks/`)
+- Gemini CLI: one managed synchronous BeforeTool group routes `run_shell_command`, `write_file`, and `replace` through `run-hook-gemini.sh`
+- All supported hosts share the same canonical hook script snapshot (`~/.vibeguard/installed/hooks/`)
 
 ## Decision type
 
@@ -53,7 +55,7 @@ Each event keeps the backward-compatible `cli` / `agent` fields and may include
 caller identity fields: `client`, `client_variant`, `wrapper`,
 `source_config`, `hook_protocol_version`, and `caller_evidence`. Unknown or
 manual callers must be recorded as `client: "unknown"` instead of being
-silently attributed to Claude or Codex.
+silently attributed to Claude, Codex, or Gemini.
 
 ## Development specifications
 
@@ -63,4 +65,4 @@ silently attributed to Claude or Codex.
   for structured parsing, policy, and adapter logic; Python helpers are allowed
   only for tests, CI, eval, install-support tooling, or deprecated compatibility
   artifacts that are not called by configured hooks.
-- When adding a hook, synchronously check whether it can be deployed to Codex (see matcher support)
+- When adding a hook, synchronously check whether it can be deployed to Codex or Gemini (see each host's matcher support)

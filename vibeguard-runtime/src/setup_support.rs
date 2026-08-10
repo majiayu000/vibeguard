@@ -58,6 +58,52 @@ pub fn write_json_atomic(path: &Path, value: &Value) -> SetupResult<()> {
     Ok(())
 }
 
+#[cfg(unix)]
+pub fn write_json_atomic_private(path: &Path, value: &Value) -> SetupResult<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let original_mode = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            return Err(format!("{} must be a regular file", path.display()).into());
+        }
+        Ok(metadata) => Some(metadata.permissions().mode() & 0o777),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    let text = serde_json::to_string_pretty(value)? + "\n";
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp = temp_path_for(path);
+    let write_result = (|| {
+        let mut file = File::create(&tmp)?;
+        fs::set_permissions(
+            &tmp,
+            fs::Permissions::from_mode(original_mode.unwrap_or(0o600)),
+        )?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+        fs::rename(&tmp, path)?;
+        Ok::<(), io::Error>(())
+    })();
+    if let Err(error) = write_result {
+        if let Err(cleanup_error) = fs::remove_file(&tmp)
+            && cleanup_error.kind() != io::ErrorKind::NotFound
+        {
+            return Err(io::Error::new(
+                error.kind(),
+                format!("{error}; temporary-file cleanup failed: {cleanup_error}"),
+            )
+            .into());
+        }
+        return Err(error.into());
+    }
+    if let Some(parent) = path.parent() {
+        File::open(parent)?.sync_all()?;
+    }
+    Ok(())
+}
+
 pub fn sha256_file(path: &Path) -> SetupResult<String> {
     let mut file = File::open(path)?;
     let mut data = Vec::new();

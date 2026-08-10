@@ -814,6 +814,7 @@ case "${SETUP_SHARD}" in
       "${REPO_DIR}/tests/setup/bootstrap_tests.sh"
       "${REPO_DIR}/tests/setup/runtime_install_tests.sh"
       "${REPO_DIR}/tests/setup/install_flow_tests.sh"
+      "${REPO_DIR}/tests/setup/gemini_host_tests.sh"
       "${REPO_DIR}/tests/setup/protection_clean_tests.sh"
       "${REPO_DIR}/tests/setup/profile_flow_tests.sh"
     )
@@ -826,7 +827,10 @@ case "${SETUP_SHARD}" in
     )
     ;;
   install)
-    setup_tests=("${REPO_DIR}/tests/setup/install_flow_tests.sh")
+    setup_tests=(
+      "${REPO_DIR}/tests/setup/install_flow_tests.sh"
+      "${REPO_DIR}/tests/setup/gemini_host_tests.sh"
+    )
     ;;
   protection)
     seed_installed_setup_fixture
