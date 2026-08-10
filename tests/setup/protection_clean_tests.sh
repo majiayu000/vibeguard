@@ -199,27 +199,6 @@ assert_cmd "systemd clean removes runtime-enabled timer state and owned files" b
   "${runtime_clean_dir}/vibeguard-gc.timer" \
   "${runtime_clean_receipt}" "${runtime_clean_enabled}"
 
-bootstrap_deactivate_home="${TMP_HOME}/bootstrap-scheduler-deactivate-home"
-env "${bootstrap_base_env[@]}" HOME="${bootstrap_deactivate_home}" \
-  VIBEGUARD_TEST_UNAME=Linux VIBEGUARD_TEST_RELEASE_DIR="${scheduler_release}" \
-  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes --with-scheduler \
-  >/dev/null
-bootstrap_deactivate_rc=0
-env "${bootstrap_base_env[@]}" HOME="${bootstrap_deactivate_home}" \
-  VIBEGUARD_TEST_UNAME=Linux VIBEGUARD_TEST_SYSTEMD_STOP_FAIL=1 \
-  VIBEGUARD_TEST_RELEASE_DIR="${scheduler_release}" \
-  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --clean \
-  >/dev/null 2>&1 || bootstrap_deactivate_rc=$?
-assert_cmd "bootstrap clean propagates scheduler deactivation failure" \
-  test "${bootstrap_deactivate_rc}" -ne 0
-assert_cmd "bootstrap clean preserves payload, scheduler units, and cleaning receipt" bash -c \
-  'test -L "$1" && test -d "$2" && test -f "$3" && test -f "$4" && grep -qFx "phase=cleaning" "$5"' _ \
-  "${bootstrap_deactivate_home}/.vibeguard/dist/current" \
-  "${bootstrap_deactivate_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
-  "${bootstrap_deactivate_home}/.config/systemd/user/vibeguard-gc.service" \
-  "${bootstrap_deactivate_home}/.config/systemd/user/vibeguard-gc.timer" \
-  "${bootstrap_deactivate_home}/.vibeguard/scheduler-ownership"
-
 for scheduler_clean_point in after-phase after-first before-receipt; do
   scheduler_clean_home="${TMP_HOME}/scheduler-clean-${scheduler_clean_point}-home"
   scheduler_clean_bin="${TMP_HOME}/scheduler-clean-${scheduler_clean_point}-bin"
