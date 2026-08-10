@@ -443,6 +443,14 @@ fi
 exec "${REAL_DATE}" "\$@"
 SH
 chmod +x "${TMP_HOME}/bin/date"
+cat > "${TMP_HOME}/bin/ast-grep" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--version" ]]; then
+  printf 'ast-grep test fixture\n'
+fi
+exit 0
+SH
+chmod +x "${TMP_HOME}/bin/ast-grep"
 cat > "${TMP_HOME}/bin/cargo" <<SH
 #!/usr/bin/env bash
 if [[ "\${VIBEGUARD_TEST_CARGO_UNAVAILABLE:-0}" == "1" ]]; then
