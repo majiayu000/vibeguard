@@ -41,7 +41,7 @@ fallback_deny() {
 deny() {
   local reason="$1"
   if [[ -x "${runtime}" ]] \
-    && printf '%s' "${reason}" | vg_run_with_timeout 1 "${runtime}" gemini-deny 2>/dev/null; then
+    && printf '%s' "${reason}" | vg_run_with_timeout 2 "${runtime}" gemini-deny 2>/dev/null; then
     return 0
   fi
   fallback_deny
@@ -64,12 +64,12 @@ input="$(vg_run_with_timeout 2 cat)" || {
   exit 0
 }
 
-if ! hook_script="$(printf '%s' "${input}" | vg_run_with_timeout 1 "${runtime}" gemini-route-before-tool 2>/dev/null)"; then
+if ! hook_script="$(printf '%s' "${input}" | vg_run_with_timeout 2 "${runtime}" gemini-route-before-tool 2>/dev/null)"; then
   deny "VIBEGUARD Gemini adapter received a malformed or unsupported BeforeTool payload; the tool call was denied."
   exit 0
 fi
 
-session_id="$(printf '%s' "${input}" | vg_run_with_timeout 1 "${runtime}" json-field session_id 2>/dev/null || true)"
+session_id="$(printf '%s' "${input}" | vg_run_with_timeout 2 "${runtime}" json-field session_id 2>/dev/null || true)"
 if [[ -n "${session_id}" ]]; then
   export VIBEGUARD_SESSION_ID="${session_id}"
   export VIBEGUARD_SESSION_SOURCE="gemini-before-tool"
@@ -81,6 +81,6 @@ if ! guard_output="$(printf '%s' "${input}" | vg_run_with_timeout "${hook_timeou
   exit 0
 fi
 
-if ! printf '%s' "${guard_output}" | vg_run_with_timeout 1 "${runtime}" gemini-adapt-before-tool; then
+if ! printf '%s' "${guard_output}" | vg_run_with_timeout 2 "${runtime}" gemini-adapt-before-tool; then
   deny "VIBEGUARD Gemini adapter could not encode the policy result; the tool call was denied."
 fi
