@@ -86,6 +86,7 @@ gh release download "v1.2.3" \
 cp "${runtime_dir}/vibeguard-runtime-fixture-target" \
   "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
 chmod 0755 "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+ln -s vibeguard-runtime "${HOME}/.vibeguard/installed/bin/vibeguard"
 rm -rf "${runtime_dir}"
 printf 'status=verified-provenance\nrelease_repo=%s\ntag=v1.2.3\ntarget=fixture-target\n' \
   "${runtime_repo}" > "${HOME}/.vibeguard/installed/runtime-provenance"
@@ -209,7 +210,16 @@ if [[ "${1:-}" == "release" && "${2:-}" == "download" ]]; then
   [[ "${repo}" == "${GH_REPO}" && "${tag}" == "${TAG_NAME}" && -n "${destination}" ]] || exit 1
   mkdir -p "${destination}"
   if [[ "${payload_requested}" != "1" ]]; then
-    printf 'runtime=fixture-target\n' > "${destination}/vibeguard-runtime-fixture-target"
+    cat > "${destination}/vibeguard-runtime-fixture-target" <<'RUNTIME'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "bench" && "${2:-}" == "--json" ]]; then
+  printf '%s\n' '{"corpus_id":"builtin-paired-v1","case_total":10,"interception_rate_percent":100.0,"false_positive_rate_percent":0.0,"latency_ms":{"p50":0.1,"p95":0.2}}'
+  exit 0
+fi
+exit 64
+RUNTIME
+    chmod 0755 "${destination}/vibeguard-runtime-fixture-target"
     printf '%s  %s\n' \
       "0000000000000000000000000000000000000000000000000000000000000000" \
       "vibeguard-runtime-fixture-target" > "${destination}/SHA256SUMS"
