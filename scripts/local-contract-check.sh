@@ -100,6 +100,10 @@ if [[ -f "$REPO_DIR/tests/test_eval_contract.sh" ]]; then
   run_check "test_eval_contract"     "$REPO_DIR/tests/test_eval_contract.sh"     "true"
 fi
 
+if [[ -f "$REPO_DIR/tests/test_ci_workflow_contract.sh" ]]; then
+  run_check "test_ci_workflow_contract" "$REPO_DIR/tests/test_ci_workflow_contract.sh" "false"
+fi
+
 if [[ -f "$REPO_DIR/tests/test_payload.sh" ]]; then
   run_check "test_payload" "$REPO_DIR/tests/test_payload.sh" "true"
 fi

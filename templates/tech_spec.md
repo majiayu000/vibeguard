@@ -1,56 +1,28 @@
-# Tech Spec
+# Technical Spec: <Title>
 
-## Linked Issue
+> Pair with `product_spec.md` only for major work. Product and technical specs together stay near 300 lines.
 
-GH-
+## Current Evidence
 
-## Product Spec
+<Existing code paths, behavior, and constraints.>
 
-Link to `product.md`.
+## Design
 
-## Codebase Context
+<Smallest design that satisfies the acceptance criteria.>
 
-Files column uses `path:line` anchors verified with Read/grep at writing time;
-never guess. Unverifiable references are dropped or marked "to locate".
+## Affected Paths
 
-| Area | Files | Current behavior | Why relevant |
-| --- | --- | --- | --- |
-|  |  |  |  |
+- `<path>` — <change>
 
-## Proposed Design
+## Verification
 
-Explain the planned implementation.
+- `<focused command>` — <proved behavior>
+- `<submission command>` — <broader regression boundary>
 
-## Product-to-Test Mapping
+## Rollback
 
-Enumerate every `B-xxx` from `product.md` — no orphan invariants. Verification
-is an executable command or a concrete manual check; no empty cells, no TBD.
+<How to disable or revert safely.>
 
-| Behavior invariant | Implementation area | Verification |
-| --- | --- | --- |
-| B-001 |  |  |
+## Deferred Work
 
-## Data Flow
-
-Describe inputs, outputs, persistence, and external calls.
-
-## Alternatives Considered
-
-- <!-- alternative -->
-
-## Risks
-
-- Security:
-- Compatibility:
-- Performance:
-- Maintenance:
-
-## Test Plan
-
-- [ ] Unit tests:
-- [ ] Integration tests:
-- [ ] Manual verification:
-
-## Rollback Plan
-
-Describe how to revert or disable the change.
+- <Out-of-scope follow-up, if any.>

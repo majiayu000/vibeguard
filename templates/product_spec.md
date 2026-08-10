@@ -1,54 +1,27 @@
-# Product Spec
+# Product Spec: <Title>
 
-## Linked Issue
+> Use only for major architecture, migration, or an explicit user request. Keep the complete spec packet to at most two files and about 300 lines total.
 
-GH-
+## Problem
 
-## User Problem
+<User-visible problem and evidence.>
 
-Describe the user-visible problem and why it matters.
+## Goal
 
-## Goals
+<One measurable outcome.>
 
--
+## Non-goals
 
-## Non-Goals
+- <Explicit exclusion.>
 
--
+## User Behavior
 
-## Behavior Invariants
+- Given <context>, when <action>, then <observable result>.
 
-List numbered, testable behavior requirements without implementation details.
-Use stable IDs (`B-001`, `B-002`, ...); revisions append, never renumber or
-reuse. Follow the length heuristic, density rule, and worked example in the
-`specrail-write-product-spec` skill. For trivial changes declare
-`complexity: trivial` under Linked Issue and keep the spec minimal.
+## Acceptance
 
-1. B-001
+- [ ] <Testable condition.>
 
-## Acceptance Criteria
+## Risks Or Open Decisions
 
-- [ ]
-- [ ]
-
-## Boundary Checklist
-
-Every category is either covered by a named invariant or N/A with a reason.
-Watch for combinations (e.g. authorized + prerequisite evidence absent).
-
-| Category | Verdict (covered: B-xxx / N/A + reason) |
-| --- | --- |
-| Empty / missing input |  |
-| Error / failure paths |  |
-| Authorization / permission |  |
-| Concurrency / race |  |
-| Retry / idempotency |  |
-| Illegal state transitions |  |
-| Compatibility / migration |  |
-| Degradation / fallback |  |
-| Evidence / audit integrity |  |
-| Cancellation / interruption |  |
-
-## Rollout Notes
-
-Describe migration, compatibility, or communication needs.
+- <Only decisions that materially change the result.>

@@ -33,36 +33,13 @@ Trigger this skill when the user asks for one or more of:
 - [ ] Prioritize by impact, effort, risk, and confidence.
 - [ ] Verify each selected optimization with the smallest command that proves the claimed gain.
 
-## Routing Contract Integration
+## Delivery Selection
 
-Optflow follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md) and requires its exact validated `precedence`.
+Use Optflow when the user asks for optimization discovery or implementation. Keep one bounded optimization set per session and require evidence for every selected finding.
 
-Optflow can start discovery or execution only when upstream `work_surface` resolved to `code_execution` rather than `writing_research` or `chat_support`, and either condition is true:
+Clear fixes execute directly. Plan only major architecture, migrations, or explicitly requested multi-step work. No routing packet or fixed handoff schema is required.
 
-- upstream readiness resolved to `execute_direct`
-- a planning workflow already emitted a handoff that preselects Optflow
-
-Optflow must not start execution when either condition is true:
-
-- upstream readiness resolved to `clarify_first`
-- upstream readiness resolved to `plan_first` and no execution handoff exists yet
-
-When Optflow receives a planning handoff, it must honor:
-
-- `mode`
-- `artifacts`
-- `runtime_pinning_snapshot`
-- `verification_owner`
-- `stop_conditions`
-- `lane_map`
-
-If `lane_map` does not assign Optflow-owned work clearly, stop and clarify before editing.
-
-If a new user instruction changes the requested deliverable surface, return
-to the canonical router before continuing; Optflow must not reclassify the
-request locally.
-
-If Optflow delegates any task to a child agent or parallel worker, it must use [`workflows/references/delegation-contract.md`](../references/delegation-contract.md) and keep a single integration owner for shared outputs.
+Do not delegate by default. If the user explicitly requests delegation, follow [`workflows/references/delegation-contract.md`](../references/delegation-contract.md).
 
 ## Workflow
 

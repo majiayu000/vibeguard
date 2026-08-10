@@ -14,7 +14,6 @@ from pathlib import Path, PurePosixPath
 VALIDATOR_PATH = "scripts/ci/validate_distribution_assets.py"
 FORMAL_EVIDENCE_PATHS = {
     "schemas/install-modules.json",
-    "skills-lock.json",
 }
 EXCLUDED_CONSUMER_PREFIXES = (
     "docs/specs/",
@@ -228,7 +227,6 @@ def validate_distribution_assets(repo: Path) -> int:
     tracked_paths = collect_git_lines(repo, "ls-files")
     assets = collect_assets(tracked_paths)
     manifest_strings = load_json_strings(repo / "schemas/install-modules.json")
-    skill_lock_strings = load_json_strings(repo / "skills-lock.json")
     contributing = read_tracked_file(repo, "CONTRIBUTING.md")
 
     failures: list[str] = []
@@ -236,8 +234,6 @@ def validate_distribution_assets(repo: Path) -> int:
         evidence: str | None = None
         if manifest_installs(asset, manifest_strings):
             evidence = "install_module"
-        elif asset in skill_lock_strings:
-            evidence = "skills_lock"
         else:
             consumer = find_consumer(repo, asset, tracked_paths)
             if consumer is not None:

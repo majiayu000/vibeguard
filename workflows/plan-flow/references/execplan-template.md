@@ -35,6 +35,8 @@ Minimal context required to resume execution:
 - **Key entry**: <e.g. src/main.rs, src/lib.rs>
 - **Related Constraint Set**: <preflight output path | None>
 - **Existing decision**: <reference Decision Log entry number>
+- **W-20 Runtime Snapshot**: <.vibeguard/execplan/...-runtime.snapshot>
+- **W-20 Tool Inventory**: <.vibeguard/execplan/...-tool-inventory.txt>
 
 ## 4. Plan of Work
 

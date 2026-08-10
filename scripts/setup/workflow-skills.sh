@@ -1,6 +1,100 @@
 #!/usr/bin/env bash
 # Managed workflow skill lifecycle helpers (GH719).
 
+retired_codex_skill_hash() {
+  case "$1" in
+    implx) printf '%s\n' '36df08e0784dcb71a2506f3e7197e2de0a2b846b0555b31778ad45d4bf0e4e57' ;;
+    specrail-check-impl-against-spec) printf '%s\n' 'a1e03c454474bd1117aea05e31273d54794111d2e809fee641e39c70f4a7b29e' ;;
+    specrail-diagnose-ci) printf '%s\n' 'a59df025007feafdbe922f1ad1a5d3210e4064f493c8e85a0e76f4c238786565' ;;
+    specrail-implement-queue) printf '%s\n' 'ac6b121238f73a9dc2767a8ffaf8779e0ee54d20ceb4ea054672d72943f4d769' ;;
+    specrail-implement) printf '%s\n' 'cc8bc0da7a0582b2a58d5a6161c623681fb7b514941569ae537cfef87e58d1e8' ;;
+    specrail-install) printf '%s\n' '96986efdaa7f18527ab3303e8168ebb635b04b57a3ee73be49f30364665edea4' ;;
+    specrail-plan-tasks) printf '%s\n' '9d8219b4d04e44c40b117847057b436b7de26a5ca90a9e7b8d2d5c9989b29c13' ;;
+    specrail-pr-gate) printf '%s\n' 'cd38a82e566b6981299a6496ead086cabcb228519c92fbc0fe59fdf31b3d540a' ;;
+    specrail-release-note) printf '%s\n' 'e341a940648f058c45be590661728f3adcd66a925343a9922e7f6434606f3e0b' ;;
+    specrail-review-pr) printf '%s\n' '715a36929fec5bf70bfd032e744390ddbb5c5f187d07f242bcae7297b71834df' ;;
+    specrail-triage-issue) printf '%s\n' '78b463f634434cb86ff80b3af3d174f8c78f2da0b3d3a0144888751f0a8eb437' ;;
+    specrail-workflow) printf '%s\n' 'cdb2627affb595bb23097ec67632c7ece5902f60a51ee5fd29b0ef48065d2aff' ;;
+    specrail-write-product-spec) printf '%s\n' 'ef9180215502e4c8312f613d6cc38c984b3f0d84c4910d93d6b07a5171a3dc48' ;;
+    specrail-write-tech-spec) printf '%s\n' 'e2de93cb893af5a4a17579481043edad6b1a5a1e49092ef8e3567bdf4ae395ed' ;;
+    *) return 1 ;;
+  esac
+}
+
+retire_legacy_codex_skills() {
+  local skills_dir="$1" quarantine_dir="$2" resolved_skills_dir
+  [[ ! -e "${skills_dir}" && ! -L "${skills_dir}" ]] && return 0
+  if [[ ! -d "${skills_dir}" ]]; then
+    red "  ERROR: Codex skills root is not a real directory: ${skills_dir}"
+    return 1
+  fi
+  if ! resolved_skills_dir="$(cd "${skills_dir}" && pwd -P)"; then
+    red "  ERROR: cannot resolve Codex skills root: ${skills_dir}"
+    return 1
+  fi
+  skills_dir="${resolved_skills_dir}"
+  if [[ -L "${quarantine_dir}" || ( -e "${quarantine_dir}" && ! -d "${quarantine_dir}" ) ]]; then
+    red "  ERROR: retired Codex skill quarantine is not a real directory: ${quarantine_dir}"
+    return 1
+  fi
+
+  local skill source skill_file expected_hash actual_hash target suffix entry
+  local -a entries
+  for skill in \
+    implx \
+    specrail-check-impl-against-spec \
+    specrail-diagnose-ci \
+    specrail-implement-queue \
+    specrail-implement \
+    specrail-install \
+    specrail-plan-tasks \
+    specrail-pr-gate \
+    specrail-release-note \
+    specrail-review-pr \
+    specrail-triage-issue \
+    specrail-workflow \
+    specrail-write-product-spec \
+    specrail-write-tech-spec; do
+    source="${skills_dir}/${skill}"
+    [[ ! -e "${source}" && ! -L "${source}" ]] && continue
+    if [[ -L "${source}" || ! -d "${source}" ]]; then
+      yellow "  SKIP modified or user-owned retired Codex skill: ${source}"
+      continue
+    fi
+
+    entries=()
+    for entry in "${source}"/* "${source}"/.[!.]* "${source}"/..?*; do
+      [[ -e "${entry}" || -L "${entry}" ]] || continue
+      entries+=("${entry}")
+    done
+    skill_file="${source}/SKILL.md"
+    if [[ "${#entries[@]}" -ne 1 || "${entries[0]}" != "${skill_file}" || ! -f "${skill_file}" || -L "${skill_file}" ]]; then
+      yellow "  SKIP modified or user-owned retired Codex skill: ${source}"
+      continue
+    fi
+
+    expected_hash="$(retired_codex_skill_hash "${skill}")" || return 1
+    if ! actual_hash="$(setup_runtime_sha256_file "${skill_file}")"; then
+      red "  ERROR: cannot hash retired Codex skill safely: ${skill_file}"
+      return 1
+    fi
+    if [[ "${actual_hash}" != "${expected_hash}" ]]; then
+      yellow "  SKIP modified or user-owned retired Codex skill: ${source}"
+      continue
+    fi
+
+    mkdir -p "${quarantine_dir}"
+    target="${quarantine_dir}/${skill}"
+    suffix=1
+    while [[ -e "${target}" || -L "${target}" ]]; do
+      target="${quarantine_dir}/${skill}.${suffix}"
+      suffix=$((suffix + 1))
+    done
+    mv "${source}" "${target}"
+    yellow "  Retired legacy Codex skill: ${source} -> ${target}"
+  done
+}
+
 disabled_skills_source_label() {
   if [[ -n "${VIBEGUARD_DISABLED_SKILLS+x}" ]]; then
     printf '%s\n' "temporary VIBEGUARD_DISABLED_SKILLS override"

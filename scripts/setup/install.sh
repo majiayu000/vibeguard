@@ -579,15 +579,6 @@ install_claude_home_assets
 
 install_codex_home_assets
 
-# 7. Detect auto-run-agent environment variable
-echo "Step 7: Check auto-run-agent"
-if [[ -n "${AUTO_RUN_AGENT_DIR:-}" ]] && [[ -d "${AUTO_RUN_AGENT_DIR}" ]]; then
-  green "  AUTO_RUN_AGENT_DIR=${AUTO_RUN_AGENT_DIR}"
-else
-  yellow "  AUTO_RUN_AGENT_DIR not set (optional, needed for auto-optimize Phase 4)"
-fi
-echo
-
 configure_claude_home_runtime
 
 # 9.5. Scheduled GC is opt-in. Default setup must not create launchd/systemd jobs.

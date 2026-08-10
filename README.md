@@ -254,24 +254,27 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path                # dea
 | `/vibeguard:gc` | Garbage collection (logs + worktrees + rule budget + code slop scan) |
 | `/vibeguard:stats` | Hook trigger statistics |
 
-**Routing Contract**
+**Delivery Contract**
 
-Workflow routing is defined once in [workflows/references/routing-contract.md](workflows/references/routing-contract.md).
+Clear, bounded work executes directly. Use a short plan only for major architecture,
+migrations, cross-system policy changes, or when the user explicitly requests one.
+Ambiguous work pauses for clarification instead of generating a routing packet.
 
-- Precedence: `user_override` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
-- Readiness outputs: `execute_direct`, `plan_first`, `clarify_first`
-- Planning surfaces emit the shared handoff fields: `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, `lane_map`
-- Delegated multi-agent work uses [workflows/references/delegation-contract.md](workflows/references/delegation-contract.md) for child-agent assignments, parallelism limits, and single-owner reintegration
+- Docs-only work, small bugs, and mechanical changes do not require a spec.
+- A normal spec is limited to about two files and 300 lines.
+- One repository has at most one writable session; delegation is opt-in and read-only by default.
+- One PR gets at most two review rounds. `Findings: 0` plus `PASS` ends review.
 
-Use workflow prompts and dispatcher guidance as consumers of that contract, not as independent routing sources.
+See [delivery-base.md](workflows/references/delivery-base.md) for the shared limits.
 
-## Multi-Agent Dispatch
+## Optional Agent Prompts
 
-14 built-in agent prompts (13 specialists + 1 dispatcher) with automatic routing:
+14 built-in prompts are available when a user explicitly selects a specialist or
+bounded helper. They are not an automatic coordinator/reviewer pipeline:
 
 | Agent | Purpose |
 |-------|---------|
-| `dispatcher` | **Auto-route** — analyzes task type and routes to the best agent |
+| `dispatcher` | Suggest an optional specialist without starting write lanes |
 | `planner` / `architect` | Requirements analysis and system design |
 | `tdd-guide` | RED → GREEN → IMPROVE test-driven development |
 | `code-reviewer` / `security-reviewer` | Layered code review and OWASP Top 10 |

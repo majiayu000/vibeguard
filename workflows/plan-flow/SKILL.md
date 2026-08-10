@@ -16,14 +16,14 @@ This skill is repository-agnostic. It defines how to analyze and plan, not only 
 
 ## When to Activate
 
-- The canonical router resolved the task to `plan_first`.
+- The user explicitly requests a durable convergence plan or the work is major architecture/migration scope.
 - The user needs a durable `plan/*.md` artifact with file-level steps and evidence.
 - The work requires duplicate/redundant design analysis before edits.
 
 ## Red Flags
 
 - A plan step lacks exact files, symbols, or verification commands.
-- Execution starts from a `clarify_first` situation with unresolved boundaries.
+- Execution starts while a material product or safety choice is unresolved.
 - Multiple plan items are completed without updating status and evidence.
 
 ## Checklist
@@ -32,38 +32,13 @@ This skill is repository-agnostic. It defines how to analyze and plan, not only 
 - [ ] Convert every finding into a scoped step with owner and validation.
 - [ ] Keep exactly one plan item in progress and update it before moving on.
 
-## Routing Contract Integration
+## Planning Boundary
 
-Plan Flow owns the task only after the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md) resolves to `plan_first`.
+Plan Flow is for major architecture, migrations, durable convergence work, or an explicit user request. Ordinary bugs, docs, tests, and mechanical edits execute directly.
 
-Require the complete validated `routing_decision`, including its exact
-`precedence`, a resolved `work_surface` of `code_execution`,
-`writing_research`, or `chat_support`, and a `readiness` value of
-`execute_direct`, `plan_first`, or `clarify_first`. Preserve that object unchanged beside
-the execution handoff; do not nest it inside the handoff or reconstruct it
-from planning artifacts. If a new user instruction changes the deliverable
-surface, return to the canonical router before planning or execution continues.
+The plan records outcome, boundaries, ordered steps, verification, and real blockers. It does not emit a routing object, runtime snapshot, lane map, or fixed execution handoff.
 
-Route into Plan Flow when these readiness signals are true:
-
-- ambiguity has already been resolved
-- execution should not start directly
-- the task needs a durable `plan/*.md` artifact, phased sequencing, or explicit convergence evidence
-
-Do not use Plan Flow to compensate for a `clarify_first` outcome. Missing non-goals, decision boundaries, or lane ownership must be clarified before planning starts.
-
-When Plan Flow finishes planning, emit the shared execution handoff with these required keys:
-
-- `mode`
-- `artifacts`
-- `runtime_pinning_snapshot`
-- `verification_owner`
-- `stop_conditions`
-- `lane_map`
-
-`artifacts` must include the generated `plan/*.md` path. `runtime_pinning_snapshot` must point at the W-20 snapshot for long tasks, or be `None` for short direct work. `lane_map` must name the owner for every delegated lane before execution starts.
-
-When Plan Flow proposes child-agent or parallel execution, it must also emit delegation assignments that follow [`workflows/references/delegation-contract.md`](../references/delegation-contract.md). Missing assignment boundaries keep the route in `clarify_first`.
+Do not delegate by default. If delegation is explicitly selected, follow [`workflows/references/delegation-contract.md`](../references/delegation-contract.md).
 
 ## Core Workflow (Analyze -> Plan -> Execute)
 
@@ -160,6 +135,7 @@ Trigger this skill when user asks for:
 
 - [ ] Run or document the duplicate/redundancy search before drafting the plan.
 - [ ] Convert findings into scored, phased execution steps.
-- [ ] Include artifacts, runtime pinning, verification owner, stop conditions, and lane map.
+- [ ] Include the outcome, affected paths, key decisions, verification, and real stop conditions.
+- [ ] If execution must resume across sessions, use an ExecPlan instead of extending this ordinary plan.
 - [ ] Validate the plan with `plan_lint.py` when a plan file is created.
 - [ ] Update the plan when new evidence invalidates an earlier assumption.

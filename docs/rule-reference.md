@@ -84,7 +84,7 @@ Severity labels describe the agent/reviewer contract. They do not, by themselves
 | W-11 | LLM output must separate facts, inferences, and suggestions | Strict | When an agent produces an analysis report, technical judgment, or architecture recommendation, it must label the source of confidence for... |
 | W-12 | Protect test integrity | Strict | When tests fail, fix the production code rather than manipulating the test harness. |
 | W-13 | Analysis paralysis guard | Strict | If there are 7+ consecutive read-only actions (Read / Glob / Grep) with no write action, you must either act or report a blocker. |
-| W-14 | Parallel-agent file ownership | Strict | When multiple agents work in parallel, prompts must assign explicit file ownership so agents cannot silently overwrite one another. |
+| W-14 | Single-writer repository ownership | Strict | Concurrent writers make repository state and review evidence ambiguous even when their intended file sets do not overlap. |
 | W-15 | Low-information loop detection | Strict | If the information gain shrinks for three consecutive rounds, stop that direction and report it. |
 | W-16 | Verification commands must come from this session | Strict | When you say "fixed", "done", or "verified", you must cite command output produced in this session. |
 | W-17 | Fewer smarter gates beat more mechanical gates | Strict | When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one mor... |

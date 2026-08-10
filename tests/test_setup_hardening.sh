@@ -42,7 +42,7 @@ assert_cmd "file_ops.py syntax is correct" python3 -m py_compile "${REPO_DIR}/sc
 assert_cmd "hook_config_model.py syntax is correct" python3 -m py_compile "${REPO_DIR}/scripts/lib/hook_config_model.py"
 assert_cmd "shared setup primitives are declared" bash -c "
   source '${REPO_DIR}/scripts/setup/lib.sh'
-  declare -F install_manifest_skills install_context_profiles inject_vibeguard_rules >/dev/null
+  declare -F install_manifest_skills install_context_profiles inject_vibeguard_rules retire_legacy_codex_skills >/dev/null
 "
 assert_cmd "install-state uses Python hashlib instead of shell sha tools" bash -c "
   ! grep -Eq 'shasum|sha256sum|subprocess\\.run' '${REPO_DIR}/scripts/lib/install-state.sh'
@@ -61,6 +61,68 @@ write_json_atomic(json_path, {"ok": True})
 assert text_path.read_text(encoding="utf-8") == "abc\n"
 assert '"ok": true' in json_path.read_text(encoding="utf-8")
 assert sha256_file(text_path) == "edeaaff3f1774ad2888673770c6d64097e391bc362d7d6fb34982ddf0efd18cb"
+PY
+
+header "retired Codex skill migration"
+assert_cmd "configured CODEX_HOME selects the Codex install root" env \
+  HOME="${TMP_DIR}/default-home" \
+  CODEX_HOME="${TMP_DIR}/custom-codex" \
+  EXPECTED_CODEX_DIR="${TMP_DIR}/custom-codex" \
+  bash -c '
+    source "$1/scripts/setup/lib.sh"
+    test "$CODEX_DIR" = "$EXPECTED_CODEX_DIR"
+  ' _ "${REPO_DIR}"
+
+assert_cmd "retired skill enumeration avoids GNU-only find flags" bash -c '
+  ! grep -Eq -- "-mindepth|-maxdepth" "$1/scripts/setup/workflow-skills.sh"
+' _ "${REPO_DIR}"
+
+assert_cmd "only untouched legacy skill copies are quarantined" bash -c '
+  set -euo pipefail
+  repo="$1"
+  root="$2/retired-skill-migration"
+  skills="$root/codex/skills"
+  actual_skills="$root/codex/actual-skills"
+  quarantine="$root/vibeguard/retired-codex-skills"
+  source "$repo/scripts/setup/lib.sh"
+  mkdir -p "$actual_skills"
+  ln -s "$actual_skills" "$skills"
+  official="official legacy skill"
+  for name in implx specrail-implement specrail-workflow specrail-install specrail-pr-gate; do
+    mkdir -p "$skills/$name"
+    printf "%s\n" "$official" > "$skills/$name/SKILL.md"
+  done
+  digest="$(setup_runtime_sha256_file "$skills/implx/SKILL.md")"
+  retired_codex_skill_hash() { printf "%s\n" "$digest"; }
+  printf "user edit\n" > "$skills/specrail-implement/SKILL.md"
+  printf "user file\n" > "$skills/specrail-workflow/notes.md"
+  mv "$skills/specrail-install" "$skills/specrail-install-source"
+  ln -s "$skills/specrail-install-source" "$skills/specrail-install"
+  unlink "$skills/specrail-pr-gate/SKILL.md"
+  rmdir "$skills/specrail-pr-gate"
+  printf "user-owned\n" > "$skills/specrail-pr-gate"
+  mkdir -p "$quarantine/implx"
+  printf "earlier backup\n" > "$quarantine/implx/SKILL.md"
+
+  retire_legacy_codex_skills "$skills" "$quarantine"
+  test -L "$skills"
+  test ! -e "$skills/implx"
+  test "$(cat "$quarantine/implx.1/SKILL.md")" = "$official"
+  test "$(cat "$skills/specrail-implement/SKILL.md")" = "user edit"
+  test -f "$skills/specrail-workflow/notes.md"
+  test -L "$skills/specrail-install"
+  test "$(cat "$skills/specrail-pr-gate")" = "user-owned"
+' _ "${REPO_DIR}" "${TMP_DIR}"
+
+assert_cmd "Codex setup retires legacy skills before installing active skills" python3 - <<'PY' "${REPO_DIR}"
+from pathlib import Path
+import sys
+
+text = (Path(sys.argv[1]) / "scripts/setup/targets/codex-home.sh").read_text(encoding="utf-8")
+call = "retire_legacy_codex_skills"
+install = "install_manifest_skills"
+assert call in text and install in text
+assert text.index(call) < text.index(install)
 PY
 
 assert_cmd "vibeguard-runtime builds for install-state tests" cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet

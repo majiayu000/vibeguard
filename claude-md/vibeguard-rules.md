@@ -12,7 +12,7 @@
 | L3 | Disable silent swallowing of exceptions; there is no public method of Any type |
 | L4 | No data = blank; no undeclared API/field exists |
 | L5 | Just do what is asked; there is no "easy improvement" |
-| L6 | Follow `workflows/references/routing-contract.md`: classify `work_surface`, then choose `execute_direct` / `plan_first` / `clarify_first`, plus the shared handoff fields |
+| L6 | Execute clear bounded work directly; plan only major architecture or explicitly requested work |
 | L7 | AI tag does not exist / force push / key submission |
 
 ## Chat Contract
@@ -22,8 +22,8 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 - Progress updates: for non-trivial or tool-heavy work, send a short update at start, after discovery, before edits, after verification, and when blocked.
 - Default verbosity: keep answers concise by default; use short paragraphs for simple tasks and expand only when the work is complex or the user asks for depth.
 - Formatting: use Markdown only when it helps; prefer prose first, flat bullets only for natural lists, and avoid decorative structure.
-- Work surface: classify the request as `code_execution`, `writing_research`, or `chat_support` before applying workflow routing.
-- Writing/research: keep factual/source verification and the requested tone, but do not force build/test/changed-files/PR-readiness/root-cause framing unless code, generated site content, or repository files are edited.
+- Clear, bounded work executes directly. Clarify missing facts before changing files.
+- Writing/research stays read-only unless the user also asks for an edit or implementation.
 
 ## Context · Validation
 
@@ -76,7 +76,7 @@ Security > Logic > Data Splitting > Repeating Types > Unwrap > Naming
 | W-02 | Strict | After 3 consecutive failed fixes on the same problem, stop and challenge the hypothesis or architecture. |
 | W-03 | Strict | Verify before claiming completion: produce fresh command output proving the claim. |
 | W-12 | Strict | Protect test integrity: fix production code, never weaken assertions or tamper with test infrastructure. |
-| W-14 | Strict | Parallel agents must have explicit, disjoint file ownership; no shared writable file. |
+| W-14 | Strict | At most one writable session may operate on a repository; parallel helpers must remain read-only. |
 | W-16 | Strict | Verification commands must come from this session. "Earlier passed" / "should work" do not count. |
 | SEC-01 | Critical | No SQL / NoSQL / OS command injection: use parameterized queries and array argument lists. |
 | SEC-02 | Critical | No hardcoded keys, credentials, or API tokens. Load from env / secret manager. |

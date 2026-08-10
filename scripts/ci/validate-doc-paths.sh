@@ -61,6 +61,7 @@ def scope_is_allowed(category: str, scope_glob: str) -> bool:
         return (
             scope_glob == "CHANGELOG.md"
             or scope_glob.startswith("docs/internal/")
+            or scope_glob.startswith("docs/specs/")
             or scope_glob.startswith("plan/")
         )
     if category == "planned":

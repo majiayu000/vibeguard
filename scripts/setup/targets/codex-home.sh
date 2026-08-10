@@ -38,6 +38,7 @@ _install_codex_manifest_skill() {
 
 install_codex_home_assets() {
   echo "Step 6: Install Codex skills"
+  retire_legacy_codex_skills "${CODEX_DIR}/skills" "${HOME}/.vibeguard/retired-codex-skills"
   install_manifest_skills "~/.codex/skills/" "${CODEX_DIR}/skills" _install_codex_manifest_skill 1 || return 1
   echo
 

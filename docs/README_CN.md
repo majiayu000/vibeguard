@@ -173,25 +173,26 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path
 
 快捷别名：`/vg:pf` `/vg:gc` `/vg:ck` `/vg:lrn`
 
-### 路由契约
+### 交付契约
 
-工作流路由只在一个地方定义：[`workflows/references/routing-contract.md`](../workflows/references/routing-contract.md)。
+目标清楚、范围有限的任务直接执行。只有重大架构、迁移、跨系统策略变更，
+或用户明确要求时才写简短计划；信息不足时先澄清，不生成路由数据包。
 
-- 优先级：`user_override` → `work_surface classifier` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
-- `work_surface` 只有三种完成态：`code_execution`、`writing_research`、`chat_support`；信息不足或冲突时先澄清，不输出不完整的 routing payload
-- readiness 输出只有三种：`execute_direct`、`plan_first`、`clarify_first`
-- 规划类工作流在 handoff 旁保留完整 `routing_decision`，并统一输出 handoff 字段：`mode`、`artifacts`、`runtime_pinning_snapshot`、`verification_owner`、`stop_conditions`、`lane_map`
-- 多 agent 委派统一使用 [`workflows/references/delegation-contract.md`](../workflows/references/delegation-contract.md)，明确子任务模板、并发限制和单一集成负责人
+- 纯文档、小 bug、明确的机械修改免 spec。
+- 普通 spec 最多约两个文件、300 行。
+- 同一仓库最多一个可写会话；委派必须显式启用，默认只读。
+- 同一 PR 最多两轮 Review；`Findings: 0` 且 `PASS` 时立即停止。
 
-README、workflow prompts、dispatcher 都应该消费这份契约，而不是各自再写一套本地路由规则。
+共享限制见 [`delivery-base.md`](../workflows/references/delivery-base.md)。
 
-## 内置 Agent Prompts
+## 可选 Agent Prompts
 
-仓库当前内置 14 个 agent prompt（13 个专项角色 + 1 个 dispatcher）：
+仓库内置 14 个可选 prompt。只有用户明确选择专项角色或有边界的辅助任务时才启用，
+不会默认组成 coordinator/reviewer 流水线：
 
 | Agent | 作用 |
 |------|------|
-| `dispatcher` | 自动识别任务类型并路由到合适的 agent |
+| `dispatcher` | 建议可选专项角色，不自动启动可写并行任务 |
 | `planner` / `architect` | 需求分析、系统设计 |
 | `tdd-guide` | RED → GREEN → IMPROVE 测试驱动 |
 | `code-reviewer` / `security-reviewer` | 分层审查、OWASP Top 10 |

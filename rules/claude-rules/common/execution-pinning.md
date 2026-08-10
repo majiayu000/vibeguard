@@ -19,9 +19,9 @@ Long-running agent tasks must freeze the execution surface at the start of the t
 
 **Protocol**:
 1. Before execution starts, write or generate a tool inventory file that lists every tool, MCP entry, or skill available to the task.
-2. Run `bash guards/universal/check_runtime_drift.sh snapshot --snapshot <file> --tool-inventory <file>`.
+2. Resolve the VibeGuard execution source from `${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}` and run its `guards/universal/check_runtime_drift.sh snapshot --snapshot <file> --tool-inventory <file> --rules-dir <execution-source>/rules/claude-rules`.
 3. Store the snapshot path in the SPEC, ExecPlan, or shared planning handoff.
-4. Before resuming a long task in a later session, run `bash guards/universal/check_runtime_drift.sh check --snapshot <file> --tool-inventory <file>`.
+4. Before resuming a long task in a later session, run the same installed guard with `check --snapshot <file> --tool-inventory <file> --rules-dir <execution-source>/rules/claude-rules`.
 5. If drift is detected, stop and show the changed surface before continuing.
 
 **Mechanical checks (agent execution rules)**:
