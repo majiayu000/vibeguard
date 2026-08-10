@@ -377,6 +377,32 @@ attestation verification is fatal and does not fall back to source. When the
 attestation verifier is unavailable, setup prints `checksum-only` after SHA-256
 verification.
 
+### Reproducible benchmark
+
+The installed release includes a self-contained benchmark over paired positive
+and negative cases for hallucinated edit targets, duplicate definitions, swallowed
+exceptions, dangerous shell/Git operations, and unverified completion claims.
+Reproduce the current headline result with one command:
+
+```bash
+PATH="$HOME/.vibeguard/installed/bin:$PATH" vibeguard bench
+```
+
+| Metric | Built-in corpus |
+|--------|-----------------|
+| Interception rate | 100.0% (5/5) |
+| False-positive rate | 0.0% (0/5) |
+| Hook latency | Per-run p50 and p95 reported by the command |
+
+Use `vibeguard bench --json` for machine-readable counts, rates, per-class
+decisions, latency, and embedded build provenance. Development/source builds are
+explicitly marked `unverified`; release CI requires the exact source commit and
+target embedded in the staged binary. An interception is any actual
+production-surface `warn` or `block`; latency is native runtime command wall time
+over five fresh-state measured runs per case after one warmup. Release CI runs
+the benchmark from both the raw native binary and a fresh no-clone installation,
+and derives the expected README numerators and denominators from the report.
+
 ### Profiles and languages
 
 ```bash

@@ -13,7 +13,7 @@ verified, narrowly scoped issue.
 | `GH720/` | Historical retired-tooling reference | Former automatic stage-aware SpecRail packet validation; not executable |
 | `GH699/` | Implemented reference | Clone-free installation through verified release payloads and Homebrew/npm entry points |
 | `GH701/` | Historical roadmap reference | README and host-adapter design evidence; a real new host adapter was not delivered |
-| `GH700/` | Historical roadmap reference | Benchmark design evidence; a released-binary `vibeguard bench` command was not delivered |
+| `GH700/` | Implemented reference | Released-binary `vibeguard bench` with a built-in paired corpus, warn/block interception rates, and native runtime command latency |
 | `GH702/` | Historical roadmap reference | Guard-pack design evidence; third-party publish-and-install was not delivered |
 | `GH706/` | Implemented reference | Privacy-safe malformed-input diagnostics and shared protocol-error versus rule-interception block counts |
 | `GH719/` | Implemented reference | Persistent, ownership-safe per-skill opt-out for managed Codex workflow skill copies |

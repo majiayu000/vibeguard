@@ -181,6 +181,28 @@ rc=0
 check "installed runtime binary exists" "${rc}"
 
 rc=0
+[[ -x "${TEST_HOME}/.vibeguard/installed/bin/vibeguard" ]] || rc=1
+check "installed vibeguard command exists" "${rc}"
+
+bench_rc=0
+bench_json="$(
+  HOME="${TEST_HOME}" \
+    PATH="${TEST_HOME}/.vibeguard/installed/bin:${WORK}/fake-bin:${PATH}" \
+    vibeguard bench --json
+)" || bench_rc=$?
+check "installed vibeguard command runs the benchmark" "${bench_rc}"
+rc=0
+python3 -c '
+import json, sys
+report = json.loads(sys.argv[1])
+assert report["interception_rate_percent"] == 100.0
+assert report["false_positive_rate_percent"] == 0.0
+assert report["latency_ms"]["p50"] >= 0
+assert report["latency_ms"]["p95"] >= 0
+' "${bench_json}" || rc=1
+check "installed benchmark reports effectiveness and latency" "${rc}"
+
+rc=0
 [[ -L "${TEST_HOME}/.vibeguard/dist/current" ]] || rc=1
 check "verified payload is persisted under dist/current" "${rc}"
 

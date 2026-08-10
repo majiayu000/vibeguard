@@ -345,6 +345,17 @@ cp "${tracked_snapshot_backup}" "${tracked_snapshot_file}"
 restored_snapshot_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 assert_contains "${restored_snapshot_check_out}" "[OK] Total tracked:" "--check reports clean install state after restoring tracked snapshot file"
 assert_not_contains "${restored_snapshot_check_out}" "DRIFT: ${tracked_snapshot_file}" "--check stops reporting installed snapshot drift after restore"
+vibeguard_command="${HOME}/.vibeguard/installed/bin/vibeguard"
+rm "${vibeguard_command}"
+ln -s /bin/echo "${vibeguard_command}"
+set +e
+retargeted_command_out="$(bash "${REPO_DIR}/setup.sh" --check --strict 2>&1)"
+retargeted_command_rc=$?
+set -e
+assert_cmd "--check --strict rejects retargeted vibeguard command" test "${retargeted_command_rc}" -eq 2
+assert_contains "${retargeted_command_out}" "[BROKEN] vibeguard command target drift: /bin/echo (expected: vibeguard-runtime)" "--check reports vibeguard command target drift"
+rm "${vibeguard_command}"
+ln -s vibeguard-runtime "${vibeguard_command}"
 runtime_backup="${TMP_HOME}/installed-vibeguard-runtime.backup"
 cp "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" "${runtime_backup}"
 cat > "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" <<'SH'

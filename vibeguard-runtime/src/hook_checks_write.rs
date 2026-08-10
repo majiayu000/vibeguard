@@ -5,6 +5,7 @@ use std::path::Path;
 use crate::hook_checks_common::{
     count_lines, is_source_path, is_test_path, nested_str, read_stdin, write_log_event,
 };
+use crate::hook_checks_js::empty_catch_count;
 use crate::hook_checks_scan::find_project_dir;
 use crate::hook_checks_write_scan::{
     duplicate_definition_scan, scan_project_files, scan_project_files_with_same_name,
@@ -165,6 +166,10 @@ pub(crate) fn evaluate_post_write(
         );
     }
 
+    if let Some(exception_warning) = empty_exception_warning(file_path, content) {
+        warnings.push(exception_warning);
+    }
+
     if let Some(stub_warning) = stub_warning(file_path, content) {
         warnings.push(stub_warning);
     }
@@ -181,6 +186,22 @@ pub(crate) fn evaluate_post_write(
             warnings: warnings.join("\n---\n"),
         }
     }
+}
+
+pub(crate) fn empty_exception_warning(file_path: &str, content: &str) -> Option<String> {
+    if !matches!(
+        extension(file_path).as_str(),
+        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs"
+    ) || !content.contains("catch")
+    {
+        return None;
+    }
+    let count = empty_catch_count(content);
+    (count > 0).then(|| {
+        format!(
+            "[U-17] [review] [this-file] OBSERVATION: {count} empty exception handler(s) swallow errors\nFIX: handle, report, or rethrow each caught error\nDO NOT: leave the catch block empty"
+        )
+    })
 }
 
 fn stub_warning(file_path: &str, content: &str) -> Option<String> {

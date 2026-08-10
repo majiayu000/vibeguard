@@ -574,6 +574,26 @@ _check_installed_runtime_version() {
   green "[OK] vibeguard-runtime version matches repo VERSION (${expected})"
 }
 
+_check_vibeguard_command() {
+  local command_path="${HOME}/.vibeguard/installed/bin/vibeguard"
+  local expected_target="vibeguard-runtime"
+  local actual_target
+  if [[ ! -L "${command_path}" ]]; then
+    red "[BROKEN] vibeguard command is not the managed symlink: ${command_path}"
+    return 0
+  fi
+  actual_target="$(readlink "${command_path}" 2>/dev/null || true)"
+  if [[ "${actual_target}" != "${expected_target}" ]]; then
+    red "[BROKEN] vibeguard command target drift: ${actual_target:-unreadable} (expected: ${expected_target})"
+    return 0
+  fi
+  if [[ ! -x "${command_path}" ]]; then
+    red "[BROKEN] vibeguard command target is not executable: ${command_path}"
+    return 0
+  fi
+  green "[OK] vibeguard command targets installed vibeguard-runtime"
+}
+
 # run_legacy_checks
 #   The original sequence of inline probes. Each probe prints a single
 #   `[LEVEL] message` line via green/yellow/red. We do not reorder or
@@ -603,6 +623,7 @@ run_legacy_checks() {
   if [[ -x "${VIBEGUARD_HOME}/installed/bin/vibeguard-runtime" ]]; then
     green "[OK] vibeguard-runtime runtime binary installed"
     _check_installed_runtime_version
+    _check_vibeguard_command
     _check_installed_snapshot_version
   else
     red "[MISSING] vibeguard-runtime runtime binary (~/.vibeguard/installed/bin/vibeguard-runtime)"

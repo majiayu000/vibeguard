@@ -122,6 +122,8 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           BUILDER: ${{ matrix.builder }}
+          CARGO_VIBEGUARD_BUILD_COMMIT: ${{ github.sha }}
+          CARGO_VIBEGUARD_BUILD_TARGET: ${{ matrix.target }}
         run: |
           if [[ "${BUILDER}" == "cross" ]]; then
             cross build --release --locked --target "${TARGET}" --manifest-path "${RUNTIME_MANIFEST}"
@@ -145,6 +147,33 @@ jobs:
         run: |
           output="$(printf '{"tool":"Bash"}\n' | "dist/${TARGET}/vibeguard-runtime-${TARGET}" json-field tool)"
           test "${output}" = "Bash"
+          bench_json="$("dist/${TARGET}/vibeguard-runtime-${TARGET}" bench --json)"
+          python3 - "${bench_json}" README.md <<'PY'
+          import json
+          import os
+          import pathlib
+          import sys
+
+          report = json.loads(sys.argv[1])
+          readme = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+          assert report["provenance_status"] == "embedded-release-build"
+          assert report["source_commit"] == os.environ["GITHUB_SHA"]
+          assert report["target"] == os.environ["TARGET"]
+          assert report["interception_rate_percent"] == 100.0
+          assert report["false_positive_rate_percent"] == 0.0
+          assert report["latency_ms"]["p50"] >= 0
+          assert report["latency_ms"]["p95"] >= 0
+          expected_interception = (
+              f'| Interception rate | {report["interception_rate_percent"]:.1f}% '
+              f'({report["true_positive"]}/{report["positive_total"]}) |'
+          )
+          expected_false_positive = (
+              f'| False-positive rate | {report["false_positive_rate_percent"]:.1f}% '
+              f'({report["false_positive"]}/{report["negative_total"]}) |'
+          )
+          assert expected_interception in readme
+          assert expected_false_positive in readme
+          PY
 
       - name: Upload runtime artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -648,6 +677,23 @@ jobs:
             exit 1
           fi
           test -x "${FRESH_HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+          test -x "${FRESH_HOME}/.vibeguard/installed/bin/vibeguard"
+          bench_json="$(HOME="${FRESH_HOME}" "${FRESH_HOME}/.vibeguard/installed/bin/vibeguard" bench --json)"
+          python3 - "${bench_json}" <<'PY'
+          import json
+          import os
+          import sys
+
+          report = json.loads(sys.argv[1])
+          assert report["corpus_id"] == "builtin-paired-v1"
+          assert report["provenance_status"] == "embedded-release-build"
+          assert report["source_commit"] == os.environ["EVENT_SHA"]
+          assert report["target"] != "unknown-unverified-target"
+          assert report["case_total"] == 10
+          assert report["interception_rate_percent"] == 100.0
+          assert report["false_positive_rate_percent"] == 0.0
+          assert report["latency_ms"]["p95"] >= report["latency_ms"]["p50"] >= 0
+          PY
           test -d "${FRESH_HOME}/.vibeguard/installed/rules/claude-rules"
 
   publish-release:
