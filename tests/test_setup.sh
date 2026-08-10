@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # VibeGuard setup regression testing
 #
-# Usage: bash tests/test_setup.sh
+# Usage: bash tests/test_setup.sh [--shard full|bootstrap|install|protection|profile]
 
 set -euo pipefail
 
@@ -13,6 +13,36 @@ MANIFEST_HELPER="${REPO_DIR}/scripts/lib/vibeguard_manifest.py"
 PROJECT_CONFIG_HELPER="${REPO_DIR}/scripts/lib/project_config_validate.py"
 CHAT_CONTRACT_ANCHOR="Compact Chat Contract: progress updates, concise answers, plain formatting."
 CODEX_CONFIG_HELPER="${REPO_DIR}/scripts/lib/codex_config_toml.py"
+
+SETUP_SHARD="full"
+case "${1:-}" in
+  "") ;;
+  --shard)
+    [[ $# -eq 2 ]] || {
+      printf 'Usage: bash tests/test_setup.sh [--shard full|bootstrap|install|protection|profile]\n' >&2
+      exit 2
+    }
+    SETUP_SHARD="$2"
+    ;;
+  --shard=*)
+    [[ $# -eq 1 ]] || {
+      printf 'Usage: bash tests/test_setup.sh [--shard full|bootstrap|install|protection|profile]\n' >&2
+      exit 2
+    }
+    SETUP_SHARD="${1#--shard=}"
+    ;;
+  *)
+    printf 'Usage: bash tests/test_setup.sh [--shard full|bootstrap|install|protection|profile]\n' >&2
+    exit 2
+    ;;
+esac
+case "${SETUP_SHARD}" in
+  full|bootstrap|install|protection|profile) ;;
+  *)
+    printf 'Unknown setup test shard: %s\n' "${SETUP_SHARD}" >&2
+    exit 2
+    ;;
+esac
 
 PASS=0
 FAIL=0
@@ -413,6 +443,14 @@ fi
 exec "${REAL_DATE}" "\$@"
 SH
 chmod +x "${TMP_HOME}/bin/date"
+cat > "${TMP_HOME}/bin/ast-grep" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--version" ]]; then
+  printf 'ast-grep test fixture\n'
+fi
+exit 0
+SH
+chmod +x "${TMP_HOME}/bin/ast-grep"
 cat > "${TMP_HOME}/bin/cargo" <<SH
 #!/usr/bin/env bash
 if [[ "\${VIBEGUARD_TEST_CARGO_UNAVAILABLE:-0}" == "1" ]]; then
@@ -597,7 +635,20 @@ export PATH="${TMP_HOME}/bin:${PATH}"
 
 TEST_RELEASE_DIR="${TMP_HOME}/release-assets"
 mkdir -p "${TEST_RELEASE_DIR}"
-cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" >/dev/null
+runtime_fixture="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
+if [[ "${VIBEGUARD_TEST_PREBUILT_RUNTIME:-0}" == "1" ]]; then
+  [[ -x "${runtime_fixture}" ]] || {
+    red "prebuilt runtime fixture is missing or not executable: ${runtime_fixture}"
+    exit 1
+  }
+  expected_runtime_version="$(tr -d '[:space:]' < "${REPO_DIR}/vibeguard-runtime/VERSION")"
+  [[ "$("${runtime_fixture}" version)" == "${expected_runtime_version}" ]] || {
+    red "prebuilt runtime fixture version does not match ${expected_runtime_version}"
+    exit 1
+  }
+else
+  cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" >/dev/null
+fi
 : > "${TEST_RELEASE_DIR}/SHA256SUMS"
 for target in \
   aarch64-apple-darwin \
@@ -728,14 +779,67 @@ assert_cmd "quiet runtime download rejects manifest size mismatch" bash -c '
   test ! -e "${dest}"
 ' _ "${REPO_DIR}" "${TMP_HOME}"
 
+seed_installed_setup_fixture() {
+  case "${HOME}" in
+    "${TMP_HOME}"*) ;;
+    *) red "refusing to seed setup fixture outside TMP_HOME"; return 1 ;;
+  esac
 
-for setup_test in \
-  "${REPO_DIR}/tests/setup/syntax_manifest_tests.sh" \
-  "${REPO_DIR}/tests/setup/bootstrap_tests.sh" \
-  "${REPO_DIR}/tests/setup/runtime_install_tests.sh" \
-  "${REPO_DIR}/tests/setup/install_flow_tests.sh" \
-  "${REPO_DIR}/tests/setup/protection_clean_tests.sh" \
-  "${REPO_DIR}/tests/setup/profile_flow_tests.sh"; do
+  mkdir -p "${HOME}/.claude" "${HOME}/.codex"
+  PREEXISTING_CODEX_HOOK_SCRIPT="${HOME}/codex-third-party-hook.js"
+  printf 'process.exit(0)\n' > "${PREEXISTING_CODEX_HOOK_SCRIPT}"
+  printf '%s\n' '{"hooks": {}}' > "${HOME}/.claude/settings.json"
+  cat > "${HOME}/.codex/hooks.json" <<JSON
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Bash",
+      "hooks": [{
+        "type": "command",
+        "command": "node ${PREEXISTING_CODEX_HOOK_SCRIPT}"
+      }]
+    }]
+  }
+}
+JSON
+  printf '%s\n' '[features]' 'hooks = true' > "${HOME}/.codex/config.toml"
+  VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes >/dev/null
+}
+
+setup_tests=()
+case "${SETUP_SHARD}" in
+  full)
+    setup_tests=(
+      "${REPO_DIR}/tests/setup/syntax_manifest_tests.sh"
+      "${REPO_DIR}/tests/setup/bootstrap_tests.sh"
+      "${REPO_DIR}/tests/setup/runtime_install_tests.sh"
+      "${REPO_DIR}/tests/setup/install_flow_tests.sh"
+      "${REPO_DIR}/tests/setup/protection_clean_tests.sh"
+      "${REPO_DIR}/tests/setup/profile_flow_tests.sh"
+    )
+    ;;
+  bootstrap)
+    setup_tests=(
+      "${REPO_DIR}/tests/setup/syntax_manifest_tests.sh"
+      "${REPO_DIR}/tests/setup/bootstrap_tests.sh"
+      "${REPO_DIR}/tests/setup/runtime_install_tests.sh"
+    )
+    ;;
+  install)
+    setup_tests=("${REPO_DIR}/tests/setup/install_flow_tests.sh")
+    ;;
+  protection)
+    seed_installed_setup_fixture
+    setup_tests=("${REPO_DIR}/tests/setup/protection_clean_tests.sh")
+    ;;
+  profile)
+    seed_installed_setup_fixture
+    setup_tests=("${REPO_DIR}/tests/setup/profile_flow_tests.sh")
+    ;;
+esac
+
+printf 'Setup test shard: %s\n' "${SETUP_SHARD}"
+for setup_test in "${setup_tests[@]}"; do
   # shellcheck source=/dev/null
   source "${setup_test}"
 done
