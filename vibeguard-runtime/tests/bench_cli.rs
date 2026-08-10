@@ -72,6 +72,32 @@ fn bench_human_output_names_the_three_user_metrics() {
 }
 
 #[test]
+fn bench_isolates_stop_checks_from_inherited_ci_bypass_environment() {
+    let output = bin()
+        .args(["bench", "--json"])
+        .env("CI", "true")
+        .env("GITHUB_ACTIONS", "true")
+        .env("TRAVIS", "true")
+        .env("CIRCLECI", "true")
+        .env("JENKINS_URL", "https://jenkins.invalid")
+        .env("GITLAB_CI", "true")
+        .env("TF_BUILD", "true")
+        .env("VIBEGUARD_SUPPRESS_STOP_VERIFY", "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "bench failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["true_positive"], 5);
+    assert_eq!(report["false_negative"], 0);
+    assert_eq!(report["interception_rate_percent"], 100.0);
+}
+
+#[test]
 fn bench_rejects_unknown_options() {
     let output = bin().args(["bench", "--mode=full"]).output().unwrap();
     assert_eq!(output.status.code(), Some(1));
