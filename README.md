@@ -377,6 +377,28 @@ attestation verification is fatal and does not fall back to source. When the
 attestation verifier is unavailable, setup prints `checksum-only` after SHA-256
 verification.
 
+### Reproducible benchmark
+
+The installed release includes a self-contained benchmark over paired positive
+and negative cases for invented APIs, duplicate modules, swallowed exceptions,
+dangerous shell/Git operations, and unverified completion claims. Reproduce the
+current headline result with one command:
+
+```bash
+PATH="$HOME/.vibeguard/installed/bin:$PATH" vibeguard bench
+```
+
+| Metric | Built-in corpus |
+|--------|-----------------|
+| Interception rate | 100.0% (5/5) |
+| False-positive rate | 0.0% (0/5) |
+| Hook latency | Per-run p50 and p95 reported by the command |
+
+Use `vibeguard bench --json` for machine-readable counts, rates, per-class
+decisions, and latency. Release CI runs the benchmark from both the raw native
+binary and a fresh no-clone installation, and rejects stale README effectiveness
+figures.
+
 ### Profiles and languages
 
 ```bash

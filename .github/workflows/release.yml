@@ -145,6 +145,21 @@ jobs:
         run: |
           output="$(printf '{"tool":"Bash"}\n' | "dist/${TARGET}/vibeguard-runtime-${TARGET}" json-field tool)"
           test "${output}" = "Bash"
+          bench_json="$("dist/${TARGET}/vibeguard-runtime-${TARGET}" bench --json)"
+          python3 - "${bench_json}" README.md <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          report = json.loads(sys.argv[1])
+          readme = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+          assert report["interception_rate_percent"] == 100.0
+          assert report["false_positive_rate_percent"] == 0.0
+          assert report["latency_ms"]["p50"] >= 0
+          assert report["latency_ms"]["p95"] >= 0
+          assert "| Interception rate | 100.0% (5/5) |" in readme
+          assert "| False-positive rate | 0.0% (0/5) |" in readme
+          PY
 
       - name: Upload runtime artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -648,6 +663,18 @@ jobs:
             exit 1
           fi
           test -x "${FRESH_HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+          test -x "${FRESH_HOME}/.vibeguard/installed/bin/vibeguard"
+          bench_json="$(HOME="${FRESH_HOME}" "${FRESH_HOME}/.vibeguard/installed/bin/vibeguard" bench --json)"
+          python3 - "${bench_json}" <<'PY'
+          import json
+          import sys
+
+          report = json.loads(sys.argv[1])
+          assert report["case_total"] == 10
+          assert report["interception_rate_percent"] == 100.0
+          assert report["false_positive_rate_percent"] == 0.0
+          assert report["latency_ms"]["p95"] >= report["latency_ms"]["p50"] >= 0
+          PY
           test -d "${FRESH_HOME}/.vibeguard/installed/rules/claude-rules"
 
   publish-release:
