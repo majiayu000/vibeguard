@@ -93,6 +93,9 @@ setup_runtime_supports() {
     setup-codex-hooks-check-stale \
     setup-codex-hooks-prune-stale-unmanaged \
     setup-codex-hooks-check-timeouts \
+    setup-gemini-hooks-upsert \
+    setup-gemini-hooks-check \
+    setup-gemini-hooks-remove \
     setup-state-init \
     setup-state-list-tracked-under \
     setup-state-verify-managed-tree \

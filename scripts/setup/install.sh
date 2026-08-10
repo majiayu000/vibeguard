@@ -2,20 +2,12 @@
 set -euo pipefail
 # VibeGuard Setup Script
 # One-click deployment of anti-hallucination specifications to ~/.claude/ and ~/.codex/
-#
-# How to use:
 # bash setup.sh # Install (default core)
 # bash setup.sh --profile full # Install full (including Stop signal/Build Check)
 # bash setup.sh --profile minimal # Minimal installation (pre-hooks only)
 # bash setup.sh --profile strict # Strict mode (full hooks + Claude Code U-32 SessionStart constraint budget)
-# bash setup.sh --languages rust,python # Only install rules and guards for the specified language
-# bash setup.sh --profile full --languages rust # Use in combination
-# bash setup.sh --dry-run # Show high-context diffs without writing
-# bash setup.sh --yes # Apply high-context diffs non-interactively
 # bash setup.sh --build-from-source # Build vibeguard-runtime with cargo instead of downloading a release binary
-# bash setup.sh --runtime-version v1.2.3 # Download a specific vibeguard-runtime release tag
-# bash setup.sh --require-provenance # Require GitHub artifact attestation verification for release binaries
-# bash setup.sh --with-scheduler # Opt in to launchd/systemd scheduled GC
+# bash setup.sh --host gemini # Opt in to Gemini CLI BeforeTool hooks
 # bash setup.sh --repair-stale-unmanaged-hooks # Opt in to prune missing-target Codex PreToolUse/PermissionRequest hooks
 # bash setup.sh --force-overwrite # Replace user-customized managed files/commands
 # bash setup.sh --dev-linked # Opt in to live-repo execution for local development
@@ -28,6 +20,7 @@ source "${SCRIPT_DIR}/../lib/install-state.sh"
 source "${SCRIPT_DIR}/../lib/project_config.sh"
 source "${SCRIPT_DIR}/targets/claude-home.sh"
 source "${SCRIPT_DIR}/targets/codex-home.sh"
+source "${SCRIPT_DIR}/targets/gemini-home.sh"
 source "${SCRIPT_DIR}/runtime-install.sh"
 # --- Mode dispatch ---
 case "${1:-}" in
@@ -46,6 +39,7 @@ REPAIR_STALE_UNMANAGED_HOOKS="${VIBEGUARD_SETUP_REPAIR_STALE_UNMANAGED_HOOKS:-0}
 BUILD_FROM_SOURCE="${VIBEGUARD_SETUP_BUILD_FROM_SOURCE:-0}"
 REQUIRE_PROVENANCE="${VIBEGUARD_SETUP_REQUIRE_PROVENANCE:-0}"
 DEV_LINKED="${VIBEGUARD_SETUP_DEV_LINKED:-0}"
+VIBEGUARD_SETUP_GEMINI="${VIBEGUARD_SETUP_GEMINI:-0}"
 VIBEGUARD_HOME="${HOME}/.vibeguard"
 _INSTALL_TMP=""
 _INSTALL_FINAL_TMP=""
@@ -84,6 +78,14 @@ while [[ $# -gt 0 ]]; do
       VIBEGUARD_SETUP_FORCE_OVERWRITE=1; shift ;;
     --dev-linked)
       DEV_LINKED=1; shift ;;
+    --host)
+      [[ $# -lt 2 ]] && { red "ERROR: --host requires a value (gemini)"; exit 1; }
+      [[ "$2" == "gemini" ]] || { red "ERROR: unsupported host: $2 (expected gemini)"; exit 1; }
+      VIBEGUARD_SETUP_GEMINI=1; shift 2 ;;
+    --host=gemini)
+      VIBEGUARD_SETUP_GEMINI=1; shift ;;
+    --host=*)
+      red "ERROR: unsupported host: ${1#*=} (expected gemini)"; exit 1 ;;
     --profile)
       [[ $# -lt 2 ]] && { red "ERROR: --profile requires a value (minimal|core|full|strict)"; exit 1; }
       PROFILE="$2"; shift 2 ;;
@@ -96,11 +98,11 @@ while [[ $# -gt 0 ]]; do
       LANGUAGES="${1#*=}"; shift ;;
     *)
       red "ERROR: unknown argument: $1"
-      red "Usage: bash setup.sh [--yes] [--dry-run] [--build-from-source] [--runtime-version vX.Y.Z] [--require-provenance] [--with-scheduler] [--repair-stale-unmanaged-hooks] [--force-overwrite] [--dev-linked] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean [--purge-data]"
+      red "Usage: bash setup.sh [--yes] [--dry-run] [--build-from-source] [--runtime-version vX.Y.Z] [--require-provenance] [--with-scheduler] [--host gemini] [--repair-stale-unmanaged-hooks] [--force-overwrite] [--dev-linked] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean [--purge-data]"
       exit 1 ;;
   esac
 done
-export VIBEGUARD_SETUP_DRY_RUN VIBEGUARD_SETUP_AUTO VIBEGUARD_SETUP_FORCE_OVERWRITE
+export VIBEGUARD_SETUP_DRY_RUN VIBEGUARD_SETUP_AUTO VIBEGUARD_SETUP_FORCE_OVERWRITE VIBEGUARD_SETUP_GEMINI
 export VIBEGUARD_SETUP_REPAIR_STALE_UNMANAGED_HOOKS="${REPAIR_STALE_UNMANAGED_HOOKS}"
 export VIBEGUARD_SETUP_REQUIRE_PROVENANCE="${REQUIRE_PROVENANCE}"
 export VIBEGUARD_SETUP_DEV_LINKED="${DEV_LINKED}"
@@ -467,6 +469,9 @@ if [[ "${DEV_LINKED}" == "1" ]]; then
 else
   echo "Mode: installed snapshot (execution uses ~/.vibeguard/installed)"
 fi
+if [[ "${VIBEGUARD_SETUP_GEMINI}" == "1" ]]; then
+  echo "Host adapter: Gemini CLI (explicit opt-in)"
+fi
 echo "=============================="
 echo
 project_config_file="$(vg_project_config_file)"
@@ -477,6 +482,7 @@ fi
 if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
   stage_install_snapshot
   configure_claude_home_runtime
+  configure_gemini_home_runtime
   inject_claude_home_rules
   inject_codex_home_rules
   yellow "Dry run complete. No files were written by setup.sh --dry-run."
@@ -579,6 +585,8 @@ echo
 install_claude_home_assets
 
 install_codex_home_assets
+
+configure_gemini_home_runtime
 
 configure_claude_home_runtime
 

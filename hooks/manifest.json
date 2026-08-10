@@ -34,6 +34,16 @@
       "codex": {"enabled": false, "support": "not-applicable", "reason": "wrapper"}
     },
     {
+      "name": "run-hook-gemini",
+      "script": "run-hook-gemini.sh",
+      "kind": "wrapper",
+      "trigger": "Gemini wrapper",
+      "responsibilities": "Gemini BeforeTool routing and output adapter (decision:block to decision:deny).",
+      "decision_types": [],
+      "claude": {"enabled": false, "support": "not-applicable", "reason": "wrapper"},
+      "codex": {"enabled": false, "support": "not-applicable", "reason": "wrapper"}
+    },
+    {
       "name": "pre-bash-guard",
       "script": "pre-bash-guard.sh",
       "kind": "hook",

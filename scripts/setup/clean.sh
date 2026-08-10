@@ -6,6 +6,7 @@ source "${SCRIPT_DIR}/lib.sh"
 source "${SCRIPT_DIR}/../lib/install-state.sh"
 source "${SCRIPT_DIR}/targets/claude-home.sh"
 source "${SCRIPT_DIR}/targets/codex-home.sh"
+source "${SCRIPT_DIR}/targets/gemini-home.sh"
 
 PURGE_DATA=0
 while [[ $# -gt 0 ]]; do
@@ -120,6 +121,8 @@ clean_vibeguard_home() {
     "${vibeguard_home}/execution-mode" \
     "${vibeguard_home}/run-hook.sh" \
     "${vibeguard_home}/run-hook-codex.sh" \
+    "${vibeguard_home}/run-hook-gemini.sh" \
+    "${vibeguard_home}/gemini-enabled" \
     "${vibeguard_home}/pre-commit" \
     "${vibeguard_home}/pre-push"
   rm -rf "${vibeguard_home}/installed" "${vibeguard_home}/_lib"
@@ -427,6 +430,7 @@ clean_repo_git_hooks
 clean_tracked_project_git_hooks
 clean_claude_home_installation
 clean_codex_home_installation
+clean_gemini_home_installation
 clean_vibeguard_home
 clean_scheduled_gc
 

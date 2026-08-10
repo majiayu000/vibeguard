@@ -49,6 +49,9 @@ fn help_lists_all_commands() {
         "json-field",
         "json-bool-field",
         "json-two-fields",
+        "gemini-route-before-tool",
+        "gemini-adapt-before-tool",
+        "gemini-deny",
         "churn-count",
         "warn-count",
         "reason-count",
@@ -96,6 +99,9 @@ fn help_lists_all_commands() {
         "post-write-fast-check",
         "post-write-check",
         "codex-app-server-wrapper",
+        "setup-gemini-hooks-upsert",
+        "setup-gemini-hooks-remove",
+        "setup-gemini-hooks-check",
     ] {
         assert!(
             stderr.contains(name),

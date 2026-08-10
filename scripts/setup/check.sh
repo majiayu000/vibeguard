@@ -37,6 +37,8 @@ source "${SCRIPT_DIR}/../lib/status_report.sh"
 source "${SCRIPT_DIR}/targets/claude-home.sh"
 # shellcheck source=targets/codex-home.sh
 source "${SCRIPT_DIR}/targets/codex-home.sh"
+# shellcheck source=targets/gemini-home.sh
+source "${SCRIPT_DIR}/targets/gemini-home.sh"
 # shellcheck source=runtime_config_health.sh
 source "${SCRIPT_DIR}/runtime_config_health.sh"
 
@@ -48,6 +50,7 @@ WITH_SUMMARY=1
 INSTALL=0
 PROJECT=0
 DEV_REPO=0
+VIBEGUARD_SETUP_GEMINI="${VIBEGUARD_SETUP_GEMINI:-0}"
 PROFILE="${VIBEGUARD_SETUP_PROFILE:-}"
 LANGUAGES="${VIBEGUARD_SETUP_LANGUAGES:-}"
 while [[ $# -gt 0 ]]; do
@@ -58,6 +61,12 @@ while [[ $# -gt 0 ]]; do
     --install)      INSTALL=1; shift ;;
     --project)      PROJECT=1; shift ;;
     --dev-repo)     DEV_REPO=1; shift ;;
+    --host)
+      [[ $# -lt 2 ]] && { red "ERROR: --host requires a value (gemini)"; exit 64; }
+      [[ "$2" == "gemini" ]] || { red "ERROR: unsupported host: $2 (expected gemini)"; exit 64; }
+      VIBEGUARD_SETUP_GEMINI=1; shift 2 ;;
+    --host=gemini) VIBEGUARD_SETUP_GEMINI=1; shift ;;
+    --host=*) red "ERROR: unsupported host: ${1#*=} (expected gemini)"; exit 64 ;;
     --no-summary)   WITH_SUMMARY=0; shift ;;
     --profile)
       [[ $# -lt 2 ]] && { red "ERROR: --profile requires a value (minimal|core|full|strict)"; exit 64; }
@@ -66,7 +75,7 @@ while [[ $# -gt 0 ]]; do
       PROFILE="${1#*=}"; shift ;;
     --help|-h)
       cat <<'USAGE'
-Usage: setup.sh --check [--quiet | --json | --strict | --install | --project | --no-summary] [--profile minimal|core|full|strict]
+Usage: setup.sh --check [--quiet | --json | --strict | --install | --project | --no-summary] [--host gemini] [--profile minimal|core|full|strict]
 
 Top-level commands:
   setup.sh doctor             Human-friendly report; exits 0 unless the checker cannot run.
@@ -85,6 +94,7 @@ Top-level commands:
                  state, but allow WARN/INFO rows for optional integrations.
   --project      Include current Git project's pre-commit/pre-push hook checks.
                  Used by setup.sh verify-project.
+  --host gemini  Verify the opt-in Gemini CLI BeforeTool adapter.
   --json         Emit a single-line JSON document (counts + events + verdict)
                  to stdout. Disables human-readable output. Implies --strict.
   --no-summary   Legacy mode: no rollup table, always exit 0.
@@ -642,6 +652,7 @@ run_legacy_checks() {
   if ! check_codex_home_installation; then
     red "[FAIL] Codex home installation check failed (invalid disabled_skills or manifest/runtime error)"
   fi
+  check_gemini_home_installation
 
   echo
   echo "Repository Git Hooks"
@@ -728,7 +739,11 @@ run_legacy_checks() {
       [[ "${line}" =~ ^(MISSING|DRIFT): ]] || continue
       _drift_path="${line#*: }"
       _drift_path="${_drift_path%% (*}"
-      if [[ "${line}" == DRIFT:* ]] && _semantic_msg="$(codex_semantic_drift_message "${_drift_path}" 2>/dev/null)"; then
+      if [[ "${line}" == DRIFT:* ]] \
+        && _semantic_msg="$(
+          codex_semantic_drift_message "${_drift_path}" 2>/dev/null \
+            || gemini_semantic_drift_message "${_drift_path}" 2>/dev/null
+        )"; then
         yellow "  INFO: ${_semantic_msg}"
         _semantic_drift=1
       else
@@ -739,7 +754,7 @@ run_legacy_checks() {
     if [[ "${_hard_drift}" -eq 1 ]]; then
       yellow "[WARN] Run 'bash setup.sh' to repair drifted files"
     elif [[ "${_semantic_drift}" -eq 1 ]]; then
-      yellow "[INFO] Install-state checksum drift is semantic-only for shared Codex files"
+      yellow "[INFO] Install-state checksum drift is semantic-only for shared host files"
     fi
   fi
 

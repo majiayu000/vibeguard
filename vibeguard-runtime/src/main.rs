@@ -12,6 +12,7 @@ mod codex_hooks;
 mod codex_hooks_adapter;
 mod codex_hooks_diag;
 mod event_schema;
+mod gemini_hooks;
 mod git_root;
 mod hook_checks;
 mod hook_checks_bash;
@@ -48,6 +49,7 @@ mod session_metrics;
 mod setup_codex_config;
 mod setup_codex_hooks;
 mod setup_codex_hooks_health;
+mod setup_gemini_hooks;
 mod setup_install_state;
 mod setup_lock_lifecycle;
 mod setup_managed_tree_remove;
@@ -86,6 +88,21 @@ static COMMANDS: &[Command] = &[
         name: "json-field",
         usage: "<field_path>  — extract one field from stdin JSON",
         handler: json_field::run_field,
+    },
+    Command {
+        name: "gemini-route-before-tool",
+        usage: "  — validate and route a Gemini CLI BeforeTool payload",
+        handler: gemini_hooks::route_before_tool,
+    },
+    Command {
+        name: "gemini-adapt-before-tool",
+        usage: "  — adapt a canonical guard decision to Gemini CLI BeforeTool output",
+        handler: gemini_hooks::adapt_before_tool,
+    },
+    Command {
+        name: "gemini-deny",
+        usage: "  — emit a Gemini CLI BeforeTool deny response from stdin reason",
+        handler: gemini_hooks::deny,
     },
     Command {
         name: "json-bool-field",
@@ -586,6 +603,21 @@ static COMMANDS: &[Command] = &[
         name: "setup-codex-hooks-check-timeouts",
         usage: "<repo-dir> <hooks-file>  — detect Codex hooks without timeout",
         handler: setup_codex_hooks::codex_hooks_check_timeouts,
+    },
+    Command {
+        name: "setup-gemini-hooks-upsert",
+        usage: "<settings-file> <wrapper> [--dry-run]  — upsert the Gemini CLI adapter",
+        handler: setup_gemini_hooks::upsert,
+    },
+    Command {
+        name: "setup-gemini-hooks-remove",
+        usage: "<settings-file>  — remove the VibeGuard Gemini CLI adapter",
+        handler: setup_gemini_hooks::remove,
+    },
+    Command {
+        name: "setup-gemini-hooks-check",
+        usage: "<settings-file> <wrapper>  — check the Gemini CLI adapter",
+        handler: setup_gemini_hooks::check,
     },
 ];
 

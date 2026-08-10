@@ -47,6 +47,7 @@ Install options:
   --with-scheduler
   --repair-stale-unmanaged-hooks
   --force-overwrite
+  --host gemini
   --profile minimal|core|full|strict
   --languages lang1,lang2
 
@@ -68,6 +69,7 @@ Examples:
   bash setup.sh verify-project --json
   bash setup.sh --check --profile strict
   bash setup.sh --profile strict --languages rust,python
+  bash setup.sh --yes --host gemini
 
 Migration:
   bash setup.sh --check --strict   -> bash setup.sh verify-project

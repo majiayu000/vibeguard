@@ -4,8 +4,8 @@
 
 **The firewall between AI coding agents and your codebase.**
 
-Native rules + real-time hooks + static guards that stop **Claude Code** and
-**Codex CLI** from shipping hallucinated, duplicated, or unverified changes —
+Native rules + real-time hooks + static guards that stop **Claude Code**,
+**Codex CLI**, and **Gemini CLI** from shipping hallucinated, duplicated, or unverified changes —
 before they land.
 
 ![VibeGuard demo](docs/assets/demo.gif)
@@ -419,6 +419,7 @@ bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
 # Runtime / scheduler
 bash ~/vibeguard/setup.sh --build-from-source          # Force local Cargo build
 bash ~/vibeguard/setup.sh --with-scheduler             # Opt in to launchd/systemd scheduled GC
+bash ~/vibeguard/setup.sh --yes --host gemini          # Opt in to Gemini CLI BeforeTool protection
 bash ~/vibeguard/scripts/install-health-report-scheduler.sh --dry-run
 bash ~/vibeguard/scripts/install-health-report-scheduler.sh --install  # Opt in to weekly health reports
 
@@ -502,6 +503,23 @@ Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions 
 Hook status is a separate human diagnostics surface. Use `vibeguard-runtime hook-status --mode focused` inside a git repository to inspect the matching project log, or add `--scope global` for `~/.vibeguard/events.jsonl`. `--log-file PATH` always wins for explicit fixtures or one-off diagnosis. The command reports recent `pass`, `skipped`, `slow`, `timeout`, and adapter-error states without adding successful hook summaries to the model context. Only actionable `warn` / `block` results should continue through `hookSpecificOutput.additionalContext`. See `docs/reference/codex-hook-status.md`.
 
 **MCP server status:** the legacy `mcp-server/` prototype is not installed by `setup.sh` and is not part of the supported runtime surface. Supported integrations are the Claude Code hooks, native Codex hooks, and the optional app-server wrapper below; any future MCP reintroduction must go through an explicit install path and hash/audit baseline.
+
+### Gemini CLI integration
+
+Gemini CLI support is an explicit opt-in because setup updates the high-context
+file `~/.gemini/settings.json`:
+
+```bash
+bash ~/vibeguard/setup.sh --yes --host gemini
+bash ~/vibeguard/setup.sh --check --host gemini
+```
+
+The adapter registers one managed synchronous `BeforeTool` hook for
+`run_shell_command`, `write_file`, and `replace`. It translates Gemini's native
+payload into the existing VibeGuard bash/write/edit guards and translates block
+results back to Gemini's native `decision: deny` response. Re-running setup is
+idempotent, preserves unrelated Gemini settings and hooks, and `--clean` removes
+only VibeGuard's managed hook and wrapper.
 
 **Optional app-server wrapper** (advanced orchestrators only):
 
