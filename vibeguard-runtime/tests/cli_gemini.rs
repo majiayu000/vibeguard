@@ -2,13 +2,13 @@ mod common;
 
 use common::{bin, unique_temp_dir};
 use serde_json::{Value, json};
-use std::fs;
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
+use std::{env, fs};
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -46,7 +46,13 @@ fn gemini_payload(tool_name: &str, tool_input: Value) -> String {
 
 fn run_wrapper(project: &Path, home: &Path, log_root: &Path, input: &str) -> Output {
     let source_root = repo_root();
+    let test_bin = home.join("test-bin");
     fs::create_dir_all(home.join(".vibeguard")).unwrap();
+    fs::create_dir_all(&test_bin).unwrap();
+    let pnpm = test_bin.join("pnpm");
+    fs::write(&pnpm, "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    fs::set_permissions(&pnpm, fs::Permissions::from_mode(0o700)).unwrap();
     let wrapper = home.join(".vibeguard/run-hook-gemini.sh");
     fs::copy(source_root.join("hooks/run-hook-gemini.sh"), &wrapper).unwrap();
     fs::write(
@@ -55,6 +61,14 @@ fn run_wrapper(project: &Path, home: &Path, log_root: &Path, input: &str) -> Out
     )
     .unwrap();
     let runtime = bin().get_program().to_owned();
+    let path = env::join_paths(
+        std::iter::once(test_bin).chain(
+            env::var_os("PATH")
+                .into_iter()
+                .flat_map(|value| env::split_paths(&value).collect::<Vec<_>>()),
+        ),
+    )
+    .unwrap();
     let mut command = Command::new("bash");
     command
         .arg(wrapper)
@@ -67,19 +81,10 @@ fn run_wrapper(project: &Path, home: &Path, log_root: &Path, input: &str) -> Out
             "8",
         ])
         .current_dir(project)
+        .env_clear()
         .env("HOME", home)
+        .env("PATH", path)
         .env("VIBEGUARD_LOG_DIR", log_root);
-    for name in [
-        "CI",
-        "GITHUB_ACTIONS",
-        "TRAVIS",
-        "CIRCLECI",
-        "JENKINS_URL",
-        "GITLAB_CI",
-        "TF_BUILD",
-    ] {
-        command.env_remove(name);
-    }
     run_with_stdin(&mut command, input)
 }
 
