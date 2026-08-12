@@ -15,20 +15,21 @@ from typing import Callable, Iterable
 ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_RULES_DIR = ROOT / "rules" / "claude-rules"
 COMPACT_RULES_PATH = ROOT / "claude-md" / "vibeguard-rules.md"
+CLAUDE_HOST_RULES_PATH = ROOT / "claude-md" / "vibeguard-claude.md"
+CODEX_HOST_RULES_PATH = ROOT / "claude-md" / "vibeguard-codex.md"
+CLAUDE_RENDERED_RULES_PATH = ROOT / "claude-md" / "vibeguard-claude-rules.md"
+CODEX_RENDERED_RULES_PATH = ROOT / "claude-md" / "vibeguard-codex-rules.md"
 COMPACT_START_MARKER = "<!-- vibeguard-generated-compact-rules:start -->"
 COMPACT_END_MARKER = "<!-- vibeguard-generated-compact-rules:end -->"
+VIBEGUARD_START_MARKER = "<!-- vibeguard-start -->"
+VIBEGUARD_END_MARKER = "<!-- vibeguard-end -->"
 COMPACT_RULE_IDS = (
-    "U-16",
     "U-17",
-    "U-22",
-    "U-25",
     "U-26",
     "U-29",
-    "W-01",
     "W-02",
     "W-03",
     "W-12",
-    "W-14",
     "W-16",
     "SEC-01",
     "SEC-02",
@@ -213,6 +214,22 @@ def replace_compact_region(document: str, table: str) -> str:
 
     content_start = start_index + len(start_token)
     return document[:content_start] + table.rstrip("\n") + "\n" + document[end_index:]
+
+
+def compose_host_rules(shared: str, host: str) -> str:
+    if shared.count(VIBEGUARD_START_MARKER) != 1 or shared.count(VIBEGUARD_END_MARKER) != 1:
+        raise ValueError("shared VibeGuard markers must appear exactly once")
+    if VIBEGUARD_START_MARKER in host or VIBEGUARD_END_MARKER in host:
+        raise ValueError("host guidance must not contain VibeGuard managed markers")
+
+    start_index = shared.find(VIBEGUARD_START_MARKER)
+    end_index = shared.find(VIBEGUARD_END_MARKER)
+    if start_index >= end_index:
+        raise ValueError("shared VibeGuard markers must be in order")
+    host = host.strip()
+    if not host:
+        raise ValueError("host guidance must not be empty")
+    return shared[:end_index].rstrip() + "\n\n" + host + "\n" + shared[end_index:]
 
 
 def make_table(headers: list[str], rows: list[list[str]]) -> str:
@@ -631,9 +648,18 @@ def render_all(rules: list[Rule]) -> dict[Path, str]:
     outputs = {path: generator(rules).rstrip() + "\n" for path, generator in GENERATORS.items()}
     compact_document = COMPACT_RULES_PATH.read_text(encoding="utf-8")
     try:
-        outputs[COMPACT_RULES_PATH] = replace_compact_region(
+        rendered_core = replace_compact_region(
             compact_document,
             render_compact_table(rules),
+        )
+        outputs[COMPACT_RULES_PATH] = rendered_core
+        outputs[CLAUDE_RENDERED_RULES_PATH] = compose_host_rules(
+            rendered_core,
+            CLAUDE_HOST_RULES_PATH.read_text(encoding="utf-8"),
+        )
+        outputs[CODEX_RENDERED_RULES_PATH] = compose_host_rules(
+            rendered_core,
+            CODEX_HOST_RULES_PATH.read_text(encoding="utf-8"),
         )
     except ValueError as error:
         relative_path = COMPACT_RULES_PATH.relative_to(ROOT)

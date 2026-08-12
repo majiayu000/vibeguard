@@ -70,19 +70,7 @@ VibeGuard 现在明确分成两层：
 
 ### 1. 规则注入
 
-`rules/claude-rules/` 中的原生规则会被安装到 `~/.claude/rules/vibeguard/`，直接影响 Claude Code 的推理层。同时，VibeGuard 还会把 7 层约束索引注入到 `~/.claude/CLAUDE.md`。
-
-| 层级 | 约束 | 作用 |
-|------|------|------|
-| L1 | 先搜索再创建 | 新建文件/类/函数前先确认仓库里是否已有实现 |
-| L2 | 命名规范 | 内部优先 `snake_case`，API 边界再用 `camelCase`，禁止别名 |
-| L3 | 质量基线 | 禁止吞异常、公共接口滥用 `Any` |
-| L4 | 数据真实性 | 没数据就显示空，不允许硬编码和虚构 API |
-| L5 | 最小改动 | 只做被要求的事，不顺手加“升级” |
-| L6 | 过程闸门 | 大改动先预检和规划，结束前必须验证 |
-| L7 | 提交纪律 | 禁止 AI 标记、禁止 force push、禁止秘钥入库 |
-
-这里大量使用了“负约束”表达，例如“X 不存在”“不要假设 Y 已经有”，通常比纯正向描述更能稳定影响 agent 行为。
+`rules/claude-rules/` 中的原生规则会安装到 `~/.claude/rules/vibeguard/`。全局高上下文文件只接收一份较小的共享核心，覆盖范围、事实真实性、错误可见性、安全、内容保留和验证；安装器再按宿主追加专属说明：Claude Code 获得原生规则与 slash command 指引，Codex 获得 `AGENTS.md`、托管 Skill 和原生 hook 能力边界。项目事实与准确测试命令仍由最近的仓库级说明提供。
 
 当前 canonical 参考入口：
 - 安装/运行时契约：`schemas/install-modules.json`

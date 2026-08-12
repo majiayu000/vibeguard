@@ -421,7 +421,7 @@ placebo_out="$(
   cd "${REPO_DIR}"
   env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \
     --candidate U-21 \
-    --placebo-candidate U-16 \
+    --placebo-candidate U-22 \
     --dry-run \
     --artifact-root "${TMP_DIR}/placebo-runs" 2>&1
 )"
@@ -458,7 +458,7 @@ compact_placebo_out="$(
 compact_placebo_rc=$?
 set -e
 test "${compact_placebo_rc}" -ne 0
-grep -qF "anonymous compact L7" <<<"${compact_placebo_out}"
+grep -qF "shared compact core retains equivalent semantics in Key detailed rules (SEC-02)" <<<"${compact_placebo_out}"
 test ! -e "${TMP_DIR}/compact-placebo-runs"
 
 set +e
@@ -472,7 +472,7 @@ compact_out="$(
 compact_rc=$?
 set -e
 test "${compact_rc}" -ne 0
-grep -qF "anonymous compact L5" <<<"${compact_out}"
+grep -qF "shared compact core retains equivalent semantics in Core contract (Scope)" <<<"${compact_out}"
 test ! -e "${TMP_DIR}/compact-runs"
 
 set +e

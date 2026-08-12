@@ -74,13 +74,13 @@ THRESHOLD_KEYS = {
     "max_placebo_length_ratio",
     "calibrated",
 }
-ANONYMOUS_COMPACT_RULE_EQUIVALENTS = {
-    "SEC-02": "L7",
-    "U-04": "L5",
-    "U-17": "L3",
-    "U-23": "L3",
-    "U-24": "L2",
-    "U-29": "L3",
+SHARED_CORE_RULE_EQUIVALENTS = {
+    "SEC-02": "Key detailed rules (SEC-02)",
+    "U-04": "Core contract (Scope)",
+    "U-17": "Key detailed rules (U-17)",
+    "U-23": "Core contract (Errors)",
+    "U-24": "Core contract (Facts)",
+    "U-29": "Key detailed rules (U-29)",
 }
 APPROVED_PLACEBO_PAIRS = {
     frozenset(("SEC-12", "U-32")): (
@@ -525,11 +525,11 @@ def validate_placebo_candidate(
 
 
 def validate_candidate_supported(candidate: str) -> None:
-    compact_layer = ANONYMOUS_COMPACT_RULE_EQUIVALENTS.get(candidate.upper())
-    if compact_layer:
+    compact_location = SHARED_CORE_RULE_EQUIVALENTS.get(candidate.upper())
+    if compact_location:
         raise PairedEvalError(
-            f"candidate {candidate.upper()} is unsupported because anonymous compact "
-            f"{compact_layer} retains equivalent semantics in the without prompt"
+            f"candidate {candidate.upper()} is unsupported because the shared compact "
+            f"core retains equivalent semantics in {compact_location}"
         )
 
 

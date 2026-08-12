@@ -185,8 +185,8 @@ JSON
 assert_contains "${hook_override_out}" "hookSpecificOutput" "VIBEGUARD_U32_STRICT=0 downgrades strict block to context"
 
 header "GH-541 rule-delivery budget (compact core default vs full-tree opt-in)"
-# The default (core/minimal) Claude profile injects only the compact L1-L7 +
-# Key Detailed Rules table into ~/.claude/CLAUDE.md; the full rules/claude-rules
+# The default (core/minimal) Claude profile injects only the shared compact core
+# plus Claude host guidance into ~/.claude/CLAUDE.md; the full rules/claude-rules
 # tree is opt-in under full/strict. This asserts the actual production content:
 # the compact core stays within the U-32 budget, while the full common/ tree —
 # the payload the default profile must NOT front-inject — blows past the block
