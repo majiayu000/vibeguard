@@ -25,17 +25,12 @@ struct ActiveConstraintOptions {
     block_threshold: usize,
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
 enum HostScope {
+    #[default]
     All,
     Claude,
     Codex,
-}
-
-impl Default for HostScope {
-    fn default() -> Self {
-        Self::All
-    }
 }
 
 impl HostScope {
