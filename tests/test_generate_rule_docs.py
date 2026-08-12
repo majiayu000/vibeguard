@@ -7,6 +7,7 @@ import dataclasses
 import importlib.util
 import io
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -206,27 +207,20 @@ class CompactRuleGenerationTests(unittest.TestCase):
     def test_codex_host_guidance_matches_profile_hook_contract(self) -> None:
         codex_host = generate_rule_docs.CODEX_HOST_RULES_PATH.read_text(encoding="utf-8")
         self.assertIn(
-            "Every Codex setup profile covers native Bash and `apply_patch` gates.",
+            "Every Codex setup profile covers native Bash and `apply_patch` gates plus "
+            "`Stop` hooks, including `stop-guard`",
             codex_host,
         )
         self.assertIn(
-            "Only the `full` and `strict` profile contracts add `Stop` hooks, "
-            "including `stop-guard`; `minimal` and `core` do not promise Stop coverage.",
+            "unlike Claude Code, Codex hook installation is not profile-filtered",
             codex_host,
         )
-        self.assertNotIn("plus Stop events", codex_host)
 
-        install_schema = json.loads(
-            (ROOT / "schemas" / "install-modules.json").read_text(encoding="utf-8")
+        codex_setup = (ROOT / "scripts" / "setup" / "targets" / "codex-home.sh").read_text(
+            encoding="utf-8"
         )
-        modules = {module["id"]: module for module in install_schema["modules"]}
-        self.assertEqual(
-            modules["hooks-pre"]["profiles"],
-            ["minimal", "core", "full", "strict"],
-        )
-        self.assertIn("hooks/pre-bash-guard.sh", modules["hooks-pre"]["paths"])
-        self.assertEqual(modules["hooks-full"]["profiles"], ["full", "strict"])
-        self.assertIn("hooks/stop-guard.sh", modules["hooks-full"]["paths"])
+        self.assertIn("setup-codex-hooks-upsert", codex_setup)
+        self.assertNotIn('setup-codex-hooks-upsert "${PROFILE}"', codex_setup)
 
     def test_host_guidance_rejects_empty_or_managed_marker_content(self) -> None:
         shared = "<!-- vibeguard-start -->\nshared\n<!-- vibeguard-end -->\n"
@@ -234,6 +228,48 @@ class CompactRuleGenerationTests(unittest.TestCase):
             with self.subTest(host=host):
                 with self.assertRaisesRegex(ValueError, "host guidance"):
                     generate_rule_docs.compose_host_rules(shared, host)
+
+    def test_host_composition_rejects_unmanaged_shared_content_and_inline_markers(self) -> None:
+        cases = {
+            "content before": (
+                "outside-before\n<!-- vibeguard-start -->\nshared\n<!-- vibeguard-end -->\n",
+                "outside managed markers",
+            ),
+            "content after": (
+                "<!-- vibeguard-start -->\nshared\n<!-- vibeguard-end -->\noutside-after\n",
+                "outside managed markers",
+            ),
+            "inline start": (
+                "prefix <!-- vibeguard-start -->\nshared\n<!-- vibeguard-end -->\n",
+                "own line",
+            ),
+            "inline end": (
+                "<!-- vibeguard-start -->\nshared <!-- vibeguard-end -->\n",
+                "own line",
+            ),
+        }
+        for label, (shared, message) in cases.items():
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, message):
+                generate_rule_docs.compose_host_rules(shared, "## Host\n")
+
+    def test_render_all_attributes_invalid_host_guidance_to_host_source(self) -> None:
+        rules = generate_rule_docs.parse_rules()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            claude_host = root / "vibeguard-claude.md"
+            codex_host = root / "vibeguard-codex.md"
+            valid_host = "## Host guidance\n"
+            for label, invalid_path in (("claude", claude_host), ("codex", codex_host)):
+                with self.subTest(host=label):
+                    claude_host.write_text(valid_host, encoding="utf-8")
+                    codex_host.write_text(valid_host, encoding="utf-8")
+                    invalid_path.write_text("", encoding="utf-8")
+                    with (
+                        mock.patch.object(generate_rule_docs, "CLAUDE_HOST_RULES_PATH", claude_host),
+                        mock.patch.object(generate_rule_docs, "CODEX_HOST_RULES_PATH", codex_host),
+                        self.assertRaisesRegex(ValueError, rf"{re.escape(str(invalid_path))}: host guidance"),
+                    ):
+                        generate_rule_docs.render_all(rules)
 
     def test_compact_input_changes_make_snapshot_stale(self) -> None:
         rules = generate_rule_docs.parse_rules()

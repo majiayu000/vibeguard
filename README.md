@@ -153,7 +153,7 @@ Inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engine
 
 ### Rule Injection (active from session start)
 
-The native rule set in `rules/claude-rules/` is installed to Claude Code's native rules system (`~/.claude/rules/vibeguard/`). Global instruction files receive a smaller shared core for scope, factuality, error visibility, safety, preservation, and verification. The installer then adds a host-specific section: Claude Code receives native-rule and slash-command guidance, while Codex receives `AGENTS.md`, managed-skill, and native-hook capability guidance. Project facts and exact test commands stay in the nearest repository instructions.
+Claude Code's `full` and `strict` profiles expose the native rule set from `rules/claude-rules/` through `~/.claude/rules/vibeguard/`; `core` (the default) and `minimal` do not front-inject that tree. Every profile receives a smaller shared global core for scope, factuality, error visibility, safety, preservation, and verification. The installer then adds a host-specific section: Claude Code receives profile-aware native-rule and slash-command guidance, while Codex receives `AGENTS.md`, managed-skill, and native-hook capability guidance. Project facts and exact test commands stay in the nearest repository instructions.
 
 Canonical references for this contract:
 - Install/runtime contract: `schemas/install-modules.json`

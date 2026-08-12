@@ -217,19 +217,44 @@ def replace_compact_region(document: str, table: str) -> str:
 
 
 def compose_host_rules(shared: str, host: str) -> str:
-    if shared.count(VIBEGUARD_START_MARKER) != 1 or shared.count(VIBEGUARD_END_MARKER) != 1:
-        raise ValueError("shared VibeGuard markers must appear exactly once")
+    managed_shared = extract_vibeguard_managed_block(shared)
     if VIBEGUARD_START_MARKER in host or VIBEGUARD_END_MARKER in host:
         raise ValueError("host guidance must not contain VibeGuard managed markers")
 
-    start_index = shared.find(VIBEGUARD_START_MARKER)
-    end_index = shared.find(VIBEGUARD_END_MARKER)
-    if start_index >= end_index:
-        raise ValueError("shared VibeGuard markers must be in order")
     host = host.strip()
     if not host:
         raise ValueError("host guidance must not be empty")
-    return shared[:end_index].rstrip() + "\n\n" + host + "\n" + shared[end_index:]
+    end_index = managed_shared.find(VIBEGUARD_END_MARKER)
+    return (
+        managed_shared[:end_index].rstrip()
+        + "\n\n"
+        + host
+        + "\n"
+        + managed_shared[end_index:]
+        + "\n"
+    )
+
+
+def extract_vibeguard_managed_block(shared: str) -> str:
+    if shared.count(VIBEGUARD_START_MARKER) != 1 or shared.count(VIBEGUARD_END_MARKER) != 1:
+        raise ValueError("shared VibeGuard markers must appear exactly once")
+
+    start_token = VIBEGUARD_START_MARKER + "\n"
+    start_index = shared.find(start_token)
+    end_index = shared.find(VIBEGUARD_END_MARKER)
+    if start_index < 0 or end_index < start_index + len(start_token):
+        raise ValueError("shared VibeGuard markers must be on their own lines and in order")
+    if start_index > 0 and shared[start_index - 1] != "\n":
+        raise ValueError("shared VibeGuard marker must be on its own line")
+    if end_index > 0 and shared[end_index - 1] != "\n":
+        raise ValueError("shared VibeGuard marker must be on its own line")
+
+    after_end = end_index + len(VIBEGUARD_END_MARKER)
+    if after_end < len(shared) and shared[after_end] != "\n":
+        raise ValueError("shared VibeGuard marker must be on its own line")
+    if shared[:start_index].strip() or shared[after_end:].strip():
+        raise ValueError("shared VibeGuard block must not contain content outside managed markers")
+    return shared[start_index:after_end]
 
 
 def make_table(headers: list[str], rows: list[list[str]]) -> str:
@@ -652,18 +677,26 @@ def render_all(rules: list[Rule]) -> dict[Path, str]:
             compact_document,
             render_compact_table(rules),
         )
-        outputs[COMPACT_RULES_PATH] = rendered_core
-        outputs[CLAUDE_RENDERED_RULES_PATH] = compose_host_rules(
-            rendered_core,
-            CLAUDE_HOST_RULES_PATH.read_text(encoding="utf-8"),
-        )
-        outputs[CODEX_RENDERED_RULES_PATH] = compose_host_rules(
-            rendered_core,
-            CODEX_HOST_RULES_PATH.read_text(encoding="utf-8"),
-        )
+        extract_vibeguard_managed_block(rendered_core)
     except ValueError as error:
         relative_path = COMPACT_RULES_PATH.relative_to(ROOT)
         raise ValueError(f"{relative_path}: {error}") from error
+
+    outputs[COMPACT_RULES_PATH] = rendered_core
+    for rendered_path, host_path in (
+        (CLAUDE_RENDERED_RULES_PATH, CLAUDE_HOST_RULES_PATH),
+        (CODEX_RENDERED_RULES_PATH, CODEX_HOST_RULES_PATH),
+    ):
+        try:
+            outputs[rendered_path] = compose_host_rules(
+                rendered_core,
+                host_path.read_text(encoding="utf-8"),
+            )
+        except ValueError as error:
+            relative_path = (
+                host_path.relative_to(ROOT) if host_path.is_relative_to(ROOT) else host_path
+            )
+            raise ValueError(f"{relative_path}: {error}") from error
     return outputs
 
 

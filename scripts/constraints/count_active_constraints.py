@@ -22,6 +22,7 @@ from typing import Any, Iterable
 WARN_THRESHOLD = 15
 BLOCK_THRESHOLD = 30
 RULE_ID_RE = re.compile(r"^##\s+((?:U|W|SEC|RS|PY|TS|GO|TASTE)-\d+):", re.M)
+TABLE_RULE_ID_RE = re.compile(r"(?:U|W|SEC|RS|PY|TS|GO|TASTE)-\d+")
 BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.+)")
 NORMATIVE_RE = re.compile(
     r"\b(must|must not|should|should not|never|always|require|requires|required|"
@@ -99,13 +100,39 @@ def _iter_constraints(path: Path, text: str) -> Iterable[Constraint]:
         )
 
     in_fence = False
+    in_core_contract = False
     body_lines = body.splitlines()
     for index, line in enumerate(body_lines, start=_line_number(text, frontmatter_offset)):
         stripped = line.strip()
         if stripped.startswith("```"):
             in_fence = not in_fence
             continue
-        if in_fence or not stripped or stripped.startswith("|"):
+        if in_fence or not stripped:
+            continue
+        if stripped.startswith("## "):
+            in_core_contract = stripped == "## Core contract"
+        if stripped.startswith("|"):
+            cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+            first_cell = cells[0] if cells else ""
+            if TABLE_RULE_ID_RE.fullmatch(first_cell):
+                yield Constraint(
+                    key=f"rule:{first_cell}",
+                    label=first_cell,
+                    source=path,
+                    line=index,
+                )
+            elif (
+                in_core_contract
+                and len(cells) >= 2
+                and first_cell not in {"Area", ""}
+                and not set(first_cell) <= {"-", ":"}
+            ):
+                yield Constraint(
+                    key="core:" + _normalize_constraint(first_cell),
+                    label=f"Core contract: {first_cell}",
+                    source=path,
+                    line=index,
+                )
             continue
         bullet = BULLET_RE.match(line)
         if not bullet:

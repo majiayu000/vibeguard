@@ -12,6 +12,10 @@ trap cleanup_count_active_constraints EXIT
 
 COUNTER="${REPO_DIR}/scripts/constraints/count_active_constraints.py"
 HOOK="${REPO_DIR}/hooks/count_active_constraints.sh"
+RUNTIME_BIN="${VIBEGUARD_RUNTIME:-${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime}"
+if [[ ! -x "${RUNTIME_BIN}" ]]; then
+  cargo build --quiet --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml"
+fi
 
 hook_no_ci_env=(
   CI=false
@@ -209,23 +213,44 @@ header "GH-541 rule-delivery budget (compact core default vs full-tree opt-in)"
 # The default (core/minimal) Claude profile injects only the shared compact core
 # plus Claude host guidance into ~/.claude/CLAUDE.md; the full rules/claude-rules
 # tree is opt-in under full/strict. This asserts the actual production content:
-# the compact core stays within the U-32 budget, while the full common/ tree —
-# the payload the default profile must NOT front-inject — blows past the block
-# threshold. See scripts/setup/targets/claude-home.sh Step 5.5.
+# the compact core stays below U-32's block threshold while retaining the
+# truthful >15 advisory, whereas the full common/ tree — the payload the
+# default profile must NOT front-inject — blows past the block threshold.
+# See scripts/setup/targets/claude-home.sh Step 5.5.
 
-COMPACT_SRC="${REPO_DIR}/claude-md/vibeguard-rules.md"
+CLAUDE_COMPACT_SRC="${REPO_DIR}/claude-md/vibeguard-claude-rules.md"
+CODEX_COMPACT_SRC="${REPO_DIR}/claude-md/vibeguard-codex-rules.md"
 TOTAL=$((TOTAL + 1))
-if [[ -f "${COMPACT_SRC}" ]]; then
-  green "compact core source present: claude-md/vibeguard-rules.md"
+if [[ -f "${CLAUDE_COMPACT_SRC}" && -f "${CODEX_COMPACT_SRC}" ]]; then
+  green "rendered host payloads are present"
   PASS=$((PASS + 1))
 
-  CORE_HOME="${TMP_ROOT}/home-gh541-core"
-  CORE_REPO="${TMP_ROOT}/repo-gh541-core"
-  make_home "${CORE_HOME}"
-  make_repo "${CORE_REPO}"
-  cp "${COMPACT_SRC}" "${CORE_HOME}/.claude/CLAUDE.md"
-  core_json="$(python3 "${COUNTER}" --root "${CORE_REPO}" --home "${CORE_HOME}" --json)"
-  assert_contains "${core_json}" '"status": "ok"' "compact core default payload stays within U-32 budget"
+  CLAUDE_CORE_HOME="${TMP_ROOT}/home-gh541-claude-core"
+  CLAUDE_CORE_REPO="${TMP_ROOT}/repo-gh541-claude-core"
+  make_home "${CLAUDE_CORE_HOME}"
+  make_repo "${CLAUDE_CORE_REPO}"
+  cp "${CLAUDE_COMPACT_SRC}" "${CLAUDE_CORE_HOME}/.claude/CLAUDE.md"
+  claude_core_json="$(python3 "${COUNTER}" --root "${CLAUDE_CORE_REPO}" --home "${CLAUDE_CORE_HOME}" --host claude --json)"
+  assert_contains "${claude_core_json}" '"total": 22' "Python counter sees all 11 compact rules, 7 core defaults, and 4 normative bullets in Claude payload"
+  assert_contains "${claude_core_json}" '"status": "warn"' "Claude payload truthfully crosses the advisory threshold without blocking"
+  claude_compact_ids="$(printf '%s' "${claude_core_json}" | python3 -c 'import json, sys; print(",".join(item["id"] for item in json.load(sys.stdin)["constraints"] if item["id"]))')"
+  assert_contains "${claude_compact_ids}" "U-17,U-26,U-29,W-02,W-03,W-12,W-16,SEC-01,SEC-02,SEC-11,SEC-13" "Claude payload exposes the exact compact rule IDs to the counter"
+  claude_runtime_json="$("${RUNTIME_BIN}" active-constraints --root "${CLAUDE_CORE_REPO}" --home "${CLAUDE_CORE_HOME}" --host claude --json)"
+  assert_contains "${claude_runtime_json}" '"total": 22' "production counter matches the exact Claude payload count"
+
+  CODEX_CORE_HOME="${TMP_ROOT}/home-gh541-codex-core"
+  CODEX_CORE_REPO="${TMP_ROOT}/repo-gh541-codex-core"
+  make_home "${CODEX_CORE_HOME}"
+  make_repo "${CODEX_CORE_REPO}"
+  mkdir -p "${CODEX_CORE_HOME}/.codex"
+  cp "${CODEX_COMPACT_SRC}" "${CODEX_CORE_HOME}/.codex/AGENTS.md"
+  codex_core_json="$(python3 "${COUNTER}" --root "${CODEX_CORE_REPO}" --home "${CODEX_CORE_HOME}" --host codex --json)"
+  assert_contains "${codex_core_json}" '"total": 22' "Python counter sees all 11 compact rules, 7 core defaults, and 4 normative bullets in Codex payload"
+  assert_contains "${codex_core_json}" '"status": "warn"' "Codex payload truthfully crosses the advisory threshold without blocking"
+  codex_compact_ids="$(printf '%s' "${codex_core_json}" | python3 -c 'import json, sys; print(",".join(item["id"] for item in json.load(sys.stdin)["constraints"] if item["id"]))')"
+  assert_contains "${codex_compact_ids}" "U-17,U-26,U-29,W-02,W-03,W-12,W-16,SEC-01,SEC-02,SEC-11,SEC-13" "Codex payload exposes the exact compact rule IDs to the counter"
+  codex_runtime_json="$("${RUNTIME_BIN}" active-constraints --root "${CODEX_CORE_REPO}" --home "${CODEX_CORE_HOME}" --host codex --json)"
+  assert_contains "${codex_runtime_json}" '"total": 22' "production counter matches the exact Codex payload count"
 
   FULL_HOME="${TMP_ROOT}/home-gh541-full"
   FULL_REPO="${TMP_ROOT}/repo-gh541-full"
@@ -236,7 +261,7 @@ if [[ -f "${COMPACT_SRC}" ]]; then
   assert_exit_nonzero "full common/ tree exceeds the block budget (must stay opt-in, not default)" \
     python3 "${COUNTER}" --root "${FULL_REPO}" --home "${FULL_HOME}" --fail-on-block
 else
-  red "compact core source present: claude-md/vibeguard-rules.md"
+  red "rendered host payloads are present"
   FAIL=$((FAIL + 1))
 fi
 

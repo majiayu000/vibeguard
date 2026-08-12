@@ -310,6 +310,10 @@ fn count_constraints(sources: &BTreeMap<PathBuf, String>) -> (Vec<SourceReport>,
         Ok(regex) => regex,
         Err(err) => panic!("invalid active constraint bullet regex: {err}"),
     };
+    let table_rule_re = match Regex::new(r"^(?:U|W|SEC|RS|PY|TS|GO|TASTE)-\d+$") {
+        Ok(regex) => regex,
+        Err(err) => panic!("invalid active constraint table rule regex: {err}"),
+    };
     let normative_re = match Regex::new(
         r"(?i)\b(must|must not|should|should not|never|always|require|requires|required|avoid|do not|don't|prohibit|forbid|block|verify)\b|必须|禁止|不要|不得|需要|要求|阻断|验证",
     ) {
@@ -323,13 +327,48 @@ fn count_constraints(sources: &BTreeMap<PathBuf, String>) -> (Vec<SourceReport>,
         let text = read_text(path);
         let mut source_constraints = Vec::new();
         let mut in_fence = false;
+        let mut in_core_contract = false;
         for line in text.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("```") {
                 in_fence = !in_fence;
                 continue;
             }
-            if in_fence || trimmed.starts_with('|') {
+            if in_fence {
+                continue;
+            }
+            if trimmed.starts_with("## ") {
+                in_core_contract = trimmed == "## Core contract";
+            }
+            if trimmed.starts_with('|') {
+                let cells = trimmed
+                    .trim_matches('|')
+                    .split('|')
+                    .map(str::trim)
+                    .collect::<Vec<_>>();
+                let first_cell = cells.first().copied().unwrap_or("");
+                if table_rule_re.is_match(first_cell) {
+                    push_constraint(
+                        &mut seen,
+                        &mut source_constraints,
+                        &mut constraints,
+                        format!("rule:{first_cell}"),
+                        first_cell.to_string(),
+                    );
+                } else if in_core_contract
+                    && cells.len() >= 2
+                    && first_cell != "Area"
+                    && !first_cell.is_empty()
+                    && !first_cell.chars().all(|ch| matches!(ch, '-' | ':'))
+                {
+                    push_constraint(
+                        &mut seen,
+                        &mut source_constraints,
+                        &mut constraints,
+                        format!("core:{}", first_cell.to_ascii_lowercase()),
+                        format!("Core contract: {first_cell}"),
+                    );
+                }
                 continue;
             }
             if let Some(caps) = rule_re.captures(line) {
@@ -480,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn count_constraints_dedupes_rules_and_ignores_tables_and_fences() {
+    fn count_constraints_dedupes_rules_and_ignores_unrelated_tables_and_fences() {
         let dir = temp_dir("count");
         let first = dir.join("first.md");
         let second = dir.join("second.md");
@@ -509,6 +548,33 @@ mod tests {
         assert!(labels.contains(&"Must verify build"));
         assert!(labels.contains(&"Never swallow errors"));
         assert_eq!(reports.iter().map(|report| report.count).sum::<usize>(), 3);
+
+        fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
+    }
+
+    #[test]
+    fn count_constraints_reads_compact_rule_and_core_contract_tables() {
+        let dir = temp_dir("managed-tables");
+        let source = dir.join("AGENTS.md");
+        fs::write(
+            &source,
+            "## Core contract\n\n| Area | Default |\n|---|---|\n| Scope | Keep changes focused. |\n| Verification | Run focused tests. |\n\n## Key detailed rules\n\n| ID | Severity | Rule |\n|---|---|---|\n| U-08 | Strict | Verify. |\n| W-03 | Strict | Verify. |\n",
+        )
+        .unwrap_or_else(|err| panic!("table fixture should be written: {err}"));
+
+        let mut sources = BTreeMap::new();
+        sources.insert(source, "global".to_string());
+        let (_reports, constraints) = count_constraints(&sources);
+        let labels = constraints
+            .iter()
+            .map(|constraint| constraint.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(constraints.len(), 4);
+        assert!(labels.contains(&"Core contract: Scope"));
+        assert!(labels.contains(&"Core contract: Verification"));
+        assert!(labels.contains(&"U-08"));
+        assert!(labels.contains(&"W-03"));
 
         fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
     }

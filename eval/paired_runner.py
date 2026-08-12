@@ -75,10 +75,15 @@ THRESHOLD_KEYS = {
     "calibrated",
 }
 SHARED_CORE_RULE_EQUIVALENTS = {
-    "SEC-02": "Key detailed rules (SEC-02)",
+    "SEC-02": "Core contract (Safety)",
+    "SEC-13": "Core contract (Preservation)",
     "U-04": "Core contract (Scope)",
-    "U-17": "Key detailed rules (U-17)",
-    "U-29": "Key detailed rules (U-29)",
+    "U-08": "Core contract (Verification)",
+    "U-17": "Core contract (Errors)",
+    "U-29": "Core contract (Errors)",
+    "W-03": "Core contract (Verification)",
+    "W-12": "Core contract (Safety)",
+    "W-16": "Core contract (Verification)",
 }
 APPROVED_PLACEBO_PAIRS = {
     frozenset(("SEC-12", "U-32")): (

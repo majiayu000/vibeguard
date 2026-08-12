@@ -458,7 +458,7 @@ compact_placebo_out="$(
 compact_placebo_rc=$?
 set -e
 test "${compact_placebo_rc}" -ne 0
-grep -qF "shared compact core retains equivalent semantics in Key detailed rules (SEC-02)" <<<"${compact_placebo_out}"
+grep -qF "shared compact core retains equivalent semantics in Core contract (Safety)" <<<"${compact_placebo_out}"
 test ! -e "${TMP_DIR}/compact-placebo-runs"
 
 set +e

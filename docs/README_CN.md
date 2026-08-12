@@ -70,7 +70,7 @@ VibeGuard 现在明确分成两层：
 
 ### 1. 规则注入
 
-`rules/claude-rules/` 中的原生规则会安装到 `~/.claude/rules/vibeguard/`。全局高上下文文件只接收一份较小的共享核心，覆盖范围、事实真实性、错误可见性、安全、内容保留和验证；安装器再按宿主追加专属说明：Claude Code 获得原生规则与 slash command 指引，Codex 获得 `AGENTS.md`、托管 Skill 和原生 hook 能力边界。项目事实与准确测试命令仍由最近的仓库级说明提供。
+Claude Code 的 `full` 和 `strict` profile 会把 `rules/claude-rules/` 中的原生规则暴露到 `~/.claude/rules/vibeguard/`；默认的 `core` profile 和 `minimal` profile 不会前置注入这棵规则树。所有 profile 的全局高上下文文件都会接收一份较小的共享核心，覆盖范围、事实真实性、错误可见性、安全、内容保留和验证；安装器再按宿主追加专属说明：Claude Code 获得与 profile 一致的原生规则和 slash command 指引，Codex 获得 `AGENTS.md`、托管 Skill 和原生 hook 能力边界。项目事实与准确测试命令仍由最近的仓库级说明提供。
 
 当前 canonical 参考入口：
 - 安装/运行时契约：`schemas/install-modules.json`
