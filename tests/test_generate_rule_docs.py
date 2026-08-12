@@ -6,6 +6,7 @@ from __future__ import annotations
 import dataclasses
 import importlib.util
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -201,6 +202,31 @@ class CompactRuleGenerationTests(unittest.TestCase):
         self.assertIn("When managed VibeGuard skills are installed", codex_host)
         self.assertIn("$CODEX_HOME/skills/", codex_host)
         self.assertIn("defaulting to `~/.codex/skills/`", codex_host)
+
+    def test_codex_host_guidance_matches_profile_hook_contract(self) -> None:
+        codex_host = generate_rule_docs.CODEX_HOST_RULES_PATH.read_text(encoding="utf-8")
+        self.assertIn(
+            "Every Codex setup profile covers native Bash and `apply_patch` gates.",
+            codex_host,
+        )
+        self.assertIn(
+            "Only the `full` and `strict` profile contracts add `Stop` hooks, "
+            "including `stop-guard`; `minimal` and `core` do not promise Stop coverage.",
+            codex_host,
+        )
+        self.assertNotIn("plus Stop events", codex_host)
+
+        install_schema = json.loads(
+            (ROOT / "schemas" / "install-modules.json").read_text(encoding="utf-8")
+        )
+        modules = {module["id"]: module for module in install_schema["modules"]}
+        self.assertEqual(
+            modules["hooks-pre"]["profiles"],
+            ["minimal", "core", "full", "strict"],
+        )
+        self.assertIn("hooks/pre-bash-guard.sh", modules["hooks-pre"]["paths"])
+        self.assertEqual(modules["hooks-full"]["profiles"], ["full", "strict"])
+        self.assertIn("hooks/stop-guard.sh", modules["hooks-full"]["paths"])
 
     def test_host_guidance_rejects_empty_or_managed_marker_content(self) -> None:
         shared = "<!-- vibeguard-start -->\nshared\n<!-- vibeguard-end -->\n"
