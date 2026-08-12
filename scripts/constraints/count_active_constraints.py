@@ -170,6 +170,14 @@ def _add_source(
     sources[resolved] = kind
 
 
+def _host_includes_claude(host: str) -> bool:
+    return host in {"all", "claude"}
+
+
+def _host_includes_codex(host: str) -> bool:
+    return host in {"all", "codex"}
+
+
 def discover_sources(
     root: Path,
     home: Path,
@@ -177,21 +185,32 @@ def discover_sources(
     skills: list[str],
     explicit_sources: list[Path],
     include_canonical_rules: bool,
+    host: str,
 ) -> dict[Path, str]:
     sources: dict[Path, str] = {}
 
     for path in explicit_sources:
         _add_source(sources, path, "explicit", root=root, task_paths=task_paths)
 
-    global_files = [
-        home / ".claude" / "CLAUDE.md",
-        home / ".claude" / "AGENTS.md",
-        home / ".codex" / "AGENTS.md",
-    ]
+    global_files = []
+    if _host_includes_claude(host):
+        global_files.extend(
+            [
+                home / ".claude" / "CLAUDE.md",
+                home / ".claude" / "AGENTS.md",
+            ]
+        )
+    if _host_includes_codex(host):
+        global_files.append(home / ".codex" / "AGENTS.md")
     for path in global_files:
         _add_source(sources, path, "global", root=root, task_paths=task_paths)
 
-    for base in (home / ".claude" / "rules", home / ".codex" / "rules"):
+    global_rule_roots = []
+    if _host_includes_claude(host):
+        global_rule_roots.append(home / ".claude" / "rules")
+    if _host_includes_codex(host):
+        global_rule_roots.append(home / ".codex" / "rules")
+    for base in global_rule_roots:
         for path in _iter_files(base, "**/*.md"):
             _add_source(sources, path, "global-rule", root=root, task_paths=task_paths)
 
@@ -213,9 +232,11 @@ def discover_sources(
     skill_roots = [
         root / "skills",
         root / "workflows",
-        home / ".claude" / "skills",
-        home / ".codex" / "skills",
     ]
+    if _host_includes_claude(host):
+        skill_roots.append(home / ".claude" / "skills")
+    if _host_includes_codex(host):
+        skill_roots.append(home / ".codex" / "skills")
     for skill in skills:
         for base in skill_roots:
             _add_source(sources, base / skill / "SKILL.md", "skill", root=root, task_paths=task_paths)
@@ -300,6 +321,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         skills,
         explicit_sources,
         args.include_canonical_rules,
+        args.host,
     )
     reports, constraints = count_constraints(sources)
     total = len(constraints)
@@ -379,6 +401,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Count effective VibeGuard constraints")
     parser.add_argument("--root", default=".", help="Project root to scan")
     parser.add_argument("--home", default=str(Path.home()), help="Home directory for global agent surfaces")
+    parser.add_argument(
+        "--host",
+        choices=("all", "claude", "codex"),
+        default="all",
+        help="Agent host whose global surfaces are active",
+    )
     parser.add_argument("--task-path", action="append", help="Task path used to activate path-scoped rules")
     parser.add_argument("--skill", action="append", help="Active skill name whose SKILL.md is loaded")
     parser.add_argument("--source", action="append", help="Explicit markdown source to include")

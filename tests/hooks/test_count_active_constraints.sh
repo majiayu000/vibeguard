@@ -98,6 +98,27 @@ assert_contains "${path_json}" '"id": "PY-01"' "path-scoped rule activates for m
 no_path_json="$(python3 "${COUNTER}" --root "${PATH_REPO}" --home "${PATH_HOME}" --task-path README.md --json)"
 assert_not_contains "${no_path_json}" '"id": "PY-01"' "path-scoped rule stays unloaded for non-matching task path"
 
+HOST_HOME="${TMP_ROOT}/home-host"
+HOST_REPO="${TMP_ROOT}/repo-host"
+make_home "${HOST_HOME}"
+make_repo "${HOST_REPO}"
+mkdir -p "${HOST_HOME}/.codex"
+cat > "${HOST_HOME}/.claude/CLAUDE.md" <<'MD'
+# Claude Global
+
+- Must keep Claude global guidance.
+MD
+cat > "${HOST_HOME}/.codex/AGENTS.md" <<'MD'
+# Codex Global
+
+- Must not count Codex global guidance.
+MD
+host_claude_json="$(python3 "${COUNTER}" --root "${HOST_REPO}" --home "${HOST_HOME}" --host claude --json)"
+assert_contains "${host_claude_json}" '"total": 1' "Claude host scope counts only Claude global guidance"
+assert_not_contains "${host_claude_json}" "Codex global guidance" "Claude host scope excludes Codex global guidance"
+host_all_json="$(python3 "${COUNTER}" --root "${HOST_REPO}" --home "${HOST_HOME}" --json)"
+assert_contains "${host_all_json}" '"total": 2' "default host scope preserves all global guidance"
+
 canonical_ids_for_task_path() {
   local task_path="$1"
   python3 "${COUNTER}" --root "${REPO_DIR}" --home "${PATH_HOME}" --include-canonical-rules --task-path "${task_path}" --json \

@@ -32,7 +32,7 @@ from scoring import CONFIDENCE_SCORES, ScorerParseError, parse_confidence, parse
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RULES_DIR = REPO_ROOT / "rules" / "claude-rules"
-DEFAULT_CORE_RULES_FILE = REPO_ROOT / "claude-md" / "vibeguard-rules.md"
+DEFAULT_CORE_RULES_FILE = REPO_ROOT / "claude-md" / "vibeguard-claude-rules.md"
 
 
 def load_rules(rules_dir: Path, core_rules_file: Path | None) -> str:

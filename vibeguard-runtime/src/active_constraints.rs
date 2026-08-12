@@ -16,12 +16,45 @@ const BLOCK_THRESHOLD: usize = 30;
 struct ActiveConstraintOptions {
     root: PathBuf,
     home: PathBuf,
+    host: HostScope,
     task_paths: Vec<String>,
     skills: Vec<String>,
     json: bool,
     hook_fields: bool,
     warn_threshold: usize,
     block_threshold: usize,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum HostScope {
+    All,
+    Claude,
+    Codex,
+}
+
+impl Default for HostScope {
+    fn default() -> Self {
+        Self::All
+    }
+}
+
+impl HostScope {
+    fn parse(value: &str) -> Result<Self> {
+        match value {
+            "all" => Ok(Self::All),
+            "claude" => Ok(Self::Claude),
+            "codex" => Ok(Self::Codex),
+            _ => Err(format!("--host must be one of all, claude, or codex: {value}").into()),
+        }
+    }
+
+    fn includes_claude(self) -> bool {
+        matches!(self, Self::All | Self::Claude)
+    }
+
+    fn includes_codex(self) -> bool {
+        matches!(self, Self::All | Self::Codex)
+    }
 }
 
 #[derive(Clone)]
@@ -103,6 +136,10 @@ fn parse_active_args(args: &[String]) -> Result<ActiveConstraintOptions> {
                 index += 1;
                 options.home = PathBuf::from(args.get(index).ok_or("--home requires a path")?);
             }
+            "--host" => {
+                index += 1;
+                options.host = HostScope::parse(args.get(index).ok_or("--host requires a value")?)?;
+            }
             "--task-path" => {
                 index += 1;
                 options.task_paths.push(
@@ -142,32 +179,54 @@ fn parse_active_args(args: &[String]) -> Result<ActiveConstraintOptions> {
 
 fn discover_sources(options: &ActiveConstraintOptions) -> BTreeMap<PathBuf, String> {
     let mut sources = BTreeMap::new();
-    for (path, kind) in [
-        (options.home.join(".claude/CLAUDE.md"), "global"),
-        (options.home.join(".claude/AGENTS.md"), "global"),
-        (options.home.join(".codex/AGENTS.md"), "global"),
-        (options.root.join("AGENTS.md"), "project"),
-        (options.root.join("CLAUDE.md"), "project"),
-        (options.root.join(".claude/CLAUDE.md"), "project"),
-    ] {
-        add_source(&mut sources, &path, kind, options);
+
+    let mut global_files = Vec::new();
+    if options.host.includes_claude() {
+        global_files.push(options.home.join(".claude/CLAUDE.md"));
+        global_files.push(options.home.join(".claude/AGENTS.md"));
     }
-    for base in [
-        options.home.join(".claude/rules"),
-        options.home.join(".codex/rules"),
-        options.root.join(".claude/rules"),
+    if options.host.includes_codex() {
+        global_files.push(options.home.join(".codex/AGENTS.md"));
+    }
+    for path in global_files {
+        add_source(&mut sources, &path, "global", options);
+    }
+
+    for path in [
+        options.root.join("AGENTS.md"),
+        options.root.join("CLAUDE.md"),
+        options.root.join(".claude/CLAUDE.md"),
     ] {
+        add_source(&mut sources, &path, "project", options);
+    }
+
+    let mut global_rule_roots = Vec::new();
+    if options.host.includes_claude() {
+        global_rule_roots.push(options.home.join(".claude/rules"));
+    }
+    if options.host.includes_codex() {
+        global_rule_roots.push(options.home.join(".codex/rules"));
+    }
+    for base in global_rule_roots {
+        for path in markdown_files(&base) {
+            add_source(&mut sources, &path, "global-rule", options);
+        }
+    }
+
+    for base in [options.root.join(".claude/rules")] {
         for path in markdown_files(&base) {
             add_source(&mut sources, &path, "path-rule", options);
         }
     }
     for skill in &options.skills {
-        for base in [
-            options.root.join("skills"),
-            options.root.join("workflows"),
-            options.home.join(".claude/skills"),
-            options.home.join(".codex/skills"),
-        ] {
+        let mut skill_roots = vec![options.root.join("skills"), options.root.join("workflows")];
+        if options.host.includes_claude() {
+            skill_roots.push(options.home.join(".claude/skills"));
+        }
+        if options.host.includes_codex() {
+            skill_roots.push(options.home.join(".codex/skills"));
+        }
+        for base in skill_roots {
             add_source(
                 &mut sources,
                 &base.join(skill).join("SKILL.md"),
@@ -371,6 +430,48 @@ mod tests {
             panic!("temp dir should be created: {err}");
         }
         dir
+    }
+
+    #[test]
+    fn discover_sources_filters_global_files_by_host() {
+        let dir = temp_dir("host");
+        let root = dir.join("repo");
+        let home = dir.join("home");
+        fs::create_dir_all(home.join(".claude"))
+            .unwrap_or_else(|err| panic!("Claude home should be created: {err}"));
+        fs::create_dir_all(home.join(".codex"))
+            .unwrap_or_else(|err| panic!("Codex home should be created: {err}"));
+        fs::create_dir_all(&root)
+            .unwrap_or_else(|err| panic!("repo root should be created: {err}"));
+        fs::write(
+            home.join(".claude/CLAUDE.md"),
+            "- Must keep Claude global guidance\n",
+        )
+        .unwrap_or_else(|err| panic!("Claude global guidance should be written: {err}"));
+        fs::write(
+            home.join(".codex/AGENTS.md"),
+            "- Must not count Codex global guidance\n",
+        )
+        .unwrap_or_else(|err| panic!("Codex global guidance should be written: {err}"));
+
+        let options = ActiveConstraintOptions {
+            root,
+            home,
+            host: HostScope::Claude,
+            ..ActiveConstraintOptions::default()
+        };
+        let sources = discover_sources(&options);
+        let (_reports, constraints) = count_constraints(&sources);
+        let labels = constraints
+            .iter()
+            .map(|constraint| constraint.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(constraints.len(), 1);
+        assert!(labels.contains(&"Must keep Claude global guidance"));
+        assert!(!labels.contains(&"Must not count Codex global guidance"));
+
+        fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
     }
 
     #[test]

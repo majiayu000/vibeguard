@@ -198,6 +198,7 @@ class CompactRuleGenerationTests(unittest.TestCase):
 
     def test_codex_host_guidance_respects_configured_home(self) -> None:
         codex_host = generate_rule_docs.CODEX_HOST_RULES_PATH.read_text(encoding="utf-8")
+        self.assertIn("When managed VibeGuard skills are installed", codex_host)
         self.assertIn("$CODEX_HOME/skills/", codex_host)
         self.assertIn("defaulting to `~/.codex/skills/`", codex_host)
 
