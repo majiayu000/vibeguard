@@ -77,6 +77,119 @@ fn valid_codex_manifest(timeout: i64) -> String {
     .to_string()
 }
 
+fn profiled_codex_manifest() -> String {
+    serde_json::json!({
+        "schema_version": 1,
+        "profiles": ["minimal", "core", "full", "strict"],
+        "hooks": [
+            {
+                "name": "pre-bash-guard",
+                "script": "pre-bash-guard.sh",
+                "kind": "hook",
+                "trigger": "PreToolUse(Bash)",
+                "responsibilities": "test fixture",
+                "decision_types": ["block"],
+                "claude": {
+                    "enabled": true,
+                    "profiles": ["minimal", "core", "full", "strict"]
+                },
+                "codex": {
+                    "enabled": true,
+                    "script": "vibeguard-pre-bash-guard.sh",
+                    "timeout": 15,
+                    "entries": [
+                        {"event": "PreToolUse", "matcher": "Bash"},
+                        {"event": "PermissionRequest", "matcher": "Bash"}
+                    ]
+                }
+            },
+            {
+                "name": "pre-edit-guard",
+                "script": "pre-edit-guard.sh",
+                "kind": "hook",
+                "trigger": "PreToolUse(Edit)",
+                "responsibilities": "test fixture",
+                "decision_types": ["block"],
+                "claude": {
+                    "enabled": true,
+                    "profiles": ["minimal", "core", "full", "strict"]
+                },
+                "codex": {
+                    "enabled": true,
+                    "script": "vibeguard-pre-edit-guard.sh",
+                    "timeout": 15,
+                    "entries": [
+                        {"event": "PreToolUse", "matcher": "Edit"},
+                        {"event": "PermissionRequest", "matcher": "Edit"}
+                    ]
+                }
+            },
+            {
+                "name": "pre-write-guard",
+                "script": "pre-write-guard.sh",
+                "kind": "hook",
+                "trigger": "PreToolUse(Write)",
+                "responsibilities": "test fixture",
+                "decision_types": ["warn"],
+                "claude": {
+                    "enabled": true,
+                    "profiles": ["minimal", "core", "full", "strict"]
+                },
+                "codex": {
+                    "enabled": true,
+                    "script": "vibeguard-pre-write-guard.sh",
+                    "timeout": 15,
+                    "entries": [
+                        {"event": "PreToolUse", "matcher": "Write"},
+                        {"event": "PermissionRequest", "matcher": "Write"}
+                    ]
+                }
+            },
+            {
+                "name": "post-build-check",
+                "script": "post-build-check.sh",
+                "kind": "hook",
+                "trigger": "PostToolUse(Edit/Write)",
+                "responsibilities": "test fixture",
+                "decision_types": ["warn"],
+                "claude": {
+                    "enabled": true,
+                    "profiles": ["full", "strict"]
+                },
+                "codex": {
+                    "enabled": true,
+                    "script": "vibeguard-post-build-check.sh",
+                    "timeout": 35,
+                    "entries": [
+                        {"event": "PostToolUse", "matcher": "Bash"},
+                        {"event": "PostToolUse", "matcher": "Edit|Write"}
+                    ]
+                }
+            },
+            {
+                "name": "stop-guard",
+                "script": "stop-guard.sh",
+                "kind": "hook",
+                "trigger": "Stop",
+                "responsibilities": "test fixture",
+                "decision_types": ["gate"],
+                "claude": {
+                    "enabled": true,
+                    "profiles": ["full", "strict"]
+                },
+                "codex": {
+                    "enabled": true,
+                    "event": "Stop",
+                    "matcher": null,
+                    "script": "vibeguard-stop-guard.sh",
+                    "timeout": 15
+                }
+            }
+        ]
+    })
+    .to_string()
+}
+
 fn assert_manifest_failure(output: &std::process::Output) {
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
@@ -85,6 +198,147 @@ fn assert_manifest_failure(output: &std::process::Output) {
         "stderr did not identify the manifest: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn codex_hooks_upsert_filters_profile_and_tags_runtime_policy_profile() {
+    let manifest = profiled_codex_manifest();
+    for profile in ["minimal", "core", "full", "strict"] {
+        let (repo, hooks_file, _) =
+            codex_setup_fixture(&format!("profile-upsert-{profile}"), Some(&manifest));
+        fs::write(&hooks_file, "{}").unwrap();
+        let wrapper = repo.join(".vibeguard/run-hook-codex.sh");
+        fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
+        fs::write(&wrapper, "#!/usr/bin/env bash\n").unwrap();
+
+        let output = bin()
+            .arg("setup-codex-hooks-upsert")
+            .arg(&repo)
+            .arg(&hooks_file)
+            .arg(&wrapper)
+            .arg(profile)
+            .output()
+            .unwrap();
+
+        assert!(output.status.success(), "{profile}: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "CHANGED\n");
+        let text = fs::read_to_string(&hooks_file).unwrap();
+        assert!(text.contains(&format!("VIBEGUARD_PROFILE={profile}")));
+        for script in [
+            "vibeguard-pre-bash-guard.sh",
+            "vibeguard-pre-edit-guard.sh",
+            "vibeguard-pre-write-guard.sh",
+        ] {
+            assert!(text.contains(script), "{profile} missing {script}: {text}");
+        }
+        let has_full_hooks = text.contains("vibeguard-stop-guard.sh")
+            || text.contains("vibeguard-post-build-check.sh");
+        assert_eq!(
+            has_full_hooks,
+            matches!(profile, "full" | "strict"),
+            "{profile}: {text}"
+        );
+
+        let check = bin()
+            .arg("setup-codex-hooks-check")
+            .arg(&repo)
+            .arg(&hooks_file)
+            .arg(&wrapper)
+            .arg(profile)
+            .output()
+            .unwrap();
+        assert!(check.status.success(), "{profile}: {check:?}");
+        fs::remove_dir_all(repo).unwrap();
+    }
+}
+
+#[test]
+fn codex_hooks_profile_downgrade_removes_full_only_hooks() {
+    let manifest = profiled_codex_manifest();
+    let (repo, hooks_file, _) = codex_setup_fixture("profile-downgrade", Some(&manifest));
+    fs::write(&hooks_file, "{}").unwrap();
+    let wrapper = repo.join(".vibeguard/run-hook-codex.sh");
+    fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
+    fs::write(&wrapper, "#!/usr/bin/env bash\n").unwrap();
+
+    let full = bin()
+        .arg("setup-codex-hooks-upsert")
+        .arg(&repo)
+        .arg(&hooks_file)
+        .arg(&wrapper)
+        .arg("full")
+        .output()
+        .unwrap();
+    assert!(full.status.success(), "{full:?}");
+    assert!(
+        fs::read_to_string(&hooks_file)
+            .unwrap()
+            .contains("vibeguard-stop-guard.sh")
+    );
+
+    let core = bin()
+        .arg("setup-codex-hooks-upsert")
+        .arg(&repo)
+        .arg(&hooks_file)
+        .arg(&wrapper)
+        .arg("core")
+        .output()
+        .unwrap();
+    assert!(core.status.success(), "{core:?}");
+    let text = fs::read_to_string(&hooks_file).unwrap();
+    assert!(!text.contains("vibeguard-stop-guard.sh"), "{text}");
+    assert!(!text.contains("vibeguard-post-build-check.sh"), "{text}");
+    assert!(text.contains("vibeguard-pre-bash-guard.sh"), "{text}");
+    fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn codex_hooks_check_rejects_out_of_profile_managed_hooks() {
+    let manifest = profiled_codex_manifest();
+    let (repo, hooks_file, _) = codex_setup_fixture("profile-check-extra", Some(&manifest));
+    fs::write(&hooks_file, "{}").unwrap();
+    let wrapper = repo.join(".vibeguard/run-hook-codex.sh");
+    fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
+    fs::write(&wrapper, "#!/usr/bin/env bash\n").unwrap();
+
+    let core = bin()
+        .arg("setup-codex-hooks-upsert")
+        .arg(&repo)
+        .arg(&hooks_file)
+        .arg(&wrapper)
+        .arg("core")
+        .output()
+        .unwrap();
+    assert!(core.status.success(), "{core:?}");
+
+    let mut data: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&hooks_file).unwrap()).unwrap();
+    data["hooks"]["Stop"] = serde_json::json!([
+        {
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": format!(
+                        "env VIBEGUARD_PROFILE=full bash {} vibeguard-stop-guard.sh",
+                        wrapper.display()
+                    ),
+                    "timeout": 15
+                }
+            ]
+        }
+    ]);
+    fs::write(&hooks_file, serde_json::to_string_pretty(&data).unwrap()).unwrap();
+
+    let check = bin()
+        .arg("setup-codex-hooks-check")
+        .arg(&repo)
+        .arg(&hooks_file)
+        .arg(&wrapper)
+        .arg("core")
+        .output()
+        .unwrap();
+    assert!(!check.status.success(), "{check:?}");
+    fs::remove_dir_all(repo).unwrap();
 }
 
 #[test]

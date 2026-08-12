@@ -62,11 +62,11 @@ install_codex_home_assets() {
   local wrapper="${HOME}/.vibeguard/run-hook-codex.sh"
   local hooks_file="${CODEX_DIR}/hooks.json"
   local hooks_result
-  hooks_result=$(setup_runtime setup-codex-hooks-upsert "${REPO_DIR}" "${hooks_file}" "${wrapper}" 2>/dev/null || echo "ERROR")
+  hooks_result=$(setup_runtime setup-codex-hooks-upsert "${REPO_DIR}" "${hooks_file}" "${wrapper}" "${PROFILE:-core}" 2>/dev/null || echo "ERROR")
   if [[ "${hooks_result}" == "CHANGED" || "${hooks_result}" == "SKIP" ]]; then
     state_record_file "${hooks_file}" "generated/codex-hooks.json" "copy"
     green "  ~/.codex/hooks.json merged (VibeGuard hooks upserted)"
-    yellow "  Codex capability profile: native Bash/apply_patch gates + PermissionRequest + Stop; Read hooks remain unavailable"
+    yellow "  Codex capability profile: native Bash/apply_patch gates; full/strict add Stop; Read hooks remain unavailable"
   else
     red "  Failed to update ~/.codex/hooks.json"
   fi
@@ -145,7 +145,7 @@ _enable_codex_hooks_feature() {
 }
 
 codex_native_capability_summary() {
-  printf '%s\n' "Codex native support: PreToolUse(Bash/apply_patch), PermissionRequest(Bash/apply_patch), PostToolUse(Bash/apply_patch), Stop"
+  printf '%s\n' "Codex native support: profile-selected Bash/apply_patch gates; Stop hooks only in full/strict"
 }
 
 inject_codex_home_rules() {
@@ -200,7 +200,7 @@ check_codex_home_installation() {
     hook_count=$(setup_runtime setup-codex-hooks-count "${CODEX_DIR}/hooks.json" 2>/dev/null || echo "?")
     green "[OK] Codex hooks.json present (${hook_count} total entries)"
 
-    if setup_runtime setup-codex-hooks-check "${REPO_DIR}" "${CODEX_DIR}/hooks.json" "${wrapper}" >/dev/null 2>&1; then
+    if setup_runtime setup-codex-hooks-check "${REPO_DIR}" "${CODEX_DIR}/hooks.json" "${wrapper}" "${PROFILE:-core}" >/dev/null 2>&1; then
       green "[OK] VibeGuard hooks merged in ~/.codex/hooks.json"
     else
       yellow "[MISSING] VibeGuard hooks not fully configured in ~/.codex/hooks.json"
@@ -249,7 +249,7 @@ check_codex_home_installation() {
     yellow "[MISSING] Codex hook wrapper not installed"
   fi
 
-  yellow "[INFO] Codex native hooks: PreToolUse(Bash/Edit/Write via apply_patch), PermissionRequest(Bash/Edit/Write via apply_patch), PostToolUse(Bash/Edit/Write via apply_patch), Stop(stop-guard/learn-evaluator); Read/Glob/Grep remain unavailable"
+  yellow "[INFO] Codex native hooks: PreToolUse(Bash/Edit/Write via apply_patch), PermissionRequest(Bash/Edit/Write via apply_patch), PostToolUse(Bash/Edit/Write via apply_patch); full/strict add Stop(stop-guard/learn-evaluator); Read/Glob/Grep remain unavailable"
 
   # Check feature flag
   local config="${CODEX_DIR}/config.toml"
@@ -284,7 +284,7 @@ codex_semantic_drift_message() {
 
   if [[ "${path}" == "${hooks_file}" ]]; then
     local wrapper="${HOME}/.vibeguard/run-hook-codex.sh"
-    if [[ -f "${hooks_file}" ]] && setup_runtime setup-codex-hooks-check "${REPO_DIR}" "${hooks_file}" "${wrapper}" >/dev/null 2>&1; then
+    if [[ -f "${hooks_file}" ]] && setup_runtime setup-codex-hooks-check "${REPO_DIR}" "${hooks_file}" "${wrapper}" "${PROFILE:-core}" >/dev/null 2>&1; then
       printf '%s\n' "${path} (checksum drift; VibeGuard hook semantics OK)"
       return 0
     fi
@@ -364,7 +364,7 @@ print_codex_status() {
   local wrapper="${HOME}/.vibeguard/run-hook-codex.sh"
   if [[ -f "${hooks_file}" ]]; then
     green "[OK] Codex hooks.json present"
-    if setup_runtime setup-codex-hooks-check "${REPO_DIR}" "${hooks_file}" "${wrapper}" >/dev/null 2>&1; then
+    if setup_runtime setup-codex-hooks-check "${REPO_DIR}" "${hooks_file}" "${wrapper}" "${PROFILE:-core}" >/dev/null 2>&1; then
       green "[OK] VibeGuard-managed Codex hooks semantic check passed"
     else
       yellow "[WARN] VibeGuard-managed Codex hooks semantic check failed (repair: bash setup.sh --yes)"

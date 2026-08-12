@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 const HOOKS_MANIFEST_JSON: &str = include_str!("../../hooks/manifest.json");
+const PROFILE_VALUES: &[&str] = &["minimal", "core", "full", "strict"];
+const DEFAULT_PROFILE: &str = "core";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HookPolicyDecision {
@@ -20,7 +22,22 @@ pub fn evaluate_hook_policy(
     cwd: Option<&str>,
     env_overrides: &HashMap<String, String>,
 ) -> HookPolicyDecision {
+    let canonical_hook = app_server_canonical_hook_name(hook_name);
     let Some(path) = project_config_path(cwd, env_overrides) else {
+        let default_profile = match default_runtime_profile(env_overrides) {
+            Ok(profile) => profile,
+            Err(reason) => return HookPolicyDecision::Error(reason),
+        };
+        let profile_allowed = match manifest_profile_allows_hook(&default_profile, &canonical_hook)
+        {
+            Ok(allowed) => allowed,
+            Err(reason) => return HookPolicyDecision::Error(reason),
+        };
+        if !profile_allowed {
+            return HookPolicyDecision::Skip(format!(
+                "VibeGuard policy skip: profile={default_profile} excludes {canonical_hook}"
+            ));
+        }
         return HookPolicyDecision::Run {
             warn_mode: false,
             reason: None,
@@ -32,7 +49,6 @@ pub fn evaluate_hook_policy(
         Err(reason) => return HookPolicyDecision::Error(reason),
     };
 
-    let canonical_hook = app_server_canonical_hook_name(hook_name);
     let enforcement = config.enforcement.as_deref().unwrap_or("block");
     if enforcement == "off" {
         return HookPolicyDecision::Skip("VibeGuard policy skip: enforcement=off".into());
@@ -69,6 +85,24 @@ pub fn evaluate_hook_policy(
     HookPolicyDecision::Run {
         warn_mode: false,
         reason: None,
+    }
+}
+
+pub(crate) fn default_runtime_profile(
+    env_overrides: &HashMap<String, String>,
+) -> Result<String, String> {
+    let profile = env_overrides
+        .get("VIBEGUARD_PROFILE")
+        .cloned()
+        .or_else(|| std::env::var("VIBEGUARD_PROFILE").ok())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_PROFILE.to_string());
+    if PROFILE_VALUES.contains(&profile.as_str()) {
+        Ok(profile)
+    } else {
+        Err(format!(
+            "VibeGuard policy error: unsupported VIBEGUARD_PROFILE={profile} (expected minimal|core|full|strict)"
+        ))
     }
 }
 
