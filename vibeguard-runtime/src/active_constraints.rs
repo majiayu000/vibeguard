@@ -16,6 +16,7 @@ const BLOCK_THRESHOLD: usize = 30;
 struct ActiveConstraintOptions {
     root: PathBuf,
     home: PathBuf,
+    codex_home: Option<PathBuf>,
     host: HostScope,
     task_paths: Vec<String>,
     skills: Vec<String>,
@@ -116,6 +117,7 @@ fn parse_active_args(args: &[String]) -> Result<ActiveConstraintOptions> {
         home: std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(".")),
+        codex_home: std::env::var_os("CODEX_HOME").map(PathBuf::from),
         warn_threshold: WARN_THRESHOLD,
         block_threshold: BLOCK_THRESHOLD,
         ..ActiveConstraintOptions::default()
@@ -130,6 +132,12 @@ fn parse_active_args(args: &[String]) -> Result<ActiveConstraintOptions> {
             "--home" => {
                 index += 1;
                 options.home = PathBuf::from(args.get(index).ok_or("--home requires a path")?);
+            }
+            "--codex-home" => {
+                index += 1;
+                options.codex_home = Some(PathBuf::from(
+                    args.get(index).ok_or("--codex-home requires a path")?,
+                ));
             }
             "--host" => {
                 index += 1;
@@ -174,6 +182,10 @@ fn parse_active_args(args: &[String]) -> Result<ActiveConstraintOptions> {
 
 fn discover_sources(options: &ActiveConstraintOptions) -> BTreeMap<PathBuf, String> {
     let mut sources = BTreeMap::new();
+    let codex_home = options
+        .codex_home
+        .clone()
+        .unwrap_or_else(|| options.home.join(".codex"));
 
     let mut global_files = Vec::new();
     if options.host.includes_claude() {
@@ -181,17 +193,18 @@ fn discover_sources(options: &ActiveConstraintOptions) -> BTreeMap<PathBuf, Stri
         global_files.push(options.home.join(".claude/AGENTS.md"));
     }
     if options.host.includes_codex() {
-        global_files.push(options.home.join(".codex/AGENTS.md"));
+        global_files.push(codex_home.join("AGENTS.md"));
     }
     for path in global_files {
         add_source(&mut sources, &path, "global", options);
     }
 
-    for path in [
-        options.root.join("AGENTS.md"),
-        options.root.join("CLAUDE.md"),
-        options.root.join(".claude/CLAUDE.md"),
-    ] {
+    let mut project_files = vec![options.root.join("AGENTS.md")];
+    if options.host.includes_claude() {
+        project_files.push(options.root.join("CLAUDE.md"));
+        project_files.push(options.root.join(".claude/CLAUDE.md"));
+    }
+    for path in project_files {
         add_source(&mut sources, &path, "project", options);
     }
 
@@ -200,7 +213,7 @@ fn discover_sources(options: &ActiveConstraintOptions) -> BTreeMap<PathBuf, Stri
         global_rule_roots.push(options.home.join(".claude/rules"));
     }
     if options.host.includes_codex() {
-        global_rule_roots.push(options.home.join(".codex/rules"));
+        global_rule_roots.push(codex_home.join("rules"));
     }
     for base in global_rule_roots {
         for path in markdown_files(&base) {
@@ -208,8 +221,8 @@ fn discover_sources(options: &ActiveConstraintOptions) -> BTreeMap<PathBuf, Stri
         }
     }
 
-    for base in [options.root.join(".claude/rules")] {
-        for path in markdown_files(&base) {
+    if options.host.includes_claude() {
+        for path in markdown_files(&options.root.join(".claude/rules")) {
             add_source(&mut sources, &path, "path-rule", options);
         }
     }
@@ -219,7 +232,7 @@ fn discover_sources(options: &ActiveConstraintOptions) -> BTreeMap<PathBuf, Stri
             skill_roots.push(options.home.join(".claude/skills"));
         }
         if options.host.includes_codex() {
-            skill_roots.push(options.home.join(".codex/skills"));
+            skill_roots.push(codex_home.join("skills"));
         }
         for base in skill_roots {
             add_source(
@@ -548,6 +561,64 @@ mod tests {
         assert!(labels.contains(&"Must verify build"));
         assert!(labels.contains(&"Never swallow errors"));
         assert_eq!(reports.iter().map(|report| report.count).sum::<usize>(), 3);
+
+        fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
+    }
+
+    #[test]
+    fn codex_sources_use_configured_home_and_exclude_claude_project_files() {
+        let dir = temp_dir("codex-home");
+        let root = dir.join("repo");
+        let home = dir.join("home");
+        let codex_home = dir.join("custom-codex");
+        fs::create_dir_all(home.join(".codex"))
+            .unwrap_or_else(|err| panic!("fallback Codex home should be created: {err}"));
+        fs::create_dir_all(&codex_home)
+            .unwrap_or_else(|err| panic!("custom Codex home should be created: {err}"));
+        fs::create_dir_all(root.join(".claude/rules"))
+            .unwrap_or_else(|err| panic!("Claude project rules should be created: {err}"));
+        fs::write(
+            home.join(".codex/AGENTS.md"),
+            "- Must not count fallback Codex guidance\n",
+        )
+        .unwrap_or_else(|err| panic!("fallback Codex guidance should be written: {err}"));
+        fs::write(
+            codex_home.join("AGENTS.md"),
+            "- Must count configured Codex guidance\n",
+        )
+        .unwrap_or_else(|err| panic!("configured Codex guidance should be written: {err}"));
+        fs::write(root.join("AGENTS.md"), "- Must count project AGENTS\n")
+            .unwrap_or_else(|err| panic!("project AGENTS should be written: {err}"));
+        fs::write(
+            root.join("CLAUDE.md"),
+            "- Must not count project Claude guidance\n",
+        )
+        .unwrap_or_else(|err| panic!("project Claude guidance should be written: {err}"));
+        fs::write(
+            root.join(".claude/rules/claude.md"),
+            "- Must not count project Claude rules\n",
+        )
+        .unwrap_or_else(|err| panic!("project Claude rules should be written: {err}"));
+
+        let options = ActiveConstraintOptions {
+            root,
+            home,
+            codex_home: Some(codex_home),
+            host: HostScope::Codex,
+            ..ActiveConstraintOptions::default()
+        };
+        let sources = discover_sources(&options);
+        let (_reports, constraints) = count_constraints(&sources);
+        let labels = constraints
+            .iter()
+            .map(|constraint| constraint.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(constraints.len(), 2);
+        assert!(labels.contains(&"Must count configured Codex guidance"));
+        assert!(labels.contains(&"Must count project AGENTS"));
+        assert!(!labels.iter().any(|label| label.contains("Claude")));
+        assert!(!labels.iter().any(|label| label.contains("fallback")));
 
         fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
     }

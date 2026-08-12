@@ -123,6 +123,34 @@ assert_not_contains "${host_claude_json}" "Codex global guidance" "Claude host s
 host_all_json="$(python3 "${COUNTER}" --root "${HOST_REPO}" --home "${HOST_HOME}" --json)"
 assert_contains "${host_all_json}" '"total": 2' "default host scope preserves all global guidance"
 
+CUSTOM_CODEX_HOME="${TMP_ROOT}/custom-codex-home"
+mkdir -p "${CUSTOM_CODEX_HOME}" "${HOST_REPO}/.claude/rules"
+cat > "${CUSTOM_CODEX_HOME}/AGENTS.md" <<'MD'
+# Custom Codex Global
+
+- Must count configured Codex guidance.
+MD
+cat > "${HOST_REPO}/AGENTS.md" <<'MD'
+# Shared Project
+
+- Must count project AGENTS guidance.
+MD
+cat > "${HOST_REPO}/CLAUDE.md" <<'MD'
+# Claude Project
+
+- Must not count Claude project guidance.
+MD
+cat > "${HOST_REPO}/.claude/rules/claude.md" <<'MD'
+# Claude Project Rule
+
+- Must not count Claude project rules.
+MD
+custom_codex_json="$(env CODEX_HOME="${CUSTOM_CODEX_HOME}" python3 "${COUNTER}" --root "${HOST_REPO}" --home "${HOST_HOME}" --host codex --json)"
+assert_contains "${custom_codex_json}" '"total": 2' "Codex scope counts configured CODEX_HOME plus project AGENTS only"
+assert_contains "${custom_codex_json}" "configured Codex guidance" "Codex scope honors CODEX_HOME"
+assert_not_contains "${custom_codex_json}" "Claude project" "Codex scope excludes Claude-only project instructions and rules"
+assert_not_contains "${custom_codex_json}" "Codex global guidance" "configured CODEX_HOME replaces the fallback ~/.codex source"
+
 canonical_ids_for_task_path() {
   local task_path="$1"
   python3 "${COUNTER}" --root "${REPO_DIR}" --home "${PATH_HOME}" --include-canonical-rules --task-path "${task_path}" --json \

@@ -208,6 +208,7 @@ def _host_includes_codex(host: str) -> bool:
 def discover_sources(
     root: Path,
     home: Path,
+    codex_home: Path,
     task_paths: list[str],
     skills: list[str],
     explicit_sources: list[Path],
@@ -228,7 +229,7 @@ def discover_sources(
             ]
         )
     if _host_includes_codex(host):
-        global_files.append(home / ".codex" / "AGENTS.md")
+        global_files.append(codex_home / "AGENTS.md")
     for path in global_files:
         _add_source(sources, path, "global", root=root, task_paths=task_paths)
 
@@ -236,21 +237,20 @@ def discover_sources(
     if _host_includes_claude(host):
         global_rule_roots.append(home / ".claude" / "rules")
     if _host_includes_codex(host):
-        global_rule_roots.append(home / ".codex" / "rules")
+        global_rule_roots.append(codex_home / "rules")
     for base in global_rule_roots:
         for path in _iter_files(base, "**/*.md"):
             _add_source(sources, path, "global-rule", root=root, task_paths=task_paths)
 
-    project_files = [
-        root / "AGENTS.md",
-        root / "CLAUDE.md",
-        root / ".claude" / "CLAUDE.md",
-    ]
+    project_files = [root / "AGENTS.md"]
+    if _host_includes_claude(host):
+        project_files.extend([root / "CLAUDE.md", root / ".claude" / "CLAUDE.md"])
     for path in project_files:
         _add_source(sources, path, "project", root=root, task_paths=task_paths)
 
-    for path in _iter_files(root / ".claude" / "rules", "**/*.md"):
-        _add_source(sources, path, "path-rule", root=root, task_paths=task_paths)
+    if _host_includes_claude(host):
+        for path in _iter_files(root / ".claude" / "rules", "**/*.md"):
+            _add_source(sources, path, "path-rule", root=root, task_paths=task_paths)
 
     if include_canonical_rules:
         for path in _iter_files(root / "rules" / "claude-rules", "**/*.md"):
@@ -263,7 +263,7 @@ def discover_sources(
     if _host_includes_claude(host):
         skill_roots.append(home / ".claude" / "skills")
     if _host_includes_codex(host):
-        skill_roots.append(home / ".codex" / "skills")
+        skill_roots.append(codex_home / "skills")
     for skill in skills:
         for base in skill_roots:
             _add_source(sources, base / skill / "SKILL.md", "skill", root=root, task_paths=task_paths)
@@ -338,12 +338,18 @@ def status_for(total: int, warn_threshold: int, block_threshold: int) -> str:
 def build_report(args: argparse.Namespace) -> dict[str, Any]:
     root = _safe_resolve(Path(args.root))
     home = _safe_resolve(Path(args.home).expanduser())
+    codex_home = _safe_resolve(
+        Path(args.codex_home).expanduser()
+        if args.codex_home
+        else Path(os.environ.get("CODEX_HOME", home / ".codex")).expanduser()
+    )
     task_paths = args.task_path or []
     skills = args.skill or []
     explicit_sources = [Path(item) for item in (args.source or [])]
     sources = discover_sources(
         root,
         home,
+        codex_home,
         task_paths,
         skills,
         explicit_sources,
@@ -428,6 +434,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Count effective VibeGuard constraints")
     parser.add_argument("--root", default=".", help="Project root to scan")
     parser.add_argument("--home", default=str(Path.home()), help="Home directory for global agent surfaces")
+    parser.add_argument(
+        "--codex-home",
+        help="Codex home directory (default: $CODEX_HOME or <home>/.codex)",
+    )
     parser.add_argument(
         "--host",
         choices=("all", "claude", "codex"),
