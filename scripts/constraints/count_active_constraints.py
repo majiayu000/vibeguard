@@ -128,7 +128,12 @@ def _iter_constraints(path: Path, text: str) -> Iterable[Constraint]:
                 and not set(first_cell) <= {"-", ":"}
             ):
                 yield Constraint(
-                    key="core:" + _normalize_constraint(first_cell),
+                    key=(
+                        "core:"
+                        + _normalize_constraint(first_cell)
+                        + ":"
+                        + _normalize_constraint(cells[1])
+                    ),
                     label=f"Core contract: {first_cell}",
                     source=path,
                     line=index,
@@ -236,8 +241,6 @@ def discover_sources(
     global_rule_roots = []
     if _host_includes_claude(host):
         global_rule_roots.append(home / ".claude" / "rules")
-    if _host_includes_codex(host):
-        global_rule_roots.append(codex_home / "rules")
     for base in global_rule_roots:
         for path in _iter_files(base, "**/*.md"):
             _add_source(sources, path, "global-rule", root=root, task_paths=task_paths)

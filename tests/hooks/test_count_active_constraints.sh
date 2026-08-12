@@ -124,11 +124,16 @@ host_all_json="$(python3 "${COUNTER}" --root "${HOST_REPO}" --home "${HOST_HOME}
 assert_contains "${host_all_json}" '"total": 2' "default host scope preserves all global guidance"
 
 CUSTOM_CODEX_HOME="${TMP_ROOT}/custom-codex-home"
-mkdir -p "${CUSTOM_CODEX_HOME}" "${HOST_REPO}/.claude/rules"
+mkdir -p "${CUSTOM_CODEX_HOME}/rules" "${HOST_REPO}/.claude/rules"
 cat > "${CUSTOM_CODEX_HOME}/AGENTS.md" <<'MD'
 # Custom Codex Global
 
 - Must count configured Codex guidance.
+MD
+cat > "${CUSTOM_CODEX_HOME}/rules/decoy.md" <<'MD'
+# Unsupported Codex Native Rule
+
+- Must not count unsupported Codex native rules.
 MD
 cat > "${HOST_REPO}/AGENTS.md" <<'MD'
 # Shared Project
@@ -150,6 +155,28 @@ assert_contains "${custom_codex_json}" '"total": 2' "Codex scope counts configur
 assert_contains "${custom_codex_json}" "configured Codex guidance" "Codex scope honors CODEX_HOME"
 assert_not_contains "${custom_codex_json}" "Claude project" "Codex scope excludes Claude-only project instructions and rules"
 assert_not_contains "${custom_codex_json}" "Codex global guidance" "configured CODEX_HOME replaces the fallback ~/.codex source"
+assert_not_contains "${custom_codex_json}" "unsupported Codex native rules" "Codex scope excludes unsupported native rule paths"
+
+CORE_ROW_REPO="${TMP_ROOT}/repo-core-row-dedupe"
+CORE_ROW_HOME="${TMP_ROOT}/home-core-row-dedupe"
+make_home "${CORE_ROW_HOME}"
+make_repo "${CORE_ROW_REPO}"
+cat > "${CORE_ROW_HOME}/.claude/CLAUDE.md" <<'MD'
+## Core contract
+
+| Area | Default |
+|---|---|
+| Scope | Keep changes focused. |
+MD
+cat > "${CORE_ROW_REPO}/AGENTS.md" <<'MD'
+## Core contract
+
+| Area | Default |
+|---|---|
+| Scope | Do not edit generated files. |
+MD
+core_row_json="$(python3 "${COUNTER}" --root "${CORE_ROW_REPO}" --home "${CORE_ROW_HOME}" --host claude --json)"
+assert_contains "${core_row_json}" '"total": 2' "same-area core rows with different requirements remain distinct"
 
 canonical_ids_for_task_path() {
   local task_path="$1"

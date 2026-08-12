@@ -212,9 +212,6 @@ fn discover_sources(options: &ActiveConstraintOptions) -> BTreeMap<PathBuf, Stri
     if options.host.includes_claude() {
         global_rule_roots.push(options.home.join(".claude/rules"));
     }
-    if options.host.includes_codex() {
-        global_rule_roots.push(codex_home.join("rules"));
-    }
     for base in global_rule_roots {
         for path in markdown_files(&base) {
             add_source(&mut sources, &path, "global-rule", options);
@@ -374,11 +371,21 @@ fn count_constraints(sources: &BTreeMap<PathBuf, String>) -> (Vec<SourceReport>,
                     && !first_cell.is_empty()
                     && !first_cell.chars().all(|ch| matches!(ch, '-' | ':'))
                 {
+                    let normalized_area = first_cell
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                        .to_ascii_lowercase();
+                    let normalized_default = cells[1]
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                        .to_ascii_lowercase();
                     push_constraint(
                         &mut seen,
                         &mut source_constraints,
                         &mut constraints,
-                        format!("core:{}", first_cell.to_ascii_lowercase()),
+                        format!("core:{normalized_area}:{normalized_default}"),
                         format!("Core contract: {first_cell}"),
                     );
                 }
@@ -575,6 +582,8 @@ mod tests {
             .unwrap_or_else(|err| panic!("fallback Codex home should be created: {err}"));
         fs::create_dir_all(&codex_home)
             .unwrap_or_else(|err| panic!("custom Codex home should be created: {err}"));
+        fs::create_dir_all(codex_home.join("rules"))
+            .unwrap_or_else(|err| panic!("Codex rule decoy directory should be created: {err}"));
         fs::create_dir_all(root.join(".claude/rules"))
             .unwrap_or_else(|err| panic!("Claude project rules should be created: {err}"));
         fs::write(
@@ -587,6 +596,11 @@ mod tests {
             "- Must count configured Codex guidance\n",
         )
         .unwrap_or_else(|err| panic!("configured Codex guidance should be written: {err}"));
+        fs::write(
+            codex_home.join("rules/decoy.md"),
+            "- Must not count unsupported Codex native rules\n",
+        )
+        .unwrap_or_else(|err| panic!("Codex rule decoy should be written: {err}"));
         fs::write(root.join("AGENTS.md"), "- Must count project AGENTS\n")
             .unwrap_or_else(|err| panic!("project AGENTS should be written: {err}"));
         fs::write(
@@ -619,6 +633,7 @@ mod tests {
         assert!(labels.contains(&"Must count project AGENTS"));
         assert!(!labels.iter().any(|label| label.contains("Claude")));
         assert!(!labels.iter().any(|label| label.contains("fallback")));
+        assert!(!labels.iter().any(|label| label.contains("native rules")));
 
         fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
     }
@@ -646,6 +661,33 @@ mod tests {
         assert!(labels.contains(&"Core contract: Verification"));
         assert!(labels.contains(&"U-08"));
         assert!(labels.contains(&"W-03"));
+
+        fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
+    }
+
+    #[test]
+    fn core_contract_rows_dedupe_by_area_and_constraint_text() {
+        let dir = temp_dir("core-row-dedupe");
+        let first = dir.join("global.md");
+        let second = dir.join("project.md");
+        fs::write(
+            &first,
+            "## Core contract\n\n| Area | Default |\n|---|---|\n| Scope | Keep changes focused. |\n",
+        )
+        .unwrap_or_else(|err| panic!("global core fixture should be written: {err}"));
+        fs::write(
+            &second,
+            "## Core contract\n\n| Area | Default |\n|---|---|\n| Scope | Do not edit generated files. |\n",
+        )
+        .unwrap_or_else(|err| panic!("project core fixture should be written: {err}"));
+
+        let mut sources = BTreeMap::new();
+        sources.insert(first, "global".to_string());
+        sources.insert(second, "project".to_string());
+        let (reports, constraints) = count_constraints(&sources);
+
+        assert_eq!(constraints.len(), 2);
+        assert_eq!(reports.iter().map(|report| report.count).sum::<usize>(), 2);
 
         fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
     }
