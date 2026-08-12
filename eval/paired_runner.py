@@ -78,8 +78,6 @@ SHARED_CORE_RULE_EQUIVALENTS = {
     "SEC-02": "Key detailed rules (SEC-02)",
     "U-04": "Core contract (Scope)",
     "U-17": "Key detailed rules (U-17)",
-    "U-23": "Core contract (Errors)",
-    "U-24": "Core contract (Facts)",
     "U-29": "Key detailed rules (U-29)",
 }
 APPROVED_PLACEBO_PAIRS = {

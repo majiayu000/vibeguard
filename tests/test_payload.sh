@@ -393,11 +393,13 @@ for profile in minimal core full strict; do
   for language in rust python go typescript; do
     matrix_cases=$((matrix_cases + 1))
     matrix_home="${WORK}/matrix-home/${profile}-${language}"
+    matrix_codex_home="${matrix_home}/.codex"
     mkdir -p "${matrix_home}"
     set +e
     matrix_out="$(
       cd "${WORK}/unpacked" \
         && HOME="${matrix_home}" \
+          CODEX_HOME="${matrix_codex_home}" \
           PATH="${WORK}/fake-bin:${PATH}" \
           VIBEGUARD_TEST_RELEASE_DIR="${WORK}/release-assets" \
           VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
@@ -424,6 +426,7 @@ set +e
 install_out="$(
   cd "${WORK}/unpacked" \
     && HOME="${WORK}/payload-home" \
+      CODEX_HOME="${WORK}/payload-home/.codex" \
       PATH="${WORK}/fake-bin:${PATH}" \
       VIBEGUARD_TEST_RELEASE_DIR="${WORK}/release-assets" \
       VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
@@ -444,6 +447,7 @@ set +e
 doctor_out="$(
   cd "${WORK}/unpacked" \
     && HOME="${WORK}/payload-home" \
+      CODEX_HOME="${WORK}/payload-home/.codex" \
       PATH="${WORK}/fake-bin:${PATH}" \
       VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
       bash setup.sh doctor 2>&1
@@ -459,6 +463,7 @@ set +e
 verify_out="$(
   cd "${WORK}/unpacked" \
     && HOME="${WORK}/payload-home" \
+      CODEX_HOME="${WORK}/payload-home/.codex" \
       PATH="${WORK}/fake-bin:${PATH}" \
       VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
       bash setup.sh verify-install 2>&1
@@ -490,6 +495,7 @@ set +e
 clean_out="$(
   cd "${WORK}/unpacked" \
     && HOME="${WORK}/payload-home" \
+      CODEX_HOME="${WORK}/payload-home/.codex" \
       PATH="${WORK}/fake-bin:${PATH}" \
       VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
       bash setup.sh --clean --purge-data 2>&1

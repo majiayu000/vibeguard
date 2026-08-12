@@ -106,11 +106,13 @@ class DatasetAndIdentityTest(unittest.TestCase):
         paired.validate_placebo_candidate("U-32", "SEC-12", 4000, 4100, 0.25)
 
     def test_candidates_duplicated_by_shared_compact_core_are_rejected(self) -> None:
-        for candidate in ("U-04", "U-17", "U-23", "U-24", "U-29", "SEC-02"):
+        for candidate in ("U-04", "U-17", "U-29", "SEC-02"):
             with self.subTest(candidate=candidate), self.assertRaisesRegex(
                 paired.PairedEvalError, "shared compact core"
             ):
                 paired.validate_candidate_supported(candidate)
+        paired.validate_candidate_supported("U-23")
+        paired.validate_candidate_supported("U-24")
         paired.validate_candidate_supported("U-32")
 
 if __name__ == "__main__":

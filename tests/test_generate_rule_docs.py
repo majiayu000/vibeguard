@@ -196,6 +196,11 @@ class CompactRuleGenerationTests(unittest.TestCase):
             "## Codex host\n\nHost rule.\n<!-- vibeguard-end -->\n",
         )
 
+    def test_codex_host_guidance_respects_configured_home(self) -> None:
+        codex_host = generate_rule_docs.CODEX_HOST_RULES_PATH.read_text(encoding="utf-8")
+        self.assertIn("$CODEX_HOME/skills/", codex_host)
+        self.assertIn("defaulting to `~/.codex/skills/`", codex_host)
+
     def test_host_guidance_rejects_empty_or_managed_marker_content(self) -> None:
         shared = "<!-- vibeguard-start -->\nshared\n<!-- vibeguard-end -->\n"
         for host in ("", "<!-- vibeguard-start -->\nhost", "host\n<!-- vibeguard-end -->"):
