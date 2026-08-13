@@ -138,7 +138,7 @@ pub fn codex_hooks_check(args: &[String]) -> SetupResult<()> {
         let Some(entries) = hooks.get(&spec.event).and_then(Value::as_array) else {
             std::process::exit(1);
         };
-        let command = codex_command(&args[2], &spec, profile);
+        let command = codex_command(&args[2], spec, profile);
         if !codex_has_entry(
             entries,
             &manifest.managed_scripts,
@@ -572,8 +572,8 @@ fn codex_prune_stale(data: &mut Value, script_targets: &BTreeMap<String, String>
 
 fn codex_command(wrapper: &str, spec: &CodexSpec, profile: &str) -> String {
     format!(
-        "env VIBEGUARD_PROFILE={} bash {} {}",
-        shell_quote(profile),
+        "env VIBEGUARD_PROFILE=\"${{VIBEGUARD_PROFILE:-{}}}\" bash {} {}",
+        profile,
         shell_quote(wrapper),
         spec.script
     )
@@ -851,7 +851,9 @@ mod tests {
         assert_eq!(
             hook.and_then(|value| value.get("command"))
                 .and_then(Value::as_str),
-            Some("env VIBEGUARD_PROFILE=full bash /tmp/run-hook-codex.sh vibeguard-stop-guard.sh")
+            Some(
+                "env VIBEGUARD_PROFILE=\"${VIBEGUARD_PROFILE:-full}\" bash /tmp/run-hook-codex.sh vibeguard-stop-guard.sh"
+            )
         );
         assert_eq!(
             hook.and_then(|value| value.get("timeout"))

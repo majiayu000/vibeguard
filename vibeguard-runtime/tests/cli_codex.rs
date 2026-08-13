@@ -3,6 +3,8 @@ mod common;
 use common::{bin, run_runtime_with_stdin, unique_temp_dir};
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::process::Command;
 
 fn codex_setup_fixture(label: &str, manifest: Option<&str>) -> (PathBuf, PathBuf, Vec<u8>) {
     let repo = unique_temp_dir(label);
@@ -223,7 +225,9 @@ fn codex_hooks_upsert_filters_profile_and_tags_runtime_policy_profile() {
         assert!(output.status.success(), "{profile}: {output:?}");
         assert_eq!(String::from_utf8_lossy(&output.stdout), "CHANGED\n");
         let text = fs::read_to_string(&hooks_file).unwrap();
-        assert!(text.contains(&format!("VIBEGUARD_PROFILE={profile}")));
+        assert!(text.contains(&format!(
+            "VIBEGUARD_PROFILE=\\\"${{VIBEGUARD_PROFILE:-{profile}}}\\\""
+        )));
         for script in [
             "vibeguard-pre-bash-guard.sh",
             "vibeguard-pre-edit-guard.sh",
@@ -250,6 +254,96 @@ fn codex_hooks_upsert_filters_profile_and_tags_runtime_policy_profile() {
         assert!(check.status.success(), "{profile}: {check:?}");
         fs::remove_dir_all(repo).unwrap();
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn codex_generated_command_preserves_caller_and_project_profile_precedence() {
+    let manifest = profiled_codex_manifest();
+    let (repo, hooks_file, _) = codex_setup_fixture("profile-command-precedence", Some(&manifest));
+    fs::write(&hooks_file, "{}").unwrap();
+    let wrapper = repo.join("run-policy-wrapper.sh");
+    fs::write(
+        &wrapper,
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+exec "${VIBEGUARD_RUNTIME_TEST_BIN}" runtime-policy-check --cwd "${VIBEGUARD_RUNTIME_TEST_CWD}" "$1"
+"#,
+    )
+    .unwrap();
+
+    let upsert = bin()
+        .arg("setup-codex-hooks-upsert")
+        .arg(&repo)
+        .arg(&hooks_file)
+        .arg(&wrapper)
+        .arg("full")
+        .output()
+        .unwrap();
+    assert!(upsert.status.success(), "{upsert:?}");
+
+    let data: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&hooks_file).unwrap()).unwrap();
+    let command = data
+        .pointer("/hooks/Stop/0/hooks/0/command")
+        .and_then(serde_json::Value::as_str)
+        .expect("full profile should generate a Stop command")
+        .to_string();
+    let project = repo.join("project");
+    fs::create_dir_all(&project).unwrap();
+
+    let run_command = |caller_profile: Option<&str>| {
+        let mut process = Command::new("bash");
+        process
+            .arg("-c")
+            .arg(&command)
+            .current_dir(&project)
+            .env(
+                "VIBEGUARD_RUNTIME_TEST_BIN",
+                env!("CARGO_BIN_EXE_vibeguard-runtime"),
+            )
+            .env("VIBEGUARD_RUNTIME_TEST_CWD", &project)
+            .env_remove("VIBEGUARD_PROJECT_CONFIG")
+            .env_remove("VIBEGUARD_USER_CONFIG_FILE");
+        match caller_profile {
+            Some(profile) => {
+                process.env("VIBEGUARD_PROFILE", profile);
+            }
+            None => {
+                process.env_remove("VIBEGUARD_PROFILE");
+            }
+        }
+        process.output().unwrap()
+    };
+
+    let installed_fallback = run_command(None);
+    assert!(
+        installed_fallback.status.success(),
+        "{installed_fallback:?}"
+    );
+    let fallback_json: serde_json::Value =
+        serde_json::from_slice(&installed_fallback.stdout).unwrap();
+    assert_eq!(fallback_json["profile"], "full");
+    assert_eq!(fallback_json["decision"], "run");
+
+    let caller_override = run_command(Some("core"));
+    assert_eq!(
+        caller_override.status.code(),
+        Some(10),
+        "{caller_override:?}"
+    );
+    let caller_json: serde_json::Value = serde_json::from_slice(&caller_override.stdout).unwrap();
+    assert_eq!(caller_json["profile"], "core");
+    assert_eq!(caller_json["decision"], "skip");
+
+    fs::write(project.join(".vibeguard.json"), r#"{"profile":"strict"}"#).unwrap();
+    let project_override = run_command(Some("core"));
+    assert!(project_override.status.success(), "{project_override:?}");
+    let project_json: serde_json::Value = serde_json::from_slice(&project_override.stdout).unwrap();
+    assert_eq!(project_json["profile"], "strict");
+    assert_eq!(project_json["decision"], "run");
+
+    fs::remove_dir_all(repo).unwrap();
 }
 
 #[test]
@@ -319,7 +413,7 @@ fn codex_hooks_check_rejects_out_of_profile_managed_hooks() {
                 {
                     "type": "command",
                     "command": format!(
-                        "env VIBEGUARD_PROFILE=full bash {} vibeguard-stop-guard.sh",
+                        "env VIBEGUARD_PROFILE=\"${{VIBEGUARD_PROFILE:-full}}\" bash {} vibeguard-stop-guard.sh",
                         wrapper.display()
                     ),
                     "timeout": 15

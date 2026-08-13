@@ -100,7 +100,8 @@ Top-level commands:
   --no-summary   Legacy mode: no rollup table, always exit 0.
                  Equivalent to the pre-summary behavior.
   --profile      Override the install-state profile used for Claude hook
-                 coverage checks. Defaults to the installed profile, then core.
+                 coverage checks. Defaults to core only when install-state is absent;
+                 an invalid existing install-state fails visibly.
 
 Exit codes (--strict / --json / --install only):
   0  healthy
@@ -120,16 +121,6 @@ USAGE
       ;;
   esac
 done
-
-check_installed_profile() {
-  local state_out detected
-  state_out="$(state_list 2>/dev/null)" || return 1
-  detected="$(awk -F': ' '/^Profile:/ {print $2; exit}' <<< "${state_out}")"
-  case "${detected}" in
-    minimal|core|full|strict) printf '%s\n' "${detected}" ;;
-    *) return 1 ;;
-  esac
-}
 
 check_installed_languages() {
   local state_out detected
@@ -341,9 +332,11 @@ if ! ensure_setup_runtime_available >/dev/null 2>&1; then
 fi
 
 if [[ -z "${PROFILE}" ]]; then
-  PROFILE="$(check_installed_profile 2>/dev/null || true)"
+  if ! PROFILE="$(state_installed_profile)"; then
+    red "ERROR: cannot determine installed profile"
+    exit 64
+  fi
 fi
-PROFILE="${PROFILE:-core}"
 validate_setup_profile "${PROFILE}"
 if [[ -z "${LANGUAGES}" ]]; then
   LANGUAGES="$(check_installed_languages 2>/dev/null || true)"

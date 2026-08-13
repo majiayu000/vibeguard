@@ -352,6 +352,30 @@ state_list() {
   state_runtime setup-state-list "$STATE_FILE"
 }
 
+# Resolve the installed profile without treating a malformed existing state as
+# an absent installation. Only a genuinely missing state file defaults to core.
+state_installed_profile() {
+  local state_out detected
+  state_reject_nonregular_paths || return 1
+  if [[ ! -e "$STATE_FILE" ]]; then
+    printf '%s\n' "core"
+    return 0
+  fi
+  if ! state_out="$(state_runtime setup-state-list "$STATE_FILE")"; then
+    printf 'ERROR: failed to read install profile: %s\n' "$STATE_FILE" >&2
+    return 1
+  fi
+  detected="$(awk -F': ' '/^Profile:/ {print $2; exit}' <<< "${state_out}")"
+  case "${detected}" in
+    minimal|core|full|strict) printf '%s\n' "${detected}" ;;
+    *)
+      printf 'ERROR: invalid install profile in %s: expected minimal, core, full, or strict\n' \
+        "$STATE_FILE" >&2
+      return 1
+      ;;
+  esac
+}
+
 # True when the path itself, or anything under it, was installed by VibeGuard —
 # either in this run or in the install whose inventory state_init preserved.
 state_is_tracked_path() {
