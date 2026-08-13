@@ -19,7 +19,7 @@ GH-671
 
 ## 并行拆分
 
-本实现未使用并行写 lane。可并行的只读 review lane 为：`vibeguard-runtime/src/u16_baseline.rs` decision review、hook shell wiring review、SpecRail packet review。所有写入由当前 implementation agent 串行完成，避免共享文件冲突。
+本实现未使用并行写 lane。可并行的只读 review lane 为：`vibeguard-runtime/src/u16/baseline.rs` decision review、hook shell wiring review、SpecRail packet review。所有写入由当前 implementation agent 串行完成，避免共享文件冲突。
 
 ## 验证
 

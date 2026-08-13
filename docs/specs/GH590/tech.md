@@ -13,12 +13,12 @@ GH-590
 | Area | Files | Current behavior | Why relevant |
 | --- | --- | --- | --- |
 | Production entry | `hooks/post-edit-guard.sh:1-48` | Thin wrapper 查找 executable runtime 后 `exec ... hook post-edit`；找不到 runtime 时显式失败 | 证明本次 contract 是 Rust production path，不存在 shell fallback dispatch |
-| W-14 orchestration | `vibeguard-runtime/src/hook_orchestrator_post_edit_history.rs:101-128`, `:217-248` | `detect_w14` 对每个 `recent_overlap` 都 push 完整 warning 并 append warn event；history 只读最后 500 行，坏 JSON 行被忽略 | cooldown decision、shown/suppressed event 与 fail-open 边界的主修改面 |
-| Overlap/path/history helpers | `vibeguard-runtime/src/hook_checks_history.rs:118-193`, `:211-225` | recent-overlap 使用 30 分钟窗口并比较 normalized path；bounded tail reader 提供 500 行输入 | 必须复用现有 candidate/path 语义，不能顺带改变 detection |
-| Final warning composition | `vibeguard-runtime/src/hook_orchestrator_post_edit.rs:40-104` | history/stateless warnings 合并；无 warning 记录 pass，有 warning 可能升级并输出 context | suppressed W-14 不能抹掉同 run 的其他 warning，telemetry failure 必须回到 visible warning |
+| W-14 orchestration | `vibeguard-runtime/src/hook_orchestrator/post_edit_history.rs:101-128`, `:217-248` | `detect_w14` 对每个 `recent_overlap` 都 push 完整 warning 并 append warn event；history 只读最后 500 行，坏 JSON 行被忽略 | cooldown decision、shown/suppressed event 与 fail-open 边界的主修改面 |
+| Overlap/path/history helpers | `vibeguard-runtime/src/hook_checks/history.rs:118-193`, `:211-225` | recent-overlap 使用 30 分钟窗口并比较 normalized path；bounded tail reader 提供 500 行输入 | 必须复用现有 candidate/path 语义，不能顺带改变 detection |
+| Final warning composition | `vibeguard-runtime/src/hook_orchestrator/post_edit.rs:40-104` | history/stateless warnings 合并；无 warning 记录 pass，有 warning 可能升级并输出 context | suppressed W-14 不能抹掉同 run 的其他 warning，telemetry failure 必须回到 visible warning |
 | Event vocabulary | `vibeguard-runtime/src/event_schema.rs:44-70` | decision 闭集含 `pass/warn/...`，status 另含 `skipped`；没有 `info` decision | suppressed telemetry 使用 `decision=pass,status=skipped`，不发明非法 enum |
-| Runtime config | `vibeguard-runtime/src/runtime_config.rs:100-170` | nonnegative env → JSON path → default；config path 有明确 precedence | 新 key 复用同一 resolver，不另写一套环境/config 解析 |
-| Key digest helper | `vibeguard-runtime/src/setup_support.rs:58-66` | 已提供 deterministic full/short SHA-256 text digest | 可对长度明确的 session/file tuple 生成 opaque `w14_key`，避免解析任意 session 文本 |
+| Runtime config | `vibeguard-runtime/src/runtime_config/mod.rs:100-170` | nonnegative env → JSON path → default；config path 有明确 precedence | 新 key 复用同一 resolver，不另写一套环境/config 解析 |
+| Key digest helper | `vibeguard-runtime/src/setup/support.rs:58-66` | 已提供 deterministic full/short SHA-256 text digest | 可对长度明确的 session/file tuple 生成 opaque `w14_key`，避免解析任意 session 文本 |
 | Observability aggregation | `vibeguard-runtime/src/observe/aggregate.rs:33-66` | 所有 event 都计 decision/hook，reason 中 rule ID 不要求 negative decision | `pass/skipped` W-14 可保留 raw frequency，同时不进入 warn/escalate |
 | Config distribution | `templates/vibeguard-config.json.example:1-14`, `templates/vibeguard-config.README.md:8-27`, `tests/test_setup.sh:97-113` | setup 首次 seed 示例 config，文档声明 env/config/default precedence | 新 key 必须可发现且不能覆盖存量用户 config |
 | Focused production fixture | `tests/hooks/test_post_edit_w14.sh:8-30`, `tests/test_hooks.sh:40` | 当前只验证 absolute/relative overlap 与 worktree hint | 扩展现有真实 wrapper fixture，不新增重复 harness |

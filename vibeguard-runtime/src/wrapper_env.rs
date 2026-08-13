@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::setup_support::{home_dir, sha256_text_short};
+use crate::setup::support::{home_dir, sha256_text_short};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 

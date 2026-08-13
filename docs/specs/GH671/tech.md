@@ -12,15 +12,15 @@ GH-671
 
 | Area | Files | Current behavior | Why relevant |
 | --- | --- | --- | --- |
-| Shared policy | `vibeguard-runtime/src/u16_baseline.rs:30` | 新增 `evaluate_u16_baseline`，返回 allow / legacy debt / block reason | 防止 pre-edit、pre-write、Git 和 CI 判定漂移 |
-| Pre-write runtime | `vibeguard-runtime/src/hook_checks.rs:74`, `vibeguard-runtime/src/hook_orchestrator.rs:200` | Write hook 读取已存在文件行数并使用 shared baseline decision | 修复 full replacement shrinking 被误阻断 |
-| Pre-edit runtime | `vibeguard-runtime/src/hook_checks.rs:323`, `vibeguard-runtime/src/hook_orchestrator_pre_edit.rs:148` | Edit hook 用当前行数与 estimated line count 比较 | 修复 `vibeguard_line_delta < 0` 被误阻断 |
+| Shared policy | `vibeguard-runtime/src/u16/baseline.rs:30` | 新增 `evaluate_u16_baseline`，返回 allow / legacy debt / block reason | 防止 pre-edit、pre-write、Git 和 CI 判定漂移 |
+| Pre-write runtime | `vibeguard-runtime/src/hook_checks/mod.rs:74`, `vibeguard-runtime/src/hook_orchestrator/mod.rs:200` | Write hook 读取已存在文件行数并使用 shared baseline decision | 修复 full replacement shrinking 被误阻断 |
+| Pre-edit runtime | `vibeguard-runtime/src/hook_checks/mod.rs:323`, `vibeguard-runtime/src/hook_orchestrator/pre_edit.rs:148` | Edit hook 用当前行数与 estimated line count 比较 | 修复 `vibeguard_line_delta < 0` 被误阻断 |
 | Git hook | `hooks/pre-commit-guard.sh:53`, `hooks/pre-commit-guard.sh:102` | pre-commit 在语言/build 检查前调用 `u16-baseline-check --staged` | 捕获 IDE、copy、generator、initial commit 等非 AI 写入路径 |
 | CI hook | `scripts/ci/validate-u16-baseline.sh:1`, `.github/workflows/ci.yml:65` | CI 对 merge-base/base-before 与 HEAD 调用同一 runtime command | 捕获 PR/push changed-file oversized import |
 
 ## 设计方案
 
-1. 在 `vibeguard-runtime/src/u16_baseline.rs` 中集中实现基线判定：
+1. 在 `vibeguard-runtime/src/u16/baseline.rs` 中集中实现基线判定：
    - 新文件 `new_lines > limit` 阻断。
    - 旧文件 `old_lines <= limit && new_lines > limit` 阻断。
    - 遗留超大文件 `new_lines > old_lines` 阻断。

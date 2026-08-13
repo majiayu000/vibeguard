@@ -139,8 +139,8 @@ else:
     taint_source_vars = {"_PKG_CORRECTION"}
     if runtime_owned:
         taint_source_vars.add("CORRECTED")
-        classifier = repo / "vibeguard-runtime/src/hook_checks_bash.rs"
-        orchestrator = repo / "vibeguard-runtime/src/hook_orchestrator_pre_bash.rs"
+        classifier = repo / "vibeguard-runtime/src/hook_checks/bash.rs"
+        orchestrator = repo / "vibeguard-runtime/src/hook_orchestrator/pre_bash.rs"
         if classifier.exists():
             classifier_text = classifier.read_text(encoding="utf-8")
             if "updatedInput" not in classifier_text or '"command": corrected' not in classifier_text:

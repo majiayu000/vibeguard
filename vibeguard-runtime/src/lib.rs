@@ -1,8 +1,10 @@
 #![allow(dead_code)]
 
 mod event_schema;
-mod hook_checks_bash;
-mod hook_checks_common;
+mod hook_checks {
+    pub mod bash;
+    pub mod common;
+}
 mod hook_input_diag;
 mod pkg_rewrite;
 mod time_utils;

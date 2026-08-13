@@ -1,9 +1,9 @@
 use crate::HandlerResult;
-use crate::codex_app_server_policy::{HookPolicyDecision, evaluate_hook_policy};
-use crate::project_config::{load_project_config, project_config_path, project_config_root};
-use crate::project_config_scoped_suppression::{
+use crate::codex_app_server::policy::{HookPolicyDecision, evaluate_hook_policy};
+use crate::project_config::scoped_suppression::{
     ScopedSuppression, scoped_suppression_matches_output,
 };
+use crate::project_config::{load_project_config, project_config_path, project_config_root};
 use crate::runtime_config::validate_runtime_config_file;
 use crate::time_utils::{format_unix_secs_utc, now_unix_secs};
 use serde_json::{Value, json};

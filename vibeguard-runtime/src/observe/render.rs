@@ -2,7 +2,7 @@ use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
 use crate::event_schema::{UNKNOWN, decision, field};
-use crate::log_scope::LogScope;
+use crate::logging::scope::LogScope;
 use crate::time_utils::parse_iso_ts;
 
 use super::OBSERVE_SCHEMA_VERSION;

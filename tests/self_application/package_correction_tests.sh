@@ -24,19 +24,19 @@ EOF
 assert_cmd "runtime-owned package correction passes taint check" bash "${SELF_DIR}/check-pkg-correction-argv-only.sh" "${good_runtime_pkg_correction}"
 
 good_hook_runtime_pkg_correction="${TMP_DIR}/good-hook-runtime-pkg-correction"
-mkdir -p "${good_hook_runtime_pkg_correction}/hooks" "${good_hook_runtime_pkg_correction}/vibeguard-runtime/src"
+mkdir -p "${good_hook_runtime_pkg_correction}/hooks" "${good_hook_runtime_pkg_correction}/vibeguard-runtime/src/hook_checks" "${good_hook_runtime_pkg_correction}/vibeguard-runtime/src/hook_orchestrator"
 cat > "${good_hook_runtime_pkg_correction}/hooks/pre-bash-guard.sh" <<'EOF'
 #!/usr/bin/env bash
 exec "$_VIBEGUARD_RUNTIME" hook pre-bash
 EOF
-cat > "${good_hook_runtime_pkg_correction}/vibeguard-runtime/src/hook_checks_bash.rs" <<'EOF'
+cat > "${good_hook_runtime_pkg_correction}/vibeguard-runtime/src/hook_checks/bash.rs" <<'EOF'
 json!({
   "updatedInput": {
     "command": corrected,
   }
 })
 EOF
-cat > "${good_hook_runtime_pkg_correction}/vibeguard-runtime/src/hook_orchestrator_pre_bash.rs" <<'EOF'
+cat > "${good_hook_runtime_pkg_correction}/vibeguard-runtime/src/hook_orchestrator/pre_bash.rs" <<'EOF'
 fn run() {
     println!("{}", corrected);
 }

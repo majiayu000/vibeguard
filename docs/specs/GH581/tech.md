@@ -14,8 +14,8 @@ GH-581
 | --- | --- | --- | --- |
 | Blocking coverage gate | `scripts/ci/self-application/check-u22-coverage.sh`, `tests/test_u22_coverage.sh` | 固定 `cargo-llvm-cov 0.8.7`，当前执行 66% baseline，并把 80% 显示为未执行目标 | 每个 tranche 需要按干净测量提高 baseline，最终改为 80% |
 | Canonical CI | `.github/workflows/ci.yml`, `rust-toolchain.toml` | Ubuntu `Self-Application CI` 安装 Rust 1.95.0、`llvm-tools-preview` 和固定 llvm-cov | blocking measurement 的唯一跨 tranche 比较环境 |
-| Pre-Bash orchestration | `vibeguard-runtime/src/hook_orchestrator_pre_bash.rs`, `vibeguard-runtime/tests/cli_hook_orchestrator.rs` | classifier 已有较高覆盖，但 orchestrator 的 spawn/error/log/skip 分支覆盖不足 | 第一 tranche 的最小高风险面 |
-| Hook checks and Post-Edit | `vibeguard-runtime/src/hook_checks.rs`, `hook_orchestrator_post_edit.rs`, `hook_orchestrator_post_edit_history.rs`, `vibeguard-runtime/tests/cli_hook_checks.rs` | 核心行为存在，但多个异常和 fallback 分支未被执行 | 后续 fail-closed tranche |
+| Pre-Bash orchestration | `vibeguard-runtime/src/hook_orchestrator/pre_bash.rs`, `vibeguard-runtime/tests/cli_hook_orchestrator.rs` | classifier 已有较高覆盖，但 orchestrator 的 spawn/error/log/skip 分支覆盖不足 | 第一 tranche 的最小高风险面 |
+| Hook checks and Post-Edit | `vibeguard-runtime/src/hook_checks/mod.rs`, `hook_orchestrator_post_edit.rs`, `hook_orchestrator_post_edit_history.rs`, `vibeguard-runtime/tests/cli_hook_checks.rs` | 核心行为存在，但多个异常和 fallback 分支未被执行 | 后续 fail-closed tranche |
 | Runtime/setup policy | `runtime_policy.rs`, `setup_codex_hooks_health.rs`, `setup_manifest.rs`, `setup_install_state.rs` 及现有 CLI/unit tests | 配置与安装健康检查包含多种 parse/error/platform 路径 | 第二风险组 |
 | Rendering/observability | `observe/`, `setup_markdown.rs`, `hook_status.rs` 及现有测试 | 渲染、空数据、I/O 错误和平台分支覆盖不均 | 低于 80% 的后续风险组 |
 

@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 repo = Path(sys.argv[1])
-targets = [repo / "vibeguard-runtime/src/log_query.rs"]
+targets = [repo / "vibeguard-runtime/src/logging/query.rs"]
 session_metrics_dir = repo / "vibeguard-runtime/src/session_metrics"
 if session_metrics_dir.exists():
     targets.extend(
