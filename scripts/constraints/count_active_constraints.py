@@ -23,6 +23,8 @@ WARN_THRESHOLD = 15
 BLOCK_THRESHOLD = 30
 RULE_ID_RE = re.compile(r"^##\s+((?:U|W|SEC|RS|PY|TS|GO|TASTE)-\d+):", re.M)
 TABLE_RULE_ID_RE = re.compile(r"(?:U|W|SEC|RS|PY|TS|GO|TASTE)-\d+")
+COMPACT_RULES_START = "<!-- vibeguard-generated-compact-rules:start -->"
+COMPACT_RULES_END = "<!-- vibeguard-generated-compact-rules:end -->"
 BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.+)")
 NORMATIVE_RE = re.compile(
     r"\b(must|must not|should|should not|never|always|require|requires|required|"
@@ -86,6 +88,70 @@ def _normalize_constraint(value: str) -> str:
     return value[:240]
 
 
+# Keep this semantic map aligned with SHARED_CORE_RULE_EQUIVALENTS in
+# eval/paired_runner.py and with the Rust production mirror below.
+RULE_EQUIVALENT_KEYS = {
+    "SEC-02": "shared-core:safety",
+    "SEC-13": "shared-core:preservation",
+    "U-04": "shared-core:scope",
+    "U-08": "shared-core:verification",
+    "U-17": "shared-core:errors",
+    "U-29": "shared-core:errors",
+    "W-03": "shared-core:verification",
+    "W-12": "shared-core:safety",
+    "W-16": "shared-core:verification",
+}
+CORE_EQUIVALENT_KEYS = {
+    (
+        _normalize_constraint("Errors"),
+        _normalize_constraint(
+            "User-visible missing data, malformed input, or wrong output must fail clearly."
+        ),
+    ): "shared-core:errors",
+    (
+        _normalize_constraint("Scope"),
+        _normalize_constraint(
+            "Make the smallest requested change; do not add adjacent improvements."
+        ),
+    ): "shared-core:scope",
+    (
+        _normalize_constraint("Safety"),
+        _normalize_constraint(
+            "Never expose secrets, add hidden AI attribution, force-push, or weaken tests."
+        ),
+    ): "shared-core:safety",
+    (
+        _normalize_constraint("Preservation"),
+        _normalize_constraint(
+            "Preserve unmanaged content in high-context files, settings, and hooks."
+        ),
+    ): "shared-core:preservation",
+    (
+        _normalize_constraint("Verification"),
+        _normalize_constraint(
+            "Run a fresh, focused project command before claiming completion."
+        ),
+    ): "shared-core:verification",
+}
+
+
+def _rule_constraint_key(rule_id: str) -> str:
+    return RULE_EQUIVALENT_KEYS.get(rule_id, f"rule:{rule_id}")
+
+
+def _core_constraint_key(area: str, requirement: str) -> str:
+    normalized_area = _normalize_constraint(area)
+    normalized_requirement = _normalize_constraint(requirement)
+    return CORE_EQUIVALENT_KEYS.get(
+        (normalized_area, normalized_requirement),
+        f"core:{normalized_area}:{normalized_requirement}",
+    )
+
+
+def _is_rule_constraint(constraint: Constraint) -> bool:
+    return TABLE_RULE_ID_RE.fullmatch(constraint.label) is not None
+
+
 def _iter_constraints(path: Path, text: str) -> Iterable[Constraint]:
     _fields, body = _strip_frontmatter(text)
     frontmatter_offset = len(text) - len(body)
@@ -93,7 +159,7 @@ def _iter_constraints(path: Path, text: str) -> Iterable[Constraint]:
     for match in RULE_ID_RE.finditer(body):
         rule_id = match.group(1)
         yield Constraint(
-            key=f"rule:{rule_id}",
+            key=_rule_constraint_key(rule_id),
             label=rule_id,
             source=path,
             line=_line_number(text, frontmatter_offset + match.start()),
@@ -101,6 +167,7 @@ def _iter_constraints(path: Path, text: str) -> Iterable[Constraint]:
 
     in_fence = False
     in_core_contract = False
+    in_compact_rules = False
     body_lines = body.splitlines()
     for index, line in enumerate(body_lines, start=_line_number(text, frontmatter_offset)):
         stripped = line.strip()
@@ -109,14 +176,20 @@ def _iter_constraints(path: Path, text: str) -> Iterable[Constraint]:
             continue
         if in_fence or not stripped:
             continue
+        if stripped == COMPACT_RULES_START:
+            in_compact_rules = True
+            continue
+        if stripped == COMPACT_RULES_END:
+            in_compact_rules = False
+            continue
         if stripped.startswith("## "):
             in_core_contract = stripped == "## Core contract"
         if stripped.startswith("|"):
             cells = [cell.strip() for cell in stripped.strip("|").split("|")]
             first_cell = cells[0] if cells else ""
-            if TABLE_RULE_ID_RE.fullmatch(first_cell):
+            if in_compact_rules and TABLE_RULE_ID_RE.fullmatch(first_cell):
                 yield Constraint(
-                    key=f"rule:{first_cell}",
+                    key=_rule_constraint_key(first_cell),
                     label=first_cell,
                     source=path,
                     line=index,
@@ -128,12 +201,7 @@ def _iter_constraints(path: Path, text: str) -> Iterable[Constraint]:
                 and not set(first_cell) <= {"-", ":"}
             ):
                 yield Constraint(
-                    key=(
-                        "core:"
-                        + _normalize_constraint(first_cell)
-                        + ":"
-                        + _normalize_constraint(cells[1])
-                    ),
+                    key=_core_constraint_key(first_cell, cells[1]),
                     label=f"Core contract: {first_cell}",
                     source=path,
                     line=index,
@@ -276,18 +344,29 @@ def discover_sources(
 
 def count_constraints(sources: dict[Path, str]) -> tuple[list[SourceReport], list[Constraint]]:
     seen: set[str] = set()
-    reports: list[SourceReport] = []
+    parsed_sources: list[tuple[SourceReport, list[Constraint]]] = []
     all_constraints: list[Constraint] = []
 
     for path, kind in sorted(sources.items(), key=lambda item: str(item[0])):
         text = _read_text(path)
         report = SourceReport(path=path, kind=kind)
-        for constraint in _iter_constraints(path, text):
-            if constraint.key in seen:
-                continue
-            seen.add(constraint.key)
-            report.constraints.append(constraint)
-            all_constraints.append(constraint)
+        parsed_sources.append((report, list(_iter_constraints(path, text))))
+
+    # Rule IDs win over equivalent shared-core rows so reports retain a useful
+    # canonical ID while still counting the semantic requirement only once.
+    for rule_pass in (True, False):
+        for report, constraints in parsed_sources:
+            for constraint in constraints:
+                if _is_rule_constraint(constraint) != rule_pass:
+                    continue
+                if constraint.key in seen:
+                    continue
+                seen.add(constraint.key)
+                report.constraints.append(constraint)
+                all_constraints.append(constraint)
+
+    reports: list[SourceReport] = []
+    for report, _constraints in parsed_sources:
         report.count = len(report.constraints)
         if report.count:
             reports.append(report)
@@ -311,7 +390,7 @@ def load_recent_event_text(log_paths: list[Path], max_lines: int) -> str:
 def low_frequency_candidates(constraints: list[Constraint], event_text: str, limit: int) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     for constraint in constraints:
-        if not constraint.key.startswith("rule:"):
+        if not _is_rule_constraint(constraint):
             continue
         rule_id = constraint.label
         if rule_id in event_text:
@@ -383,7 +462,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         ],
         "constraints": [
             {
-                "id": constraint.label if constraint.key.startswith("rule:") else "",
+                "id": constraint.label if _is_rule_constraint(constraint) else "",
                 "label": constraint.label,
                 "source": str(constraint.source),
                 "line": constraint.line,

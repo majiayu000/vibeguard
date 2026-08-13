@@ -76,7 +76,8 @@ make_repo "${BLOCK_REPO}"
 {
   echo "# Block"
   for i in $(seq 1 31); do
-    printf '## U-%02d: Rule %02d\n\nText.\n\n' "${i}" "${i}"
+    rule_id=$((i + 100))
+    printf '## U-%d: Rule %d\n\nText.\n\n' "${rule_id}" "${rule_id}"
   done
 } > "${BLOCK_REPO}/.claude/rules/common.md"
 
@@ -174,9 +175,52 @@ cat > "${CORE_ROW_REPO}/AGENTS.md" <<'MD'
 | Area | Default |
 |---|---|
 | Scope | Do not edit generated files. |
+
+## Rule inventory
+
+| ID | State |
+|---|---|
+| U-01 | disabled |
 MD
 core_row_json="$(python3 "${COUNTER}" --root "${CORE_ROW_REPO}" --home "${CORE_ROW_HOME}" --host claude --json)"
 assert_contains "${core_row_json}" '"total": 2' "same-area core rows with different requirements remain distinct"
+assert_not_contains "${core_row_json}" '"id": "U-01"' "ordinary rule inventories outside the generated marker are ignored"
+
+EQUIVALENT_REPO="${TMP_ROOT}/repo-core-equivalents"
+EQUIVALENT_HOME="${TMP_ROOT}/home-core-equivalents"
+make_home "${EQUIVALENT_HOME}"
+make_repo "${EQUIVALENT_REPO}"
+cat > "${EQUIVALENT_REPO}/AGENTS.md" <<'MD'
+## Core contract
+
+| Area | Default |
+|---|---|
+| Errors | User-visible missing data, malformed input, or wrong output must fail clearly. |
+| Scope | Make the smallest requested change; do not add adjacent improvements. |
+| Safety | Never expose secrets, add hidden AI attribution, force-push, or weaken tests. |
+| Preservation | Preserve unmanaged content in high-context files, settings, and hooks. |
+| Verification | Run a fresh, focused project command before claiming completion. |
+
+## Key detailed rules
+
+<!-- vibeguard-generated-compact-rules:start -->
+| ID | Severity | Rule |
+|---|---|---|
+| SEC-02 | Strict | Secrets. |
+| SEC-13 | Strict | Preservation. |
+| U-04 | Strict | Scope. |
+| U-08 | Strict | Verification. |
+| U-17 | Strict | Errors. |
+| U-29 | Strict | Errors. |
+| W-03 | Strict | Verification. |
+| W-12 | Strict | Safety. |
+| W-16 | Strict | Verification. |
+<!-- vibeguard-generated-compact-rules:end -->
+MD
+equivalent_json="$(python3 "${COUNTER}" --root "${EQUIVALENT_REPO}" --home "${EQUIVALENT_HOME}" --host claude --json)"
+assert_contains "${equivalent_json}" '"total": 5' "Python counter deduplicates all shared-core rule equivalents"
+equivalent_runtime_json="$("${RUNTIME_BIN}" active-constraints --root "${EQUIVALENT_REPO}" --home "${EQUIVALENT_HOME}" --host claude --json)"
+assert_contains "${equivalent_runtime_json}" '"total": 5' "production counter matches shared-core rule equivalence"
 
 canonical_ids_for_task_path() {
   local task_path="$1"
@@ -268,9 +312,9 @@ header "GH-541 rule-delivery budget (compact core default vs full-tree opt-in)"
 # The default (core/minimal) Claude profile injects only the shared compact core
 # plus Claude host guidance into ~/.claude/CLAUDE.md; the full rules/claude-rules
 # tree is opt-in under full/strict. This asserts the actual production content:
-# the compact core stays below U-32's block threshold while retaining the
-# truthful >15 advisory, whereas the full common/ tree — the payload the
-# default profile must NOT front-inject — blows past the block threshold.
+# semantic deduplication keeps the compact core at the 15-constraint advisory
+# boundary, while the full common/ tree — the payload the default profile must
+# NOT front-inject — still exceeds the block threshold.
 # See scripts/setup/targets/claude-home.sh Step 5.5.
 
 CLAUDE_COMPACT_SRC="${REPO_DIR}/claude-md/vibeguard-claude-rules.md"
@@ -286,12 +330,12 @@ if [[ -f "${CLAUDE_COMPACT_SRC}" && -f "${CODEX_COMPACT_SRC}" ]]; then
   make_repo "${CLAUDE_CORE_REPO}"
   cp "${CLAUDE_COMPACT_SRC}" "${CLAUDE_CORE_HOME}/.claude/CLAUDE.md"
   claude_core_json="$(python3 "${COUNTER}" --root "${CLAUDE_CORE_REPO}" --home "${CLAUDE_CORE_HOME}" --host claude --json)"
-  assert_contains "${claude_core_json}" '"total": 22' "Python counter sees all 11 compact rules, 7 core defaults, and 4 normative bullets in Claude payload"
-  assert_contains "${claude_core_json}" '"status": "warn"' "Claude payload truthfully crosses the advisory threshold without blocking"
+  assert_contains "${claude_core_json}" '"total": 15' "Python counter deduplicates equivalent core rows in Claude payload"
+  assert_contains "${claude_core_json}" '"status": "ok"' "Claude payload stays below the advisory threshold after semantic deduplication"
   claude_compact_ids="$(printf '%s' "${claude_core_json}" | python3 -c 'import json, sys; print(",".join(item["id"] for item in json.load(sys.stdin)["constraints"] if item["id"]))')"
-  assert_contains "${claude_compact_ids}" "U-17,U-26,U-29,W-02,W-03,W-12,W-16,SEC-01,SEC-02,SEC-11,SEC-13" "Claude payload exposes the exact compact rule IDs to the counter"
+  assert_contains "${claude_compact_ids}" "U-17,U-26,W-02,W-03,W-12,SEC-01,SEC-11,SEC-13" "Claude payload retains canonical IDs for distinct compact constraints"
   claude_runtime_json="$("${RUNTIME_BIN}" active-constraints --root "${CLAUDE_CORE_REPO}" --home "${CLAUDE_CORE_HOME}" --host claude --json)"
-  assert_contains "${claude_runtime_json}" '"total": 22' "production counter matches the exact Claude payload count"
+  assert_contains "${claude_runtime_json}" '"total": 15' "production counter matches the deduplicated Claude payload count"
 
   CODEX_CORE_HOME="${TMP_ROOT}/home-gh541-codex-core"
   CODEX_CORE_REPO="${TMP_ROOT}/repo-gh541-codex-core"
@@ -300,12 +344,12 @@ if [[ -f "${CLAUDE_COMPACT_SRC}" && -f "${CODEX_COMPACT_SRC}" ]]; then
   mkdir -p "${CODEX_CORE_HOME}/.codex"
   cp "${CODEX_COMPACT_SRC}" "${CODEX_CORE_HOME}/.codex/AGENTS.md"
   codex_core_json="$(python3 "${COUNTER}" --root "${CODEX_CORE_REPO}" --home "${CODEX_CORE_HOME}" --host codex --json)"
-  assert_contains "${codex_core_json}" '"total": 22' "Python counter sees all 11 compact rules, 7 core defaults, and 4 normative bullets in Codex payload"
-  assert_contains "${codex_core_json}" '"status": "warn"' "Codex payload truthfully crosses the advisory threshold without blocking"
+  assert_contains "${codex_core_json}" '"total": 15' "Python counter deduplicates equivalent core rows in Codex payload"
+  assert_contains "${codex_core_json}" '"status": "ok"' "Codex payload stays below the advisory threshold after semantic deduplication"
   codex_compact_ids="$(printf '%s' "${codex_core_json}" | python3 -c 'import json, sys; print(",".join(item["id"] for item in json.load(sys.stdin)["constraints"] if item["id"]))')"
-  assert_contains "${codex_compact_ids}" "U-17,U-26,U-29,W-02,W-03,W-12,W-16,SEC-01,SEC-02,SEC-11,SEC-13" "Codex payload exposes the exact compact rule IDs to the counter"
+  assert_contains "${codex_compact_ids}" "U-17,U-26,W-02,W-03,W-12,SEC-01,SEC-11,SEC-13" "Codex payload retains canonical IDs for distinct compact constraints"
   codex_runtime_json="$("${RUNTIME_BIN}" active-constraints --root "${CODEX_CORE_REPO}" --home "${CODEX_CORE_HOME}" --host codex --json)"
-  assert_contains "${codex_runtime_json}" '"total": 22' "production counter matches the exact Codex payload count"
+  assert_contains "${codex_runtime_json}" '"total": 15' "production counter matches the deduplicated Codex payload count"
 
   FULL_HOME="${TMP_ROOT}/home-gh541-full"
   FULL_REPO="${TMP_ROOT}/repo-gh541-full"

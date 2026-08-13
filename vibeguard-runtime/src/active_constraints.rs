@@ -11,6 +11,8 @@ type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 const WARN_THRESHOLD: usize = 15;
 const BLOCK_THRESHOLD: usize = 30;
+const COMPACT_RULES_START: &str = "<!-- vibeguard-generated-compact-rules:start -->";
+const COMPACT_RULES_END: &str = "<!-- vibeguard-generated-compact-rules:end -->";
 
 #[derive(Default)]
 struct ActiveConstraintOptions {
@@ -96,7 +98,7 @@ pub fn run(args: &[String]) -> Result {
                     "count": report.count,
                 })).collect::<Vec<_>>(),
                 "constraints": constraints.iter().map(|constraint| json!({
-                    "id": if constraint.key.starts_with("rule:") { &constraint.label } else { "" },
+                    "id": if is_rule_id(&constraint.label) { &constraint.label } else { "" },
                     "label": constraint.label,
                 })).collect::<Vec<_>>(),
             }))?
@@ -330,14 +332,13 @@ fn count_constraints(sources: &BTreeMap<PathBuf, String>) -> (Vec<SourceReport>,
         Ok(regex) => regex,
         Err(err) => panic!("invalid active constraint normative regex: {err}"),
     };
-    let mut seen = HashSet::new();
-    let mut reports = Vec::new();
-    let mut constraints = Vec::new();
+    let mut parsed_sources = Vec::new();
     for (path, kind) in sources {
         let text = read_text(path);
         let mut source_constraints = Vec::new();
         let mut in_fence = false;
         let mut in_core_contract = false;
+        let mut in_compact_rules = false;
         for line in text.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("```") {
@@ -345,6 +346,14 @@ fn count_constraints(sources: &BTreeMap<PathBuf, String>) -> (Vec<SourceReport>,
                 continue;
             }
             if in_fence {
+                continue;
+            }
+            if trimmed == COMPACT_RULES_START {
+                in_compact_rules = true;
+                continue;
+            }
+            if trimmed == COMPACT_RULES_END {
+                in_compact_rules = false;
                 continue;
             }
             if trimmed.starts_with("## ") {
@@ -357,14 +366,11 @@ fn count_constraints(sources: &BTreeMap<PathBuf, String>) -> (Vec<SourceReport>,
                     .map(str::trim)
                     .collect::<Vec<_>>();
                 let first_cell = cells.first().copied().unwrap_or("");
-                if table_rule_re.is_match(first_cell) {
-                    push_constraint(
-                        &mut seen,
-                        &mut source_constraints,
-                        &mut constraints,
-                        format!("rule:{first_cell}"),
-                        first_cell.to_string(),
-                    );
+                if in_compact_rules && table_rule_re.is_match(first_cell) {
+                    source_constraints.push(Constraint {
+                        key: rule_constraint_key(first_cell),
+                        label: first_cell.to_string(),
+                    });
                 } else if in_core_contract
                     && cells.len() >= 2
                     && first_cell != "Area"
@@ -381,25 +387,19 @@ fn count_constraints(sources: &BTreeMap<PathBuf, String>) -> (Vec<SourceReport>,
                         .collect::<Vec<_>>()
                         .join(" ")
                         .to_ascii_lowercase();
-                    push_constraint(
-                        &mut seen,
-                        &mut source_constraints,
-                        &mut constraints,
-                        format!("core:{normalized_area}:{normalized_default}"),
-                        format!("Core contract: {first_cell}"),
-                    );
+                    source_constraints.push(Constraint {
+                        key: core_constraint_key(&normalized_area, &normalized_default),
+                        label: format!("Core contract: {first_cell}"),
+                    });
                 }
                 continue;
             }
             if let Some(caps) = rule_re.captures(line) {
                 let rule_id = caps[1].to_string();
-                push_constraint(
-                    &mut seen,
-                    &mut source_constraints,
-                    &mut constraints,
-                    format!("rule:{rule_id}"),
-                    rule_id,
-                );
+                source_constraints.push(Constraint {
+                    key: rule_constraint_key(&rule_id),
+                    label: rule_id,
+                });
             } else if let Some(caps) = bullet_re.captures(line)
                 && normative_re.is_match(&caps[1])
             {
@@ -409,39 +409,89 @@ fn count_constraints(sources: &BTreeMap<PathBuf, String>) -> (Vec<SourceReport>,
                     .collect::<Vec<_>>()
                     .join(" ")
                     .to_ascii_lowercase();
-                push_constraint(
-                    &mut seen,
-                    &mut source_constraints,
-                    &mut constraints,
-                    format!("text:{normalized}"),
+                source_constraints.push(Constraint {
+                    key: format!("text:{normalized}"),
                     label,
-                );
+                });
             }
         }
-        if !source_constraints.is_empty() {
-            reports.push(SourceReport {
-                path: path.clone(),
-                kind: kind.clone(),
-                count: source_constraints.len(),
-            });
+        parsed_sources.push((path.clone(), kind.clone(), source_constraints));
+    }
+
+    let mut seen = HashSet::new();
+    let mut source_counts = BTreeMap::<PathBuf, usize>::new();
+    let mut constraints = Vec::new();
+    // Prefer canonical rule IDs to equivalent shared-core rows so JSON and GC
+    // reports retain a useful ID while the semantic requirement counts once.
+    for rule_pass in [true, false] {
+        for (path, _kind, candidates) in &parsed_sources {
+            for candidate in candidates {
+                if is_rule_id(&candidate.label) != rule_pass || !seen.insert(candidate.key.clone())
+                {
+                    continue;
+                }
+                *source_counts.entry(path.clone()).or_default() += 1;
+                constraints.push(candidate.clone());
+            }
         }
     }
+
+    let reports = parsed_sources
+        .into_iter()
+        .filter_map(|(path, kind, _candidates)| {
+            let count = source_counts.get(&path).copied().unwrap_or_default();
+            (count > 0).then_some(SourceReport { path, kind, count })
+        })
+        .collect();
     (reports, constraints)
 }
 
-fn push_constraint(
-    seen: &mut HashSet<String>,
-    source_constraints: &mut Vec<Constraint>,
-    constraints: &mut Vec<Constraint>,
-    key: String,
-    label: String,
-) {
-    if !seen.insert(key.clone()) {
-        return;
+fn is_rule_id(value: &str) -> bool {
+    let Some((prefix, number)) = value.split_once('-') else {
+        return false;
+    };
+    matches!(
+        prefix,
+        "U" | "W" | "SEC" | "RS" | "PY" | "TS" | "GO" | "TASTE"
+    ) && !number.is_empty()
+        && number.chars().all(|ch| ch.is_ascii_digit())
+}
+
+// Keep this semantic map aligned with SHARED_CORE_RULE_EQUIVALENTS in
+// eval/paired_runner.py and with scripts/constraints/count_active_constraints.py.
+fn rule_constraint_key(rule_id: &str) -> String {
+    match rule_id {
+        "SEC-02" | "W-12" => "shared-core:safety".to_string(),
+        "SEC-13" => "shared-core:preservation".to_string(),
+        "U-04" => "shared-core:scope".to_string(),
+        "U-08" | "W-03" | "W-16" => "shared-core:verification".to_string(),
+        "U-17" | "U-29" => "shared-core:errors".to_string(),
+        _ => format!("rule:{rule_id}"),
     }
-    let constraint = Constraint { key, label };
-    source_constraints.push(constraint.clone());
-    constraints.push(constraint);
+}
+
+fn core_constraint_key(area: &str, requirement: &str) -> String {
+    match (area, requirement) {
+        (
+            "errors",
+            "user-visible missing data, malformed input, or wrong output must fail clearly.",
+        ) => "shared-core:errors".to_string(),
+        ("scope", "make the smallest requested change; do not add adjacent improvements.") => {
+            "shared-core:scope".to_string()
+        }
+        (
+            "safety",
+            "never expose secrets, add hidden ai attribution, force-push, or weaken tests.",
+        ) => "shared-core:safety".to_string(),
+        (
+            "preservation",
+            "preserve unmanaged content in high-context files, settings, and hooks.",
+        ) => "shared-core:preservation".to_string(),
+        ("verification", "run a fresh, focused project command before claiming completion.") => {
+            "shared-core:verification".to_string()
+        }
+        _ => format!("core:{area}:{requirement}"),
+    }
 }
 
 fn status_for(total: usize, warn_threshold: usize, block_threshold: usize) -> &'static str {
@@ -644,7 +694,7 @@ mod tests {
         let source = dir.join("AGENTS.md");
         fs::write(
             &source,
-            "## Core contract\n\n| Area | Default |\n|---|---|\n| Scope | Keep changes focused. |\n| Verification | Run focused tests. |\n\n## Key detailed rules\n\n| ID | Severity | Rule |\n|---|---|---|\n| U-08 | Strict | Verify. |\n| W-03 | Strict | Verify. |\n",
+            "## Core contract\n\n| Area | Default |\n|---|---|\n| Scope | Keep changes focused. |\n| Verification | Run focused tests. |\n\n## Key detailed rules\n\n<!-- vibeguard-generated-compact-rules:start -->\n| ID | Severity | Rule |\n|---|---|---|\n| U-10 | Strict | Verify. |\n| W-11 | Strict | Verify. |\n<!-- vibeguard-generated-compact-rules:end -->\n",
         )
         .unwrap_or_else(|err| panic!("table fixture should be written: {err}"));
 
@@ -659,8 +709,52 @@ mod tests {
         assert_eq!(constraints.len(), 4);
         assert!(labels.contains(&"Core contract: Scope"));
         assert!(labels.contains(&"Core contract: Verification"));
-        assert!(labels.contains(&"U-08"));
-        assert!(labels.contains(&"W-03"));
+        assert!(labels.contains(&"U-10"));
+        assert!(labels.contains(&"W-11"));
+
+        fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
+    }
+
+    #[test]
+    fn count_constraints_ignores_rule_inventory_outside_generated_marker() {
+        let dir = temp_dir("ordinary-rule-inventory");
+        let source = dir.join("AGENTS.md");
+        fs::write(
+            &source,
+            "## Rule inventory\n\n| ID | State |\n|---|---|\n| U-01 | disabled |\n",
+        )
+        .unwrap_or_else(|err| panic!("inventory fixture should be written: {err}"));
+
+        let mut sources = BTreeMap::new();
+        sources.insert(source, "global".to_string());
+        let (reports, constraints) = count_constraints(&sources);
+
+        assert!(reports.is_empty());
+        assert!(constraints.is_empty());
+
+        fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
+    }
+
+    #[test]
+    fn shared_core_rows_dedupe_against_all_equivalent_rule_ids() {
+        let dir = temp_dir("shared-core-equivalents");
+        let source = dir.join("AGENTS.md");
+        fs::write(
+            &source,
+            "## Core contract\n\n| Area | Default |\n|---|---|\n| Errors | User-visible missing data, malformed input, or wrong output must fail clearly. |\n| Scope | Make the smallest requested change; do not add adjacent improvements. |\n| Safety | Never expose secrets, add hidden AI attribution, force-push, or weaken tests. |\n| Preservation | Preserve unmanaged content in high-context files, settings, and hooks. |\n| Verification | Run a fresh, focused project command before claiming completion. |\n\n## Key detailed rules\n\n<!-- vibeguard-generated-compact-rules:start -->\n| ID | Severity | Rule |\n|---|---|---|\n| SEC-02 | Strict | Secrets. |\n| SEC-13 | Strict | Preservation. |\n| U-04 | Strict | Scope. |\n| U-08 | Strict | Verification. |\n| U-17 | Strict | Errors. |\n| U-29 | Strict | Errors. |\n| W-03 | Strict | Verification. |\n| W-12 | Strict | Safety. |\n| W-16 | Strict | Verification. |\n<!-- vibeguard-generated-compact-rules:end -->\n",
+        )
+        .unwrap_or_else(|err| panic!("equivalence fixture should be written: {err}"));
+
+        let mut sources = BTreeMap::new();
+        sources.insert(source, "global".to_string());
+        let (_reports, constraints) = count_constraints(&sources);
+
+        assert_eq!(constraints.len(), 5);
+        assert!(
+            constraints
+                .iter()
+                .all(|constraint| is_rule_id(&constraint.label))
+        );
 
         fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
     }
