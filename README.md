@@ -396,7 +396,7 @@ and derives the expected README numerators and denominators from the report.
 ```bash
 # Profiles
 bash ~/vibeguard/setup.sh                              # Install (default: core profile)
-bash ~/vibeguard/setup.sh --profile minimal           # Minimal: pre-hooks only (lightweight)
+bash ~/vibeguard/setup.sh --profile minimal           # Minimal: Bash/file gates + file post-hooks
 bash ~/vibeguard/setup.sh --profile full              # Full: adds Stop signal + Build Check + learning
 bash ~/vibeguard/setup.sh --profile strict            # Strict: full hooks + Claude Code U-32 SessionStart constraint budget
 
@@ -433,8 +433,8 @@ Migration: `--check --strict` remains supported and maps to `verify-project`;
 
 | Profile | Hooks Installed | Use Case |
 |---------|----------------|----------|
-| `minimal` | pre-write, pre-edit, pre-bash | Lightweight — only critical interception |
-| `core` (default) | minimal + post-edit, post-write, analysis-paralysis | Standard development |
+| `minimal` | pre-write, pre-edit, pre-bash + post-edit, post-write | Lightweight Bash/file protection |
+| `core` (default) | minimal + Claude Code analysis-paralysis (unsupported by native Codex hooks) | Standard development |
 | `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
 | `strict` | full + Claude Code count-active-constraints (SessionStart/U-32); Codex native hooks remain full | Maximum enforcement |
 

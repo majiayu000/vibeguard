@@ -240,6 +240,16 @@ class CompactRuleGenerationTests(unittest.TestCase):
         self.assertIn("setup-codex-hooks-upsert", codex_setup)
         self.assertIn('"${wrapper}" "${PROFILE:-core}"', codex_setup)
 
+        for path in (ROOT / "README.md", ROOT / "docs" / "README_CN.md"):
+            minimal_row = next(
+                line
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.startswith("| `minimal` |")
+            )
+            with self.subTest(path=path):
+                self.assertIn("post-edit", minimal_row)
+                self.assertIn("post-write", minimal_row)
+
     def test_host_guidance_rejects_empty_or_managed_marker_content(self) -> None:
         shared = "<!-- vibeguard-start -->\nshared\n<!-- vibeguard-end -->\n"
         for host in ("", "<!-- vibeguard-start -->\nhost", "host\n<!-- vibeguard-end -->"):

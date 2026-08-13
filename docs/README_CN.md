@@ -298,7 +298,7 @@ Rust/Cargo 构建。
 ```bash
 # Profiles
 bash ~/vibeguard/setup.sh                              # 默认 core profile
-bash ~/vibeguard/setup.sh --profile minimal           # 最轻量 pre-hooks
+bash ~/vibeguard/setup.sh --profile minimal           # 最轻量 Bash/文件闸门 + 文件 post-hooks
 bash ~/vibeguard/setup.sh --profile full              # 增加 Stop 信号、Build Check、学习闭环
 bash ~/vibeguard/setup.sh --profile strict            # full hooks + Claude Code U-32 SessionStart 约束预算
 
@@ -331,8 +331,8 @@ bash ~/vibeguard/setup.sh --clean
 
 | Profile | 安装内容 | 适用场景 |
 |---------|----------|----------|
-| `minimal` | `pre-write` + `pre-edit` + `pre-bash` | 最轻量的关键拦截 |
-| `core` | `minimal` + `post-edit` + `post-write` + `analysis-paralysis` | 默认开发档 |
+| `minimal` | `pre-write` + `pre-edit` + `pre-bash` + `post-edit` + `post-write` | 最轻量 Bash/文件保护 |
+| `core` | `minimal` + Claude Code `analysis-paralysis`（Codex 原生 hooks 不支持） | 默认开发档 |
 | `full` | `core` + `stop-guard` + `learn-evaluator` + `post-build-check` | 完整防线 + 学习闭环 |
 | `strict` | `full` + Claude Code `count-active-constraints` (SessionStart/U-32)；Codex 原生 hooks 仍为 `full` | 最严格运行策略 |
 

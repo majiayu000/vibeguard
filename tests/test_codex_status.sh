@@ -162,6 +162,11 @@ done
 
 header "standalone status rejects malformed installed profiles"
 cp "${HOME}/.vibeguard/install-state.json" "${TMP_HOME}/install-state.valid.json"
+previous_state_existed=0
+if [[ -f "${HOME}/.vibeguard/install-state.previous.json" ]]; then
+  cp "${HOME}/.vibeguard/install-state.previous.json" "${TMP_HOME}/install-state.previous.valid.json"
+  previous_state_existed=1
+fi
 bad_profile_cases=(
   '{}'
   '[]'
@@ -169,6 +174,7 @@ bad_profile_cases=(
   '{"profile":7}'
   '{"profile":""}'
   '{"profile":"turbo"}'
+  '{"version":1,"profile":"full","files":"not-an-object"}'
 )
 for index in "${!bad_profile_cases[@]}"; do
   printf '%s\n' "${bad_profile_cases[$index]}" > "${HOME}/.vibeguard/install-state.json"
@@ -180,6 +186,23 @@ for index in "${!bad_profile_cases[@]}"; do
   assert_contains "${bad_status_out}" "ERROR:" "bad install-state case ${index} fails visibly"
 done
 cp "${TMP_HOME}/install-state.valid.json" "${HOME}/.vibeguard/install-state.json"
+
+header "standalone status rejects a previous-only install generation"
+rm -f "${HOME}/.vibeguard/install-state.json"
+printf '%s\n' '{"version":1,"generation":1,"complete":true,"profile":"full","files":{}}' \
+  > "${HOME}/.vibeguard/install-state.previous.json"
+set +e
+previous_only_out="$(bash "${REPO_DIR}/setup.sh" --codex-status 2>&1)"
+previous_only_rc=$?
+set -e
+assert_cmd "previous-only install-state makes standalone status fail" test "${previous_only_rc}" -ne 0
+assert_contains "${previous_only_out}" "current install-state is missing while previous snapshot exists" "previous-only install-state fails visibly instead of defaulting to core"
+cp "${TMP_HOME}/install-state.valid.json" "${HOME}/.vibeguard/install-state.json"
+if [[ "${previous_state_existed}" -eq 1 ]]; then
+  cp "${TMP_HOME}/install-state.previous.valid.json" "${HOME}/.vibeguard/install-state.previous.json"
+else
+  rm -f "${HOME}/.vibeguard/install-state.previous.json"
+fi
 
 header "setup --check downgrades semantic-only Codex drift"
 cp "${HOME}/.codex/config.toml" "${TMP_HOME}/config.toml.backup"

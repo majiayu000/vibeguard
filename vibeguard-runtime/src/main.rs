@@ -571,7 +571,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-codex-hooks-upsert",
-        usage: "<repo-dir> <hooks-file> <wrapper>  — upsert Codex hooks",
+        usage: "<repo-dir> <hooks-file> <wrapper> [profile]  — upsert Codex hooks",
         handler: setup_codex_hooks::codex_hooks_upsert,
     },
     Command {
@@ -581,7 +581,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-codex-hooks-check",
-        usage: "<repo-dir> <hooks-file> <wrapper>  — check Codex hooks",
+        usage: "<repo-dir> <hooks-file> <wrapper> [profile]  — check Codex hooks",
         handler: setup_codex_hooks::codex_hooks_check,
     },
     Command {

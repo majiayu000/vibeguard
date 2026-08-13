@@ -356,11 +356,18 @@ state_list() {
 # an absent installation. Only a genuinely missing state file defaults to core.
 state_installed_profile() {
   local state_out detected
+  state_reject_legacy_publish_artifacts || return 1
   state_reject_nonregular_paths || return 1
   if [[ ! -e "$STATE_FILE" ]]; then
+    if [[ -e "$STATE_PREVIOUS_FILE" ]]; then
+      printf 'ERROR: current install-state is missing while previous snapshot exists: %s\n' \
+        "$STATE_PREVIOUS_FILE" >&2
+      return 1
+    fi
     printf '%s\n' "core"
     return 0
   fi
+  state_preflight_generation_order || return 1
   if ! state_out="$(state_runtime setup-state-list "$STATE_FILE")"; then
     printf 'ERROR: failed to read install profile: %s\n' "$STATE_FILE" >&2
     return 1

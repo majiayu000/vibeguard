@@ -114,6 +114,15 @@ fn help_lists_all_commands() {
         ),
         "setup-state-init help must advertise snapshot carry capability: {stderr}"
     );
+    for contract in [
+        "setup-codex-hooks-upsert  <repo-dir> <hooks-file> <wrapper> [profile]",
+        "setup-codex-hooks-check  <repo-dir> <hooks-file> <wrapper> [profile]",
+    ] {
+        assert!(
+            stderr.contains(contract),
+            "Codex hook help must advertise the optional profile: {contract}; {stderr}"
+        );
+    }
 }
 
 #[test]
