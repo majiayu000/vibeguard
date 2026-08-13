@@ -355,7 +355,7 @@ state_list() {
 # Resolve the installed profile without treating a malformed existing state as
 # an absent installation. Only a genuinely missing state file defaults to core.
 state_installed_profile() {
-  local state_out detected
+  local state_out detected current_status current_generation
   state_reject_legacy_publish_artifacts || return 1
   state_reject_nonregular_paths || return 1
   if [[ ! -e "$STATE_FILE" ]]; then
@@ -368,6 +368,12 @@ state_installed_profile() {
     return 0
   fi
   state_preflight_generation_order || return 1
+  IFS=$'\t' read -r current_status current_generation \
+    < <(state_runtime setup-state-generation "$STATE_FILE") || return 1
+  if [[ "$current_status" != "COMPLETE" ]]; then
+    printf 'ERROR: current install-state generation is incomplete: %s\n' "$STATE_FILE" >&2
+    return 1
+  fi
   if ! state_out="$(state_runtime setup-state-list "$STATE_FILE")"; then
     printf 'ERROR: failed to read install profile: %s\n' "$STATE_FILE" >&2
     return 1

@@ -103,3 +103,37 @@ fn runtime_policy_check_project_profile_ignores_invalid_env_profile() {
     assert_eq!(String::from_utf8_lossy(&output.stderr), "");
     let _ = fs::remove_dir_all(repo);
 }
+
+#[test]
+fn runtime_policy_check_reports_installed_profile_for_profileless_project_config() {
+    let repo = unique_temp_dir("profileless_project_installed_profile");
+    let home = unique_temp_dir("profileless_project_installed_home");
+    write_policy(&repo, r#"{"enforcement":"warn"}"#);
+    fs::create_dir_all(home.join(".vibeguard")).expect("install-state directory should be created");
+    fs::write(
+        home.join(".vibeguard/install-state.json"),
+        r#"{"version":1,"generation":1,"complete":true,"profile":"full","files":{}}"#,
+    )
+    .expect("install-state should be written");
+
+    let output = bin()
+        .arg("runtime-policy-check")
+        .arg("--cwd")
+        .arg(&repo)
+        .arg("stop-guard.sh")
+        .current_dir(&repo)
+        .env("HOME", &home)
+        .env_remove("VIBEGUARD_PROFILE")
+        .env_remove("VIBEGUARD_PROJECT_CONFIG")
+        .env_remove("VIBEGUARD_USER_CONFIG_FILE")
+        .output()
+        .expect("runtime policy command should run");
+    let value = policy_json(&output);
+
+    assert_eq!(output.status.code(), Some(0), "{value}");
+    assert_eq!(value["decision"], "run");
+    assert_eq!(value["enforcement"], "warn");
+    assert_eq!(value["profile"], "full");
+    let _ = fs::remove_dir_all(repo);
+    let _ = fs::remove_dir_all(home);
+}

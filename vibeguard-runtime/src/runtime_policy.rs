@@ -432,6 +432,11 @@ fn runtime_policy_payload(
     let (enforcement, profile) = if matches!(decision, HookPolicyDecision::Error(_)) {
         (Value::Null, Value::Null)
     } else if let Some(config) = config.as_ref() {
+        let profile = config
+            .profile
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| default_runtime_profile(env_overrides));
         (
             json!(
                 config
@@ -439,7 +444,7 @@ fn runtime_policy_payload(
                     .clone()
                     .unwrap_or_else(|| "block".to_string())
             ),
-            json!(config.profile.clone().unwrap_or_else(|| "core".to_string())),
+            profile.map(Value::String).unwrap_or(Value::Null),
         )
     } else if config_path.is_some() {
         (Value::Null, Value::Null)

@@ -197,6 +197,19 @@ previous_only_rc=$?
 set -e
 assert_cmd "previous-only install-state makes standalone status fail" test "${previous_only_rc}" -ne 0
 assert_contains "${previous_only_out}" "current install-state is missing while previous snapshot exists" "previous-only install-state fails visibly instead of defaulting to core"
+
+header "standalone status rejects an incomplete current install generation"
+printf '%s\n' '{"version":1,"generation":2,"complete":false,"profile":"full","files":{}}' \
+  > "${HOME}/.vibeguard/install-state.json"
+printf '%s\n' '{"version":1,"generation":1,"complete":true,"profile":"core","files":{}}' \
+  > "${HOME}/.vibeguard/install-state.previous.json"
+set +e
+incomplete_status_out="$(bash "${REPO_DIR}/setup.sh" --codex-status 2>&1)"
+incomplete_status_rc=$?
+set -e
+assert_cmd "incomplete current install-state makes standalone status fail" test "${incomplete_status_rc}" -ne 0
+assert_contains "${incomplete_status_out}" "current install-state generation is incomplete" "incomplete current install-state fails visibly"
+
 cp "${TMP_HOME}/install-state.valid.json" "${HOME}/.vibeguard/install-state.json"
 if [[ "${previous_state_existed}" -eq 1 ]]; then
   cp "${TMP_HOME}/install-state.previous.valid.json" "${HOME}/.vibeguard/install-state.previous.json"
