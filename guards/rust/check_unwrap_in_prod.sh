@@ -160,7 +160,7 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
         # can honour vibeguard-disable-next-line comments in the committed file.
         # Save diff to a temp file so we can re-read it on Python failure.
         _diff_tmp=$(create_tmpfile)
-        git diff --cached -U0 -- "${f}" 2>/dev/null > "${_diff_tmp}"
+        vg_staged_file_diff "${f}" > "${_diff_tmp}"
         # Write Python script to temp file to avoid bash escaping issues with regex
         _diff_py=$(create_tmpfile)
         cat > "${_diff_py}" << 'DIFFPYEOF'
@@ -320,7 +320,7 @@ DIFFPYEOF
         fi
       else
         # Fallback when python3 is unavailable: no line numbers; suppression won't apply.
-        git diff --cached -U0 -- "${f}" 2>/dev/null \
+        vg_staged_file_diff "${f}" \
           | grep '^+' \
           | grep -v '^+++' \
           | grep -E '\.(unwrap|expect)\(' \

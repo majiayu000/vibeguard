@@ -25,7 +25,7 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
   if [[ -n "${STAGED_RS}" ]]; then
     while IFS= read -r f; do
       [[ -z "$f" || ! -f "$f" ]] && continue
-      diff_out=$(git diff --cached -U0 -- "${f}" 2>/dev/null)
+      diff_out=$(vg_staged_file_diff "${f}")
       count=$(printf '%s\n' "$diff_out" | grep '^+' | grep -v '^+++' \
         | grep -cE '\.(read|write|lock)[[:space:]]*\(') || count=0
       if [[ "$count" -gt 2 ]]; then

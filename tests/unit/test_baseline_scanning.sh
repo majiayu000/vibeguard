@@ -558,6 +558,125 @@ else
   SKIP=$((SKIP+1))
 fi
 
+printf '\n=== Baseline Scanning: staged renames are not treated as new code ===\n'
+
+# A pathspec-limited `git diff --cached -- <new-path>` cannot pair a staged
+# rename, so renamed files used to show as fully added and every pre-existing
+# violation looked new (false pre-commit blocks on pure moves).
+
+# ---- Rename test A: pre-existing unwrap in a renamed file is NOT reported ----
+repoR1="${tmpdir}/rs03_rename_clean"
+init_repo "$repoR1"
+mkdir -p "${repoR1}/src"
+
+cat > "${repoR1}/src/old_util.rs" <<'EOF'
+pub fn read_value(input: Option<i32>) -> i32 {
+    input.unwrap()
+}
+EOF
+git -C "$repoR1" add src/old_util.rs
+git -C "$repoR1" commit -q -m "initial with pre-existing unwrap"
+
+git -C "$repoR1" mv src/old_util.rs src/moved_util.rs
+cat >> "${repoR1}/src/moved_util.rs" <<'EOF'
+
+pub fn harmless_addition() -> i32 {
+    2
+}
+EOF
+git -C "$repoR1" add src/moved_util.rs
+
+stagedR1=$(staged_list "$repoR1" src/moved_util.rs)
+TOTAL=$((TOTAL+1))
+rcR1=0
+outR1=$( (cd "$repoR1" && VIBEGUARD_STAGED_FILES="$stagedR1" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 ) || rcR1=$?
+if [[ $rcR1 -eq 0 ]] && ! echo "$outR1" | grep -q '\[RS-03\]'; then
+  green "pre-existing unwrap in a staged rename is not reported"
+  PASS=$((PASS+1))
+else
+  red "staged rename should not resurface pre-existing unwrap (rc=$rcR1, got: $outR1)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR1"
+
+# ---- Rename test B: unwrap ADDED during a rename IS still reported ----
+repoR2="${tmpdir}/rs03_rename_new_unwrap"
+init_repo "$repoR2"
+mkdir -p "${repoR2}/src"
+
+cat > "${repoR2}/src/old_core.rs" <<'EOF'
+pub fn stable() -> i32 {
+    1
+}
+EOF
+git -C "$repoR2" add src/old_core.rs
+git -C "$repoR2" commit -q -m "initial clean"
+
+git -C "$repoR2" mv src/old_core.rs src/moved_core.rs
+cat >> "${repoR2}/src/moved_core.rs" <<'EOF'
+
+pub fn risky(input: Option<i32>) -> i32 {
+    input.unwrap()
+}
+EOF
+git -C "$repoR2" add src/moved_core.rs
+
+stagedR2=$(staged_list "$repoR2" src/moved_core.rs)
+TOTAL=$((TOTAL+1))
+outR2=$( (cd "$repoR2" && VIBEGUARD_STAGED_FILES="$stagedR2" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 || true )
+if echo "$outR2" | grep -q '\[RS-03\]'; then
+  green "unwrap added inside a staged rename is still reported"
+  PASS=$((PASS+1))
+else
+  red "unwrap added during a rename must still be reported (got: $outR2)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR2"
+
+# ---- Rename test C: Go linemap only contains edited lines for a rename ----
+repoR3="${tmpdir}/linemap_go_rename"
+init_repo "$repoR3"
+
+cat > "${repoR3}/old_worker.go" <<'EOF'
+package worker
+
+func Existing() {
+    go loop()
+}
+
+func loop() {}
+EOF
+git -C "$repoR3" add old_worker.go
+git -C "$repoR3" commit -q -m "initial with goroutine"
+
+git -C "$repoR3" mv old_worker.go moved_worker.go
+cat >> "${repoR3}/moved_worker.go" <<'EOF'
+
+func Helper() string { return "ok" }
+EOF
+git -C "$repoR3" add moved_worker.go
+
+stagedR3=$(staged_list "$repoR3" moved_worker.go)
+linemapR3=$(mktemp)
+(
+  cd "$repoR3"
+  source "${REPO_DIR}/guards/go/common.sh"
+  VIBEGUARD_STAGED_FILES="$stagedR3" vg_build_diff_linemap "$linemapR3" '\.go$'
+)
+
+TOTAL=$((TOTAL+1))
+repoR3_real=$(canon "$repoR3")
+# Line 4 holds the pre-existing `go loop()`; it must not be in the linemap.
+if grep -q "${repoR3_real}/moved_worker.go:" "$linemapR3" 2>/dev/null \
+    && ! grep -q "${repoR3_real}/moved_worker.go:4$" "$linemapR3" 2>/dev/null; then
+  green "Go linemap for a staged rename contains only edited lines"
+  PASS=$((PASS+1))
+else
+  red "Go linemap should pair the rename and keep only edited lines (got: $(cat "$linemapR3" 2>/dev/null))"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR3" "$linemapR3"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

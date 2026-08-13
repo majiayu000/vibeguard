@@ -115,6 +115,57 @@ create_tmpfile() {
 }
 
 # ---------------------------------------------------------------------------
+# Rename-aware staged diff
+# ---------------------------------------------------------------------------
+# `git diff --cached -- <new-path>` cannot pair a staged rename because the
+# old path falls outside the pathspec, so a renamed file shows up as fully
+# added and every pre-existing line looks new. Resolve the rename source once
+# per process and diff both sides of the pathspec instead.
+
+_VG_STAGED_RENAME_MAP=""
+_VG_STAGED_RENAME_MAP_LOADED=""
+
+_vg_load_staged_rename_map() {
+  if [[ -z "${_VG_STAGED_RENAME_MAP_LOADED}" ]]; then
+    # PERF-OK: one rename-aware name-status diff per guard process.
+    _VG_STAGED_RENAME_MAP=$(git diff --cached -M --name-status 2>/dev/null \
+      | awk -F'\t' '$1 ~ /^R/ && NF >= 3 { print $3 "\t" $2 }') || _VG_STAGED_RENAME_MAP=""
+    _VG_STAGED_RENAME_MAP_LOADED=1
+  fi
+}
+
+# vg_staged_file_diff FILE
+# Prints the staged -U0 diff for one file, pairing staged renames so that
+# moved-but-unchanged lines do not appear as additions.
+vg_staged_file_diff() {
+  local f="$1"
+  local git_root rel old
+  rel="$f"
+  if [[ "$f" == /* ]]; then
+    git_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+    if [[ -n "$git_root" ]]; then
+      if command -v python3 >/dev/null 2>&1; then
+        # realpath resolution handles macOS /var -> /private/var symlinks.
+        rel=$(python3 -c "import os,sys; f=os.path.realpath(sys.argv[1]); r=os.path.realpath(sys.argv[2]); print(f[len(r)+1:] if f.startswith(r+os.sep) else sys.argv[1])" "$f" "$git_root" 2>/dev/null || echo "$f")
+      else
+        [[ "$f" == "$git_root/"* ]] && rel="${f#$git_root/}"
+      fi
+    fi
+  fi
+  _vg_load_staged_rename_map
+  old=""
+  if [[ -n "$_VG_STAGED_RENAME_MAP" ]]; then
+    old=$(printf '%s\n' "$_VG_STAGED_RENAME_MAP" \
+      | awk -F'\t' -v new="$rel" '$1 == new { print $2; exit }')
+  fi
+  if [[ -n "$old" ]]; then
+    git diff --cached -M -U0 -- ":(top)${old}" ":(top)${rel}" 2>/dev/null
+  else
+    git diff --cached -U0 -- "$f" 2>/dev/null
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Inline suppression: // vibeguard-disable-next-line <RULE-ID> [-- reason]
 # ---------------------------------------------------------------------------
 

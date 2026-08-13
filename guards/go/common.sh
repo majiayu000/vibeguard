@@ -125,6 +125,27 @@ def get_git_root(dirpath):
         _git_root_cache[key] = os.path.realpath(r.stdout.strip()) if r.returncode == 0 else ""
     return _git_root_cache[key]
 
+_rename_cache = {}
+
+def rename_source(git_root, fpath):
+    """Map a renamed file to its old path. A pathspec-limited diff cannot pair
+    a rename (the old path is outside the pathspec), so without this a renamed
+    file shows as fully added and pre-existing lines look new."""
+    key = (git_root, baseline)
+    if key not in _rename_cache:
+        if baseline:
+            cmd = ["git", "-C", git_root, "diff", "-M", "--name-status", baseline + "..HEAD"]
+        else:
+            cmd = ["git", "-C", git_root, "diff", "--cached", "-M", "--name-status"]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        mapping = {}
+        for line in r.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 3 and parts[0].startswith("R"):
+                mapping[os.path.realpath(os.path.join(git_root, parts[2]))] = parts[1]
+        _rename_cache[key] = mapping
+    return _rename_cache[key].get(os.path.realpath(fpath), "")
+
 def iter_files():
     if staged and os.path.isfile(staged):
         with open(staged) as fh:
@@ -154,10 +175,17 @@ def diff_linenos(fpath):
     git_root = get_git_root(file_dir)
     if not git_root:
         return [], []
+    old = rename_source(git_root, fpath)
     if baseline:
-        cmd = ["git", "-C", git_root, "diff", "-U0", baseline + "..HEAD", "--", fpath]
+        if old:
+            cmd = ["git", "-C", git_root, "diff", "-M", "-U0", baseline + "..HEAD", "--", old, fpath]
+        else:
+            cmd = ["git", "-C", git_root, "diff", "-U0", baseline + "..HEAD", "--", fpath]
     else:
-        cmd = ["git", "-C", git_root, "diff", "--cached", "-U0", "--", fpath]
+        if old:
+            cmd = ["git", "-C", git_root, "diff", "--cached", "-M", "-U0", "--", old, fpath]
+        else:
+            cmd = ["git", "-C", git_root, "diff", "--cached", "-U0", "--", fpath]
     result = subprocess.run(cmd, capture_output=True, text=True)
     cur = 0
     added_nums = []
