@@ -333,10 +333,12 @@ if ! ensure_setup_runtime_available >/dev/null 2>&1; then
 fi
 
 if [[ -z "${PROFILE}" ]]; then
-  if ! PROFILE="$(state_installed_profile 2>&1)"; then
-    PROFILE_RESOLUTION_ERROR="${PROFILE}"
+  profile_error_file="$(mktemp -t vg-profile-error.XXXXXX 2>/dev/null || mktemp)"
+  if ! PROFILE="$(state_installed_profile)" 2>"${profile_error_file}"; then
+    PROFILE_RESOLUTION_ERROR="$(<"${profile_error_file}")"
     PROFILE="core"
   fi
+  rm -f "${profile_error_file}" 2>/dev/null || true
 fi
 validate_setup_profile "${PROFILE}"
 if [[ -z "${LANGUAGES}" ]]; then
