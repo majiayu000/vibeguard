@@ -290,11 +290,13 @@ def discover_sources(
         for path in _iter_files(base, "**/*.md"):
             _add_source(sources, path, "global-rule", root=root, task_paths=task_paths)
 
-    project_files = [root / "AGENTS.md"]
+    project_files = []
     if _host_includes_codex(host):
         project_files.extend(_codex_project_instruction_files(root, task_paths))
     if _host_includes_claude(host):
-        project_files.extend([root / "CLAUDE.md", root / ".claude" / "CLAUDE.md"])
+        project_files.extend(
+            [root / "AGENTS.md", root / "CLAUDE.md", root / ".claude" / "CLAUDE.md"]
+        )
     for path in project_files:
         _add_source(sources, path, "project", root=root, task_paths=task_paths)
 
@@ -323,7 +325,7 @@ def discover_sources(
 
 def _codex_project_instruction_files(root: Path, task_paths: list[str]) -> list[Path]:
     resolved_root = root.resolve()
-    instruction_files: set[Path] = set()
+    instruction_files = {_codex_instruction_file(resolved_root)}
     for task_path in task_paths:
         candidate = Path(task_path)
         if not candidate.is_absolute():
@@ -335,12 +337,17 @@ def _codex_project_instruction_files(root: Path, task_paths: list[str]) -> list[
             continue
         directory = candidate if candidate.is_dir() else candidate.parent
         while directory != resolved_root:
-            instruction_files.add(directory / "AGENTS.md")
+            instruction_files.add(_codex_instruction_file(directory))
             parent = directory.parent
             if parent == directory:
                 break
             directory = parent
     return sorted(instruction_files)
+
+
+def _codex_instruction_file(directory: Path) -> Path:
+    override_path = directory / "AGENTS.override.md"
+    return override_path if override_path.is_file() else directory / "AGENTS.md"
 
 
 def count_constraints(sources: dict[Path, str]) -> tuple[list[SourceReport], list[Constraint]]:

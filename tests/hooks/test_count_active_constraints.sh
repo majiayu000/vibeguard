@@ -163,7 +163,10 @@ cat > "${HOST_REPO}/packages/AGENTS.md" <<'MD'
 - Must count parent package guidance.
 MD
 cat > "${HOST_REPO}/packages/api/AGENTS.md" <<'MD'
-- Must count nested API guidance.
+- Must not count overridden API fallback guidance.
+MD
+cat > "${HOST_REPO}/packages/api/AGENTS.override.md" <<'MD'
+- Must count nested API override guidance.
 MD
 cat > "${HOST_REPO}/packages/web/AGENTS.md" <<'MD'
 - Must not count sibling guidance.
@@ -171,10 +174,22 @@ MD
 nested_codex_json="$(env CODEX_HOME="${CUSTOM_CODEX_HOME}" python3 "${COUNTER}" --root "${HOST_REPO}" --home "${HOST_HOME}" --host codex --task-path packages/api/src/lib.rs --json)"
 assert_contains "${nested_codex_json}" '"total": 4' "Codex scope counts root and applicable nested AGENTS files"
 assert_contains "${nested_codex_json}" "parent package guidance" "Codex scope counts parent AGENTS guidance"
-assert_contains "${nested_codex_json}" "nested API guidance" "Codex scope counts nearest nested AGENTS guidance"
+assert_contains "${nested_codex_json}" "nested API override guidance" "Codex scope prefers nearest AGENTS override guidance"
+assert_not_contains "${nested_codex_json}" "overridden API fallback guidance" "Codex scope excludes overridden fallback AGENTS guidance"
 assert_not_contains "${nested_codex_json}" "sibling guidance" "Codex scope excludes sibling AGENTS guidance"
 nested_codex_runtime_json="$(env CODEX_HOME="${CUSTOM_CODEX_HOME}" "${RUNTIME_BIN}" active-constraints --root "${HOST_REPO}" --home "${HOST_HOME}" --host codex --task-path packages/api/src/lib.rs --json)"
 assert_contains "${nested_codex_runtime_json}" '"total": 4' "production counter matches nested Codex instruction discovery"
+
+mkdir -p "${TMP_ROOT}/outside"
+cat > "${TMP_ROOT}/outside/AGENTS.md" <<'MD'
+- Must not count an instruction outside the repository.
+MD
+outside_codex_json="$(env CODEX_HOME="${CUSTOM_CODEX_HOME}" python3 "${COUNTER}" --root "${HOST_REPO}" --home "${HOST_HOME}" --host codex --task-path ../outside/new.rs --json)"
+assert_contains "${outside_codex_json}" '"total": 2' "Codex scope rejects unresolved task paths outside the repository"
+assert_not_contains "${outside_codex_json}" "outside the repository" "Codex scope excludes external AGENTS guidance"
+outside_codex_runtime_json="$(env CODEX_HOME="${CUSTOM_CODEX_HOME}" "${RUNTIME_BIN}" active-constraints --root "${HOST_REPO}" --home "${HOST_HOME}" --host codex --task-path ../outside/new.rs --json)"
+assert_contains "${outside_codex_runtime_json}" '"total": 2' "production counter rejects unresolved external task paths"
+assert_not_contains "${outside_codex_runtime_json}" "outside the repository" "production counter excludes external AGENTS guidance"
 
 CORE_ROW_REPO="${TMP_ROOT}/repo-core-row-dedupe"
 CORE_ROW_HOME="${TMP_ROOT}/home-core-row-dedupe"

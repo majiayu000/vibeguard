@@ -8,9 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::hook_checks_common::glob_match;
 
 mod source_paths;
-
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
-
 const WARN_THRESHOLD: usize = 15;
 const BLOCK_THRESHOLD: usize = 30;
 const COMPACT_RULES_START: &str = "<!-- vibeguard-generated-compact-rules:start -->";
@@ -203,7 +201,7 @@ fn discover_sources(options: &ActiveConstraintOptions) -> BTreeMap<PathBuf, Stri
         add_source(&mut sources, &path, "global", options);
     }
 
-    let mut project_files = vec![options.root.join("AGENTS.md")];
+    let mut project_files = Vec::new();
     if options.host.includes_codex() {
         project_files.extend(source_paths::codex_project_instruction_files(
             &options.root,
@@ -211,6 +209,7 @@ fn discover_sources(options: &ActiveConstraintOptions) -> BTreeMap<PathBuf, Stri
         ));
     }
     if options.host.includes_claude() {
+        project_files.push(options.root.join("AGENTS.md"));
         project_files.push(options.root.join("CLAUDE.md"));
         project_files.push(options.root.join(".claude/CLAUDE.md"));
     }
@@ -468,7 +467,6 @@ fn is_rule_id(value: &str) -> bool {
 fn rule_constraint_key(rule_id: &str) -> String {
     format!("rule:{rule_id}")
 }
-
 fn core_constraint_key(area: &str, requirement: &str) -> String {
     match (area, requirement) {
         (
