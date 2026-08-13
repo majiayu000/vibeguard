@@ -88,55 +88,32 @@ def _normalize_constraint(value: str) -> str:
     return value[:240]
 
 
-# Keep this semantic map aligned with SHARED_CORE_RULE_EQUIVALENTS in
-# eval/paired_runner.py and with the Rust production mirror below.
-RULE_EQUIVALENT_KEYS = {
-    "SEC-02": "shared-core:safety",
-    "SEC-13": "shared-core:preservation",
-    "U-04": "shared-core:scope",
-    "U-08": "shared-core:verification",
-    "U-17": "shared-core:errors",
-    "U-29": "shared-core:errors",
-    "W-03": "shared-core:verification",
-    "W-12": "shared-core:safety",
-    "W-16": "shared-core:verification",
-}
+# Core rows may summarize one detailed rule, but detailed rule IDs remain
+# independent constraints even when they share a broad topic.
 CORE_EQUIVALENT_KEYS = {
     (
         _normalize_constraint("Errors"),
         _normalize_constraint(
             "User-visible missing data, malformed input, or wrong output must fail clearly."
         ),
-    ): "shared-core:errors",
+    ): "rule:U-29",
     (
         _normalize_constraint("Scope"),
         _normalize_constraint(
             "Make the smallest requested change; do not add adjacent improvements."
         ),
-    ): "shared-core:scope",
-    (
-        _normalize_constraint("Safety"),
-        _normalize_constraint(
-            "Never expose secrets, add hidden AI attribution, force-push, or weaken tests."
-        ),
-    ): "shared-core:safety",
-    (
-        _normalize_constraint("Preservation"),
-        _normalize_constraint(
-            "Preserve unmanaged content in high-context files, settings, and hooks."
-        ),
-    ): "shared-core:preservation",
+    ): "rule:U-04",
     (
         _normalize_constraint("Verification"),
         _normalize_constraint(
             "Run a fresh, focused project command before claiming completion."
         ),
-    ): "shared-core:verification",
+    ): "rule:W-03",
 }
 
 
 def _rule_constraint_key(rule_id: str) -> str:
-    return RULE_EQUIVALENT_KEYS.get(rule_id, f"rule:{rule_id}")
+    return f"rule:{rule_id}"
 
 
 def _core_constraint_key(area: str, requirement: str) -> str:
@@ -314,6 +291,8 @@ def discover_sources(
             _add_source(sources, path, "global-rule", root=root, task_paths=task_paths)
 
     project_files = [root / "AGENTS.md"]
+    if _host_includes_codex(host):
+        project_files.extend(_codex_project_instruction_files(root, task_paths))
     if _host_includes_claude(host):
         project_files.extend([root / "CLAUDE.md", root / ".claude" / "CLAUDE.md"])
     for path in project_files:
@@ -340,6 +319,28 @@ def discover_sources(
             _add_source(sources, base / skill / "SKILL.md", "skill", root=root, task_paths=task_paths)
 
     return sources
+
+
+def _codex_project_instruction_files(root: Path, task_paths: list[str]) -> list[Path]:
+    resolved_root = root.resolve()
+    instruction_files: set[Path] = set()
+    for task_path in task_paths:
+        candidate = Path(task_path)
+        if not candidate.is_absolute():
+            candidate = resolved_root / candidate
+        candidate = candidate.resolve()
+        try:
+            candidate.relative_to(resolved_root)
+        except ValueError:
+            continue
+        directory = candidate if candidate.is_dir() else candidate.parent
+        while directory != resolved_root:
+            instruction_files.add(directory / "AGENTS.md")
+            parent = directory.parent
+            if parent == directory:
+                break
+            directory = parent
+    return sorted(instruction_files)
 
 
 def count_constraints(sources: dict[Path, str]) -> tuple[list[SourceReport], list[Constraint]]:

@@ -158,6 +158,24 @@ assert_not_contains "${custom_codex_json}" "Claude project" "Codex scope exclude
 assert_not_contains "${custom_codex_json}" "Codex global guidance" "configured CODEX_HOME replaces the fallback ~/.codex source"
 assert_not_contains "${custom_codex_json}" "unsupported Codex native rules" "Codex scope excludes unsupported native rule paths"
 
+mkdir -p "${HOST_REPO}/packages/api/src" "${HOST_REPO}/packages/web"
+cat > "${HOST_REPO}/packages/AGENTS.md" <<'MD'
+- Must count parent package guidance.
+MD
+cat > "${HOST_REPO}/packages/api/AGENTS.md" <<'MD'
+- Must count nested API guidance.
+MD
+cat > "${HOST_REPO}/packages/web/AGENTS.md" <<'MD'
+- Must not count sibling guidance.
+MD
+nested_codex_json="$(env CODEX_HOME="${CUSTOM_CODEX_HOME}" python3 "${COUNTER}" --root "${HOST_REPO}" --home "${HOST_HOME}" --host codex --task-path packages/api/src/lib.rs --json)"
+assert_contains "${nested_codex_json}" '"total": 4' "Codex scope counts root and applicable nested AGENTS files"
+assert_contains "${nested_codex_json}" "parent package guidance" "Codex scope counts parent AGENTS guidance"
+assert_contains "${nested_codex_json}" "nested API guidance" "Codex scope counts nearest nested AGENTS guidance"
+assert_not_contains "${nested_codex_json}" "sibling guidance" "Codex scope excludes sibling AGENTS guidance"
+nested_codex_runtime_json="$(env CODEX_HOME="${CUSTOM_CODEX_HOME}" "${RUNTIME_BIN}" active-constraints --root "${HOST_REPO}" --home "${HOST_HOME}" --host codex --task-path packages/api/src/lib.rs --json)"
+assert_contains "${nested_codex_runtime_json}" '"total": 4' "production counter matches nested Codex instruction discovery"
+
 CORE_ROW_REPO="${TMP_ROOT}/repo-core-row-dedupe"
 CORE_ROW_HOME="${TMP_ROOT}/home-core-row-dedupe"
 make_home "${CORE_ROW_HOME}"
@@ -218,9 +236,11 @@ cat > "${EQUIVALENT_REPO}/AGENTS.md" <<'MD'
 <!-- vibeguard-generated-compact-rules:end -->
 MD
 equivalent_json="$(python3 "${COUNTER}" --root "${EQUIVALENT_REPO}" --home "${EQUIVALENT_HOME}" --host claude --json)"
-assert_contains "${equivalent_json}" '"total": 5' "Python counter deduplicates all shared-core rule equivalents"
+assert_contains "${equivalent_json}" '"total": 11' "Python counter keeps distinct detailed rules while deduplicating exact core equivalents"
+equivalent_ids="$(printf '%s' "${equivalent_json}" | python3 -c 'import json, sys; print(",".join(item["id"] for item in json.load(sys.stdin)["constraints"] if item["id"]))')"
+assert_exit_zero "Python counter retains every detailed constraint ID" test "${equivalent_ids}" = "SEC-02,SEC-13,U-04,U-08,U-17,U-29,W-03,W-12,W-16"
 equivalent_runtime_json="$("${RUNTIME_BIN}" active-constraints --root "${EQUIVALENT_REPO}" --home "${EQUIVALENT_HOME}" --host claude --json)"
-assert_contains "${equivalent_runtime_json}" '"total": 5' "production counter matches shared-core rule equivalence"
+assert_contains "${equivalent_runtime_json}" '"total": 11' "production counter matches exact shared-core equivalence"
 
 canonical_ids_for_task_path() {
   local task_path="$1"
@@ -330,12 +350,12 @@ if [[ -f "${CLAUDE_COMPACT_SRC}" && -f "${CODEX_COMPACT_SRC}" ]]; then
   make_repo "${CLAUDE_CORE_REPO}"
   cp "${CLAUDE_COMPACT_SRC}" "${CLAUDE_CORE_HOME}/.claude/CLAUDE.md"
   claude_core_json="$(python3 "${COUNTER}" --root "${CLAUDE_CORE_REPO}" --home "${CLAUDE_CORE_HOME}" --host claude --json)"
-  assert_contains "${claude_core_json}" '"total": 15' "Python counter deduplicates equivalent core rows in Claude payload"
-  assert_contains "${claude_core_json}" '"status": "ok"' "Claude payload stays below the advisory threshold after semantic deduplication"
+  assert_contains "${claude_core_json}" '"total": 20' "Python counter reports the exact Claude payload budget"
+  assert_contains "${claude_core_json}" '"status": "warn"' "Claude payload truthfully reports its advisory budget status"
   claude_compact_ids="$(printf '%s' "${claude_core_json}" | python3 -c 'import json, sys; print(",".join(item["id"] for item in json.load(sys.stdin)["constraints"] if item["id"]))')"
-  assert_contains "${claude_compact_ids}" "U-17,U-26,W-02,W-03,W-12,SEC-01,SEC-11,SEC-13" "Claude payload retains canonical IDs for distinct compact constraints"
+  assert_exit_zero "Claude payload retains every compact constraint ID" test "${claude_compact_ids}" = "U-17,U-26,U-29,W-02,W-03,W-12,W-16,SEC-01,SEC-02,SEC-11,SEC-13"
   claude_runtime_json="$("${RUNTIME_BIN}" active-constraints --root "${CLAUDE_CORE_REPO}" --home "${CLAUDE_CORE_HOME}" --host claude --json)"
-  assert_contains "${claude_runtime_json}" '"total": 15' "production counter matches the deduplicated Claude payload count"
+  assert_contains "${claude_runtime_json}" '"total": 20' "production counter matches the exact Claude payload count"
 
   CODEX_CORE_HOME="${TMP_ROOT}/home-gh541-codex-core"
   CODEX_CORE_REPO="${TMP_ROOT}/repo-gh541-codex-core"
@@ -344,12 +364,12 @@ if [[ -f "${CLAUDE_COMPACT_SRC}" && -f "${CODEX_COMPACT_SRC}" ]]; then
   mkdir -p "${CODEX_CORE_HOME}/.codex"
   cp "${CODEX_COMPACT_SRC}" "${CODEX_CORE_HOME}/.codex/AGENTS.md"
   codex_core_json="$(python3 "${COUNTER}" --root "${CODEX_CORE_REPO}" --home "${CODEX_CORE_HOME}" --host codex --json)"
-  assert_contains "${codex_core_json}" '"total": 15' "Python counter deduplicates equivalent core rows in Codex payload"
-  assert_contains "${codex_core_json}" '"status": "ok"' "Codex payload stays below the advisory threshold after semantic deduplication"
+  assert_contains "${codex_core_json}" '"total": 20' "Python counter reports the exact Codex payload budget"
+  assert_contains "${codex_core_json}" '"status": "warn"' "Codex payload truthfully reports its advisory budget status"
   codex_compact_ids="$(printf '%s' "${codex_core_json}" | python3 -c 'import json, sys; print(",".join(item["id"] for item in json.load(sys.stdin)["constraints"] if item["id"]))')"
-  assert_contains "${codex_compact_ids}" "U-17,U-26,W-02,W-03,W-12,SEC-01,SEC-11,SEC-13" "Codex payload retains canonical IDs for distinct compact constraints"
+  assert_exit_zero "Codex payload retains every compact constraint ID" test "${codex_compact_ids}" = "U-17,U-26,U-29,W-02,W-03,W-12,W-16,SEC-01,SEC-02,SEC-11,SEC-13"
   codex_runtime_json="$("${RUNTIME_BIN}" active-constraints --root "${CODEX_CORE_REPO}" --home "${CODEX_CORE_HOME}" --host codex --json)"
-  assert_contains "${codex_runtime_json}" '"total": 15' "production counter matches the deduplicated Codex payload count"
+  assert_contains "${codex_runtime_json}" '"total": 20' "production counter matches the exact Codex payload count"
 
   FULL_HOME="${TMP_ROOT}/home-gh541-full"
   FULL_REPO="${TMP_ROOT}/repo-gh541-full"

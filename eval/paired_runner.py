@@ -76,7 +76,6 @@ THRESHOLD_KEYS = {
 }
 SHARED_CORE_RULE_EQUIVALENTS = {
     "SEC-02": "Core contract (Safety)",
-    "SEC-13": "Core contract (Preservation)",
     "U-04": "Core contract (Scope)",
     "U-08": "Core contract (Verification)",
     "U-17": "Core contract (Errors)",

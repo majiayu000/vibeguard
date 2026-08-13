@@ -1,7 +1,7 @@
 <!-- vibeguard-start -->
 # VibeGuard shared core
 
-> __VIBEGUARD_RULE_COUNT__ rules total are available. This managed block keeps only cross-project defaults in global context. The user's request and the nearest repository-level `AGENTS.md` or `CLAUDE.md` define project facts, conventions, and verification commands. Load deeper rules on demand from `~/.vibeguard/installed/rules/claude-rules/`.
+> __VIBEGUARD_RULE_COUNT__ rules total are available. This managed block keeps only cross-project defaults in global context. The user's request and the nearest applicable repository instructions define project facts, conventions, and verification commands. Load deeper rules on demand from `~/.vibeguard/installed/rules/claude-rules/`.
 
 ## Scope and precedence
 
