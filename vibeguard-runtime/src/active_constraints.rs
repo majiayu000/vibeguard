@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 
 use crate::hook_checks_common::glob_match;
 
+mod source_paths;
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
-
 const WARN_THRESHOLD: usize = 15;
 const BLOCK_THRESHOLD: usize = 30;
 const COMPACT_RULES_START: &str = "<!-- vibeguard-generated-compact-rules:start -->";
@@ -201,8 +201,15 @@ fn discover_sources(options: &ActiveConstraintOptions) -> BTreeMap<PathBuf, Stri
         add_source(&mut sources, &path, "global", options);
     }
 
-    let mut project_files = vec![options.root.join("AGENTS.md")];
+    let mut project_files = Vec::new();
+    if options.host.includes_codex() {
+        project_files.extend(source_paths::codex_project_instruction_files(
+            &options.root,
+            &options.task_paths,
+        ));
+    }
     if options.host.includes_claude() {
+        project_files.push(options.root.join("AGENTS.md"));
         project_files.push(options.root.join("CLAUDE.md"));
         project_files.push(options.root.join(".claude/CLAUDE.md"));
     }
@@ -457,38 +464,20 @@ fn is_rule_id(value: &str) -> bool {
         && number.chars().all(|ch| ch.is_ascii_digit())
 }
 
-// Keep this semantic map aligned with SHARED_CORE_RULE_EQUIVALENTS in
-// eval/paired_runner.py and with scripts/constraints/count_active_constraints.py.
 fn rule_constraint_key(rule_id: &str) -> String {
-    match rule_id {
-        "SEC-02" | "W-12" => "shared-core:safety".to_string(),
-        "SEC-13" => "shared-core:preservation".to_string(),
-        "U-04" => "shared-core:scope".to_string(),
-        "U-08" | "W-03" | "W-16" => "shared-core:verification".to_string(),
-        "U-17" | "U-29" => "shared-core:errors".to_string(),
-        _ => format!("rule:{rule_id}"),
-    }
+    format!("rule:{rule_id}")
 }
-
 fn core_constraint_key(area: &str, requirement: &str) -> String {
     match (area, requirement) {
         (
             "errors",
             "user-visible missing data, malformed input, or wrong output must fail clearly.",
-        ) => "shared-core:errors".to_string(),
+        ) => rule_constraint_key("U-29"),
         ("scope", "make the smallest requested change; do not add adjacent improvements.") => {
-            "shared-core:scope".to_string()
+            rule_constraint_key("U-04")
         }
-        (
-            "safety",
-            "never expose secrets, add hidden ai attribution, force-push, or weaken tests.",
-        ) => "shared-core:safety".to_string(),
-        (
-            "preservation",
-            "preserve unmanaged content in high-context files, settings, and hooks.",
-        ) => "shared-core:preservation".to_string(),
         ("verification", "run a fresh, focused project command before claiming completion.") => {
-            "shared-core:verification".to_string()
+            rule_constraint_key("W-03")
         }
         _ => format!("core:{area}:{requirement}"),
     }
@@ -736,7 +725,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_core_rows_dedupe_against_all_equivalent_rule_ids() {
+    fn shared_core_rows_keep_distinct_rule_ids() {
         let dir = temp_dir("shared-core-equivalents");
         let source = dir.join("AGENTS.md");
         fs::write(
@@ -749,11 +738,25 @@ mod tests {
         sources.insert(source, "global".to_string());
         let (_reports, constraints) = count_constraints(&sources);
 
-        assert_eq!(constraints.len(), 5);
-        assert!(
+        assert_eq!(constraints.len(), 11);
+        assert_eq!(
             constraints
                 .iter()
-                .all(|constraint| is_rule_id(&constraint.label))
+                .map(|constraint| constraint.label.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "SEC-02",
+                "SEC-13",
+                "U-04",
+                "U-08",
+                "U-17",
+                "U-29",
+                "W-03",
+                "W-12",
+                "W-16",
+                "Core contract: Safety",
+                "Core contract: Preservation",
+            ]
         );
 
         fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));

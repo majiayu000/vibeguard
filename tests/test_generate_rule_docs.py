@@ -198,6 +198,11 @@ class CompactRuleGenerationTests(unittest.TestCase):
             "## Codex host\n\nHost rule.\n<!-- vibeguard-end -->\n",
         )
 
+    def test_shared_guidance_uses_host_neutral_project_instruction_wording(self) -> None:
+        shared = generate_rule_docs.COMPACT_RULES_PATH.read_text(encoding="utf-8")
+        self.assertIn("nearest applicable repository instructions", shared)
+        self.assertNotIn("repository-level `AGENTS.md` or `CLAUDE.md`", shared)
+
     def test_codex_host_guidance_respects_configured_home(self) -> None:
         codex_host = generate_rule_docs.CODEX_HOST_RULES_PATH.read_text(encoding="utf-8")
         self.assertIn("When managed VibeGuard skills are installed", codex_host)

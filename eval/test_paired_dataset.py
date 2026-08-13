@@ -109,7 +109,6 @@ class DatasetAndIdentityTest(unittest.TestCase):
     def test_candidates_duplicated_by_shared_compact_core_are_rejected(self) -> None:
         expected_locations = {
             "SEC-02": "Core contract (Safety)",
-            "SEC-13": "Core contract (Preservation)",
             "U-04": "Core contract (Scope)",
             "U-08": "Core contract (Verification)",
             "U-17": "Core contract (Errors)",
@@ -124,9 +123,8 @@ class DatasetAndIdentityTest(unittest.TestCase):
                 rf"shared compact core retains equivalent semantics in {re.escape(location)}",
             ):
                 paired.validate_candidate_supported(candidate)
-        paired.validate_candidate_supported("U-23")
-        paired.validate_candidate_supported("U-24")
-        paired.validate_candidate_supported("U-32")
+        for candidate in ("SEC-13", "U-23", "U-24", "U-32"):
+            paired.validate_candidate_supported(candidate)
 
 if __name__ == "__main__":
     unittest.main()
