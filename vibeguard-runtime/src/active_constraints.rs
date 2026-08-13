@@ -11,17 +11,48 @@ type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 const WARN_THRESHOLD: usize = 15;
 const BLOCK_THRESHOLD: usize = 30;
+const COMPACT_RULES_START: &str = "<!-- vibeguard-generated-compact-rules:start -->";
+const COMPACT_RULES_END: &str = "<!-- vibeguard-generated-compact-rules:end -->";
 
 #[derive(Default)]
 struct ActiveConstraintOptions {
     root: PathBuf,
     home: PathBuf,
+    codex_home: Option<PathBuf>,
+    host: HostScope,
     task_paths: Vec<String>,
     skills: Vec<String>,
     json: bool,
     hook_fields: bool,
     warn_threshold: usize,
     block_threshold: usize,
+}
+
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
+enum HostScope {
+    #[default]
+    All,
+    Claude,
+    Codex,
+}
+
+impl HostScope {
+    fn parse(value: &str) -> Result<Self> {
+        match value {
+            "all" => Ok(Self::All),
+            "claude" => Ok(Self::Claude),
+            "codex" => Ok(Self::Codex),
+            _ => Err(format!("--host must be one of all, claude, or codex: {value}").into()),
+        }
+    }
+
+    fn includes_claude(self) -> bool {
+        matches!(self, Self::All | Self::Claude)
+    }
+
+    fn includes_codex(self) -> bool {
+        matches!(self, Self::All | Self::Codex)
+    }
 }
 
 #[derive(Clone)]
@@ -67,7 +98,7 @@ pub fn run(args: &[String]) -> Result {
                     "count": report.count,
                 })).collect::<Vec<_>>(),
                 "constraints": constraints.iter().map(|constraint| json!({
-                    "id": if constraint.key.starts_with("rule:") { &constraint.label } else { "" },
+                    "id": if is_rule_id(&constraint.label) { &constraint.label } else { "" },
                     "label": constraint.label,
                 })).collect::<Vec<_>>(),
             }))?
@@ -88,6 +119,7 @@ fn parse_active_args(args: &[String]) -> Result<ActiveConstraintOptions> {
         home: std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(".")),
+        codex_home: std::env::var_os("CODEX_HOME").map(PathBuf::from),
         warn_threshold: WARN_THRESHOLD,
         block_threshold: BLOCK_THRESHOLD,
         ..ActiveConstraintOptions::default()
@@ -102,6 +134,16 @@ fn parse_active_args(args: &[String]) -> Result<ActiveConstraintOptions> {
             "--home" => {
                 index += 1;
                 options.home = PathBuf::from(args.get(index).ok_or("--home requires a path")?);
+            }
+            "--codex-home" => {
+                index += 1;
+                options.codex_home = Some(PathBuf::from(
+                    args.get(index).ok_or("--codex-home requires a path")?,
+                ));
+            }
+            "--host" => {
+                index += 1;
+                options.host = HostScope::parse(args.get(index).ok_or("--host requires a value")?)?;
             }
             "--task-path" => {
                 index += 1;
@@ -142,32 +184,56 @@ fn parse_active_args(args: &[String]) -> Result<ActiveConstraintOptions> {
 
 fn discover_sources(options: &ActiveConstraintOptions) -> BTreeMap<PathBuf, String> {
     let mut sources = BTreeMap::new();
-    for (path, kind) in [
-        (options.home.join(".claude/CLAUDE.md"), "global"),
-        (options.home.join(".claude/AGENTS.md"), "global"),
-        (options.home.join(".codex/AGENTS.md"), "global"),
-        (options.root.join("AGENTS.md"), "project"),
-        (options.root.join("CLAUDE.md"), "project"),
-        (options.root.join(".claude/CLAUDE.md"), "project"),
-    ] {
-        add_source(&mut sources, &path, kind, options);
+    let codex_home = options
+        .codex_home
+        .clone()
+        .unwrap_or_else(|| options.home.join(".codex"));
+
+    let mut global_files = Vec::new();
+    if options.host.includes_claude() {
+        global_files.push(options.home.join(".claude/CLAUDE.md"));
+        global_files.push(options.home.join(".claude/AGENTS.md"));
     }
-    for base in [
-        options.home.join(".claude/rules"),
-        options.home.join(".codex/rules"),
-        options.root.join(".claude/rules"),
-    ] {
+    if options.host.includes_codex() {
+        global_files.push(codex_home.join("AGENTS.md"));
+    }
+    for path in global_files {
+        add_source(&mut sources, &path, "global", options);
+    }
+
+    let mut project_files = vec![options.root.join("AGENTS.md")];
+    if options.host.includes_claude() {
+        project_files.push(options.root.join("CLAUDE.md"));
+        project_files.push(options.root.join(".claude/CLAUDE.md"));
+    }
+    for path in project_files {
+        add_source(&mut sources, &path, "project", options);
+    }
+
+    let mut global_rule_roots = Vec::new();
+    if options.host.includes_claude() {
+        global_rule_roots.push(options.home.join(".claude/rules"));
+    }
+    for base in global_rule_roots {
         for path in markdown_files(&base) {
+            add_source(&mut sources, &path, "global-rule", options);
+        }
+    }
+
+    if options.host.includes_claude() {
+        for path in markdown_files(&options.root.join(".claude/rules")) {
             add_source(&mut sources, &path, "path-rule", options);
         }
     }
     for skill in &options.skills {
-        for base in [
-            options.root.join("skills"),
-            options.root.join("workflows"),
-            options.home.join(".claude/skills"),
-            options.home.join(".codex/skills"),
-        ] {
+        let mut skill_roots = vec![options.root.join("skills"), options.root.join("workflows")];
+        if options.host.includes_claude() {
+            skill_roots.push(options.home.join(".claude/skills"));
+        }
+        if options.host.includes_codex() {
+            skill_roots.push(codex_home.join("skills"));
+        }
+        for base in skill_roots {
             add_source(
                 &mut sources,
                 &base.join(skill).join("SKILL.md"),
@@ -256,37 +322,84 @@ fn count_constraints(sources: &BTreeMap<PathBuf, String>) -> (Vec<SourceReport>,
         Ok(regex) => regex,
         Err(err) => panic!("invalid active constraint bullet regex: {err}"),
     };
+    let table_rule_re = match Regex::new(r"^(?:U|W|SEC|RS|PY|TS|GO|TASTE)-\d+$") {
+        Ok(regex) => regex,
+        Err(err) => panic!("invalid active constraint table rule regex: {err}"),
+    };
     let normative_re = match Regex::new(
         r"(?i)\b(must|must not|should|should not|never|always|require|requires|required|avoid|do not|don't|prohibit|forbid|block|verify)\b|必须|禁止|不要|不得|需要|要求|阻断|验证",
     ) {
         Ok(regex) => regex,
         Err(err) => panic!("invalid active constraint normative regex: {err}"),
     };
-    let mut seen = HashSet::new();
-    let mut reports = Vec::new();
-    let mut constraints = Vec::new();
+    let mut parsed_sources = Vec::new();
     for (path, kind) in sources {
         let text = read_text(path);
         let mut source_constraints = Vec::new();
         let mut in_fence = false;
+        let mut in_core_contract = false;
+        let mut in_compact_rules = false;
         for line in text.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("```") {
                 in_fence = !in_fence;
                 continue;
             }
-            if in_fence || trimmed.starts_with('|') {
+            if in_fence {
+                continue;
+            }
+            if trimmed == COMPACT_RULES_START {
+                in_compact_rules = true;
+                continue;
+            }
+            if trimmed == COMPACT_RULES_END {
+                in_compact_rules = false;
+                continue;
+            }
+            if trimmed.starts_with("## ") {
+                in_core_contract = trimmed == "## Core contract";
+            }
+            if trimmed.starts_with('|') {
+                let cells = trimmed
+                    .trim_matches('|')
+                    .split('|')
+                    .map(str::trim)
+                    .collect::<Vec<_>>();
+                let first_cell = cells.first().copied().unwrap_or("");
+                if in_compact_rules && table_rule_re.is_match(first_cell) {
+                    source_constraints.push(Constraint {
+                        key: rule_constraint_key(first_cell),
+                        label: first_cell.to_string(),
+                    });
+                } else if in_core_contract
+                    && cells.len() >= 2
+                    && first_cell != "Area"
+                    && !first_cell.is_empty()
+                    && !first_cell.chars().all(|ch| matches!(ch, '-' | ':'))
+                {
+                    let normalized_area = first_cell
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                        .to_ascii_lowercase();
+                    let normalized_default = cells[1]
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                        .to_ascii_lowercase();
+                    source_constraints.push(Constraint {
+                        key: core_constraint_key(&normalized_area, &normalized_default),
+                        label: format!("Core contract: {first_cell}"),
+                    });
+                }
                 continue;
             }
             if let Some(caps) = rule_re.captures(line) {
                 let rule_id = caps[1].to_string();
-                push_constraint(
-                    &mut seen,
-                    &mut source_constraints,
-                    &mut constraints,
-                    format!("rule:{rule_id}"),
-                    rule_id,
-                );
+                source_constraints.push(Constraint {
+                    key: rule_constraint_key(&rule_id),
+                    label: rule_id,
+                });
             } else if let Some(caps) = bullet_re.captures(line)
                 && normative_re.is_match(&caps[1])
             {
@@ -296,39 +409,89 @@ fn count_constraints(sources: &BTreeMap<PathBuf, String>) -> (Vec<SourceReport>,
                     .collect::<Vec<_>>()
                     .join(" ")
                     .to_ascii_lowercase();
-                push_constraint(
-                    &mut seen,
-                    &mut source_constraints,
-                    &mut constraints,
-                    format!("text:{normalized}"),
+                source_constraints.push(Constraint {
+                    key: format!("text:{normalized}"),
                     label,
-                );
+                });
             }
         }
-        if !source_constraints.is_empty() {
-            reports.push(SourceReport {
-                path: path.clone(),
-                kind: kind.clone(),
-                count: source_constraints.len(),
-            });
+        parsed_sources.push((path.clone(), kind.clone(), source_constraints));
+    }
+
+    let mut seen = HashSet::new();
+    let mut source_counts = BTreeMap::<PathBuf, usize>::new();
+    let mut constraints = Vec::new();
+    // Prefer canonical rule IDs to equivalent shared-core rows so JSON and GC
+    // reports retain a useful ID while the semantic requirement counts once.
+    for rule_pass in [true, false] {
+        for (path, _kind, candidates) in &parsed_sources {
+            for candidate in candidates {
+                if is_rule_id(&candidate.label) != rule_pass || !seen.insert(candidate.key.clone())
+                {
+                    continue;
+                }
+                *source_counts.entry(path.clone()).or_default() += 1;
+                constraints.push(candidate.clone());
+            }
         }
     }
+
+    let reports = parsed_sources
+        .into_iter()
+        .filter_map(|(path, kind, _candidates)| {
+            let count = source_counts.get(&path).copied().unwrap_or_default();
+            (count > 0).then_some(SourceReport { path, kind, count })
+        })
+        .collect();
     (reports, constraints)
 }
 
-fn push_constraint(
-    seen: &mut HashSet<String>,
-    source_constraints: &mut Vec<Constraint>,
-    constraints: &mut Vec<Constraint>,
-    key: String,
-    label: String,
-) {
-    if !seen.insert(key.clone()) {
-        return;
+fn is_rule_id(value: &str) -> bool {
+    let Some((prefix, number)) = value.split_once('-') else {
+        return false;
+    };
+    matches!(
+        prefix,
+        "U" | "W" | "SEC" | "RS" | "PY" | "TS" | "GO" | "TASTE"
+    ) && !number.is_empty()
+        && number.chars().all(|ch| ch.is_ascii_digit())
+}
+
+// Keep this semantic map aligned with SHARED_CORE_RULE_EQUIVALENTS in
+// eval/paired_runner.py and with scripts/constraints/count_active_constraints.py.
+fn rule_constraint_key(rule_id: &str) -> String {
+    match rule_id {
+        "SEC-02" | "W-12" => "shared-core:safety".to_string(),
+        "SEC-13" => "shared-core:preservation".to_string(),
+        "U-04" => "shared-core:scope".to_string(),
+        "U-08" | "W-03" | "W-16" => "shared-core:verification".to_string(),
+        "U-17" | "U-29" => "shared-core:errors".to_string(),
+        _ => format!("rule:{rule_id}"),
     }
-    let constraint = Constraint { key, label };
-    source_constraints.push(constraint.clone());
-    constraints.push(constraint);
+}
+
+fn core_constraint_key(area: &str, requirement: &str) -> String {
+    match (area, requirement) {
+        (
+            "errors",
+            "user-visible missing data, malformed input, or wrong output must fail clearly.",
+        ) => "shared-core:errors".to_string(),
+        ("scope", "make the smallest requested change; do not add adjacent improvements.") => {
+            "shared-core:scope".to_string()
+        }
+        (
+            "safety",
+            "never expose secrets, add hidden ai attribution, force-push, or weaken tests.",
+        ) => "shared-core:safety".to_string(),
+        (
+            "preservation",
+            "preserve unmanaged content in high-context files, settings, and hooks.",
+        ) => "shared-core:preservation".to_string(),
+        ("verification", "run a fresh, focused project command before claiming completion.") => {
+            "shared-core:verification".to_string()
+        }
+        _ => format!("core:{area}:{requirement}"),
+    }
 }
 
 fn status_for(total: usize, warn_threshold: usize, block_threshold: usize) -> &'static str {
@@ -374,6 +537,48 @@ mod tests {
     }
 
     #[test]
+    fn discover_sources_filters_global_files_by_host() {
+        let dir = temp_dir("host");
+        let root = dir.join("repo");
+        let home = dir.join("home");
+        fs::create_dir_all(home.join(".claude"))
+            .unwrap_or_else(|err| panic!("Claude home should be created: {err}"));
+        fs::create_dir_all(home.join(".codex"))
+            .unwrap_or_else(|err| panic!("Codex home should be created: {err}"));
+        fs::create_dir_all(&root)
+            .unwrap_or_else(|err| panic!("repo root should be created: {err}"));
+        fs::write(
+            home.join(".claude/CLAUDE.md"),
+            "- Must keep Claude global guidance\n",
+        )
+        .unwrap_or_else(|err| panic!("Claude global guidance should be written: {err}"));
+        fs::write(
+            home.join(".codex/AGENTS.md"),
+            "- Must not count Codex global guidance\n",
+        )
+        .unwrap_or_else(|err| panic!("Codex global guidance should be written: {err}"));
+
+        let options = ActiveConstraintOptions {
+            root,
+            home,
+            host: HostScope::Claude,
+            ..ActiveConstraintOptions::default()
+        };
+        let sources = discover_sources(&options);
+        let (_reports, constraints) = count_constraints(&sources);
+        let labels = constraints
+            .iter()
+            .map(|constraint| constraint.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(constraints.len(), 1);
+        assert!(labels.contains(&"Must keep Claude global guidance"));
+        assert!(!labels.contains(&"Must not count Codex global guidance"));
+
+        fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
+    }
+
+    #[test]
     fn frontmatter_paths_gate_path_scoped_rules() {
         let text = "---\npaths: src/*.rs, docs/**\n---\n- Must verify changes\n";
 
@@ -384,7 +589,7 @@ mod tests {
     }
 
     #[test]
-    fn count_constraints_dedupes_rules_and_ignores_tables_and_fences() {
+    fn count_constraints_dedupes_rules_and_ignores_unrelated_tables_and_fences() {
         let dir = temp_dir("count");
         let first = dir.join("first.md");
         let second = dir.join("second.md");
@@ -413,6 +618,170 @@ mod tests {
         assert!(labels.contains(&"Must verify build"));
         assert!(labels.contains(&"Never swallow errors"));
         assert_eq!(reports.iter().map(|report| report.count).sum::<usize>(), 3);
+
+        fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
+    }
+
+    #[test]
+    fn codex_sources_use_configured_home_and_exclude_claude_project_files() {
+        let dir = temp_dir("codex-home");
+        let root = dir.join("repo");
+        let home = dir.join("home");
+        let codex_home = dir.join("custom-codex");
+        fs::create_dir_all(home.join(".codex"))
+            .unwrap_or_else(|err| panic!("fallback Codex home should be created: {err}"));
+        fs::create_dir_all(&codex_home)
+            .unwrap_or_else(|err| panic!("custom Codex home should be created: {err}"));
+        fs::create_dir_all(codex_home.join("rules"))
+            .unwrap_or_else(|err| panic!("Codex rule decoy directory should be created: {err}"));
+        fs::create_dir_all(root.join(".claude/rules"))
+            .unwrap_or_else(|err| panic!("Claude project rules should be created: {err}"));
+        fs::write(
+            home.join(".codex/AGENTS.md"),
+            "- Must not count fallback Codex guidance\n",
+        )
+        .unwrap_or_else(|err| panic!("fallback Codex guidance should be written: {err}"));
+        fs::write(
+            codex_home.join("AGENTS.md"),
+            "- Must count configured Codex guidance\n",
+        )
+        .unwrap_or_else(|err| panic!("configured Codex guidance should be written: {err}"));
+        fs::write(
+            codex_home.join("rules/decoy.md"),
+            "- Must not count unsupported Codex native rules\n",
+        )
+        .unwrap_or_else(|err| panic!("Codex rule decoy should be written: {err}"));
+        fs::write(root.join("AGENTS.md"), "- Must count project AGENTS\n")
+            .unwrap_or_else(|err| panic!("project AGENTS should be written: {err}"));
+        fs::write(
+            root.join("CLAUDE.md"),
+            "- Must not count project Claude guidance\n",
+        )
+        .unwrap_or_else(|err| panic!("project Claude guidance should be written: {err}"));
+        fs::write(
+            root.join(".claude/rules/claude.md"),
+            "- Must not count project Claude rules\n",
+        )
+        .unwrap_or_else(|err| panic!("project Claude rules should be written: {err}"));
+
+        let options = ActiveConstraintOptions {
+            root,
+            home,
+            codex_home: Some(codex_home),
+            host: HostScope::Codex,
+            ..ActiveConstraintOptions::default()
+        };
+        let sources = discover_sources(&options);
+        let (_reports, constraints) = count_constraints(&sources);
+        let labels = constraints
+            .iter()
+            .map(|constraint| constraint.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(constraints.len(), 2);
+        assert!(labels.contains(&"Must count configured Codex guidance"));
+        assert!(labels.contains(&"Must count project AGENTS"));
+        assert!(!labels.iter().any(|label| label.contains("Claude")));
+        assert!(!labels.iter().any(|label| label.contains("fallback")));
+        assert!(!labels.iter().any(|label| label.contains("native rules")));
+
+        fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
+    }
+
+    #[test]
+    fn count_constraints_reads_compact_rule_and_core_contract_tables() {
+        let dir = temp_dir("managed-tables");
+        let source = dir.join("AGENTS.md");
+        fs::write(
+            &source,
+            "## Core contract\n\n| Area | Default |\n|---|---|\n| Scope | Keep changes focused. |\n| Verification | Run focused tests. |\n\n## Key detailed rules\n\n<!-- vibeguard-generated-compact-rules:start -->\n| ID | Severity | Rule |\n|---|---|---|\n| U-10 | Strict | Verify. |\n| W-11 | Strict | Verify. |\n<!-- vibeguard-generated-compact-rules:end -->\n",
+        )
+        .unwrap_or_else(|err| panic!("table fixture should be written: {err}"));
+
+        let mut sources = BTreeMap::new();
+        sources.insert(source, "global".to_string());
+        let (_reports, constraints) = count_constraints(&sources);
+        let labels = constraints
+            .iter()
+            .map(|constraint| constraint.label.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(constraints.len(), 4);
+        assert!(labels.contains(&"Core contract: Scope"));
+        assert!(labels.contains(&"Core contract: Verification"));
+        assert!(labels.contains(&"U-10"));
+        assert!(labels.contains(&"W-11"));
+
+        fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
+    }
+
+    #[test]
+    fn count_constraints_ignores_rule_inventory_outside_generated_marker() {
+        let dir = temp_dir("ordinary-rule-inventory");
+        let source = dir.join("AGENTS.md");
+        fs::write(
+            &source,
+            "## Rule inventory\n\n| ID | State |\n|---|---|\n| U-01 | disabled |\n",
+        )
+        .unwrap_or_else(|err| panic!("inventory fixture should be written: {err}"));
+
+        let mut sources = BTreeMap::new();
+        sources.insert(source, "global".to_string());
+        let (reports, constraints) = count_constraints(&sources);
+
+        assert!(reports.is_empty());
+        assert!(constraints.is_empty());
+
+        fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
+    }
+
+    #[test]
+    fn shared_core_rows_dedupe_against_all_equivalent_rule_ids() {
+        let dir = temp_dir("shared-core-equivalents");
+        let source = dir.join("AGENTS.md");
+        fs::write(
+            &source,
+            "## Core contract\n\n| Area | Default |\n|---|---|\n| Errors | User-visible missing data, malformed input, or wrong output must fail clearly. |\n| Scope | Make the smallest requested change; do not add adjacent improvements. |\n| Safety | Never expose secrets, add hidden AI attribution, force-push, or weaken tests. |\n| Preservation | Preserve unmanaged content in high-context files, settings, and hooks. |\n| Verification | Run a fresh, focused project command before claiming completion. |\n\n## Key detailed rules\n\n<!-- vibeguard-generated-compact-rules:start -->\n| ID | Severity | Rule |\n|---|---|---|\n| SEC-02 | Strict | Secrets. |\n| SEC-13 | Strict | Preservation. |\n| U-04 | Strict | Scope. |\n| U-08 | Strict | Verification. |\n| U-17 | Strict | Errors. |\n| U-29 | Strict | Errors. |\n| W-03 | Strict | Verification. |\n| W-12 | Strict | Safety. |\n| W-16 | Strict | Verification. |\n<!-- vibeguard-generated-compact-rules:end -->\n",
+        )
+        .unwrap_or_else(|err| panic!("equivalence fixture should be written: {err}"));
+
+        let mut sources = BTreeMap::new();
+        sources.insert(source, "global".to_string());
+        let (_reports, constraints) = count_constraints(&sources);
+
+        assert_eq!(constraints.len(), 5);
+        assert!(
+            constraints
+                .iter()
+                .all(|constraint| is_rule_id(&constraint.label))
+        );
+
+        fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
+    }
+
+    #[test]
+    fn core_contract_rows_dedupe_by_area_and_constraint_text() {
+        let dir = temp_dir("core-row-dedupe");
+        let first = dir.join("global.md");
+        let second = dir.join("project.md");
+        fs::write(
+            &first,
+            "## Core contract\n\n| Area | Default |\n|---|---|\n| Scope | Keep changes focused. |\n",
+        )
+        .unwrap_or_else(|err| panic!("global core fixture should be written: {err}"));
+        fs::write(
+            &second,
+            "## Core contract\n\n| Area | Default |\n|---|---|\n| Scope | Do not edit generated files. |\n",
+        )
+        .unwrap_or_else(|err| panic!("project core fixture should be written: {err}"));
+
+        let mut sources = BTreeMap::new();
+        sources.insert(first, "global".to_string());
+        sources.insert(second, "project".to_string());
+        let (reports, constraints) = count_constraints(&sources);
+
+        assert_eq!(constraints.len(), 2);
+        assert_eq!(reports.iter().map(|report| report.count).sum::<usize>(), 2);
 
         fs::remove_dir_all(dir).unwrap_or_else(|err| panic!("temp dir should be removed: {err}"));
     }

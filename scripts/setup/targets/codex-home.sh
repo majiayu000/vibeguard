@@ -151,7 +151,11 @@ codex_native_capability_summary() {
 inject_codex_home_rules() {
   echo "Step 10.1: Update VibeGuard rules in ~/.codex/AGENTS.md"
   local agents_md="${CODEX_DIR}/AGENTS.md"
-  inject_vibeguard_rules "${agents_md}" "~/.codex/AGENTS.md" "generated/AGENTS.md"
+  inject_vibeguard_rules \
+    "${agents_md}" \
+    "~/.codex/AGENTS.md" \
+    "generated/AGENTS.md" \
+    "${REPO_DIR}/claude-md/vibeguard-codex-rules.md"
 }
 
 check_codex_home_installation() {
@@ -441,11 +445,11 @@ check_codex_agents_hygiene() {
   local -a missing_anchors=()
   managed_block=$(sed -n "${start_line},${end_line}p" "${agents_md}")
   for anchor in \
-    "#VibeGuard" \
-    "## Constraints" \
+    "# VibeGuard shared core" \
+    "## Core contract" \
     "## Chat Contract" \
-    "## Key Detailed Rules" \
-    "| L1 |" \
+    "## Key detailed rules" \
+    "## Codex host guidance" \
     "| W-03 |" \
     "| SEC-13 |"; do
     if ! grep -qF "${anchor}" <<< "${managed_block}"; then
@@ -473,7 +477,10 @@ check_codex_agents_hygiene() {
       yellow "[INFO] Re-run 'bash setup.sh' to repair the rule count banner in ~/.codex/AGENTS.md"
     fi
     local block_check_rc=0
-    if vibeguard_managed_rules_block_matches_source "${agents_md}" "${actual_rule_count}"; then
+    if vibeguard_managed_rules_block_matches_source \
+      "${agents_md}" \
+      "${actual_rule_count}" \
+      "${REPO_DIR}/claude-md/vibeguard-codex-rules.md"; then
       green "[OK] ~/.codex/AGENTS.md managed VibeGuard block matches current rules"
     else
       block_check_rc=$?
