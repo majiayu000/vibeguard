@@ -53,6 +53,7 @@ DEV_REPO=0
 VIBEGUARD_SETUP_GEMINI="${VIBEGUARD_SETUP_GEMINI:-0}"
 PROFILE="${VIBEGUARD_SETUP_PROFILE:-}"
 LANGUAGES="${VIBEGUARD_SETUP_LANGUAGES:-}"
+PROFILE_RESOLUTION_ERROR=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quiet|-q)     QUIET=1; shift ;;
@@ -332,9 +333,9 @@ if ! ensure_setup_runtime_available >/dev/null 2>&1; then
 fi
 
 if [[ -z "${PROFILE}" ]]; then
-  if ! PROFILE="$(state_installed_profile)"; then
-    red "ERROR: cannot determine installed profile"
-    exit 64
+  if ! PROFILE="$(state_installed_profile 2>&1)"; then
+    PROFILE_RESOLUTION_ERROR="${PROFILE}"
+    PROFILE="core"
   fi
 fi
 validate_setup_profile "${PROFILE}"
@@ -604,6 +605,13 @@ _check_vibeguard_command() {
 run_legacy_checks() {
   echo "VibeGuard Installation Status"
   echo "=============================="
+
+  if [[ -n "${PROFILE_RESOLUTION_ERROR}" ]]; then
+    red "[FAIL] Installed profile could not be determined; using core only to complete the health report"
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] && red "  ${line}"
+    done <<< "${PROFILE_RESOLUTION_ERROR}"
+  fi
 
   # Check hook wrapper
   VIBEGUARD_HOME="${HOME}/.vibeguard"
