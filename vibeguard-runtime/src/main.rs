@@ -34,6 +34,7 @@ mod hook_orchestrator_pre_edit;
 mod hook_orchestrator_stop;
 mod hook_output;
 mod hook_status;
+mod installed_profile;
 mod json_field;
 mod log_append;
 mod log_query;
