@@ -116,7 +116,7 @@ added. Root cause fixed in the same change set:
   `tests/unit/test_baseline_scanning.sh` (pre-existing violation not reported,
   newly added violation still reported, linemap only holds edited lines).
 
-### Phase 3 — Guard convergence into the runtime (follow-up, needs issue)
+### Phase 3 — Guard convergence into the runtime (issue #752)
 
 Target: one rule engine. Each `guards/<lang>/check_*.sh` rule gets a runtime
 implementation (`vibeguard-runtime scan <lang> <rule> <path>`), and the shell
@@ -127,7 +127,7 @@ first (`unwrap`, console/print residue, stub detection), then single-source
 shell rules. Behavior eval (`eval/run_behavior_eval.py`) is the gate: each
 migrated rule needs a before/after fixture parity check.
 
-### Phase 4 — Layered configuration module (follow-up, needs issue)
+### Phase 4 — Layered configuration module (issue #753)
 
 Single `runtime_config` resolution order: defaults → `~/.vibeguard/config.json`
 → project config → environment. Publish a supported-variable allowlist in
@@ -135,7 +135,7 @@ Single `runtime_config` resolution order: defaults → `~/.vibeguard/config.json
 with a deprecation window. Add a `vibeguard-runtime config explain` command
 that prints the resolved value and its source layer.
 
-### Phase 5 — Docs and process-artifact policy (follow-up, needs issue)
+### Phase 5 — Docs and process-artifact policy (issue #754)
 
 Archive closed `docs/specs/GH*` packets (git history is the archive; keep an
 index), define which artifacts may ever be committed, and cut the number of
@@ -149,7 +149,7 @@ label, skill, and check files from main (see
 decision remains. Historical references live in `docs/specs/GH595/` under
 allowlisted historical entries.
 
-### Phase 7 — pre-write-guard latency (follow-up, needs issue)
+### Phase 7 — pre-write-guard latency (issue #755)
 
 Profile the 2065ms P95 (`bench-output` shows 10x the budget of sibling hooks).
 Likely cause: unindexed search-first scan on every new-file write. Candidate
