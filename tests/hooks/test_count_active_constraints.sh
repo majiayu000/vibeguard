@@ -179,7 +179,6 @@ assert_not_contains "${nested_codex_json}" "overridden API fallback guidance" "C
 assert_not_contains "${nested_codex_json}" "sibling guidance" "Codex scope excludes sibling AGENTS guidance"
 nested_codex_runtime_json="$(env CODEX_HOME="${CUSTOM_CODEX_HOME}" "${RUNTIME_BIN}" active-constraints --root "${HOST_REPO}" --home "${HOST_HOME}" --host codex --task-path packages/api/src/lib.rs --json)"
 assert_contains "${nested_codex_runtime_json}" '"total": 4' "production counter matches nested Codex instruction discovery"
-
 mkdir -p "${TMP_ROOT}/outside"
 cat > "${TMP_ROOT}/outside/AGENTS.md" <<'MD'
 - Must not count an instruction outside the repository.
@@ -190,7 +189,6 @@ assert_not_contains "${outside_codex_json}" "outside the repository" "Codex scop
 outside_codex_runtime_json="$(env CODEX_HOME="${CUSTOM_CODEX_HOME}" "${RUNTIME_BIN}" active-constraints --root "${HOST_REPO}" --home "${HOST_HOME}" --host codex --task-path ../outside/new.rs --json)"
 assert_contains "${outside_codex_runtime_json}" '"total": 2' "production counter rejects unresolved external task paths"
 assert_not_contains "${outside_codex_runtime_json}" "outside the repository" "production counter excludes external AGENTS guidance"
-
 CORE_ROW_REPO="${TMP_ROOT}/repo-core-row-dedupe"
 CORE_ROW_HOME="${TMP_ROOT}/home-core-row-dedupe"
 make_home "${CORE_ROW_HOME}"
