@@ -23,7 +23,7 @@ T1-T3 共享 classifier/focused harness 且有顺序依赖，必须由单一 imp
 
 | Lane | Owner | Writable files |
 | --- | --- | --- |
-| implementation | `/root` | `vibeguard-runtime/src/hook_checks_common.rs`, `guards/rust/common.sh`, `tests/lib/hook_test_lib.sh`, `tests/unit/test_rust_check_unwrap_in_prod.sh` 及必要的现有 classifier test file |
+| implementation | `/root` | `vibeguard-runtime/src/hook_checks/common.rs`, `guards/rust/common.sh`, `tests/lib/hook_test_lib.sh`, `tests/unit/test_rust_check_unwrap_in_prod.sh` 及必要的现有 classifier test file |
 | verification | `/root` | none（只运行命令与记录证据） |
 | independent_review | native reviewer agent | none（只读 review） |
 

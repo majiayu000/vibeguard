@@ -16,9 +16,9 @@ GH-589
 | Legacy debug category | `guards/universal/check_code_slop.sh:108-120` | 一个跨语言 regex 同时匹配 `println!` 与 `dbg!`，只排除 keep/logger 行 | 需要在 grep 结果上精确过滤 self-scan runtime `println!`，而不是删除通用 Rust 分支 |
 | Dead-code category | `guards/universal/check_code_slop.sh:156-168` | 对全部匹配行计数，没有 detector-source line marker 语义 | marker filtering 必须只放在这个 category，并保持未标记 finding |
 | Count and exit behavior | `guards/universal/check_code_slop.sh:192-200` | category counts 累加到 `ISSUES`；有剩余 finding 时退出 1 | 不能用硬编码 baseline 替换实际计数或改变 exit contract |
-| Common fast-path detector source | `vibeguard-runtime/src/hook_checks_common.rs:149-196`, `vibeguard-runtime/src/hook_checks_common.rs:704-720` | intentional `todo!`/`unimplemented!` substring 与 test literal 会被 shell dead-code regex 自指命中 | 每个实际匹配 source line 需要独立 marker |
-| Post-write detector source | `vibeguard-runtime/src/hook_checks_write.rs:186-202` | Rust stub detector 包含 substring、regex 与 label literal | 不得 whole-file 排除；只标记 pattern-source 匹配行 |
-| Post-edit detector source | `vibeguard-runtime/src/hook_orchestrator_post_edit.rs:251-261` | edit detector 包含同类 Rust stub patterns | 第三份需要逐行 marker 的 detector source |
+| Common fast-path detector source | `vibeguard-runtime/src/hook_checks/common.rs:149-196`, `vibeguard-runtime/src/hook_checks/common.rs:704-720` | intentional `todo!`/`unimplemented!` substring 与 test literal 会被 shell dead-code regex 自指命中 | 每个实际匹配 source line 需要独立 marker |
+| Post-write detector source | `vibeguard-runtime/src/hook_checks/write.rs:186-202` | Rust stub detector 包含 substring、regex 与 label literal | 不得 whole-file 排除；只标记 pattern-source 匹配行 |
+| Post-edit detector source | `vibeguard-runtime/src/hook_orchestrator/post_edit.rs:251-261` | edit detector 包含同类 Rust stub patterns | 第三份需要逐行 marker 的 detector source |
 | Focused regression harness | `tests/unit/test_universal_check_code_slop.sh:13-35`, `tests/unit/test_universal_check_code_slop.sh:63-135` | 已覆盖 pass/fail、debug、clean、fixtures 与 strict，但没有 fake VibeGuard self-scan 或 marker-category scope | 应扩展现有入口，不新增重复 test harness |
 
 ## 写作时基线
@@ -60,9 +60,9 @@ ordinary target 即使目录同名也不会进入过滤。
 在以下三份 source 中，每一条会被当前 dead-code regex 独立命中的 intentional detector
 pattern/test literal 行末追加 `// slop-pattern-source`：
 
-- `vibeguard-runtime/src/hook_checks_common.rs`
-- `vibeguard-runtime/src/hook_checks_write.rs`
-- `vibeguard-runtime/src/hook_orchestrator_post_edit.rs`
+- `vibeguard-runtime/src/hook_checks/common.rs`
+- `vibeguard-runtime/src/hook_checks/write.rs`
+- `vibeguard-runtime/src/hook_orchestrator/post_edit.rs`
 
 当前 fresh inventory 为 13 行；实现时必须重新运行 grep 逐行核对，不能把 13 当永久
 阈值。`DEAD_CODE` 只在 qualified self-scan 中排除包含 marker 的同一输出行；filter 放在

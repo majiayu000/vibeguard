@@ -3,8 +3,8 @@
 //! These functions intentionally avoid hook wrappers, process startup, stdin/stdout
 //! protocol adaptation, config discovery, event-log I/O, and logging.
 
-use crate::hook_checks_bash::{self, BashDecisionKind};
-use crate::hook_checks_common;
+use crate::hook_checks::bash::{self, BashDecisionKind};
+use crate::hook_checks::common;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BashCommandClassification {
@@ -16,7 +16,7 @@ pub enum BashCommandClassification {
 }
 
 pub fn classify_bash_command(command: &str, vibeguard_root: &str) -> BashCommandClassification {
-    match hook_checks_bash::classify_command_kind(command, vibeguard_root) {
+    match bash::classify_command_kind(command, vibeguard_root) {
         BashDecisionKind::Empty => BashCommandClassification::Empty,
         BashDecisionKind::Pass => BashCommandClassification::Pass,
         BashDecisionKind::Block => BashCommandClassification::Block,
@@ -26,7 +26,7 @@ pub fn classify_bash_command(command: &str, vibeguard_root: &str) -> BashCommand
 }
 
 pub fn classify_clean_rust_write(file_path: &str, content: &str, base_limit: usize) -> bool {
-    hook_checks_common::is_clean_rust_write_fast_path(file_path, content, base_limit)
+    common::is_clean_rust_write_fast_path(file_path, content, base_limit)
 }
 
 #[cfg(test)]

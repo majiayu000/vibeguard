@@ -12,7 +12,7 @@ GH-605
 
 | Area | Files | Current behavior | Why relevant |
 | --- | --- | --- | --- |
-| Authoritative classifier | `vibeguard-runtime/src/hook_checks_common.rs:76`, `vibeguard-runtime/src/hook_checks_common.rs:652` | `is_test_path()` normalizes slash/case and recognizes `_test.rs`，但没有 `_tests.rs`；单测也缺该正例 | 所有 runtime hook/scanner consumers 的单一事实源 |
+| Authoritative classifier | `vibeguard-runtime/src/hook_checks/common.rs:76`, `vibeguard-runtime/src/hook_checks/common.rs:652` | `is_test_path()` normalizes slash/case and recognizes `_test.rs`，但没有 `_tests.rs`；单测也缺该正例 | 所有 runtime hook/scanner consumers 的单一事实源 |
 | Shell fallback | `guards/rust/common.sh:12`, `guards/rust/common.sh:32` | runtime 可用时调用 `test-path-filter --prod`，否则用 `VIBEGUARD_TEST_FILE_PATTERN`；fallback 同样遗漏 `_tests.rs` | 必须与 runtime 保持故障降级一致 |
 | RS-03 focused harness | `tests/unit/test_rust_check_unwrap_in_prod.sh:37`, `tests/unit/test_rust_check_unwrap_in_prod.sh:87` | 已覆盖生产 finding、`tests/`、`_test.rs`、`tests.rs` 等，但没有 `*_tests.rs` 和相似生产文件负例 | 最接近用户可见误报的回归入口 |
 | Classifier self-application | `scripts/ci/self-application/check-rust-test-path-classifier.sh:9` | 防止 Rust hook/guard 重建内联分类器，但不检查 suffix 行为 | 保持单一分类器架构，不新增重复逻辑 |

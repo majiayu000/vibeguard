@@ -125,6 +125,43 @@ def get_git_root(dirpath):
         _git_root_cache[key] = os.path.realpath(r.stdout.strip()) if r.returncode == 0 else ""
     return _git_root_cache[key]
 
+_rename_cache = {}
+
+def rename_source(git_root, fpath):
+    """Map a renamed file to its old path. A pathspec-limited diff cannot pair
+    a rename (the old path is outside the pathspec), so without this a renamed
+    file shows as fully added and pre-existing lines look new."""
+    key = (git_root, baseline)
+    if key not in _rename_cache:
+        if baseline:
+            cmd = ["git", "-C", git_root, "diff", "-M", "--name-status", "-z", baseline + "..HEAD"]
+        else:
+            cmd = ["git", "-C", git_root, "diff", "--cached", "-M", "--name-status", "-z"]
+        r = subprocess.run(cmd, capture_output=True)
+        mapping = {}
+        fields = r.stdout.split(b"\0")
+        i = 0
+        while i + 1 < len(fields):
+            status = os.fsdecode(fields[i])
+            first_path = os.fsdecode(fields[i + 1])
+            i += 2
+            if status.startswith(("R", "C")) and i < len(fields):
+                second_path = os.fsdecode(fields[i])
+                i += 1
+                if status.startswith("R"):
+                    mapping[os.path.realpath(os.path.join(git_root, second_path))] = first_path
+        _rename_cache[key] = mapping
+    old = _rename_cache[key].get(os.path.realpath(fpath), "")
+    if old and _go_guard_path_state(os.path.join(git_root, old)) != _go_guard_path_state(fpath):
+        return ""
+    return old
+
+def _go_guard_path_state(path):
+    n = path.replace("\\", "/")
+    base = n.rsplit("/", 1)[-1]
+    normalized = "/" + n.strip("/") + "/"
+    return (base.endswith(".go"), base.endswith("_test.go"), "/vendor/" in normalized)
+
 def iter_files():
     if staged and os.path.isfile(staged):
         with open(staged) as fh:
@@ -154,10 +191,17 @@ def diff_linenos(fpath):
     git_root = get_git_root(file_dir)
     if not git_root:
         return [], []
+    old = rename_source(git_root, fpath)
     if baseline:
-        cmd = ["git", "-C", git_root, "diff", "-U0", baseline + "..HEAD", "--", fpath]
+        if old:
+            cmd = ["git", "-C", git_root, "diff", "-M", "-U0", baseline + "..HEAD", "--", old, fpath]
+        else:
+            cmd = ["git", "-C", git_root, "diff", "-U0", baseline + "..HEAD", "--", fpath]
     else:
-        cmd = ["git", "-C", git_root, "diff", "--cached", "-U0", "--", fpath]
+        if old:
+            cmd = ["git", "-C", git_root, "diff", "--cached", "-M", "-U0", "--", old, fpath]
+        else:
+            cmd = ["git", "-C", git_root, "diff", "--cached", "-U0", "--", fpath]
     result = subprocess.run(cmd, capture_output=True, text=True)
     cur = 0
     added_nums = []
@@ -211,7 +255,7 @@ with open(out_path, "w") as out_f:
 }
 
 # Temporary file cleaning directory: all guards share the same cleaning trap
-_VG_TMPDIR=""
+_VG_TMPDIR="$(mktemp -d)"
 
 _vg_cleanup() {
   [[ -n "$_VG_TMPDIR" && -d "$_VG_TMPDIR" ]] && rm -rf "$_VG_TMPDIR" || true
@@ -221,9 +265,6 @@ trap '_vg_cleanup' EXIT
 #Create temporary files and automatically clean them when the script exits
 # Usage: TMPFILE=$(create_tmpfile)
 create_tmpfile() {
-  if [[ -z "$_VG_TMPDIR" ]]; then
-    _VG_TMPDIR=$(mktemp -d)
-  fi
   mktemp "$_VG_TMPDIR/vg.XXXXXX"
 }
 

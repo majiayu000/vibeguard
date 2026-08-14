@@ -149,7 +149,7 @@ proj_self_scan="${tmpdir}/vibeguard_self_scan"
 mkdir -p \
   "${proj_self_scan}/guards" \
   "${proj_self_scan}/hooks" \
-  "${proj_self_scan}/vibeguard-runtime/src" \
+  "${proj_self_scan}/vibeguard-runtime/src/hook_checks" \
   "${proj_self_scan}/other"
 : > "${proj_self_scan}/.vibeguard-doc-paths-allowlist"
 cat > "${proj_self_scan}/vibeguard-runtime/src/main.rs" <<'EOF'
@@ -161,7 +161,7 @@ fn main() {
     dbg!("trace.rs:12: println!(\"x\")");
 }
 EOF
-cat > "${proj_self_scan}/vibeguard-runtime/src/hook_checks_common.rs" <<'EOF'
+cat > "${proj_self_scan}/vibeguard-runtime/src/hook_checks/common.rs" <<'EOF'
 const DETECTOR_PATTERN: &str = "todo!("; // slop-pattern-source
 // slop-pattern-source
 const ADJACENT_PATTERN: &str = "unimplemented!(";

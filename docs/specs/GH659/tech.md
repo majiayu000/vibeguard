@@ -15,7 +15,7 @@ GH-659
 | Log archiver | `scripts/gc/gc-logs.sh:21-26`, `scripts/gc/gc-logs.sh:37-194` | Processes event logs with one hard-coded `events-` archive prefix and retains the entire newest month | Owns archive naming, locking, atomic replacement, compression, and retention |
 | Log selection | `scripts/gc/gc-logs.sh:196-213` | Selects the global and project event logs only | Must add the Codex wrapper diagnostic log without duplicating the archiver |
 | Scheduled scan | `scripts/gc/gc-scheduled.sh:45-57` | The final conditional can leave a nonzero function status when the last file is below threshold | A `set -e` caller can exit before later GC phases |
-| Marker producer | `vibeguard-runtime/src/hook_orchestrator_learn.rs:94-125` | Creates one sanitized `.learn_metrics_truncated_*` marker per truncated session and does not remove it | GC must own bounded marker retention without changing the hook hot path |
+| Marker producer | `vibeguard-runtime/src/hook_orchestrator/learn.rs:94-125` | Creates one sanitized `.learn_metrics_truncated_*` marker per truncated session and does not remove it | GC must own bounded marker retention without changing the hook hot path |
 
 ## Proposed Design
 

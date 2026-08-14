@@ -627,8 +627,7 @@ vibeguard_managed_rule_banner_count() {
 }
 
 vibeguard_managed_rules_block_matches_source() {
-  local target_file="$1" rule_count="$2"
-  local rules_file="${REPO_DIR}/claude-md/vibeguard-rules.md"
+  local target_file="$1" rule_count="$2" rules_file="$3"
   local diff_output
   [[ -f "${target_file}" ]] || return 2
   if ! diff_output=$(setup_runtime setup-md-diff-inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>/dev/null); then
@@ -638,8 +637,7 @@ vibeguard_managed_rules_block_matches_source() {
 }
 
 inject_vibeguard_rules() {
-  local target_file="$1" display_label="$2" state_source="$3"
-  local rules_file="${REPO_DIR}/claude-md/vibeguard-rules.md"
+  local target_file="$1" display_label="$2" state_source="$3" rules_file="$4"
   local rules_diff rule_count result
 
   rule_count=$(claude_rule_count_for_banner)

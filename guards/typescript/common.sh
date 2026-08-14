@@ -82,7 +82,7 @@ parse_guard_args() {
   fi
 }
 
-# vg_build_diff_linemap OUTPUT_FILE [EXT_FILTER]
+# vg_build_diff_linemap OUTPUT_FILE [EXT_FILTER] [RENAME_EXCLUDED_FILTER] [RENAME_CONTENT_EXCLUDED_FILTER]
 #
 # Build diff and add new line number index file (each line format: "filepath:linenum").
 # Used for baseline scanning: only new problems added to this diff will be reported, existing problems will not be reported.
@@ -94,6 +94,8 @@ parse_guard_args() {
 vg_build_diff_linemap() {
   local out="$1"
   local ext_filter="${2:-}"
+  local rename_excluded_filter="${3:-}"
+  local rename_content_excluded_filter="${4:-}"
   : > "$out"
 
   command -v python3 >/dev/null 2>&1 || return 1
@@ -102,7 +104,7 @@ vg_build_diff_linemap() {
   local baseline="${BASELINE_COMMIT:-}"
   [[ -z "$staged" && -z "$baseline" ]] && return 1
 
-  VG_STAGED="$staged" VG_BASELINE="$baseline" VG_EXT="$ext_filter" VG_OUT="$out" VG_TARGET_DIR="${TARGET_DIR:-.}" \
+  VG_STAGED="$staged" VG_BASELINE="$baseline" VG_EXT="$ext_filter" VG_OUT="$out" VG_TARGET_DIR="${TARGET_DIR:-.}" VG_RENAME_EXCLUDED="$rename_excluded_filter" VG_RENAME_CONTENT_EXCLUDED="$rename_content_excluded_filter" \
   python3 -c '
 import sys, re, subprocess, os
 
@@ -111,6 +113,8 @@ baseline   = os.environ.get("VG_BASELINE", "")
 ext_filter = os.environ.get("VG_EXT", "")
 out_path   = os.environ.get("VG_OUT", "")
 target_dir = os.environ.get("VG_TARGET_DIR", ".")
+rename_excluded = os.environ.get("VG_RENAME_EXCLUDED", "")
+rename_content_excluded = os.environ.get("VG_RENAME_CONTENT_EXCLUDED", "")
 
 _git_root_cache = {}
 
@@ -124,6 +128,62 @@ def get_git_root(dirpath):
         )
         _git_root_cache[key] = os.path.realpath(r.stdout.strip()) if r.returncode == 0 else ""
     return _git_root_cache[key]
+
+_rename_cache = {}
+
+def rename_source(git_root, fpath):
+    """Map a renamed file to its old path. A pathspec-limited diff cannot pair
+    a rename (the old path is outside the pathspec), so without this a renamed
+    file shows as fully added and pre-existing lines look new."""
+    key = (git_root, baseline)
+    if key not in _rename_cache:
+        if baseline:
+            cmd = ["git", "-C", git_root, "diff", "-M", "--name-status", "-z", baseline + "..HEAD"]
+        else:
+            cmd = ["git", "-C", git_root, "diff", "--cached", "-M", "--name-status", "-z"]
+        r = subprocess.run(cmd, capture_output=True)
+        mapping = {}
+        fields = r.stdout.split(b"\0")
+        i = 0
+        while i + 1 < len(fields):
+            status = os.fsdecode(fields[i])
+            first_path = os.fsdecode(fields[i + 1])
+            i += 2
+            if status.startswith(("R", "C")) and i < len(fields):
+                second_path = os.fsdecode(fields[i])
+                i += 1
+                if status.startswith("R"):
+                    mapping[os.path.realpath(os.path.join(git_root, second_path))] = first_path
+        _rename_cache[key] = mapping
+    old = _rename_cache[key].get(os.path.realpath(fpath), "")
+    if old and _ts_guard_path_state(os.path.join(git_root, old), git_root) != _ts_guard_path_state(fpath, git_root):
+        return ""
+    if old and rename_content_excluded:
+        new = os.path.relpath(os.path.realpath(fpath), git_root).replace("\\", "/")
+        old_ref = baseline + ":" + old if baseline else "HEAD:" + old
+        new_ref = "HEAD:" + new if baseline else ":" + new
+        if _git_content_matches(git_root, old_ref) != _git_content_matches(git_root, new_ref):
+            return ""
+    return old
+
+def _git_content_matches(git_root, object_spec):
+    result = subprocess.run(
+        ["git", "-C", git_root, "show", object_spec],
+        capture_output=True, text=True, errors="replace"
+    )
+    return result.returncode == 0 and bool(re.search(rename_content_excluded, result.stdout))
+
+def _is_ts_test_path(path):
+    return bool(re.search(r"(\.(test|spec)\.(ts|tsx|js|jsx)$|(^|/)(tests|__tests__|test|vendor)/)", path.replace("\\", "/")))
+
+def _ts_guard_path_state(path, git_root):
+    real_path = os.path.realpath(path)
+    git_rel = os.path.relpath(real_path, git_root).replace("\\", "/")
+    target_rel = os.path.relpath(real_path, os.path.realpath(target_dir)).replace("\\", "/")
+    source = bool(re.search(r"\.(ts|tsx|js|jsx)$", git_rel))
+    test = _is_ts_test_path(git_rel)
+    rule_excluded = bool(rename_excluded and re.search(rename_excluded, target_rel))
+    return (source, test, rule_excluded)
 
 def iter_files():
     if staged and os.path.isfile(staged):
@@ -149,10 +209,17 @@ def added_linenos(fpath):
     git_root = get_git_root(file_dir)
     if not git_root:
         return []
+    old = rename_source(git_root, fpath)
     if baseline:
-        cmd = ["git", "-C", git_root, "diff", "-U0", baseline + "..HEAD", "--", fpath]
+        if old:
+            cmd = ["git", "-C", git_root, "diff", "-M", "-U0", baseline + "..HEAD", "--", old, fpath]
+        else:
+            cmd = ["git", "-C", git_root, "diff", "-U0", baseline + "..HEAD", "--", fpath]
     else:
-        cmd = ["git", "-C", git_root, "diff", "--cached", "-U0", "--", fpath]
+        if old:
+            cmd = ["git", "-C", git_root, "diff", "--cached", "-M", "-U0", "--", old, fpath]
+        else:
+            cmd = ["git", "-C", git_root, "diff", "--cached", "-U0", "--", fpath]
     result = subprocess.run(cmd, capture_output=True, text=True)
     cur = 0
     nums = []
@@ -191,7 +258,7 @@ with open(out_path, "w") as out:
 }
 
 # Temporary file cleaning directory
-_VG_TMPDIR=""
+_VG_TMPDIR="$(mktemp -d)"
 
 _vg_cleanup() {
   [[ -n "$_VG_TMPDIR" && -d "$_VG_TMPDIR" ]] && rm -rf "$_VG_TMPDIR" || true
@@ -199,9 +266,6 @@ _vg_cleanup() {
 trap '_vg_cleanup' EXIT
 
 create_tmpfile() {
-  if [[ -z "$_VG_TMPDIR" ]]; then
-    _VG_TMPDIR=$(mktemp -d)
-  fi
   mktemp "$_VG_TMPDIR/vg.XXXXXX"
 }
 

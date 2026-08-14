@@ -209,6 +209,8 @@ cleanup() {
 trap cleanup EXIT
 
 export VIBEGUARD_EXECUTION_MODE=dev-linked-repo
+# The suite exercises every Codex-enabled hook, including full-only hooks.
+export VIBEGUARD_PROFILE=full
 
 
 for codex_runtime_test in \

@@ -28,10 +28,12 @@ require_present() {
   fi
 }
 
-require_absent "claude-md/vibeguard-rules.md" 'L1-L7 are enforced by Hooks' \
-  "managed VibeGuard rule block must not claim all L1-L7 layers are hook-enforced"
-require_present "claude-md/vibeguard-rules.md" '## Constraints (L1-L7 use rules, hooks, guards, and workflows)' \
-  "managed VibeGuard rule block must describe mixed layer coverage"
+require_absent "claude-md/vibeguard-rules.md" 'are enforced by Hooks' \
+  "managed VibeGuard shared core must not claim all rules are hook-enforced"
+require_present "claude-md/vibeguard-rules.md" '## Scope and precedence' \
+  "managed VibeGuard shared core must declare instruction precedence"
+require_present "claude-md/vibeguard-codex.md" 'Read, Glob, and Grep hook surfaces are unavailable' \
+  "Codex host guidance must preserve the native hook capability boundary"
 
 require_absent "README.md" '| AI tries to finish with unverified changes | `stop-guard` | **Gate**' \
   "README.md must not describe stop-guard as a blocking Gate"

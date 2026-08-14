@@ -13,8 +13,8 @@ See `product.md`.
 | Area | Files | Current behavior | Why relevant |
 | --- | --- | --- | --- |
 | Shipped example | `templates/vibeguard-config.json.example:1` | 定义 6 组 runtime keys，但遗漏 3 个 production getter path | schema/template 漂移基线 |
-| Parse validation | `vibeguard-runtime/src/runtime_config.rs:28` | 只验证文件可读、UTF-8 与 JSON | schema/semantic validation 缺口 |
-| Getter fallback | `vibeguard-runtime/src/runtime_config.rs:95` | type/path 不匹配时返回 default | silent degradation 根因 |
+| Parse validation | `vibeguard-runtime/src/runtime_config/mod.rs:28` | 只验证文件可读、UTF-8 与 JSON | schema/semantic validation 缺口 |
+| Getter fallback | `vibeguard-runtime/src/runtime_config/mod.rs:95` | type/path 不匹配时返回 default | silent degradation 根因 |
 | Runtime policy | `vibeguard-runtime/src/runtime_policy.rs:32` | hook policy 前调用 parse-only validator | 适合承载一致 validation decision |
 | Shell bridge | `hooks/_lib/config.sh:115` | 调用 Rust runtime-config getters | 必须消费相同 validation contract |
 | Regression evidence | `tests/hooks/test_runtime_config.sh:74` | 断言 invalid `write_mode` fallback warn | 需要翻转为 fail-visible negative test |

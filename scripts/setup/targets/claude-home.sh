@@ -187,7 +187,7 @@ _rule_label_is_selected() {
 
 # GH-541: the full native rule text (~126 constraints across rules/claude-rules/**)
 # is only front-injected under the full/strict profiles. The default (core) and
-# minimal profiles rely on the compact L1-L7 + Key Detailed Rules table already
+# minimal profiles rely on the shared compact core plus Claude host guidance
 # synced into ~/.claude/CLAUDE.md, keeping the live payload within the U-32
 # budget. The full-text tree stays installed under ~/.vibeguard and is opt-in.
 _claude_profile_injects_full_rule_tree() {
@@ -335,8 +335,8 @@ install_claude_home_assets() {
   else
     # GH-541: compact core default — remove any previously front-injected full
     # rule tree so switching down from full/strict shrinks the live payload.
-    # The compact L1-L7 + Key Detailed Rules table in ~/.claude/CLAUDE.md is the
-    # always-on surface; custom/ user rules below are preserved.
+    # The shared compact core plus Claude host guidance in ~/.claude/CLAUDE.md
+    # is the always-on surface; custom/ user rules below are preserved.
     all_labels="$(manifest_rule_labels_checked "")" || return 1
     while IFS= read -r label; do
       [[ -n "${label}" ]] || continue
@@ -344,7 +344,7 @@ install_claude_home_assets() {
         _remove_rule_subtree_if_safe "$(_claude_source_path "rules/claude-rules/${label}")" "${rules_dest}/${label}" "${label}" || return 1
       fi
     done <<< "${all_labels}"
-    green "  compact core (${PROFILE} profile): L1-L7 + Key Detailed Rules table via ~/.claude/CLAUDE.md; full rule text opt-in with --profile full|strict"
+    green "  compact core (${PROFILE} profile): shared core + Claude host guidance via ~/.claude/CLAUDE.md; full rule text opt-in with --profile full|strict"
   fi
 
   if [[ -d "${rules_dest}" ]]; then
@@ -418,7 +418,11 @@ configure_claude_home_runtime() {
 
 inject_claude_home_rules() {
   echo "Step 10: Update VibeGuard rules in CLAUDE.md"
-  inject_vibeguard_rules "${CLAUDE_DIR}/CLAUDE.md" "~/.claude/CLAUDE.md" "generated/CLAUDE.md"
+  inject_vibeguard_rules \
+    "${CLAUDE_DIR}/CLAUDE.md" \
+    "~/.claude/CLAUDE.md" \
+    "generated/CLAUDE.md" \
+    "${REPO_DIR}/claude-md/vibeguard-claude-rules.md"
 }
 
 check_claude_home_installation() {
@@ -532,7 +536,10 @@ check_claude_home_installation() {
         yellow "[INFO] Re-run 'bash setup.sh' to repair the rule count banner in ~/.claude/CLAUDE.md"
       fi
       local block_check_rc=0
-      if vibeguard_managed_rules_block_matches_source "${claude_md}" "${actual_rule_count}"; then
+      if vibeguard_managed_rules_block_matches_source \
+        "${claude_md}" \
+        "${actual_rule_count}" \
+        "${REPO_DIR}/claude-md/vibeguard-claude-rules.md"; then
         green "[OK] CLAUDE.md managed VibeGuard block matches current rules"
       else
         block_check_rc=$?

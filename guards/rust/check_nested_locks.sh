@@ -23,15 +23,19 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
     | grep -vE "${VIBEGUARD_TEST_FILE_PATTERN}") || STAGED_RS=""
 
   if [[ -n "${STAGED_RS}" ]]; then
+    # Load once in this shell: $(vg_staged_file_diff) would otherwise rebuild
+    # the rename map in a subshell on every staged file.
+    _vg_load_staged_rename_map
     while IFS= read -r f; do
       [[ -z "$f" || ! -f "$f" ]] && continue
-      diff_out=$(git diff --cached -U0 -- "${f}" 2>/dev/null)
-      count=$(printf '%s\n' "$diff_out" | grep '^+' | grep -v '^+++' \
+      _diff_tmp=$(create_tmpfile)
+      vg_staged_file_diff "${f}" > "${_diff_tmp}"
+      count=$(grep '^+' "${_diff_tmp}" | grep -v '^+++' \
         | grep -cE '\.(read|write|lock)[[:space:]]*\(') || count=0
       if [[ "$count" -gt 2 ]]; then
         # Find first new-file line number of a lock acquisition so
         # apply_suppression_filter can match vibeguard-disable-next-line.
-        first_line=$(printf '%s\n' "$diff_out" | awk '
+        first_line=$(awk '
           /^@@ / {
             tmp = $0
             sub(/^.*\+/, "", tmp)
@@ -44,7 +48,7 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
               print cur; exit
             }
           }
-        ')
+        ' "${_diff_tmp}")
         [[ -z "$first_line" ]] && first_line=1
         echo "[RS-01] ${f}:${first_line}: ${count} lock acquisitions in staged diff (review manually)"
       fi
