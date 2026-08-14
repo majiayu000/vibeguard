@@ -12,6 +12,8 @@ How to use:
     python check_naming_convention.py # Check app/ directory by default
 """
 
+from __future__ import annotations
+
 import os
 import re
 import sys
