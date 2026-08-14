@@ -597,7 +597,18 @@ assert_contains "${missing_end_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md m
 printf '<!-- vibeguard-start -->\n' >> "${HOME}/.codex/AGENTS.md"
 duplicate_start_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
-assert_contains "${duplicate_start_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md marker mismatch" "--check reports duplicate Codex AGENTS start marker"
+assert_not_contains "${duplicate_start_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md marker mismatch" "--check does not treat an unmanaged extra start marker as a managed-block mismatch"
+assert_contains "${duplicate_start_agents_check_out}" "[WARN] ~/.codex/AGENTS.md has" "--check warns about unmanaged extra start marker outside the valid block"
+python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+path.write_text(text + "\n" + text, encoding="utf-8")
+PY
+duplicate_valid_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+assert_contains "${duplicate_valid_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md marker mismatch" "--check reports duplicate valid Codex AGENTS managed blocks"
 python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
 from pathlib import Path
 import sys

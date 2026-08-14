@@ -423,19 +423,20 @@ check_codex_agents_hygiene() {
     return 0
   fi
 
-  local start_marker="<!-- vibeguard-start -->"
-  local end_marker="<!-- vibeguard-end -->"
-  local start_count end_count
-  start_count=$(grep -cF "${start_marker}" "${agents_md}" 2>/dev/null || true)
-  end_count=$(grep -cF "${end_marker}" "${agents_md}" 2>/dev/null || true)
-  if [[ "${start_count}" -ne 1 || "${end_count}" -ne 1 ]]; then
-    red "[BROKEN] ~/.codex/AGENTS.md marker mismatch (start=${start_count}, end=${end_count}; rerun setup)"
+  local span_out valid_count start_line end_line
+  if ! span_out=$(python3 "${CLAUDE_MD_HELPER}" managed-span "${agents_md}" 2>/dev/null); then
+    red "[BROKEN] ~/.codex/AGENTS.md marker mismatch (managed-span failed; rerun setup)"
     return 0
   fi
-
-  local start_line end_line
-  start_line=$(grep -nF "${start_marker}" "${agents_md}" | head -1 | cut -d: -f1)
-  end_line=$(grep -nF "${end_marker}" "${agents_md}" | head -1 | cut -d: -f1)
+  read -r valid_count start_line end_line <<< "${span_out}"
+  if [[ -z "${valid_count}" || "${valid_count}" -eq 0 ]]; then
+    red "[BROKEN] ~/.codex/AGENTS.md marker mismatch (valid_blocks=${valid_count:-0}; rerun setup)"
+    return 0
+  fi
+  if [[ "${valid_count}" -gt 1 ]]; then
+    red "[BROKEN] ~/.codex/AGENTS.md marker mismatch (valid_blocks=${valid_count}; rerun setup)"
+    return 0
+  fi
   if [[ "${start_line}" -ge "${end_line}" ]]; then
     red "[BROKEN] ~/.codex/AGENTS.md marker order is invalid (rerun setup)"
     return 0

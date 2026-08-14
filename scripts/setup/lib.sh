@@ -613,9 +613,10 @@ vibeguard_managed_rule_banner_count() {
   local file="$1"
   [[ -f "${file}" ]] || return 1
   awk '
-    /<!-- vibeguard-start -->/ { in_block = 1; next }
-    /<!-- vibeguard-end -->/ { in_block = 0 }
-    in_block && match($0, /[0-9][0-9]* rules/) {
+    /<!-- vibeguard-start -->/ { in_block = 1; valid = 0; next }
+    /<!-- vibeguard-end -->/ { in_block = 0; valid = 0; next }
+    in_block && index($0, "#VibeGuard") { valid = 1 }
+    in_block && valid && match($0, /[0-9][0-9]* rules/) {
       text = substr($0, RSTART, RLENGTH)
       sub(/ rules$/, "", text)
       print text

@@ -82,8 +82,10 @@ fn assert_visible_failure(output: &Output, stable_message: Option<&str>) {
 
 const RULES: &str = concat!(
     "<!-- vibeguard-start -->\n",
+    "#VibeGuard\n",
     "Repo: __VIBEGUARD_DIR__\n",
     "Rules: __VIBEGUARD_RULE_COUNT__\n",
+    "L6: Follow `workflows/references/routing-contract.md`\n",
     "<!-- vibeguard-end -->\n"
 );
 
@@ -164,8 +166,10 @@ fn diff_is_non_mutating_and_inject_is_exact_and_idempotent() {
     let rules = fixture.write("rules.md", RULES);
     let rendered_rules = concat!(
         "<!-- vibeguard-start -->\n",
+        "#VibeGuard\n",
         "Repo: /workspace/repo\n",
         "Rules: 126\n",
+        "L6: Follow `/workspace/repo/workflows/references/routing-contract.md`\n",
         "<!-- vibeguard-end -->"
     );
     let managed_only = format!("{rendered_rules}\n");
@@ -202,7 +206,7 @@ fn diff_is_non_mutating_and_inject_is_exact_and_idempotent() {
         &["/workspace/repo", "126"],
     );
     let expected_diff = format!(
-        "--- {0}\n+++ {0}\n@@\n-Intro\n+Intro\n+\n+<!-- vibeguard-start -->\n+Repo: /workspace/repo\n+Rules: 126\n+<!-- vibeguard-end -->\nAPPENDED\n",
+        "--- {0}\n+++ {0}\n@@\n-Intro\n+Intro\n+\n+<!-- vibeguard-start -->\n+#VibeGuard\n+Repo: /workspace/repo\n+Rules: 126\n+L6: Follow `/workspace/repo/workflows/references/routing-contract.md`\n+<!-- vibeguard-end -->\nAPPENDED\n",
         target.display()
     );
     assert_success(&diff, &expected_diff);
@@ -243,7 +247,7 @@ fn inject_updates_only_the_managed_block() {
         "CLAUDE.md",
         concat!(
             "Before\n\n",
-            "<!-- vibeguard-start -->\nold\n<!-- vibeguard-end -->\n\n",
+            "<!-- vibeguard-start -->\n#VibeGuard\nold\n<!-- vibeguard-end -->\n\n",
             "After\n"
         ),
     );
@@ -261,8 +265,10 @@ fn inject_updates_only_the_managed_block() {
         concat!(
             "Before\n\n",
             "<!-- vibeguard-start -->\n",
+            "#VibeGuard\n",
             "Repo: /new/repo\n",
             "Rules: 80\n",
+            "L6: Follow `/new/repo/workflows/references/routing-contract.md`\n",
             "<!-- vibeguard-end -->\n\n",
             "After\n"
         )
@@ -288,7 +294,7 @@ fn remove_distinguishes_missing_plain_managed_and_mixed_files() {
 
     let managed = fixture.write(
         "managed.md",
-        "<!-- vibeguard-start -->\nmanaged\n<!-- vibeguard-end -->\n",
+        "<!-- vibeguard-start -->\n#VibeGuard\nmanaged\n<!-- vibeguard-end -->\n",
     );
     assert_success(
         &run(&fixture, "setup-md-remove", &[&managed], &[]),
@@ -298,13 +304,40 @@ fn remove_distinguishes_missing_plain_managed_and_mixed_files() {
 
     let mixed = fixture.write(
         "mixed.md",
-        "Before\n\n<!-- vibeguard-start -->\nmanaged\n<!-- vibeguard-end -->\n\nAfter\n",
+        "Before\n\n<!-- vibeguard-start -->\n#VibeGuard\nmanaged\n<!-- vibeguard-end -->\n\nAfter\n",
     );
     assert_success(
         &run(&fixture, "setup-md-remove", &[&mixed], &[]),
         "REMOVED\n",
     );
     assert_eq!(fs::read_to_string(&mixed).unwrap(), "Before\n\nAfter\n");
+    fixture.cleanup();
+}
+
+#[test]
+fn inject_appends_when_prose_mentions_markers() {
+    let fixture = Fixture::new("prose-markers");
+    let target = fixture.write(
+        "AGENTS.md",
+        concat!(
+            "Codex-only Computer Use notes.\n",
+            "Do not paste raw <!-- vibeguard-start --> or <!-- vibeguard-end --> here.\n",
+        ),
+    );
+    let rules = fixture.write("rules.md", RULES);
+
+    let output = run(
+        &fixture,
+        "setup-md-inject",
+        &[&target, &rules],
+        &["/workspace/repo", "126"],
+    );
+    assert_success(&output, "APPENDED\n");
+    let content = fs::read_to_string(&target).unwrap();
+    assert!(content.starts_with("Codex-only Computer Use notes.\n"));
+    assert!(content.contains("Do not paste raw <!-- vibeguard-start --> or <!-- vibeguard-end --> here.\n"));
+    assert!(content.contains("#VibeGuard\n"));
+    assert!(content.ends_with("<!-- vibeguard-end -->\n"));
     fixture.cleanup();
 }
 

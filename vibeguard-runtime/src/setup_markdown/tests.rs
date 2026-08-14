@@ -11,10 +11,10 @@ mod setup_markdown_tests {
 
     #[test]
     fn replaces_marker_block() {
-        let original = "a\n\n<!-- vibeguard-start -->\nold\n<!-- vibeguard-end -->\n\nb\n";
+        let original = "a\n\n<!-- vibeguard-start -->\n#VibeGuard\nold\n<!-- vibeguard-end -->\n\nb\n";
         let next = replace_managed_block(
             original,
-            "<!-- vibeguard-start -->\nnew\n<!-- vibeguard-end -->",
+            "<!-- vibeguard-start -->\n#VibeGuard\nnew\n<!-- vibeguard-end -->",
         );
         assert!(next.contains("new"));
         assert!(!next.contains("old"));
@@ -56,6 +56,20 @@ mod setup_markdown_tests {
 
         std::fs::remove_dir_all(dir)?;
         Ok(())
+    }
+
+    #[test]
+    fn ignores_prose_marker_pairs_without_anchor() {
+        let original = concat!(
+            "Do not paste <!-- vibeguard-start --> or <!-- vibeguard-end --> here.\n",
+            "Keep this Codex-only section.\n",
+        );
+        let next = replace_managed_block(
+            original,
+            "<!-- vibeguard-start -->\n#VibeGuard\nnew\n<!-- vibeguard-end -->",
+        );
+        assert_eq!(next, original);
+        assert!(marker_range(original).is_none());
     }
 
     #[test]

@@ -53,6 +53,39 @@ canonical = subprocess.check_output(
 ).splitlines()
 assert "TASTE-ANSI" in canonical
 assert claude_md.count_rule_headings(repo_dir / "rules/claude-rules") == len(canonical)
+_, _, injected = claude_md.render_injected(
+    "/tmp/vibeguard-missing-target.md",
+    str(repo_dir / "claude-md/vibeguard-rules.md"),
+    str(repo_dir),
+    127,
+)
+assert f"`{repo_dir}/workflows/references/routing-contract.md`" in injected
+assert "`workflows/references/routing-contract.md`" not in injected.split("<!-- vibeguard-start -->", 1)[-1]
+
+prose = (
+    "Codex-only Computer Use notes.\n"
+    "Do not paste raw <!-- vibeguard-start --> or <!-- vibeguard-end --> here.\n"
+)
+prose_target = Path("/tmp/vibeguard-prose-markers.md")
+prose_target.write_text(prose)
+action, original, appended = claude_md.render_injected(
+    str(prose_target),
+    str(repo_dir / "claude-md/vibeguard-rules.md"),
+    str(repo_dir),
+    127,
+)
+assert action == "APPENDED"
+assert original == prose
+assert appended.startswith(prose)
+assert appended.count("<!-- vibeguard-start -->") == 2
+assert "#VibeGuard" in appended
+assert claude_md.count_managed_blocks(prose) == 0
+assert claude_md.count_managed_blocks(appended) == 1
+assert claude_md.managed_span_lines(prose) == (0, 0, 0)
+count, start_line, end_line = claude_md.managed_span_lines(appended)
+assert count == 1
+assert start_line > 1
+assert end_line > start_line
 PY
 assert_cmd "setup shell rule counter counts canonical non-numeric rule ids" bash -c "
   set -euo pipefail

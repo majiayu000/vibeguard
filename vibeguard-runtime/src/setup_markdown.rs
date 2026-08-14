@@ -10,6 +10,7 @@ mod hook_identity;
 
 const START: &str = "<!-- vibeguard-start -->";
 const END: &str = "<!-- vibeguard-end -->";
+const MANAGED_ANCHOR: &str = "#VibeGuard";
 const RULE_COUNT_PLACEHOLDER: &str = "__VIBEGUARD_RULE_COUNT__";
 
 pub fn diff_inject(args: &[String]) -> SetupResult<()> {
@@ -81,6 +82,7 @@ fn render_injected(
     if rule_count.parse::<u64>().is_err() {
         return Err(format!("Invalid rule count: {rule_count}").into());
     }
+    let routing_contract = format!("`{repo_dir}/workflows/references/routing-contract.md`");
     let rules_source = std::fs::read_to_string(rules_file)?;
     validate_managed_source(&rules_source).map_err(|error| {
         format!(
@@ -90,6 +92,7 @@ fn render_injected(
     })?;
     let rules = rules_source
         .replace("__VIBEGUARD_DIR__", repo_dir)
+        .replace("`workflows/references/routing-contract.md`", &routing_contract)
         .replace(RULE_COUNT_PLACEHOLDER, rule_count);
     let original = std::fs::read_to_string(target_file).unwrap_or_default();
 
@@ -145,9 +148,37 @@ fn replace_managed_block(original: &str, rules: &str) -> String {
 }
 
 fn marker_range(text: &str) -> Option<(usize, usize)> {
-    let start = text.find(START)?;
-    let end = text[start..].find(END)? + start;
-    Some((start, end + END.len()))
+    managed_blocks(text).into_iter().next()
+}
+
+fn managed_blocks(text: &str) -> Vec<(usize, usize)> {
+    let mut blocks = Vec::new();
+    let mut pos = 0;
+    while let Some(rel) = text.get(pos..).and_then(|rest| rest.find(START)) {
+        let start = pos + rel;
+        let after_start = start + START.len();
+        let next_start = text
+            .get(after_start..)
+            .and_then(|rest| rest.find(START))
+            .map(|rel| after_start + rel);
+        let Some(end) = text
+            .get(after_start..)
+            .and_then(|rest| rest.find(END))
+            .map(|rel| after_start + rel)
+        else {
+            break;
+        };
+        if next_start.is_some_and(|next| next < end) {
+            pos = after_start;
+            continue;
+        }
+        let end_after = end + END.len();
+        if text[start..end_after].contains(MANAGED_ANCHOR) {
+            blocks.push((start, end_after));
+        }
+        pos = end_after;
+    }
+    blocks
 }
 
 #[derive(Clone, Debug)]
