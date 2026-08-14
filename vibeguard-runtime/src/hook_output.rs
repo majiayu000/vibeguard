@@ -1,7 +1,7 @@
 //! Hook protocol output helpers shared by shell hooks.
 
 use crate::codex_hooks::print_json;
-use crate::hook_checks_common::read_stdin;
+use crate::hook_checks::common::read_stdin;
 use serde_json::json;
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;

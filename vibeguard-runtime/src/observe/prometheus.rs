@@ -5,7 +5,7 @@ use std::io::{self, BufRead, Read};
 use std::path::{Path, PathBuf};
 
 use crate::event_schema::{UNKNOWN, decision, field};
-use crate::log_scope::{LogScope, LogScopeOptions, parse_scope, resolve_log_file};
+use crate::logging::scope::{LogScope, LogScopeOptions, parse_scope, resolve_log_file};
 use crate::time_utils;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;

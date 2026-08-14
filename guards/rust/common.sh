@@ -98,7 +98,7 @@ parse_guard_args() {
 }
 
 # Temporary file cleaning directory: all guards share the same cleaning trap
-_VG_TMPDIR=""
+_VG_TMPDIR="$(mktemp -d)"
 
 _vg_cleanup() {
   [[ -n "$_VG_TMPDIR" && -d "$_VG_TMPDIR" ]] && rm -rf "$_VG_TMPDIR" || true
@@ -108,10 +108,110 @@ trap '_vg_cleanup' EXIT
 #Create temporary files and automatically clean them when the script exits
 # Usage: TMPFILE=$(create_tmpfile)
 create_tmpfile() {
-  if [[ -z "$_VG_TMPDIR" ]]; then
-    _VG_TMPDIR=$(mktemp -d)
-  fi
   mktemp "$_VG_TMPDIR/vg.XXXXXX"
+}
+
+# ---------------------------------------------------------------------------
+# Rename-aware staged diff
+# ---------------------------------------------------------------------------
+# `git diff --cached -- <new-path>` cannot pair a staged rename because the
+# old path falls outside the pathspec, so a renamed file shows up as fully
+# added and every pre-existing line looks new. Resolve the rename source once
+# per process and diff both sides of the pathspec instead.
+
+_VG_STAGED_RENAME_NEW=()
+_VG_STAGED_RENAME_OLD=()
+_VG_STAGED_RENAME_MAP_LOADED=""
+
+_vg_load_staged_rename_map() {
+  if [[ -z "${_VG_STAGED_RENAME_MAP_LOADED}" ]]; then
+    # PERF-OK: one rename-aware name-status diff per guard process.
+    local status first_path second_path
+    while IFS= read -r -d '' status && IFS= read -r -d '' first_path; do
+      if [[ "$status" == R* || "$status" == C* ]]; then
+        IFS= read -r -d '' second_path || break
+        if [[ "$status" == R* ]]; then
+          _VG_STAGED_RENAME_NEW+=("$second_path")
+          _VG_STAGED_RENAME_OLD+=("$first_path")
+        fi
+      fi
+    done < <(git diff --cached -M --name-status -z 2>/dev/null)
+    _VG_STAGED_RENAME_MAP_LOADED=1
+  fi
+}
+
+# vg_path_is_test PATH
+# True when PATH is classified as test/fixture code. Avoid filter_rs_prod_paths
+# here because its temp-file pipeline is unnecessary for a single path.
+vg_path_is_test() {
+  local path="$1" runtime_path output
+  if runtime_path="$(vibeguard_rust_runtime_path 2>/dev/null)" \
+    && output="$(printf '%s\n' "$path" | "${runtime_path}" test-path-filter --prod 2>/dev/null)"; then
+    [[ -z "$output" ]]
+    return
+  fi
+  printf '%s\n' "$path" | grep -qE "${VIBEGUARD_TEST_FILE_PATTERN}"
+}
+
+# vg_path_enforcement_class PATH
+# Print the path properties that determine whether Rust guards enforce a file.
+# Rename pairing is safe only when every property is unchanged; otherwise the
+# destination must be treated as newly governed code.
+vg_path_enforcement_class() {
+  local path="$1"
+  local normalized="/${path#/}"
+  local source=0 excluded=0 test=0
+  [[ "$path" == *.rs ]] && source=1
+  printf '%s\n' "$normalized" | grep -qE "${VIBEGUARD_EXCLUDE_PATHS}" && excluded=1
+  vg_path_is_test "$path" && test=1
+  printf '%s:%s:%s\n' "$source" "$excluded" "$test"
+}
+
+vg_staged_inline_test_count() {
+  git show "$1" 2>/dev/null | grep -cE '^[[:space:]]*#\[cfg\(test\)\]' || true
+}
+
+# vg_staged_file_diff FILE
+# Prints the staged -U0 diff for one file, pairing staged renames so that
+# moved-but-unchanged lines do not appear as additions. Pairing is skipped when
+# the rename crosses a test/production boundary (e.g. tests/helper.rs → src/helper.rs),
+# because the destination is newly under production enforcement.
+vg_staged_file_diff() {
+  local f="$1"
+  local git_root rel old old_class new_class old_inline_tests new_inline_tests i
+  rel="$f"
+  if [[ "$f" == /* ]]; then
+    git_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+    if [[ -n "$git_root" ]]; then
+      if command -v python3 >/dev/null 2>&1; then
+        # realpath resolution handles macOS /var -> /private/var symlinks.
+        rel=$(python3 -c "import os,sys; f=os.path.realpath(sys.argv[1]); r=os.path.realpath(sys.argv[2]); print(f[len(r)+1:] if f.startswith(r+os.sep) else sys.argv[1])" "$f" "$git_root" 2>/dev/null || echo "$f")
+      else
+        [[ "$f" == "$git_root/"* ]] && rel="${f#$git_root/}"
+      fi
+    fi
+  fi
+  _vg_load_staged_rename_map
+  old=""
+  for ((i = 0; i < ${#_VG_STAGED_RENAME_NEW[@]}; i++)); do
+    if [[ "${_VG_STAGED_RENAME_NEW[$i]}" == "$rel" ]]; then
+      old="${_VG_STAGED_RENAME_OLD[$i]}"
+      break
+    fi
+  done
+  if [[ -n "$old" ]]; then
+    old_class=$(vg_path_enforcement_class "$old")
+    new_class=$(vg_path_enforcement_class "$rel")
+    old_inline_tests=$(vg_staged_inline_test_count "HEAD:${old}")
+    new_inline_tests=$(vg_staged_inline_test_count ":${rel}")
+    if [[ "$old_class" == "$new_class" && "$new_inline_tests" -ge "$old_inline_tests" ]]; then
+      git diff --cached -M -U0 -- ":(top)${old}" ":(top)${rel}" 2>/dev/null
+    else
+      git diff --cached -U0 -- "$f" 2>/dev/null
+    fi
+  else
+    git diff --cached -U0 -- "$f" 2>/dev/null
+  fi
 }
 
 # ---------------------------------------------------------------------------

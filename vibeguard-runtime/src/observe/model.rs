@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::log_scope::{LogScope, parse_scope};
+use crate::logging::scope::{LogScope, parse_scope};
 
 use super::{DEFAULT_LIMIT, DEFAULT_SLOW_MS, DEFAULT_TOP, Result};
 

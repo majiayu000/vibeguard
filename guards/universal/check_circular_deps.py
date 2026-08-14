@@ -12,6 +12,8 @@ Exit code:
     1 — Circular dependencies found
 """
 
+from __future__ import annotations
+
 import os
 import re
 import sys

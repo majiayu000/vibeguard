@@ -137,14 +137,14 @@ PY
 assert_fails "runtime Python fallback references fail U-29 check" bash "${SELF_DIR}/check-u29-no-silent-degrade.sh" "${bad_runtime_fallback}"
 
 bad_runtime_u29="${TMP_DIR}/bad-runtime-u29"
-mkdir -p "${bad_runtime_u29}/hooks" "${bad_runtime_u29}/vibeguard-runtime/src" "${bad_runtime_u29}/eval"
+mkdir -p "${bad_runtime_u29}/hooks" "${bad_runtime_u29}/vibeguard-runtime/src/hook_checks" "${bad_runtime_u29}/vibeguard-runtime/src/hook_orchestrator" "${bad_runtime_u29}/eval"
 cat > "${bad_runtime_u29}/hooks/pre-bash-guard.sh" <<'EOF'
 exec "$_VIBEGUARD_RUNTIME" hook pre-bash
 EOF
-cat > "${bad_runtime_u29}/vibeguard-runtime/src/hook_checks_bash.rs" <<'EOF'
+cat > "${bad_runtime_u29}/vibeguard-runtime/src/hook_checks/bash.rs" <<'EOF'
 fn evaluate_pre_bash_input() {}
 EOF
-cat > "${bad_runtime_u29}/vibeguard-runtime/src/hook_orchestrator_pre_bash.rs" <<'EOF'
+cat > "${bad_runtime_u29}/vibeguard-runtime/src/hook_orchestrator/pre_bash.rs" <<'EOF'
 fn run() {}
 EOF
 cat > "${bad_runtime_u29}/eval/run_eval.py" <<'PY'

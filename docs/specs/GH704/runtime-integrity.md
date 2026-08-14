@@ -755,9 +755,9 @@ reordered lag ref、ready-registry lag、outbox lag、completed retention/overfl
 
 ## 5. Ownership and proof closure
 
-实际 app-server session container/lifecycle router `vibeguard-runtime/src/codex_app_server.rs`、
-capability semantics owner `vibeguard-runtime/src/codex_app_server_core.rs` 与 PostToolUse/PostEdit
-delivery owner `vibeguard-runtime/src/hook_orchestrator_post_edit.rs` 必须进入 affected-file manifest、
+实际 app-server session container/lifecycle router `vibeguard-runtime/src/codex_app_server/mod.rs`、
+capability semantics owner `vibeguard-runtime/src/codex_app_server/core.rs` 与 PostToolUse/PostEdit
+delivery owner `vibeguard-runtime/src/hook_orchestrator/post_edit.rs` 必须进入 affected-file manifest、
 focused test ownership 与 U-22 critical inventory。wrapper 的 `SharedState` 持有并在 client/server
 message routes 间串行交还 `SessionState`；core 生成不可由 client thread ID/env 重现的 server-owned
 capability，并在 app-server Rust process 内调用 semantic Core，覆盖 restart/rotation/spoof/
@@ -768,7 +768,7 @@ planned U-22 manifest 必须让每个 critical file 恰出现一次并携带非�
 gate 双向核对 manifest ↔ Product-to-Test mapping/Cargo exact name 或 shell selector，missing/empty/
 unknown/duplicate、zero-match、rename drift 与未被 critical file 引用的 suite 均须 nonzero。
 
-production Learn owner `vibeguard-runtime/src/hook_orchestrator_learn.rs` 也必须进入 complete manifest、
+production Learn owner `vibeguard-runtime/src/hook_orchestrator/learn.rs` 也必须进入 complete manifest、
 U-22 inventory 与 exact focused ownership。其 `recent_log_text`/`session_metrics::run_text` error 不得
 `unwrap_or_default` 成 no-data：必须输出 typed source/error identity 或 `projection_lag/unavailable`，
 保持 `finalized=false`、零 suggestion/candidate/provider write；只有真实空 history 才是 blank。

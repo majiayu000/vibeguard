@@ -558,6 +558,652 @@ else
   SKIP=$((SKIP+1))
 fi
 
+printf '\n=== Baseline Scanning: staged renames are not treated as new code ===\n'
+
+# A pathspec-limited `git diff --cached -- <new-path>` cannot pair a staged
+# rename, so renamed files used to show as fully added and every pre-existing
+# violation looked new (false pre-commit blocks on pure moves).
+
+# ---- Rename test A: pre-existing unwrap in a renamed file is NOT reported ----
+repoR1="${tmpdir}/rs03_rename_clean"
+init_repo "$repoR1"
+mkdir -p "${repoR1}/src"
+
+cat > "${repoR1}/src/old_util.rs" <<'EOF'
+pub fn read_value(input: Option<i32>) -> i32 {
+    input.unwrap()
+}
+EOF
+git -C "$repoR1" add src/old_util.rs
+git -C "$repoR1" commit -q -m "initial with pre-existing unwrap"
+
+git -C "$repoR1" mv src/old_util.rs src/moved_util.rs
+cat >> "${repoR1}/src/moved_util.rs" <<'EOF'
+
+pub fn harmless_addition() -> i32 {
+    2
+}
+EOF
+git -C "$repoR1" add src/moved_util.rs
+
+stagedR1=$(staged_list "$repoR1" src/moved_util.rs)
+TOTAL=$((TOTAL+1))
+rcR1=0
+outR1=$( (cd "$repoR1" && VIBEGUARD_STAGED_FILES="$stagedR1" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 ) || rcR1=$?
+if [[ $rcR1 -eq 0 ]] && ! echo "$outR1" | grep -q '\[RS-03\]'; then
+  green "pre-existing unwrap in a staged rename is not reported"
+  PASS=$((PASS+1))
+else
+  red "staged rename should not resurface pre-existing unwrap (rc=$rcR1, got: $outR1)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR1"
+
+# ---- Rename test B: unwrap ADDED during a rename IS still reported ----
+repoR2="${tmpdir}/rs03_rename_new_unwrap"
+init_repo "$repoR2"
+mkdir -p "${repoR2}/src"
+
+cat > "${repoR2}/src/old_core.rs" <<'EOF'
+pub fn stable() -> i32 {
+    1
+}
+EOF
+git -C "$repoR2" add src/old_core.rs
+git -C "$repoR2" commit -q -m "initial clean"
+
+git -C "$repoR2" mv src/old_core.rs src/moved_core.rs
+cat >> "${repoR2}/src/moved_core.rs" <<'EOF'
+
+pub fn risky(input: Option<i32>) -> i32 {
+    input.unwrap()
+}
+EOF
+git -C "$repoR2" add src/moved_core.rs
+
+stagedR2=$(staged_list "$repoR2" src/moved_core.rs)
+TOTAL=$((TOTAL+1))
+outR2=$( (cd "$repoR2" && VIBEGUARD_STAGED_FILES="$stagedR2" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 || true )
+if echo "$outR2" | grep -q '\[RS-03\]'; then
+  green "unwrap added inside a staged rename is still reported"
+  PASS=$((PASS+1))
+else
+  red "unwrap added during a rename must still be reported (got: $outR2)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR2"
+
+# ---- Rename test C: Go linemap only contains edited lines for a rename ----
+repoR3="${tmpdir}/linemap_go_rename"
+init_repo "$repoR3"
+
+cat > "${repoR3}/old_worker.go" <<'EOF'
+package worker
+
+func Existing() {
+    go loop()
+}
+
+func loop() {}
+EOF
+git -C "$repoR3" add old_worker.go
+git -C "$repoR3" commit -q -m "initial with goroutine"
+
+git -C "$repoR3" mv old_worker.go moved_worker.go
+cat >> "${repoR3}/moved_worker.go" <<'EOF'
+
+func Helper() string { return "ok" }
+EOF
+git -C "$repoR3" add moved_worker.go
+
+stagedR3=$(staged_list "$repoR3" moved_worker.go)
+linemapR3=$(mktemp)
+(
+  cd "$repoR3"
+  source "${REPO_DIR}/guards/go/common.sh"
+  VIBEGUARD_STAGED_FILES="$stagedR3" vg_build_diff_linemap "$linemapR3" '\.go$'
+)
+
+TOTAL=$((TOTAL+1))
+repoR3_real=$(canon "$repoR3")
+# Line 4 holds the pre-existing `go loop()`; it must not be in the linemap.
+if grep -q "${repoR3_real}/moved_worker.go:" "$linemapR3" 2>/dev/null \
+    && ! grep -q "${repoR3_real}/moved_worker.go:4$" "$linemapR3" 2>/dev/null; then
+  green "Go linemap for a staged rename contains only edited lines"
+  PASS=$((PASS+1))
+else
+  red "Go linemap should pair the rename and keep only edited lines (got: $(cat "$linemapR3" 2>/dev/null))"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR3" "$linemapR3"
+
+# ---- Rename test D: test → production rename is treated as new production code ----
+repoR4="${tmpdir}/rs03_rename_test_to_prod"
+init_repo "$repoR4"
+mkdir -p "${repoR4}/tests" "${repoR4}/src"
+
+cat > "${repoR4}/tests/helper.rs" <<'EOF'
+pub fn read_value(input: Option<i32>) -> i32 {
+    input.unwrap()
+}
+EOF
+git -C "$repoR4" add tests/helper.rs
+git -C "$repoR4" commit -q -m "initial test helper with unwrap"
+
+git -C "$repoR4" mv tests/helper.rs src/helper.rs
+git -C "$repoR4" add src/helper.rs
+
+stagedR4=$(staged_list "$repoR4" src/helper.rs)
+TOTAL=$((TOTAL+1))
+outR4=$( (cd "$repoR4" && VIBEGUARD_STAGED_FILES="$stagedR4" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 || true )
+if echo "$outR4" | grep -q '\[RS-03\]'; then
+  green "test-to-production rename still reports pre-existing unwrap"
+  PASS=$((PASS+1))
+else
+  red "moving tests/helper.rs into src/ must report unwrap (got: $outR4)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR4"
+
+# ---- Rename test E: Go linemap treats *_test.go → prod as fully added ----
+repoR5="${tmpdir}/linemap_go_test_to_prod"
+init_repo "$repoR5"
+
+cat > "${repoR5}/helper_test.go" <<'EOF'
+package worker
+
+func Existing() {
+    go loop()
+}
+
+func loop() {}
+EOF
+git -C "$repoR5" add helper_test.go
+git -C "$repoR5" commit -q -m "initial test file with goroutine"
+
+git -C "$repoR5" mv helper_test.go helper.go
+git -C "$repoR5" add helper.go
+
+stagedR5=$(staged_list "$repoR5" helper.go)
+linemapR5=$(mktemp)
+(
+  cd "$repoR5"
+  source "${REPO_DIR}/guards/go/common.sh"
+  VIBEGUARD_STAGED_FILES="$stagedR5" vg_build_diff_linemap "$linemapR5" '\.go$'
+)
+
+TOTAL=$((TOTAL+1))
+repoR5_real=$(canon "$repoR5")
+# Without pairing, the pre-existing `go loop()` on line 4 must appear as added.
+if grep -q "${repoR5_real}/helper.go:4$" "$linemapR5" 2>/dev/null; then
+  green "Go linemap treats test-to-production rename as newly added lines"
+  PASS=$((PASS+1))
+else
+  red "helper_test.go → helper.go should add pre-existing lines to the linemap (got: $(cat "$linemapR5" 2>/dev/null))"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR5" "$linemapR5"
+
+# ---- Rename test F: vendor/ → production is treated as fully added ----
+repoR6="${tmpdir}/go_vendor_to_prod"
+init_repo "$repoR6"
+mkdir -p "${repoR6}/vendor/pkg" "${repoR6}/src"
+
+cat > "${repoR6}/vendor/pkg/worker.go" <<'EOF'
+package worker
+
+func Existing() {
+    go loop()
+}
+
+func loop() {}
+EOF
+git -C "$repoR6" add vendor/pkg/worker.go
+git -C "$repoR6" commit -q -m "initial vendor file with goroutine"
+
+git -C "$repoR6" mv vendor/pkg/worker.go src/worker.go
+git -C "$repoR6" add src/worker.go
+
+stagedR6=$(staged_list "$repoR6" src/worker.go)
+TOTAL=$((TOTAL+1))
+outR6=$( (cd "$repoR6" && VIBEGUARD_STAGED_FILES="$stagedR6" bash "${REPO_DIR}/guards/go/check_goroutine_leak.sh" --strict .) 2>&1 || true )
+if echo "$outR6" | grep -q '\[GO-02\].*/src/worker.go:4:'; then
+  green "vendor-to-production rename still reports pre-existing goroutine risk"
+  PASS=$((PASS+1))
+else
+  red "moving vendor/pkg/worker.go into src/ must report GO-02 (got: $outR6)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR6"
+
+# ---- Rename test G: TS logger exemption → production is treated as fully added ----
+repoR7="${tmpdir}/ts_logger_to_prod"
+init_repo "$repoR7"
+mkdir -p "${repoR7}/src"
+
+cat > "${repoR7}/src/logger.ts" <<'EOF'
+const value = 1
+console.log(value)
+EOF
+git -C "$repoR7" add src/logger.ts
+git -C "$repoR7" commit -q -m "initial logger file with console output"
+
+git -C "$repoR7" mv src/logger.ts src/service.ts
+git -C "$repoR7" add src/service.ts
+
+stagedR7=$(staged_list "$repoR7" src/service.ts)
+TOTAL=$((TOTAL+1))
+outR7=$( (cd "$repoR7" && VIBEGUARD_STAGED_FILES="$stagedR7" bash "${REPO_DIR}/guards/typescript/check_console_residual.sh" --strict .) 2>&1 || true )
+if echo "$outR7" | grep -q '\[TS-03\].*/src/service.ts:2'; then
+  green "logger-to-production rename still reports pre-existing console residual"
+  PASS=$((PASS+1))
+else
+  red "moving src/logger.ts to src/service.ts must report TS-03 (got: $outR7)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR7"
+
+# ---- Rename test H: root tests/ → production is treated as fully added ----
+repoR8="${tmpdir}/ts_root_tests_to_prod"
+init_repo "$repoR8"
+mkdir -p "${repoR8}/tests" "${repoR8}/src"
+printf 'const value: any = 1\n' > "${repoR8}/tests/helper.ts"
+git -C "$repoR8" add tests/helper.ts
+git -C "$repoR8" commit -q -m "initial root test helper"
+git -C "$repoR8" mv tests/helper.ts src/helper.ts
+git -C "$repoR8" add src/helper.ts
+
+stagedR8=$(staged_list "$repoR8" src/helper.ts)
+linemapR8=$(mktemp)
+(
+  cd "$repoR8"
+  source "${REPO_DIR}/guards/typescript/common.sh"
+  VIBEGUARD_STAGED_FILES="$stagedR8" vg_build_diff_linemap "$linemapR8" '\.(ts|tsx|js|jsx)$'
+)
+TOTAL=$((TOTAL+1))
+repoR8_real=$(canon "$repoR8")
+if grep -q "${repoR8_real}/src/helper.ts:1$" "$linemapR8" 2>/dev/null; then
+  green "root tests-to-production rename is treated as newly added TypeScript"
+  PASS=$((PASS+1))
+else
+  red "tests/helper.ts → src/helper.ts should add pre-existing lines to the linemap (got: $(cat "$linemapR8" 2>/dev/null))"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR8" "$linemapR8"
+
+# ---- Rename test I: TS vendor/ → production is treated as fully added ----
+repoR9="${tmpdir}/ts_vendor_to_prod"
+init_repo "$repoR9"
+mkdir -p "${repoR9}/vendor" "${repoR9}/src"
+printf 'const value: any = 1\n' > "${repoR9}/vendor/helper.ts"
+git -C "$repoR9" add vendor/helper.ts
+git -C "$repoR9" commit -q -m "initial vendor helper"
+git -C "$repoR9" mv vendor/helper.ts src/helper.ts
+git -C "$repoR9" add src/helper.ts
+
+stagedR9=$(staged_list "$repoR9" src/helper.ts)
+linemapR9=$(mktemp)
+(
+  cd "$repoR9"
+  source "${REPO_DIR}/guards/typescript/common.sh"
+  VIBEGUARD_STAGED_FILES="$stagedR9" vg_build_diff_linemap "$linemapR9" '\.(ts|tsx|js|jsx)$'
+)
+TOTAL=$((TOTAL+1))
+repoR9_real=$(canon "$repoR9")
+if grep -q "${repoR9_real}/src/helper.ts:1$" "$linemapR9" 2>/dev/null; then
+  green "vendor-to-production rename is treated as newly added TypeScript"
+  PASS=$((PASS+1))
+else
+  red "vendor/helper.ts → src/helper.ts should add pre-existing lines to the linemap (got: $(cat "$linemapR9" 2>/dev/null))"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR9" "$linemapR9"
+
+# ---- Rename test J: TS rule exclusions are relative to the scan target ----
+repoR10="${tmpdir}/ts_monorepo_logger_target"
+init_repo "$repoR10"
+mkdir -p "${repoR10}/packages/logger-app/src"
+
+cat > "${repoR10}/packages/logger-app/src/logger.ts" <<'EOF'
+const value = 1
+console.log(value)
+EOF
+git -C "$repoR10" add packages/logger-app/src/logger.ts
+git -C "$repoR10" commit -q -m "initial monorepo logger file"
+git -C "$repoR10" mv packages/logger-app/src/logger.ts packages/logger-app/src/service.ts
+git -C "$repoR10" add packages/logger-app/src/service.ts
+
+stagedR10=$(staged_list "$repoR10" packages/logger-app/src/service.ts)
+TOTAL=$((TOTAL+1))
+outR10=$( (cd "$repoR10" && VIBEGUARD_STAGED_FILES="$stagedR10" bash "${REPO_DIR}/guards/typescript/check_console_residual.sh" --strict packages/logger-app) 2>&1 || true )
+if echo "$outR10" | grep -q '\[TS-03\].*/packages/logger-app/src/service.ts:2'; then
+  green "monorepo scan target name does not mask logger-to-production rename"
+  PASS=$((PASS+1))
+else
+  red "logger-app target must still report src/logger.ts → src/service.ts (got: $outR10)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR10"
+
+# ---- Rename test K: non-Rust source → Rust source is newly enforced ----
+repoR11="${tmpdir}/rs03_non_source_to_rust"
+init_repo "$repoR11"
+printf 'pub fn read(input: Option<i32>) -> i32 { input.unwrap() }\n' > "${repoR11}/worker.txt"
+git -C "$repoR11" add worker.txt
+git -C "$repoR11" commit -q -m "initial non-Rust source"
+git -C "$repoR11" mv worker.txt worker.rs
+git -C "$repoR11" add worker.rs
+
+stagedR11=$(staged_list "$repoR11" worker.rs)
+TOTAL=$((TOTAL+1))
+outR11=$( (cd "$repoR11" && VIBEGUARD_STAGED_FILES="$stagedR11" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 || true )
+if echo "$outR11" | grep -q '\[RS-03\].*/worker.rs:1'; then
+  green "non-source-to-Rust rename is treated as newly enforced code"
+  PASS=$((PASS+1))
+else
+  red "worker.txt → worker.rs must report RS-03 (got: $outR11)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR11"
+
+# ---- Rename test L: excluded Rust source → production is newly enforced ----
+repoR12="${tmpdir}/rs03_target_to_prod"
+init_repo "$repoR12"
+mkdir -p "${repoR12}/target" "${repoR12}/src"
+printf 'pub fn read(input: Option<i32>) -> i32 { input.unwrap() }\n' > "${repoR12}/target/worker.rs"
+git -C "$repoR12" add -f target/worker.rs
+git -C "$repoR12" commit -q -m "initial excluded Rust source"
+git -C "$repoR12" mv target/worker.rs src/worker.rs
+git -C "$repoR12" add src/worker.rs
+
+stagedR12=$(staged_list "$repoR12" src/worker.rs)
+TOTAL=$((TOTAL+1))
+outR12=$( (cd "$repoR12" && VIBEGUARD_STAGED_FILES="$stagedR12" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 || true )
+if echo "$outR12" | grep -q '\[RS-03\].*/src/worker.rs:1'; then
+  green "excluded-to-production Rust rename is treated as newly enforced code"
+  PASS=$((PASS+1))
+else
+  red "target/worker.rs → src/worker.rs must report RS-03 (got: $outR12)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR12"
+
+# ---- Rename test M: non-Go source → Go source is newly enforced ----
+repoR13="${tmpdir}/go_non_source_to_go"
+init_repo "$repoR13"
+cat > "${repoR13}/worker.txt" <<'EOF'
+package worker
+
+func Existing() {
+    go loop()
+}
+
+func loop() {}
+EOF
+git -C "$repoR13" add worker.txt
+git -C "$repoR13" commit -q -m "initial non-Go source"
+git -C "$repoR13" mv worker.txt worker.go
+git -C "$repoR13" add worker.go
+
+stagedR13=$(staged_list "$repoR13" worker.go)
+TOTAL=$((TOTAL+1))
+outR13=$( (cd "$repoR13" && VIBEGUARD_STAGED_FILES="$stagedR13" bash "${REPO_DIR}/guards/go/check_goroutine_leak.sh" --strict .) 2>&1 || true )
+if echo "$outR13" | grep -q '\[GO-02\].*/worker.go:4:'; then
+  green "non-source-to-Go rename is treated as newly enforced code"
+  PASS=$((PASS+1))
+else
+  red "worker.txt → worker.go must report GO-02 (got: $outR13)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR13"
+
+# ---- Rename test N: non-TypeScript source → TypeScript is newly enforced ----
+repoR14="${tmpdir}/ts_non_source_to_ts"
+init_repo "$repoR14"
+printf 'const value: any = 1\n' > "${repoR14}/worker.txt"
+git -C "$repoR14" add worker.txt
+git -C "$repoR14" commit -q -m "initial non-TypeScript source"
+git -C "$repoR14" mv worker.txt worker.ts
+git -C "$repoR14" add worker.ts
+
+stagedR14=$(staged_list "$repoR14" worker.ts)
+linemapR14=$(mktemp)
+(
+  cd "$repoR14"
+  source "${REPO_DIR}/guards/typescript/common.sh"
+  VIBEGUARD_STAGED_FILES="$stagedR14" vg_build_diff_linemap "$linemapR14" '\.(ts|tsx|js|jsx)$'
+)
+TOTAL=$((TOTAL+1))
+repoR14_real=$(canon "$repoR14")
+if grep -q "${repoR14_real}/worker.ts:1$" "$linemapR14" 2>/dev/null; then
+  green "non-source-to-TypeScript rename is treated as newly enforced code"
+  PASS=$((PASS+1))
+else
+  red "worker.txt → worker.ts should add pre-existing lines to the linemap (got: $(cat "$linemapR14" 2>/dev/null))"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR14" "$linemapR14"
+
+# ---- Rename test O: removing the last MCP marker enables TS-03 enforcement ----
+repoR15="${tmpdir}/ts_mcp_to_regular"
+init_repo "$repoR15"
+mkdir -p "${repoR15}/src"
+cat > "${repoR15}/src/mcp.ts" <<'EOF'
+console.log("server starting")
+const transport = "StdioServerTransport"
+const stable_one = 1
+const stable_two = 2
+EOF
+git -C "$repoR15" add src/mcp.ts
+git -C "$repoR15" commit -q -m "initial MCP source"
+git -C "$repoR15" mv src/mcp.ts src/service.ts
+sed -i.bak 's/StdioServerTransport/http/' "${repoR15}/src/service.ts"
+rm -f "${repoR15}/src/service.ts.bak"
+git -C "$repoR15" add src/service.ts
+
+stagedR15=$(staged_list "$repoR15" src/service.ts)
+TOTAL=$((TOTAL+1))
+outR15=$( (cd "$repoR15" && VIBEGUARD_STAGED_FILES="$stagedR15" bash "${REPO_DIR}/guards/typescript/check_console_residual.sh" --strict .) 2>&1 || true )
+if echo "$outR15" | grep -q '\[TS-03\].*/src/service.ts:1'; then
+  green "MCP-to-regular rename re-enables TS-03 for unchanged console usage"
+  PASS=$((PASS+1))
+else
+  red "removing the last MCP marker during rename must report TS-03 (got: $outR15)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR15"
+
+# ---- Rename test P: Unicode Rust paths are parsed without Git quoting ----
+repoR16="${tmpdir}/rs03_unicode_rename"
+init_repo "$repoR16"
+mkdir -p "${repoR16}/src"
+printf 'pub fn read(input: Option<i32>) -> i32 { input.unwrap() }\n' > "${repoR16}/src/旧.rs"
+git -C "$repoR16" add "src/旧.rs"
+git -C "$repoR16" commit -q -m "initial Unicode Rust source"
+git -C "$repoR16" mv "src/旧.rs" "src/新.rs"
+
+stagedR16=$(staged_list "$repoR16" "src/新.rs")
+TOTAL=$((TOTAL+1))
+rcR16=0
+outR16=$( (cd "$repoR16" && VIBEGUARD_STAGED_FILES="$stagedR16" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 ) || rcR16=$?
+if [[ $rcR16 -eq 0 ]] && ! echo "$outR16" | grep -q '\[RS-03\]'; then
+  green "Unicode Rust rename preserves the pre-existing-code baseline"
+  PASS=$((PASS+1))
+else
+  red "src/旧.rs → src/新.rs must not resurface existing unwrap (rc=$rcR16, got: $outR16)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR16"
+
+# ---- Rename test Q: Unicode Go paths use the NUL-delimited rename map ----
+repoR17="${tmpdir}/go_unicode_rename"
+init_repo "$repoR17"
+cat > "${repoR17}/旧_worker.go" <<'EOF'
+package worker
+
+func Existing() {
+    go loop()
+}
+
+func loop() {}
+EOF
+git -C "$repoR17" add "旧_worker.go"
+git -C "$repoR17" commit -q -m "initial Unicode Go source"
+git -C "$repoR17" mv "旧_worker.go" "新_worker.go"
+printf '\nfunc Helper() string { return "ok" }\n' >> "${repoR17}/新_worker.go"
+git -C "$repoR17" add "新_worker.go"
+
+stagedR17=$(staged_list "$repoR17" "新_worker.go")
+linemapR17=$(mktemp)
+(
+  cd "$repoR17"
+  source "${REPO_DIR}/guards/go/common.sh"
+  VIBEGUARD_STAGED_FILES="$stagedR17" vg_build_diff_linemap "$linemapR17" '\.go$'
+)
+TOTAL=$((TOTAL+1))
+repoR17_real=$(canon "$repoR17")
+if grep -q "${repoR17_real}/新_worker.go:" "$linemapR17" 2>/dev/null \
+    && ! grep -q "${repoR17_real}/新_worker.go:4$" "$linemapR17" 2>/dev/null; then
+  green "Unicode Go rename preserves only newly edited lines"
+  PASS=$((PASS+1))
+else
+  red "Unicode Go rename must not resurface line 4 (got: $(cat "$linemapR17" 2>/dev/null))"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR17" "$linemapR17"
+
+# ---- Rename test R: Unicode TypeScript paths use the NUL-delimited rename map ----
+repoR18="${tmpdir}/ts_unicode_rename"
+init_repo "$repoR18"
+printf 'const existing: any = 1\n' > "${repoR18}/旧.ts"
+git -C "$repoR18" add "旧.ts"
+git -C "$repoR18" commit -q -m "initial Unicode TypeScript source"
+git -C "$repoR18" mv "旧.ts" "新.ts"
+printf 'const added = 2\n' >> "${repoR18}/新.ts"
+git -C "$repoR18" add "新.ts"
+
+stagedR18=$(staged_list "$repoR18" "新.ts")
+linemapR18=$(mktemp)
+(
+  cd "$repoR18"
+  source "${REPO_DIR}/guards/typescript/common.sh"
+  VIBEGUARD_STAGED_FILES="$stagedR18" vg_build_diff_linemap "$linemapR18" '\.(ts|tsx|js|jsx)$'
+)
+TOTAL=$((TOTAL+1))
+repoR18_real=$(canon "$repoR18")
+if grep -q "${repoR18_real}/新.ts:2$" "$linemapR18" 2>/dev/null \
+    && ! grep -q "${repoR18_real}/新.ts:1$" "$linemapR18" 2>/dev/null; then
+  green "Unicode TypeScript rename preserves only newly edited lines"
+  PASS=$((PASS+1))
+else
+  red "Unicode TypeScript rename must keep line 1 out of the linemap (got: $(cat "$linemapR18" 2>/dev/null))"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR18" "$linemapR18"
+
+# ---- Rename test S: Rust path classification does not allocate temp files ----
+repoR19="${tmpdir}/rs_classifier_temp"
+mkdir -p "${repoR19}/tmp"
+TOTAL=$((TOTAL+1))
+classR19=$(
+  cd "$repoR19"
+  TMPDIR="${repoR19}/tmp" source "${REPO_DIR}/guards/rust/common.sh"
+  TMPDIR="${repoR19}/tmp" vg_path_enforcement_class "src/worker.rs"
+)
+if [[ "$classR19" == "1:0:0" ]] && ! find "${repoR19}/tmp" -mindepth 1 -print -quit | grep -q .; then
+  green "Rust rename classification leaves no temp directories"
+  PASS=$((PASS+1))
+else
+  red "Rust rename classification leaked temp state (class=$classR19)"
+  FAIL=$((FAIL+1))
+fi
+
+# ---- Rename test T: removing #[cfg(test)] enables RS-03 enforcement ----
+repoR20="${tmpdir}/rs03_inline_test_to_prod"
+init_repo "$repoR20"
+mkdir -p "${repoR20}/src"
+cat > "${repoR20}/src/old.rs" <<'EOF'
+#[cfg(test)]
+mod tests {
+    pub fn read(input: Option<i32>) -> i32 { input.unwrap() }
+}
+EOF
+git -C "$repoR20" add src/old.rs
+git -C "$repoR20" commit -q -m "initial inline test module"
+git -C "$repoR20" mv src/old.rs src/new.rs
+sed -i.bak '1d' "${repoR20}/src/new.rs"
+rm -f "${repoR20}/src/new.rs.bak"
+git -C "$repoR20" add src/new.rs
+
+stagedR20=$(staged_list "$repoR20" src/new.rs)
+TOTAL=$((TOTAL+1))
+outR20=$( (cd "$repoR20" && VIBEGUARD_STAGED_FILES="$stagedR20" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 || true )
+if echo "$outR20" | grep -q '\[RS-03\].*/src/new.rs:2'; then
+  green "inline-test-to-production rename reports unchanged unwrap"
+  PASS=$((PASS+1))
+else
+  red "removing #[cfg(test)] during rename must report RS-03 (got: $outR20)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR20"
+
+# ---- Rename test U: editing a preserved test attribute keeps rename pairing ----
+repoR21="${tmpdir}/rs03_inline_test_comment"
+init_repo "$repoR21"
+mkdir -p "${repoR21}/src"
+cat > "${repoR21}/src/old.rs" <<'EOF'
+pub fn existing(input: Option<i32>) -> i32 { input.unwrap() }
+
+#[cfg(test)]
+mod tests {
+    fn smoke() {}
+}
+EOF
+git -C "$repoR21" add src/old.rs
+git -C "$repoR21" commit -q -m "initial source with inline tests"
+git -C "$repoR21" mv src/old.rs src/new.rs
+sed -i.bak 's/#\[cfg(test)\]/#[cfg(test)] \/\/ tests/' "${repoR21}/src/new.rs"
+rm -f "${repoR21}/src/new.rs.bak"
+git -C "$repoR21" add src/new.rs
+
+stagedR21=$(staged_list "$repoR21" src/new.rs)
+TOTAL=$((TOTAL+1))
+rcR21=0
+outR21=$( (cd "$repoR21" && VIBEGUARD_STAGED_FILES="$stagedR21" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 ) || rcR21=$?
+if [[ $rcR21 -eq 0 ]] && ! echo "$outR21" | grep -q '\[RS-03\]'; then
+  green "preserved inline-test attribute does not resurface production debt"
+  PASS=$((PASS+1))
+else
+  red "editing a preserved #[cfg(test)] must retain rename pairing (rc=$rcR21, got: $outR21)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR21"
+
+# ---- Rename test V: removing the last CLI entry enables TS-03 enforcement ----
+repoR22="${tmpdir}/ts_cli_to_regular"
+init_repo "$repoR22"
+mkdir -p "${repoR22}/src"
+cat > "${repoR22}/src/cli.ts" <<'EOF'
+console.log("starting")
+const stable_one = 1
+const stable_two = 2
+EOF
+git -C "$repoR22" add src/cli.ts
+git -C "$repoR22" commit -q -m "initial CLI entry"
+git -C "$repoR22" mv src/cli.ts src/service.ts
+
+stagedR22=$(staged_list "$repoR22" src/service.ts)
+TOTAL=$((TOTAL+1))
+outR22=$( (cd "$repoR22" && VIBEGUARD_STAGED_FILES="$stagedR22" bash "${REPO_DIR}/guards/typescript/check_console_residual.sh" --strict .) 2>&1 || true )
+if echo "$outR22" | grep -q '\[TS-03\].*/src/service.ts:1'; then
+  green "CLI-to-regular rename re-enables TS-03"
+  PASS=$((PASS+1))
+else
+  red "src/cli.ts → src/service.ts must report unchanged console usage (got: $outR22)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR22"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

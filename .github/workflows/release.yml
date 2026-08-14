@@ -344,7 +344,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     permissions:
-      contents: read
+      # GitHub requires contents: write for workflow tokens to read draft releases.
+      contents: write
       attestations: read
 
     strategy:

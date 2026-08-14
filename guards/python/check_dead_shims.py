@@ -9,6 +9,8 @@ How to use:
     python3 check_dead_shims.py [target_dir] --strict # Exit code 1 if there is a dead shell
 """
 
+from __future__ import annotations
+
 import ast
 import os
 import sys
@@ -65,7 +67,7 @@ def is_dead_shim(filepath: Path) -> bool:
     for node in tree.body:
         if _is_docstring_expr(node):
             continue
-        if isinstance(node, ast.Import | ast.ImportFrom):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
             continue
         if _is_all_assignment(node):
             continue

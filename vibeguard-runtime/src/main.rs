@@ -3,64 +3,27 @@ mod bench;
 mod bench_support;
 mod circuit_breaker;
 mod codex_app_server;
-mod codex_app_server_core;
-mod codex_app_server_file_changes;
-mod codex_app_server_hooks;
-mod codex_app_server_policy;
-mod codex_app_server_strategies;
 mod codex_hooks;
-mod codex_hooks_adapter;
-mod codex_hooks_diag;
 mod event_schema;
 mod gemini_hooks;
 mod git_root;
 mod hook_checks;
-mod hook_checks_bash;
-mod hook_checks_common;
-mod hook_checks_history;
-mod hook_checks_js;
-mod hook_checks_scan;
-mod hook_checks_write;
-mod hook_checks_write_scan;
 mod hook_input_diag;
 mod hook_orchestrator;
-mod hook_orchestrator_context;
-mod hook_orchestrator_learn;
-mod hook_orchestrator_post_edit;
-mod hook_orchestrator_post_edit_history;
-mod hook_orchestrator_post_write;
-mod hook_orchestrator_pre_bash;
-mod hook_orchestrator_pre_edit;
-mod hook_orchestrator_stop;
 mod hook_output;
 mod hook_status;
 mod installed_profile;
 mod json_field;
-mod log_append;
-mod log_query;
-mod log_scope;
+mod logging;
 mod observe;
 mod pkg_rewrite;
 mod project_config;
-mod project_config_scoped_suppression;
 mod runtime_config;
-mod runtime_config_validation;
 mod runtime_policy;
 mod session_metrics;
-mod setup_codex_config;
-mod setup_codex_hooks;
-mod setup_codex_hooks_health;
-mod setup_gemini_hooks;
-mod setup_install_state;
-mod setup_lock_lifecycle;
-mod setup_managed_tree_remove;
-mod setup_manifest;
-mod setup_markdown;
-mod setup_quarantine_inventory;
-mod setup_support;
+mod setup;
 mod time_utils;
-mod u16_baseline;
-mod u16_config;
+mod u16;
 mod wrapper_env;
 
 use std::env;
@@ -118,47 +81,47 @@ static COMMANDS: &[Command] = &[
     Command {
         name: "churn-count",
         usage: "<session> <file>  — count Edit events for a file",
-        handler: log_query::churn_count,
+        handler: logging::query::churn_count,
     },
     Command {
         name: "warn-count",
         usage: "<session> <file>  — count warn events for a file",
-        handler: log_query::warn_count,
+        handler: logging::query::warn_count,
     },
     Command {
         name: "reason-count",
         usage: "<session> <hook> <reason>  — count exact hook/reason events",
-        handler: log_query::reason_count,
+        handler: logging::query::reason_count,
     },
     Command {
         name: "post-edit-history",
         usage: "<session> <file> [agent]  — summarize post-edit history signals",
-        handler: log_query::post_edit_history,
+        handler: logging::query::post_edit_history,
     },
     Command {
         name: "post-edit-w15",
         usage: "<session> <file>  — emit W-15 same-file edit trail metadata",
-        handler: log_query::post_edit_w15,
+        handler: logging::query::post_edit_w15,
     },
     Command {
         name: "build-fails",
         usage: "<session> <project>  — count consecutive build failures",
-        handler: log_query::build_fails,
+        handler: logging::query::build_fails,
     },
     Command {
         name: "paralysis-count",
         usage: "<session>  — count consecutive read-only tool calls",
-        handler: log_query::paralysis_count,
+        handler: logging::query::paralysis_count,
     },
     Command {
         name: "append-jsonl",
         usage: "<log-file>  — append one stdin JSONL line with runtime locking",
-        handler: log_append::run,
+        handler: logging::append::run,
     },
     Command {
         name: "append-jsonl-mirror",
         usage: "<primary-log-file> <mirror-log-file>  — append one stdin JSONL line to two JSONL files with runtime locking",
-        handler: log_append::run_mirror,
+        handler: logging::append::run_mirror,
     },
     Command {
         name: "circuit-breaker",
@@ -173,7 +136,7 @@ static COMMANDS: &[Command] = &[
     Command {
         name: "pre-bash-check",
         usage: "<vibeguard-root>  — classify PreToolUse(Bash) input for hooks",
-        handler: hook_checks_bash::pre_bash_check,
+        handler: hook_checks::bash::pre_bash_check,
     },
     Command {
         name: "hook",
@@ -253,47 +216,47 @@ static COMMANDS: &[Command] = &[
     Command {
         name: "codex-visible-failure",
         usage: "<event-name>  — emit a Codex visible failure payload from stdin reason",
-        handler: codex_hooks_diag::visible_failure,
+        handler: codex_hooks::diag::visible_failure,
     },
     Command {
         name: "codex-diag",
         usage: "<diag-file> <hook-name> <event-name> <reason> <detail> <cwd>  — append a Codex wrapper diagnostic JSONL event",
-        handler: codex_hooks_diag::diag,
+        handler: codex_hooks::diag::diag,
     },
     Command {
         name: "codex-hook-status",
         usage: "<diag-file> <hook-name> <event-name> <matcher> <status> <reason> <detail> <timeout-ms>  — append a Codex hook status JSONL event",
-        handler: codex_hooks_diag::hook_status,
+        handler: codex_hooks::diag::hook_status,
     },
     Command {
         name: "codex-hook-start",
         usage: "<diag-file> <hook-name> <timeout-ms>  — parse Codex hook input, append running status, and emit event/matcher/detail",
-        handler: codex_hooks_diag::hook_start,
+        handler: codex_hooks::diag::hook_start,
     },
     Command {
         name: "codex-hook-status-from-output",
         usage: "<diag-file> <hook-name> <event-name> <matcher> <detail> <timeout-ms>  — classify wrapped hook output and append Codex status JSONL",
-        handler: codex_hooks_diag::hook_status_from_output,
+        handler: codex_hooks::diag::hook_status_from_output,
     },
     Command {
         name: "codex-finalize-output",
         usage: "<diag-file> <hook-name> <event-name> <matcher> <detail> <timeout-ms>  — append final status and adapt wrapped hook output",
-        handler: codex_hooks_diag::finalize_output,
+        handler: codex_hooks::diag::finalize_output,
     },
     Command {
         name: "codex-adapt-pretool",
         usage: "  — adapt wrapped hook output to Codex PreToolUse JSON",
-        handler: codex_hooks_adapter::adapt_pretool,
+        handler: codex_hooks::adapter::adapt_pretool,
     },
     Command {
         name: "codex-adapt-posttool",
         usage: "  — adapt wrapped hook output to Codex PostToolUse JSON",
-        handler: codex_hooks_adapter::adapt_posttool,
+        handler: codex_hooks::adapter::adapt_posttool,
     },
     Command {
         name: "codex-adapt-permission-request",
         usage: "  — adapt wrapped hook output to Codex PermissionRequest JSON",
-        handler: codex_hooks_adapter::adapt_permission_request,
+        handler: codex_hooks::adapter::adapt_permission_request,
     },
     Command {
         name: "codex-normalize-apply-patch",
@@ -378,7 +341,7 @@ static COMMANDS: &[Command] = &[
     Command {
         name: "u16-baseline-check",
         usage: "(--staged|--base <ref> [--head <ref>]) [--base-limit <n>]  — enforce baseline-aware U-16 changed-file policy",
-        handler: u16_baseline::run_cli,
+        handler: u16::baseline::run_cli,
     },
     Command {
         name: "test-path-filter",
@@ -398,7 +361,7 @@ static COMMANDS: &[Command] = &[
     Command {
         name: "post-write-check",
         usage: "<base-limit> <warn-limit> <max-scan-files> <max-scan-defs> <max-matches> <log-file>  — classify and handle PostToolUse(Write) input for hooks",
-        handler: hook_checks_write::post_write_check,
+        handler: hook_checks::write::post_write_check,
     },
     Command {
         name: "codex-app-server-wrapper",
@@ -408,217 +371,217 @@ static COMMANDS: &[Command] = &[
     Command {
         name: "setup-manifest-skill-links",
         usage: "<repo-dir> <target>  — list manifest skill links",
-        handler: setup_manifest::skill_links,
+        handler: setup::manifest::skill_links,
     },
     Command {
         name: "setup-manifest-rule-links",
         usage: "<repo-dir> [languages]  — list manifest rule links",
-        handler: setup_manifest::rule_links,
+        handler: setup::manifest::rule_links,
     },
     Command {
         name: "setup-manifest-rule-labels",
         usage: "<repo-dir> [languages]  — list manifest rule labels",
-        handler: setup_manifest::rule_labels,
+        handler: setup::manifest::rule_labels,
     },
     Command {
         name: "setup-md-diff-inject",
         usage: "<target-file> <rules-file> <repo-dir> <rule-count>  — render managed Markdown diff",
-        handler: setup_markdown::diff_inject,
+        handler: setup::markdown::diff_inject,
     },
     Command {
         name: "setup-md-inject",
         usage: "<target-file> <rules-file> <repo-dir> <rule-count>  — inject managed Markdown block",
-        handler: setup_markdown::inject,
+        handler: setup::markdown::inject,
     },
     Command {
         name: "setup-md-remove",
         usage: "<target-file>  — remove managed Markdown block",
-        handler: setup_markdown::remove,
+        handler: setup::markdown::remove,
     },
     Command {
         name: "setup-settings-check",
         usage: "<repo-dir> <settings-file> <pre-hooks|post-hooks|full-hooks|profile-hooks:<profile>>  — check Claude settings",
-        handler: setup_markdown::settings_check,
+        handler: setup::markdown::settings_check,
     },
     Command {
         name: "setup-settings-check-supports-profile-hooks",
         usage: "— capability probe for profile-hooks setup-settings-check target",
-        handler: setup_markdown::settings_check_supports_profile_hooks,
+        handler: setup::markdown::settings_check_supports_profile_hooks,
     },
     Command {
         name: "setup-settings-upsert",
         usage: "<repo-dir> <settings-file> <profile> [--dry-run] [--force-overwrite]  — upsert Claude settings",
-        handler: setup_markdown::settings_upsert,
+        handler: setup::markdown::settings_upsert,
     },
     Command {
         name: "setup-settings-remove",
         usage: "<repo-dir> <settings-file>  — remove VibeGuard Claude settings",
-        handler: setup_markdown::settings_remove,
+        handler: setup::markdown::settings_remove,
     },
     Command {
         name: "setup-settings-check-stale",
         usage: "<settings-file>  — detect stale Claude hook commands",
-        handler: setup_markdown::settings_check_stale,
+        handler: setup::markdown::settings_check_stale,
     },
     Command {
         name: "setup-state-capabilities",
         usage: "— report the versioned install-state capability contract",
-        handler: setup_install_state::capabilities,
+        handler: setup::install_state::capabilities,
     },
     Command {
         name: "setup-state-init",
         usage: "<state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot]  — initialize install state or merge a complete outgoing snapshot",
-        handler: setup_install_state::init,
+        handler: setup::install_state::init,
     },
     Command {
         name: "setup-state-generation",
         usage: "<state-file>  — report install-state completion and generation",
-        handler: setup_install_state::generation,
+        handler: setup::install_state::generation,
     },
     Command {
         name: "setup-state-mark-complete",
         usage: "<state-file>  — atomically mark an install-state generation complete",
-        handler: setup_install_state::mark_complete,
+        handler: setup::install_state::mark_complete,
     },
     Command {
         name: "setup-lock-publish-owner",
         usage: "<lock-dir> <pid> <nonce> [reclaiming]  — durably publish setup lock ownership",
-        handler: setup_lock_lifecycle::publish_lock_owner,
+        handler: setup::lock_lifecycle::publish_lock_owner,
     },
     Command {
         name: "setup-lock-acquire",
         usage: "<lock-dir> <pid> <nonce>  — atomically publish a complete setup lock directory",
-        handler: setup_lock_lifecycle::acquire,
+        handler: setup::lock_lifecycle::acquire,
     },
     Command {
         name: "setup-lock-release",
         usage: "<lock-dir> <pid> <nonce>  — atomically retire an owned setup lock directory",
-        handler: setup_lock_lifecycle::release,
+        handler: setup::lock_lifecycle::release,
     },
     Command {
         name: "setup-state-record-file",
         usage: "<state-file> <dest> <source> <type>  — record install-state file",
-        handler: setup_install_state::record_file,
+        handler: setup::install_state::record_file,
     },
     Command {
         name: "setup-state-record-project-hook",
         usage: "<state-file> <repo-dir> <hook-path> <hook-name>  — record project git hook",
-        handler: setup_install_state::record_project_hook,
+        handler: setup::install_state::record_project_hook,
     },
     Command {
         name: "setup-state-check-drift",
         usage: "<state-file>  — check install-state drift",
-        handler: setup_quarantine_inventory::check_drift,
+        handler: setup::quarantine_inventory::check_drift,
     },
     Command {
         name: "setup-state-list",
         usage: "<state-file>  — list install-state files",
-        handler: setup_install_state::list,
+        handler: setup::install_state::list,
     },
     Command {
         name: "setup-state-list-symlinks-under",
         usage: "<state-file> <dest-dir>  — list tracked symlinks under a directory",
-        handler: setup_install_state::list_tracked_symlinks_under,
+        handler: setup::install_state::list_tracked_symlinks_under,
     },
     Command {
         name: "setup-state-list-tracked-under",
         usage: "<state-file> <dest-dir>  — list tracked paths of any type under a directory",
-        handler: setup_install_state::list_tracked_under,
+        handler: setup::install_state::list_tracked_under,
     },
     Command {
         name: "setup-state-verify-managed-tree",
         usage: "<state-file> <dest-dir> <source-prefix> [tracked-dest-dir]  — verify exact managed-tree ownership",
-        handler: setup_managed_tree_remove::tree_state::verify_managed_tree,
+        handler: setup::managed_tree_remove::tree_state::verify_managed_tree,
     },
     Command {
         name: "setup-state-quarantine-managed-tree",
         usage: "<state-file> <previous-state-file> <dest-dir> <source-prefix>  — durably quarantine a managed tree without deletion",
-        handler: setup_managed_tree_remove::run,
+        handler: setup::managed_tree_remove::run,
     },
     Command {
         name: "setup-state-release-quarantined-tree",
         usage: "<state-file> <previous-state-file> <dest-dir> <source-prefix>  — release a retained quarantine after canonical re-enable",
-        handler: setup_managed_tree_remove::release,
+        handler: setup::managed_tree_remove::release,
     },
     Command {
         name: "setup-state-validate-managed-tree-transactions",
         usage: "<skills-dir> [state-file previous-state-file]  — validate retained managed-tree transactions before setup or clean mutation",
-        handler: setup_managed_tree_remove::validate_transactions,
+        handler: setup::managed_tree_remove::validate_transactions,
     },
     Command {
         name: "setup-state-quarantine-count",
         usage: "<state-file> [released-inventory-state-file]  — count active disabled-skill quarantine records",
-        handler: setup_quarantine_inventory::count,
+        handler: setup::quarantine_inventory::count,
     },
     Command {
         name: "setup-state-remove-managed-tree",
         usage: "<state-file> <previous-state-file> <dest-dir> <source-prefix>  — compatibility alias for non-destructive managed-tree quarantine",
-        handler: setup_managed_tree_remove::run,
+        handler: setup::managed_tree_remove::run,
     },
     Command {
         name: "setup-state-list-project-hooks",
         usage: "<state-file>  — list tracked project git hooks",
-        handler: setup_install_state::list_project_hooks,
+        handler: setup::install_state::list_project_hooks,
     },
     Command {
         name: "setup-codex-config-enable-hooks",
         usage: "<config-file>  — enable Codex hooks feature",
-        handler: setup_codex_config::enable_hooks,
+        handler: setup::codex_config::enable_hooks,
     },
     Command {
         name: "setup-codex-config-check-hooks",
         usage: "<config-file>  — check Codex hooks feature",
-        handler: setup_codex_config::check_hooks,
+        handler: setup::codex_config::check_hooks,
     },
     Command {
         name: "setup-codex-hooks-upsert",
         usage: "<repo-dir> <hooks-file> <wrapper> [profile]  — upsert Codex hooks",
-        handler: setup_codex_hooks::codex_hooks_upsert,
+        handler: setup::codex_hooks::codex_hooks_upsert,
     },
     Command {
         name: "setup-codex-hooks-remove",
         usage: "<repo-dir> <hooks-file>  — remove VibeGuard Codex hooks",
-        handler: setup_codex_hooks::codex_hooks_remove,
+        handler: setup::codex_hooks::codex_hooks_remove,
     },
     Command {
         name: "setup-codex-hooks-check",
         usage: "<repo-dir> <hooks-file> <wrapper> [profile]  — check Codex hooks",
-        handler: setup_codex_hooks::codex_hooks_check,
+        handler: setup::codex_hooks::codex_hooks_check,
     },
     Command {
         name: "setup-codex-hooks-count",
         usage: "<hooks-file>  — count Codex hook entries",
-        handler: setup_codex_hooks::codex_hooks_count,
+        handler: setup::codex_hooks::codex_hooks_count,
     },
     Command {
         name: "setup-codex-hooks-check-stale",
         usage: "[repo-dir] <hooks-file>  — detect stale Codex hook commands",
-        handler: setup_codex_hooks::codex_hooks_check_stale,
+        handler: setup::codex_hooks::codex_hooks_check_stale,
     },
     Command {
         name: "setup-codex-hooks-prune-stale-unmanaged",
         usage: "<repo-dir> <hooks-file> [event...]  — remove missing-target unmanaged Codex hooks for selected events",
-        handler: setup_codex_hooks::codex_hooks_prune_stale_unmanaged,
+        handler: setup::codex_hooks::codex_hooks_prune_stale_unmanaged,
     },
     Command {
         name: "setup-codex-hooks-check-timeouts",
         usage: "<repo-dir> <hooks-file>  — detect Codex hooks without timeout",
-        handler: setup_codex_hooks::codex_hooks_check_timeouts,
+        handler: setup::codex_hooks::codex_hooks_check_timeouts,
     },
     Command {
         name: "setup-gemini-hooks-upsert",
         usage: "<settings-file> <wrapper> [--dry-run]  — upsert the Gemini CLI adapter",
-        handler: setup_gemini_hooks::upsert,
+        handler: setup::gemini_hooks::upsert,
     },
     Command {
         name: "setup-gemini-hooks-remove",
         usage: "<settings-file>  — remove the VibeGuard Gemini CLI adapter",
-        handler: setup_gemini_hooks::remove,
+        handler: setup::gemini_hooks::remove,
     },
     Command {
         name: "setup-gemini-hooks-check",
         usage: "<settings-file> <wrapper>  — check the Gemini CLI adapter",
-        handler: setup_gemini_hooks::check,
+        handler: setup::gemini_hooks::check,
     },
 ];
 

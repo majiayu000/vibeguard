@@ -18,7 +18,7 @@ GH-551
 | Circuit breaker | `hooks/circuit-breaker.sh` | 600-line bash state machine with ~48 command substitutions | Sourced and exercised by pre-write/pre-edit hot paths |
 | Hook entry scripts | `hooks/pre-write-guard.sh`, `hooks/pre-bash-guard.sh`, `hooks/pre-edit-guard.sh`, `hooks/stop-guard.sh`, `hooks/post-edit-guard.sh`, `hooks/post-write-guard.sh`, `hooks/learn-evaluator.sh` | Orchestrate: parse stdin via runtime, branch on status, log, emit decision JSON | Become thin wrappers after migration |
 | Wrapper | `hooks/run-hook.sh` | Resolves installed hook path, applies policy profile, drains stdin | Unchanged entry point; policy downgrade must keep working |
-| Runtime building blocks | `vibeguard-runtime/src/git_root.rs`, `vibeguard-runtime/src/log_append.rs`, `vibeguard-runtime/src/circuit_breaker.rs`, `vibeguard-runtime/src/hook_checks_write.rs`, `vibeguard-runtime/src/hook_checks_bash.rs`, `vibeguard-runtime/src/hook_output.rs`, `vibeguard-runtime/src/main.rs` | Already implement git-root lookup, locked JSONL append, breaker state, per-hook checks, output rendering as separate subcommands | The pieces exist; they are only missing a single-call orchestration entry |
+| Runtime building blocks | `vibeguard-runtime/src/git_root.rs`, `vibeguard-runtime/src/logging/append.rs`, `vibeguard-runtime/src/circuit_breaker.rs`, `vibeguard-runtime/src/hook_checks/write.rs`, `vibeguard-runtime/src/hook_checks/bash.rs`, `vibeguard-runtime/src/hook_output.rs`, `vibeguard-runtime/src/main.rs` | Already implement git-root lookup, locked JSONL append, breaker state, per-hook checks, output rendering as separate subcommands | The pieces exist; they are only missing a single-call orchestration entry |
 | Perf gates | `tests/bench_hook_latency.sh`, `tests/test_hook_perf_contract.sh` | Measure per-hook latency and enforce budgets in CI | Proof surface for this change |
 
 ## Proposed Design
@@ -65,7 +65,7 @@ Migration order (one PR per hook, each benchmarked): `pre-write-guard`
 | Product invariant | Implementation area | Verification |
 | --- | --- | --- |
 | P1 decision byte-compat | `vibeguard-runtime/src/hook_output.rs` + per-hook orchestrator | Golden fixture diff: same stdin through old bash path and new runtime path, assert identical stdout/exit code (new test in `tests/hooks/`) |
-| P2 event-log fields | `vibeguard-runtime/src/log_append.rs`, event schema | `tests/test_observability_schemas.sh` + field-by-field comparison in golden test |
+| P2 event-log fields | `vibeguard-runtime/src/logging/append.rs`, event schema | `tests/test_observability_schemas.sh` + field-by-field comparison in golden test |
 | P3 breaker semantics | `vibeguard-runtime/src/circuit_breaker.rs` | Existing breaker cases in `tests/test_hooks.sh` run against migrated hook |
 | P4 session grouping | session port in runtime | Unit tests for ancestor-walk parsing + 30-minute window reuse |
 | P5 latency budget / single spawn | thin wrapper + orchestrator | `tests/bench_hook_latency.sh`, `tests/test_hook_perf_contract.sh`, CI P95 trend |

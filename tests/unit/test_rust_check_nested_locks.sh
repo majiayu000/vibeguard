@@ -141,6 +141,32 @@ trap 'rm -f "$staged_no_rs" "$staged_excluded"; rm -rf "$tmpdir"' EXIT
 assert_ok "pre-commit: all staged .rs files excluded exits 0" \
   env VIBEGUARD_STAGED_FILES="$staged_excluded" bash "$GUARD"
 
+# --- Pre-commit mode: per-file diff temp state is cleaned by the parent shell ---
+proj7="${tmpdir}/precommit_temp_cleanup"
+mkdir -p "${proj7}/src" "${proj7}/tmp"
+git -C "$proj7" init -q
+git -C "$proj7" config user.email test@example.com
+git -C "$proj7" config user.name Test
+cat > "${proj7}/src/state.rs" <<'EOF'
+pub fn stable() -> i32 { 1 }
+EOF
+git -C "$proj7" add src/state.rs
+git -C "$proj7" commit -q -m initial
+printf '\npub fn changed() -> i32 { 2 }\n' >> "${proj7}/src/state.rs"
+git -C "$proj7" add src/state.rs
+staged_cleanup=$(mktemp)
+printf '%s\n' "${proj7}/src/state.rs" > "$staged_cleanup"
+trap 'rm -f "$staged_no_rs" "$staged_excluded" "$staged_cleanup"; rm -rf "$tmpdir"' EXIT
+TOTAL=$((TOTAL+1))
+if (cd "$proj7" && TMPDIR="${proj7}/tmp" VIBEGUARD_STAGED_FILES="$staged_cleanup" bash "$GUARD" --strict . >/dev/null 2>&1) \
+    && ! find "${proj7}/tmp" -mindepth 1 -print -quit | grep -q .; then
+  green "pre-commit diff temp directory is cleaned"
+  PASS=$((PASS+1))
+else
+  red "pre-commit diff temp directory leaked"
+  FAIL=$((FAIL+1))
+fi
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

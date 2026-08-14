@@ -14,6 +14,8 @@ Exit code:
     2 — Configuration error
 """
 
+from __future__ import annotations
+
 import ast
 import os
 import re

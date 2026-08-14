@@ -10,6 +10,7 @@ mcp-server/
 .claude/worktrees/
 .omx/
 bench-output.json
+artifacts/
 .vibeguard/benchmarks/
 data/triage.jsonl
 data/rule-scorecard.json

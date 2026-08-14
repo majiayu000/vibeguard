@@ -99,7 +99,7 @@ module ReleaseWorkflowContract
     reachable(job, "no-clone-smoke job")
     assert(job.fetch("needs") == "stage-release", "smoke must depend on stage-release")
     exact_hash(job.fetch("permissions"), {
-      "contents" => "read", "attestations" => "read"
+      "contents" => "write", "attestations" => "read"
     }, "no-clone-smoke permissions")
     oses = job.dig("strategy", "matrix", "include").map { |entry| entry.fetch("os") }
     assert(oses.sort == ["macos-14", "ubuntu-latest"], "smoke matrix must cover macOS and Ubuntu")
@@ -190,6 +190,9 @@ module ReleaseWorkflowContract
       "disabled smoke job" => lambda { |copy, _ci| copy.fetch("no-clone-smoke")["if"] = "${{ false }}" },
       "extra smoke permission" => lambda do |copy, _ci|
         copy.fetch("no-clone-smoke").fetch("permissions")["id-token"] = "write"
+      end,
+      "insufficient draft-release permission" => lambda do |copy, _ci|
+        copy.fetch("no-clone-smoke").fetch("permissions")["contents"] = "read"
       end,
       "wrong event expression" => lambda do |copy, _ci|
         one_step(copy.fetch("no-clone-smoke"), SMOKE_STEP).fetch("env")["EVENT_SHA"] =

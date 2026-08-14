@@ -5,7 +5,7 @@ use serde_json::json;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::hook_checks_common::glob_match;
+use crate::hook_checks::common::glob_match;
 
 mod source_paths;
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
