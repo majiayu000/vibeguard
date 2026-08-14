@@ -152,7 +152,7 @@ def rename_source(git_root, fpath):
     return old
 
 def _is_ts_test_path(path):
-    return bool(re.search(r"(\.(test|spec)\.(ts|tsx|js|jsx)$|/tests/|/__tests__/|/test/)", path.replace("\\", "/")))
+    return bool(re.search(r"(\.(test|spec)\.(ts|tsx|js|jsx)$|(^|/)(tests|__tests__|test|vendor)/)", path.replace("\\", "/")))
 
 def _is_ts_rename_excluded(path, git_root):
     rel = os.path.relpath(os.path.realpath(path), git_root).replace("\\", "/")

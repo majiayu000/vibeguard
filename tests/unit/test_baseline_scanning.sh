@@ -803,6 +803,62 @@ else
 fi
 rm -f "$stagedR7"
 
+# ---- Rename test H: root tests/ → production is treated as fully added ----
+repoR8="${tmpdir}/ts_root_tests_to_prod"
+init_repo "$repoR8"
+mkdir -p "${repoR8}/tests" "${repoR8}/src"
+printf 'const value: any = 1\n' > "${repoR8}/tests/helper.ts"
+git -C "$repoR8" add tests/helper.ts
+git -C "$repoR8" commit -q -m "initial root test helper"
+git -C "$repoR8" mv tests/helper.ts src/helper.ts
+git -C "$repoR8" add src/helper.ts
+
+stagedR8=$(staged_list "$repoR8" src/helper.ts)
+linemapR8=$(mktemp)
+(
+  cd "$repoR8"
+  source "${REPO_DIR}/guards/typescript/common.sh"
+  VIBEGUARD_STAGED_FILES="$stagedR8" vg_build_diff_linemap "$linemapR8" '\.(ts|tsx|js|jsx)$'
+)
+TOTAL=$((TOTAL+1))
+repoR8_real=$(canon "$repoR8")
+if grep -q "${repoR8_real}/src/helper.ts:1$" "$linemapR8" 2>/dev/null; then
+  green "root tests-to-production rename is treated as newly added TypeScript"
+  PASS=$((PASS+1))
+else
+  red "tests/helper.ts → src/helper.ts should add pre-existing lines to the linemap (got: $(cat "$linemapR8" 2>/dev/null))"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR8" "$linemapR8"
+
+# ---- Rename test I: TS vendor/ → production is treated as fully added ----
+repoR9="${tmpdir}/ts_vendor_to_prod"
+init_repo "$repoR9"
+mkdir -p "${repoR9}/vendor" "${repoR9}/src"
+printf 'const value: any = 1\n' > "${repoR9}/vendor/helper.ts"
+git -C "$repoR9" add vendor/helper.ts
+git -C "$repoR9" commit -q -m "initial vendor helper"
+git -C "$repoR9" mv vendor/helper.ts src/helper.ts
+git -C "$repoR9" add src/helper.ts
+
+stagedR9=$(staged_list "$repoR9" src/helper.ts)
+linemapR9=$(mktemp)
+(
+  cd "$repoR9"
+  source "${REPO_DIR}/guards/typescript/common.sh"
+  VIBEGUARD_STAGED_FILES="$stagedR9" vg_build_diff_linemap "$linemapR9" '\.(ts|tsx|js|jsx)$'
+)
+TOTAL=$((TOTAL+1))
+repoR9_real=$(canon "$repoR9")
+if grep -q "${repoR9_real}/src/helper.ts:1$" "$linemapR9" 2>/dev/null; then
+  green "vendor-to-production rename is treated as newly added TypeScript"
+  PASS=$((PASS+1))
+else
+  red "vendor/helper.ts → src/helper.ts should add pre-existing lines to the linemap (got: $(cat "$linemapR9" 2>/dev/null))"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR9" "$linemapR9"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0
