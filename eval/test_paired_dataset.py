@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -105,13 +106,25 @@ class DatasetAndIdentityTest(unittest.TestCase):
             paired.validate_placebo_candidate("U-21", "U-16", 240, 406, 0.25)
         paired.validate_placebo_candidate("U-32", "SEC-12", 4000, 4100, 0.25)
 
-    def test_candidates_duplicated_by_anonymous_compact_rules_are_rejected(self) -> None:
-        for candidate in ("U-04", "U-17", "U-23", "U-24", "U-29", "SEC-02"):
+    def test_candidates_duplicated_by_shared_compact_core_are_rejected(self) -> None:
+        expected_locations = {
+            "SEC-02": "Core contract (Safety)",
+            "U-04": "Core contract (Scope)",
+            "U-08": "Core contract (Verification)",
+            "U-17": "Core contract (Errors)",
+            "U-29": "Core contract (Errors)",
+            "W-03": "Core contract (Verification)",
+            "W-12": "Core contract (Safety)",
+            "W-16": "Core contract (Verification)",
+        }
+        for candidate, location in expected_locations.items():
             with self.subTest(candidate=candidate), self.assertRaisesRegex(
-                paired.PairedEvalError, "anonymous compact"
+                paired.PairedEvalError,
+                rf"shared compact core retains equivalent semantics in {re.escape(location)}",
             ):
                 paired.validate_candidate_supported(candidate)
-        paired.validate_candidate_supported("U-32")
+        for candidate in ("SEC-13", "U-23", "U-24", "U-32"):
+            paired.validate_candidate_supported(candidate)
 
 if __name__ == "__main__":
     unittest.main()

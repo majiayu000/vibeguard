@@ -191,7 +191,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "active-constraints",
-        usage: "--root DIR --home DIR [--task-path PATH] [--skill NAME] [--json|--hook-fields]  — count effective active constraints",
+        usage: "--root DIR --home DIR [--host all|claude|codex] [--task-path PATH] [--skill NAME] [--json|--hook-fields]  — count effective active constraints",
         handler: active_constraints::run,
     },
     Command {

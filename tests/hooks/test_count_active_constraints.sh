@@ -12,6 +12,10 @@ trap cleanup_count_active_constraints EXIT
 
 COUNTER="${REPO_DIR}/scripts/constraints/count_active_constraints.py"
 HOOK="${REPO_DIR}/hooks/count_active_constraints.sh"
+RUNTIME_BIN="${VIBEGUARD_RUNTIME:-${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime}"
+if [[ ! -x "${RUNTIME_BIN}" ]]; then
+  cargo build --quiet --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml"
+fi
 
 hook_no_ci_env=(
   CI=false
@@ -72,7 +76,8 @@ make_repo "${BLOCK_REPO}"
 {
   echo "# Block"
   for i in $(seq 1 31); do
-    printf '## U-%02d: Rule %02d\n\nText.\n\n' "${i}" "${i}"
+    rule_id=$((i + 100))
+    printf '## U-%d: Rule %d\n\nText.\n\n' "${rule_id}" "${rule_id}"
   done
 } > "${BLOCK_REPO}/.claude/rules/common.md"
 
@@ -97,6 +102,158 @@ path_json="$(python3 "${COUNTER}" --root "${PATH_REPO}" --home "${PATH_HOME}" --
 assert_contains "${path_json}" '"id": "PY-01"' "path-scoped rule activates for matching task path"
 no_path_json="$(python3 "${COUNTER}" --root "${PATH_REPO}" --home "${PATH_HOME}" --task-path README.md --json)"
 assert_not_contains "${no_path_json}" '"id": "PY-01"' "path-scoped rule stays unloaded for non-matching task path"
+
+HOST_HOME="${TMP_ROOT}/home-host"
+HOST_REPO="${TMP_ROOT}/repo-host"
+make_home "${HOST_HOME}"
+make_repo "${HOST_REPO}"
+mkdir -p "${HOST_HOME}/.codex"
+cat > "${HOST_HOME}/.claude/CLAUDE.md" <<'MD'
+# Claude Global
+
+- Must keep Claude global guidance.
+MD
+cat > "${HOST_HOME}/.codex/AGENTS.md" <<'MD'
+# Codex Global
+
+- Must not count Codex global guidance.
+MD
+host_claude_json="$(python3 "${COUNTER}" --root "${HOST_REPO}" --home "${HOST_HOME}" --host claude --json)"
+assert_contains "${host_claude_json}" '"total": 1' "Claude host scope counts only Claude global guidance"
+assert_not_contains "${host_claude_json}" "Codex global guidance" "Claude host scope excludes Codex global guidance"
+host_all_json="$(python3 "${COUNTER}" --root "${HOST_REPO}" --home "${HOST_HOME}" --json)"
+assert_contains "${host_all_json}" '"total": 2' "default host scope preserves all global guidance"
+
+CUSTOM_CODEX_HOME="${TMP_ROOT}/custom-codex-home"
+mkdir -p "${CUSTOM_CODEX_HOME}/rules" "${HOST_REPO}/.claude/rules"
+cat > "${CUSTOM_CODEX_HOME}/AGENTS.md" <<'MD'
+# Custom Codex Global
+
+- Must count configured Codex guidance.
+MD
+cat > "${CUSTOM_CODEX_HOME}/rules/decoy.md" <<'MD'
+# Unsupported Codex Native Rule
+
+- Must not count unsupported Codex native rules.
+MD
+cat > "${HOST_REPO}/AGENTS.md" <<'MD'
+# Shared Project
+
+- Must count project AGENTS guidance.
+MD
+cat > "${HOST_REPO}/CLAUDE.md" <<'MD'
+# Claude Project
+
+- Must not count Claude project guidance.
+MD
+cat > "${HOST_REPO}/.claude/rules/claude.md" <<'MD'
+# Claude Project Rule
+
+- Must not count Claude project rules.
+MD
+custom_codex_json="$(env CODEX_HOME="${CUSTOM_CODEX_HOME}" python3 "${COUNTER}" --root "${HOST_REPO}" --home "${HOST_HOME}" --host codex --json)"
+assert_contains "${custom_codex_json}" '"total": 2' "Codex scope counts configured CODEX_HOME plus project AGENTS only"
+assert_contains "${custom_codex_json}" "configured Codex guidance" "Codex scope honors CODEX_HOME"
+assert_not_contains "${custom_codex_json}" "Claude project" "Codex scope excludes Claude-only project instructions and rules"
+assert_not_contains "${custom_codex_json}" "Codex global guidance" "configured CODEX_HOME replaces the fallback ~/.codex source"
+assert_not_contains "${custom_codex_json}" "unsupported Codex native rules" "Codex scope excludes unsupported native rule paths"
+
+mkdir -p "${HOST_REPO}/packages/api/src" "${HOST_REPO}/packages/web"
+cat > "${HOST_REPO}/packages/AGENTS.md" <<'MD'
+- Must count parent package guidance.
+MD
+cat > "${HOST_REPO}/packages/api/AGENTS.md" <<'MD'
+- Must not count overridden API fallback guidance.
+MD
+cat > "${HOST_REPO}/packages/api/AGENTS.override.md" <<'MD'
+- Must count nested API override guidance.
+MD
+cat > "${HOST_REPO}/packages/web/AGENTS.md" <<'MD'
+- Must not count sibling guidance.
+MD
+nested_codex_json="$(env CODEX_HOME="${CUSTOM_CODEX_HOME}" python3 "${COUNTER}" --root "${HOST_REPO}" --home "${HOST_HOME}" --host codex --task-path packages/api/src/lib.rs --json)"
+assert_contains "${nested_codex_json}" '"total": 4' "Codex scope counts root and applicable nested AGENTS files"
+assert_contains "${nested_codex_json}" "parent package guidance" "Codex scope counts parent AGENTS guidance"
+assert_contains "${nested_codex_json}" "nested API override guidance" "Codex scope prefers nearest AGENTS override guidance"
+assert_not_contains "${nested_codex_json}" "overridden API fallback guidance" "Codex scope excludes overridden fallback AGENTS guidance"
+assert_not_contains "${nested_codex_json}" "sibling guidance" "Codex scope excludes sibling AGENTS guidance"
+nested_codex_runtime_json="$(env CODEX_HOME="${CUSTOM_CODEX_HOME}" "${RUNTIME_BIN}" active-constraints --root "${HOST_REPO}" --home "${HOST_HOME}" --host codex --task-path packages/api/src/lib.rs --json)"
+assert_contains "${nested_codex_runtime_json}" '"total": 4' "production counter matches nested Codex instruction discovery"
+mkdir -p "${TMP_ROOT}/outside"
+cat > "${TMP_ROOT}/outside/AGENTS.md" <<'MD'
+- Must not count an instruction outside the repository.
+MD
+outside_codex_json="$(env CODEX_HOME="${CUSTOM_CODEX_HOME}" python3 "${COUNTER}" --root "${HOST_REPO}" --home "${HOST_HOME}" --host codex --task-path ../outside/new.rs --json)"
+assert_contains "${outside_codex_json}" '"total": 2' "Codex scope rejects unresolved task paths outside the repository"
+assert_not_contains "${outside_codex_json}" "outside the repository" "Codex scope excludes external AGENTS guidance"
+outside_codex_runtime_json="$(env CODEX_HOME="${CUSTOM_CODEX_HOME}" "${RUNTIME_BIN}" active-constraints --root "${HOST_REPO}" --home "${HOST_HOME}" --host codex --task-path ../outside/new.rs --json)"
+assert_contains "${outside_codex_runtime_json}" '"total": 2' "production counter rejects unresolved external task paths"
+assert_not_contains "${outside_codex_runtime_json}" "outside the repository" "production counter excludes external AGENTS guidance"
+CORE_ROW_REPO="${TMP_ROOT}/repo-core-row-dedupe"
+CORE_ROW_HOME="${TMP_ROOT}/home-core-row-dedupe"
+make_home "${CORE_ROW_HOME}"
+make_repo "${CORE_ROW_REPO}"
+cat > "${CORE_ROW_HOME}/.claude/CLAUDE.md" <<'MD'
+## Core contract
+
+| Area | Default |
+|---|---|
+| Scope | Keep changes focused. |
+MD
+cat > "${CORE_ROW_REPO}/AGENTS.md" <<'MD'
+## Core contract
+
+| Area | Default |
+|---|---|
+| Scope | Do not edit generated files. |
+
+## Rule inventory
+
+| ID | State |
+|---|---|
+| U-01 | disabled |
+MD
+core_row_json="$(python3 "${COUNTER}" --root "${CORE_ROW_REPO}" --home "${CORE_ROW_HOME}" --host claude --json)"
+assert_contains "${core_row_json}" '"total": 2' "same-area core rows with different requirements remain distinct"
+assert_not_contains "${core_row_json}" '"id": "U-01"' "ordinary rule inventories outside the generated marker are ignored"
+
+EQUIVALENT_REPO="${TMP_ROOT}/repo-core-equivalents"
+EQUIVALENT_HOME="${TMP_ROOT}/home-core-equivalents"
+make_home "${EQUIVALENT_HOME}"
+make_repo "${EQUIVALENT_REPO}"
+cat > "${EQUIVALENT_REPO}/AGENTS.md" <<'MD'
+## Core contract
+
+| Area | Default |
+|---|---|
+| Errors | User-visible missing data, malformed input, or wrong output must fail clearly. |
+| Scope | Make the smallest requested change; do not add adjacent improvements. |
+| Safety | Never expose secrets, add hidden AI attribution, force-push, or weaken tests. |
+| Preservation | Preserve unmanaged content in high-context files, settings, and hooks. |
+| Verification | Run a fresh, focused project command before claiming completion. |
+
+## Key detailed rules
+
+<!-- vibeguard-generated-compact-rules:start -->
+| ID | Severity | Rule |
+|---|---|---|
+| SEC-02 | Strict | Secrets. |
+| SEC-13 | Strict | Preservation. |
+| U-04 | Strict | Scope. |
+| U-08 | Strict | Verification. |
+| U-17 | Strict | Errors. |
+| U-29 | Strict | Errors. |
+| W-03 | Strict | Verification. |
+| W-12 | Strict | Safety. |
+| W-16 | Strict | Verification. |
+<!-- vibeguard-generated-compact-rules:end -->
+MD
+equivalent_json="$(python3 "${COUNTER}" --root "${EQUIVALENT_REPO}" --home "${EQUIVALENT_HOME}" --host claude --json)"
+assert_contains "${equivalent_json}" '"total": 11' "Python counter keeps distinct detailed rules while deduplicating exact core equivalents"
+equivalent_ids="$(printf '%s' "${equivalent_json}" | python3 -c 'import json, sys; print(",".join(item["id"] for item in json.load(sys.stdin)["constraints"] if item["id"]))')"
+assert_exit_zero "Python counter retains every detailed constraint ID" test "${equivalent_ids}" = "SEC-02,SEC-13,U-04,U-08,U-17,U-29,W-03,W-12,W-16"
+equivalent_runtime_json="$("${RUNTIME_BIN}" active-constraints --root "${EQUIVALENT_REPO}" --home "${EQUIVALENT_HOME}" --host claude --json)"
+assert_contains "${equivalent_runtime_json}" '"total": 11' "production counter matches exact shared-core equivalence"
 
 canonical_ids_for_task_path() {
   local task_path="$1"
@@ -185,26 +342,47 @@ JSON
 assert_contains "${hook_override_out}" "hookSpecificOutput" "VIBEGUARD_U32_STRICT=0 downgrades strict block to context"
 
 header "GH-541 rule-delivery budget (compact core default vs full-tree opt-in)"
-# The default (core/minimal) Claude profile injects only the compact L1-L7 +
-# Key Detailed Rules table into ~/.claude/CLAUDE.md; the full rules/claude-rules
+# The default (core/minimal) Claude profile injects only the shared compact core
+# plus Claude host guidance into ~/.claude/CLAUDE.md; the full rules/claude-rules
 # tree is opt-in under full/strict. This asserts the actual production content:
-# the compact core stays within the U-32 budget, while the full common/ tree —
-# the payload the default profile must NOT front-inject — blows past the block
-# threshold. See scripts/setup/targets/claude-home.sh Step 5.5.
+# semantic deduplication keeps the compact core at the 15-constraint advisory
+# boundary, while the full common/ tree — the payload the default profile must
+# NOT front-inject — still exceeds the block threshold.
+# See scripts/setup/targets/claude-home.sh Step 5.5.
 
-COMPACT_SRC="${REPO_DIR}/claude-md/vibeguard-rules.md"
+CLAUDE_COMPACT_SRC="${REPO_DIR}/claude-md/vibeguard-claude-rules.md"
+CODEX_COMPACT_SRC="${REPO_DIR}/claude-md/vibeguard-codex-rules.md"
 TOTAL=$((TOTAL + 1))
-if [[ -f "${COMPACT_SRC}" ]]; then
-  green "compact core source present: claude-md/vibeguard-rules.md"
+if [[ -f "${CLAUDE_COMPACT_SRC}" && -f "${CODEX_COMPACT_SRC}" ]]; then
+  green "rendered host payloads are present"
   PASS=$((PASS + 1))
 
-  CORE_HOME="${TMP_ROOT}/home-gh541-core"
-  CORE_REPO="${TMP_ROOT}/repo-gh541-core"
-  make_home "${CORE_HOME}"
-  make_repo "${CORE_REPO}"
-  cp "${COMPACT_SRC}" "${CORE_HOME}/.claude/CLAUDE.md"
-  core_json="$(python3 "${COUNTER}" --root "${CORE_REPO}" --home "${CORE_HOME}" --json)"
-  assert_contains "${core_json}" '"status": "ok"' "compact core default payload stays within U-32 budget"
+  CLAUDE_CORE_HOME="${TMP_ROOT}/home-gh541-claude-core"
+  CLAUDE_CORE_REPO="${TMP_ROOT}/repo-gh541-claude-core"
+  make_home "${CLAUDE_CORE_HOME}"
+  make_repo "${CLAUDE_CORE_REPO}"
+  cp "${CLAUDE_COMPACT_SRC}" "${CLAUDE_CORE_HOME}/.claude/CLAUDE.md"
+  claude_core_json="$(python3 "${COUNTER}" --root "${CLAUDE_CORE_REPO}" --home "${CLAUDE_CORE_HOME}" --host claude --json)"
+  assert_contains "${claude_core_json}" '"total": 20' "Python counter reports the exact Claude payload budget"
+  assert_contains "${claude_core_json}" '"status": "warn"' "Claude payload truthfully reports its advisory budget status"
+  claude_compact_ids="$(printf '%s' "${claude_core_json}" | python3 -c 'import json, sys; print(",".join(item["id"] for item in json.load(sys.stdin)["constraints"] if item["id"]))')"
+  assert_exit_zero "Claude payload retains every compact constraint ID" test "${claude_compact_ids}" = "U-17,U-26,U-29,W-02,W-03,W-12,W-16,SEC-01,SEC-02,SEC-11,SEC-13"
+  claude_runtime_json="$("${RUNTIME_BIN}" active-constraints --root "${CLAUDE_CORE_REPO}" --home "${CLAUDE_CORE_HOME}" --host claude --json)"
+  assert_contains "${claude_runtime_json}" '"total": 20' "production counter matches the exact Claude payload count"
+
+  CODEX_CORE_HOME="${TMP_ROOT}/home-gh541-codex-core"
+  CODEX_CORE_REPO="${TMP_ROOT}/repo-gh541-codex-core"
+  make_home "${CODEX_CORE_HOME}"
+  make_repo "${CODEX_CORE_REPO}"
+  mkdir -p "${CODEX_CORE_HOME}/.codex"
+  cp "${CODEX_COMPACT_SRC}" "${CODEX_CORE_HOME}/.codex/AGENTS.md"
+  codex_core_json="$(python3 "${COUNTER}" --root "${CODEX_CORE_REPO}" --home "${CODEX_CORE_HOME}" --host codex --json)"
+  assert_contains "${codex_core_json}" '"total": 20' "Python counter reports the exact Codex payload budget"
+  assert_contains "${codex_core_json}" '"status": "warn"' "Codex payload truthfully reports its advisory budget status"
+  codex_compact_ids="$(printf '%s' "${codex_core_json}" | python3 -c 'import json, sys; print(",".join(item["id"] for item in json.load(sys.stdin)["constraints"] if item["id"]))')"
+  assert_exit_zero "Codex payload retains every compact constraint ID" test "${codex_compact_ids}" = "U-17,U-26,U-29,W-02,W-03,W-12,W-16,SEC-01,SEC-02,SEC-11,SEC-13"
+  codex_runtime_json="$("${RUNTIME_BIN}" active-constraints --root "${CODEX_CORE_REPO}" --home "${CODEX_CORE_HOME}" --host codex --json)"
+  assert_contains "${codex_runtime_json}" '"total": 20' "production counter matches the exact Codex payload count"
 
   FULL_HOME="${TMP_ROOT}/home-gh541-full"
   FULL_REPO="${TMP_ROOT}/repo-gh541-full"
@@ -215,7 +393,7 @@ if [[ -f "${COMPACT_SRC}" ]]; then
   assert_exit_nonzero "full common/ tree exceeds the block budget (must stay opt-in, not default)" \
     python3 "${COUNTER}" --root "${FULL_REPO}" --home "${FULL_HOME}" --fail-on-block
 else
-  red "compact core source present: claude-md/vibeguard-rules.md"
+  red "rendered host payloads are present"
   FAIL=$((FAIL + 1))
 fi
 

@@ -542,6 +542,9 @@ assert_cmd "~/.codex/AGENTS.md exists after installation" test -f "${HOME}/.code
 assert_cmd "~/.codex/AGENTS.md includes managed markers after installation" bash -c "grep -q '<!-- vibeguard-start -->' '${HOME}/.codex/AGENTS.md' && grep -q '<!-- vibeguard-end -->' '${HOME}/.codex/AGENTS.md'"
 assert_cmd "~/.codex/AGENTS.md rule banner matches expected rules" assert_codex_rule_banner_matches_expected_rules
 assert_cmd "~/.codex/AGENTS.md includes key Codex-visible anchors" bash -c "grep -qF 'Compact Chat Contract' '${HOME}/.codex/AGENTS.md' && grep -qF '| W-03 |' '${HOME}/.codex/AGENTS.md' && grep -qF '| SEC-13 |' '${HOME}/.codex/AGENTS.md'"
+assert_cmd "Claude receives only Claude host guidance" bash -c "grep -qF '## Claude Code host guidance' '${HOME}/.claude/CLAUDE.md' && ! grep -qF '## Codex host guidance' '${HOME}/.claude/CLAUDE.md'"
+assert_cmd "Codex receives only Codex host guidance" bash -c "grep -qF '## Codex host guidance' '${HOME}/.codex/AGENTS.md' && ! grep -qF '## Claude Code host guidance' '${HOME}/.codex/AGENTS.md'"
+assert_cmd "Codex global contract excludes Claude-only workflow commands" bash -c "! grep -qF '/vibeguard:' '${HOME}/.codex/AGENTS.md' && ! grep -qF 'Corrected 2 times' '${HOME}/.codex/AGENTS.md'"
 assert_cmd "templates/AGENTS.md includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/templates/AGENTS.md"
 assert_cmd "docs/CLAUDE.md.example includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/docs/CLAUDE.md.example"
 assert_cmd "chat contract block matches across source, installed output, and templates" assert_chat_contract_blocks_match

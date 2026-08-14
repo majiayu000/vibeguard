@@ -116,8 +116,8 @@ assert_cmd "Pre-existing non-VibeGuard hook remains after cleaning" grep -q "nod
 
 header "setup install default languages before rust filter"
 install_default_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core)"
-# GH-541: the default (core) profile delivers only the compact L1-L7 + Key
-# Detailed Rules table via ~/.claude/CLAUDE.md and must NOT front-inject the
+# GH-541: the default (core) profile delivers only the shared compact core plus
+# Claude host guidance via ~/.claude/CLAUDE.md and must NOT front-inject the
 # full native rule tree, so the live payload stays within the U-32 budget.
 assert_contains "${install_default_lang_out}" "compact core (core profile)" "core profile install reports compact core delivery"
 assert_cmd "core profile does not front-inject Python native rules" test ! -L "${HOME}/.claude/rules/vibeguard/python/quality.md"

@@ -26,7 +26,7 @@ fi
 HOOK_EVENT=$(printf '%s' "${INPUT}" | vg_json_field "hook_event_name" 2>/dev/null || true)
 HOOK_EVENT="${HOOK_EVENT:-SessionStart}"
 
-COUNTER_ARGS=(--root "${PROJECT_ROOT}" --home "${HOME}" --hook-fields)
+COUNTER_ARGS=(--root "${PROJECT_ROOT}" --home "${HOME}" --host claude --hook-fields)
 
 if [[ -n "${VIBEGUARD_TASK_PATHS:-}" ]]; then
   IFS=',' read -r -a _vg_task_paths <<< "${VIBEGUARD_TASK_PATHS}"

@@ -153,19 +153,7 @@ Inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engine
 
 ### Rule Injection (active from session start)
 
-The native rule set in `rules/claude-rules/` is installed to Claude Code's native rules system (`~/.claude/rules/vibeguard/`), directly influencing AI reasoning. Plus a 7-layer constraint index injected into `~/.claude/CLAUDE.md`:
-
-| Layer | Constraint | Effect |
-|-------|-----------|--------|
-| L1 | Search before create | Must search for existing implementations before creating new files |
-| L2 | Naming conventions | `snake_case` internally, `camelCase` at API boundaries, no aliases |
-| L3 | Quality baseline | No silent exception swallowing, no `Any` types in public methods |
-| L4 | Data integrity | No data = show blank, no hardcoding, no inventing APIs |
-| L5 | Minimal changes | Only do what was asked, no unsolicited "improvements" |
-| L6 | Process gates | Large changes require preflight, structured planning, and verification |
-| L7 | Commit discipline | No AI markers, no force push, no secrets |
-
-Rules use **negative constraints** ("X does not exist") to implicitly guide AI, which is often more effective than positive descriptions.
+Claude Code's `full` and `strict` profiles expose the native rule set from `rules/claude-rules/` through `~/.claude/rules/vibeguard/`; `core` (the default) and `minimal` do not front-inject that tree. Every profile receives a smaller shared global core for scope, factuality, error visibility, safety, preservation, and verification. The installer then adds a host-specific section: Claude Code receives profile-aware native-rule and slash-command guidance, while Codex receives `AGENTS.md`, managed-skill, and native-hook capability guidance. Project facts and exact test commands stay in the nearest repository instructions.
 
 Canonical references for this contract:
 - Install/runtime contract: `schemas/install-modules.json`
@@ -576,7 +564,7 @@ Add your own rules to `~/.vibeguard/user-rules/`. Any `.md` files placed there a
 |-----------|------|----------------|
 | Automation over documentation | Harness #3 | Mechanized checks complement rules, workflows, and review |
 | Error messages = fix instructions | Harness #3 | Every interception tells AI how to fix, not just what's wrong |
-| Maps not manuals | Harness #5 | 7-layer index + negative constraints + lazy loading |
+| Maps not manuals | Harness #5 | Shared core + host guidance + lazy-loaded detailed rules |
 | Failure → capability | Harness #2 | Mistake → learn → new guard → never again |
 | If agent can't see it, it doesn't exist | Harness #1 | All decisions written to repo (`CLAUDE.md` / ExecPlan / logs) |
 | Give agent eyes | Harness #4 | Observability stack (logs + metrics + alerts) |

@@ -124,6 +124,40 @@ fn markdown_argument_and_missing_rules_errors_are_visible() {
 }
 
 #[test]
+fn invalid_managed_source_fails_before_mutating_the_target() {
+    let fixture = Fixture::new("invalid-source");
+    let target = fixture.write("AGENTS.md", "user content\n");
+
+    for (name, invalid) in [
+        (
+            "outside.md",
+            "outside\n<!-- vibeguard-start -->\nrules\n<!-- vibeguard-end -->\n",
+        ),
+        (
+            "inline.md",
+            "<!-- vibeguard-start --> rules <!-- vibeguard-end -->\n",
+        ),
+        ("missing-end.md", "<!-- vibeguard-start -->\nrules\n"),
+        (
+            "duplicate-end.md",
+            "<!-- vibeguard-start -->\nrules\n<!-- vibeguard-end -->\n<!-- vibeguard-end -->\n",
+        ),
+    ] {
+        let rules = fixture.write(name, invalid);
+        let output = run(
+            &fixture,
+            "setup-md-inject",
+            &[&target, &rules],
+            &["/repo", "127"],
+        );
+        assert_visible_failure(&output, Some("Invalid managed rules source"));
+        assert_eq!(fs::read_to_string(&target).unwrap(), "user content\n");
+    }
+
+    fixture.cleanup();
+}
+
+#[test]
 fn diff_is_non_mutating_and_inject_is_exact_and_idempotent() {
     let fixture = Fixture::new("inject");
     let target = fixture.write("AGENTS.md", "Intro\n");

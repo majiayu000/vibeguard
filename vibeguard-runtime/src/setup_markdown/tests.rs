@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod setup_markdown_tests {
     use super::super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn repo_dir() -> SetupResult<&'static Path> {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -19,6 +20,42 @@ mod setup_markdown_tests {
         assert!(!next.contains("old"));
         assert!(next.starts_with("a\n\n"));
         assert!(next.ends_with("b\n"));
+    }
+
+    #[test]
+    fn inject_rejects_invalid_managed_source_without_changing_target() -> SetupResult<()> {
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "vibeguard-setup-markdown-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir)?;
+        let target = dir.join("AGENTS.md");
+        let source = dir.join("rules.md");
+        let original = "user content\n";
+        std::fs::write(&target, original)?;
+
+        for invalid in [
+            "outside\n<!-- vibeguard-start -->\nrules\n<!-- vibeguard-end -->\n",
+            "<!-- vibeguard-start --> rules <!-- vibeguard-end -->\n",
+            "<!-- vibeguard-start -->\nrules\n",
+            "<!-- vibeguard-start -->\nrules\n<!-- vibeguard-end -->\n<!-- vibeguard-end -->\n",
+        ] {
+            std::fs::write(&source, invalid)?;
+            assert!(
+                inject(&[
+                    target.display().to_string(),
+                    source.display().to_string(),
+                    dir.display().to_string(),
+                    "127".to_string(),
+                ])
+                .is_err()
+            );
+            assert_eq!(std::fs::read_to_string(&target)?, original);
+        }
+
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
     }
 
     #[test]
