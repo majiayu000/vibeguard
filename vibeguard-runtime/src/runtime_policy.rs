@@ -1,5 +1,7 @@
 use crate::HandlerResult;
-use crate::codex_app_server::policy::{HookPolicyDecision, evaluate_hook_policy};
+use crate::codex_app_server::policy::{
+    HookPolicyDecision, default_runtime_profile, evaluate_hook_policy,
+};
 use crate::project_config::scoped_suppression::{
     ScopedSuppression, scoped_suppression_matches_output,
 };
@@ -47,6 +49,7 @@ pub fn runtime_policy_check(args: &[String]) -> HandlerResult {
         &parsed.hook_name,
         parsed.cwd.as_deref(),
         config_path.as_deref(),
+        &env_overrides,
         &decision,
     );
     match decision {
@@ -419,31 +422,36 @@ fn runtime_policy_payload(
     hook_name: &str,
     cwd: Option<&str>,
     config_path: Option<&Path>,
+    env_overrides: &HashMap<String, String>,
     decision: &HookPolicyDecision,
 ) -> Value {
     let config = config_path.and_then(|path| load_project_config(path).ok());
     let output_filter = config
         .as_ref()
         .is_some_and(|config| scoped_output_filter_enabled(&config.scoped_suppressions, hook_name));
-    let (enforcement, profile) = config
-        .as_ref()
-        .map(|config| {
-            (
+    let (enforcement, profile) = if matches!(decision, HookPolicyDecision::Error(_)) {
+        (Value::Null, Value::Null)
+    } else if let Some(config) = config.as_ref() {
+        let profile = config
+            .profile
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| default_runtime_profile(env_overrides));
+        (
+            json!(
                 config
                     .enforcement
                     .clone()
-                    .unwrap_or_else(|| "block".to_string()),
-                config.profile.clone().unwrap_or_else(|| "core".to_string()),
-            )
-        })
-        .map(|(enforcement, profile)| (json!(enforcement), json!(profile)))
-        .unwrap_or_else(|| {
-            if config_path.is_some() {
-                (Value::Null, Value::Null)
-            } else {
-                (json!("block"), json!("core"))
-            }
-        });
+                    .unwrap_or_else(|| "block".to_string())
+            ),
+            profile.map(Value::String).unwrap_or(Value::Null),
+        )
+    } else if config_path.is_some() {
+        (Value::Null, Value::Null)
+    } else {
+        let profile = default_runtime_profile(env_overrides).unwrap_or_else(|_| "core".to_string());
+        (json!("block"), json!(profile))
+    };
 
     let (decision_text, reason) = match decision {
         HookPolicyDecision::Run { reason, .. } => ("run", reason.clone()),

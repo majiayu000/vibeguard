@@ -49,4 +49,11 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 | SEC-11 | Strict | AI-generated code carries higher security risk; mandatory human review for auth, payments, secrets, `innerHTML` / `eval` / `exec`. |
 | SEC-13 | Strict | High-context files (`AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, hooks) must not be silently modified by dependencies or generators. |
 <!-- vibeguard-generated-compact-rules:end -->
+
+## Claude Code host guidance
+
+- The compact shared core is always present. `full` and `strict` profiles may also expose matching native rule files through `~/.claude/rules/vibeguard/`.
+- Claude Code hooks can cover read/search loops as well as Bash and file changes; treat hook output as guard feedback, not proof that the task is complete.
+- VibeGuard commands are available under `/vibeguard:*` with `/vg:*` shortcuts when the command bundle is installed.
+- Use the current project's own verification commands instead of assuming a language-wide default.
 <!-- vibeguard-end -->

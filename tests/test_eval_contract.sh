@@ -75,7 +75,7 @@ assert_contains "${normalized_out}" "Dataset source: ${REPO_DIR_RESOLVED}/eval/d
 assert_contains "${normalized_out}" "Sample digest:" "dry-run reports sample digest"
 assert_contains "${normalized_out}" "Rules source: ${REPO_DIR_RESOLVED}/rules/claude-rules" "dry-run reports repository rule source"
 assert_contains "${normalized_out}" "Rule digest:" "dry-run reports rule digest"
-assert_contains "${normalized_out}" "Core constraint source: ${REPO_DIR_RESOLVED}/claude-md/vibeguard-rules.md" "dry-run reports repository core rules source"
+assert_contains "${normalized_out}" "Core constraint source: ${REPO_DIR_RESOLVED}/claude-md/vibeguard-claude-rules.md" "dry-run reports repository Claude core rules source"
 assert_contains "${normalized_out}" "Requested model: haiku" "dry-run reports requested default model"
 assert_contains "${normalized_out}" "Resolved model: claude-haiku-4-5-20251001" "dry-run resolves default model from baseline"
 assert_contains "${normalized_out}" "Model baseline verified at (UTC): 2026-07-17" "dry-run reports baseline verification date"

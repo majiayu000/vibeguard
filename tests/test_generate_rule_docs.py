@@ -6,6 +6,8 @@ from __future__ import annotations
 import dataclasses
 import importlib.util
 import io
+import json
+import re
 import sys
 import tempfile
 import unittest
@@ -26,17 +28,12 @@ SPEC.loader.exec_module(generate_rule_docs)
 
 EXPECTED_COMPACT_TABLE = """| ID | Severity | Rule |
 |----|----------|------|
-| U-16 | Guideline | Keep file size under control: 200-400 lines typical, 800 lines hard ceiling. Files above 800 must be split. |
 | U-17 | Strict | Handle errors completely. Do not swallow exceptions silently. |
-| U-22 | Strict | New code minimum 80% line coverage; critical paths 100%. |
-| U-25 | Strict | Fix build failures first before any other edit; do not add new code while build is red. |
 | U-26 | Strict | Declaration-execution completeness: declared Config / Trait / persistence layers must be wired into startup. |
 | U-29 | Strict | No silent degradation: errors causing user-visible missing data or wrong output must `error` or raise, not `warning` + fallback. |
-| W-01 | Strict | No fixes without root cause: reproduce first, then form one hypothesis, then fix. |
 | W-02 | Strict | After 3 consecutive failed fixes on the same problem, stop and challenge the hypothesis or architecture. |
 | W-03 | Strict | Verify before claiming completion: produce fresh command output proving the claim. |
 | W-12 | Strict | Protect test integrity: fix production code, never weaken assertions or tamper with test infrastructure. |
-| W-14 | Strict | At most one writable session may operate on a repository; parallel helpers must remain read-only. |
 | W-16 | Strict | Verification commands must come from this session. "Earlier passed" / "should work" do not count. |
 | SEC-01 | Critical | No SQL / NoSQL / OS command injection: use parameterized queries and array argument lists. |
 | SEC-02 | Critical | No hardcoded keys, credentials, or API tokens. Load from env / secret manager. |
@@ -192,6 +189,121 @@ class CompactRuleGenerationTests(unittest.TestCase):
         second = generate_rule_docs.render_compact_table(rules, ("U-16",))
         self.assertEqual(first, second)
 
+    def test_host_guidance_is_composed_inside_the_managed_block(self) -> None:
+        shared = "<!-- vibeguard-start -->\n# Shared\n<!-- vibeguard-end -->\n"
+        actual = generate_rule_docs.compose_host_rules(shared, "## Codex host\n\nHost rule.\n")
+        self.assertEqual(
+            actual,
+            "<!-- vibeguard-start -->\n# Shared\n\n"
+            "## Codex host\n\nHost rule.\n<!-- vibeguard-end -->\n",
+        )
+
+    def test_shared_guidance_uses_host_neutral_project_instruction_wording(self) -> None:
+        shared = generate_rule_docs.COMPACT_RULES_PATH.read_text(encoding="utf-8")
+        self.assertIn("nearest applicable repository instructions", shared)
+        self.assertNotIn("repository-level `AGENTS.md` or `CLAUDE.md`", shared)
+
+    def test_codex_host_guidance_respects_configured_home(self) -> None:
+        codex_host = generate_rule_docs.CODEX_HOST_RULES_PATH.read_text(encoding="utf-8")
+        self.assertIn("When managed VibeGuard skills are installed", codex_host)
+        self.assertIn("$CODEX_HOME/skills/", codex_host)
+        self.assertIn("defaulting to `~/.codex/skills/`", codex_host)
+
+    def test_codex_host_guidance_matches_profile_hook_contract(self) -> None:
+        codex_host = generate_rule_docs.CODEX_HOST_RULES_PATH.read_text(encoding="utf-8")
+        self.assertIn(
+            "Codex hook installation follows the selected setup profile",
+            codex_host,
+        )
+        self.assertIn(
+            "every profile covers native Bash and `apply_patch` gates; `full` and `strict` "
+            "additionally install `post-build-check` and `Stop` hooks",
+            codex_host,
+        )
+
+        manifest = json.loads((ROOT / "hooks" / "manifest.json").read_text(encoding="utf-8"))
+        all_profiles = set(manifest["profiles"])
+        hooks = {hook["name"]: hook for hook in manifest["hooks"]}
+        for name in (
+            "pre-bash-guard",
+            "pre-edit-guard",
+            "pre-write-guard",
+            "post-edit-guard",
+            "post-write-guard",
+        ):
+            with self.subTest(hook=name):
+                self.assertTrue(hooks[name]["codex"]["enabled"])
+                self.assertEqual(set(hooks[name]["claude"]["profiles"]), all_profiles)
+        for name in ("post-build-check", "stop-guard", "learn-evaluator"):
+            with self.subTest(hook=name):
+                self.assertTrue(hooks[name]["codex"]["enabled"])
+                self.assertEqual(set(hooks[name]["claude"]["profiles"]), {"full", "strict"})
+
+        codex_setup = (ROOT / "scripts" / "setup" / "targets" / "codex-home.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("setup-codex-hooks-upsert", codex_setup)
+        self.assertIn('"${wrapper}" "${PROFILE:-core}"', codex_setup)
+
+        for path in (ROOT / "README.md", ROOT / "docs" / "README_CN.md"):
+            minimal_row = next(
+                line
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.startswith("| `minimal` |")
+            )
+            with self.subTest(path=path):
+                self.assertIn("post-edit", minimal_row)
+                self.assertIn("post-write", minimal_row)
+
+    def test_host_guidance_rejects_empty_or_managed_marker_content(self) -> None:
+        shared = "<!-- vibeguard-start -->\nshared\n<!-- vibeguard-end -->\n"
+        for host in ("", "<!-- vibeguard-start -->\nhost", "host\n<!-- vibeguard-end -->"):
+            with self.subTest(host=host):
+                with self.assertRaisesRegex(ValueError, "host guidance"):
+                    generate_rule_docs.compose_host_rules(shared, host)
+
+    def test_host_composition_rejects_unmanaged_shared_content_and_inline_markers(self) -> None:
+        cases = {
+            "content before": (
+                "outside-before\n<!-- vibeguard-start -->\nshared\n<!-- vibeguard-end -->\n",
+                "outside managed markers",
+            ),
+            "content after": (
+                "<!-- vibeguard-start -->\nshared\n<!-- vibeguard-end -->\noutside-after\n",
+                "outside managed markers",
+            ),
+            "inline start": (
+                "prefix <!-- vibeguard-start -->\nshared\n<!-- vibeguard-end -->\n",
+                "own line",
+            ),
+            "inline end": (
+                "<!-- vibeguard-start -->\nshared <!-- vibeguard-end -->\n",
+                "own line",
+            ),
+        }
+        for label, (shared, message) in cases.items():
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, message):
+                generate_rule_docs.compose_host_rules(shared, "## Host\n")
+
+    def test_render_all_attributes_invalid_host_guidance_to_host_source(self) -> None:
+        rules = generate_rule_docs.parse_rules()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            claude_host = root / "vibeguard-claude.md"
+            codex_host = root / "vibeguard-codex.md"
+            valid_host = "## Host guidance\n"
+            for label, invalid_path in (("claude", claude_host), ("codex", codex_host)):
+                with self.subTest(host=label):
+                    claude_host.write_text(valid_host, encoding="utf-8")
+                    codex_host.write_text(valid_host, encoding="utf-8")
+                    invalid_path.write_text("", encoding="utf-8")
+                    with (
+                        mock.patch.object(generate_rule_docs, "CLAUDE_HOST_RULES_PATH", claude_host),
+                        mock.patch.object(generate_rule_docs, "CODEX_HOST_RULES_PATH", codex_host),
+                        self.assertRaisesRegex(ValueError, rf"{re.escape(str(invalid_path))}: host guidance"),
+                    ):
+                        generate_rule_docs.render_all(rules)
+
     def test_compact_input_changes_make_snapshot_stale(self) -> None:
         rules = generate_rule_docs.parse_rules()
         current_document = generate_rule_docs.COMPACT_RULES_PATH.read_text(encoding="utf-8")
@@ -209,7 +321,10 @@ class CompactRuleGenerationTests(unittest.TestCase):
             ),
             "severity": (
                 [
-                    dataclasses.replace(rule, severity="Strict")
+                    dataclasses.replace(
+                        rule,
+                        severity="Guideline" if selected_rule.severity != "Guideline" else "Strict",
+                    )
                     if rule is selected_rule
                     else rule
                     for rule in rules

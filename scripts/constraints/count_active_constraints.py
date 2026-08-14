@@ -22,6 +22,9 @@ from typing import Any, Iterable
 WARN_THRESHOLD = 15
 BLOCK_THRESHOLD = 30
 RULE_ID_RE = re.compile(r"^##\s+((?:U|W|SEC|RS|PY|TS|GO|TASTE)-\d+):", re.M)
+TABLE_RULE_ID_RE = re.compile(r"(?:U|W|SEC|RS|PY|TS|GO|TASTE)-\d+")
+COMPACT_RULES_START = "<!-- vibeguard-generated-compact-rules:start -->"
+COMPACT_RULES_END = "<!-- vibeguard-generated-compact-rules:end -->"
 BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.+)")
 NORMATIVE_RE = re.compile(
     r"\b(must|must not|should|should not|never|always|require|requires|required|"
@@ -85,6 +88,47 @@ def _normalize_constraint(value: str) -> str:
     return value[:240]
 
 
+# Core rows may summarize one detailed rule, but detailed rule IDs remain
+# independent constraints even when they share a broad topic.
+CORE_EQUIVALENT_KEYS = {
+    (
+        _normalize_constraint("Errors"),
+        _normalize_constraint(
+            "User-visible missing data, malformed input, or wrong output must fail clearly."
+        ),
+    ): "rule:U-29",
+    (
+        _normalize_constraint("Scope"),
+        _normalize_constraint(
+            "Make the smallest requested change; do not add adjacent improvements."
+        ),
+    ): "rule:U-04",
+    (
+        _normalize_constraint("Verification"),
+        _normalize_constraint(
+            "Run a fresh, focused project command before claiming completion."
+        ),
+    ): "rule:W-03",
+}
+
+
+def _rule_constraint_key(rule_id: str) -> str:
+    return f"rule:{rule_id}"
+
+
+def _core_constraint_key(area: str, requirement: str) -> str:
+    normalized_area = _normalize_constraint(area)
+    normalized_requirement = _normalize_constraint(requirement)
+    return CORE_EQUIVALENT_KEYS.get(
+        (normalized_area, normalized_requirement),
+        f"core:{normalized_area}:{normalized_requirement}",
+    )
+
+
+def _is_rule_constraint(constraint: Constraint) -> bool:
+    return TABLE_RULE_ID_RE.fullmatch(constraint.label) is not None
+
+
 def _iter_constraints(path: Path, text: str) -> Iterable[Constraint]:
     _fields, body = _strip_frontmatter(text)
     frontmatter_offset = len(text) - len(body)
@@ -92,20 +136,53 @@ def _iter_constraints(path: Path, text: str) -> Iterable[Constraint]:
     for match in RULE_ID_RE.finditer(body):
         rule_id = match.group(1)
         yield Constraint(
-            key=f"rule:{rule_id}",
+            key=_rule_constraint_key(rule_id),
             label=rule_id,
             source=path,
             line=_line_number(text, frontmatter_offset + match.start()),
         )
 
     in_fence = False
+    in_core_contract = False
+    in_compact_rules = False
     body_lines = body.splitlines()
     for index, line in enumerate(body_lines, start=_line_number(text, frontmatter_offset)):
         stripped = line.strip()
         if stripped.startswith("```"):
             in_fence = not in_fence
             continue
-        if in_fence or not stripped or stripped.startswith("|"):
+        if in_fence or not stripped:
+            continue
+        if stripped == COMPACT_RULES_START:
+            in_compact_rules = True
+            continue
+        if stripped == COMPACT_RULES_END:
+            in_compact_rules = False
+            continue
+        if stripped.startswith("## "):
+            in_core_contract = stripped == "## Core contract"
+        if stripped.startswith("|"):
+            cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+            first_cell = cells[0] if cells else ""
+            if in_compact_rules and TABLE_RULE_ID_RE.fullmatch(first_cell):
+                yield Constraint(
+                    key=_rule_constraint_key(first_cell),
+                    label=first_cell,
+                    source=path,
+                    line=index,
+                )
+            elif (
+                in_core_contract
+                and len(cells) >= 2
+                and first_cell not in {"Area", ""}
+                and not set(first_cell) <= {"-", ":"}
+            ):
+                yield Constraint(
+                    key=_core_constraint_key(first_cell, cells[1]),
+                    label=f"Core contract: {first_cell}",
+                    source=path,
+                    line=index,
+                )
             continue
         bullet = BULLET_RE.match(line)
         if not bullet:
@@ -170,41 +247,62 @@ def _add_source(
     sources[resolved] = kind
 
 
+def _host_includes_claude(host: str) -> bool:
+    return host in {"all", "claude"}
+
+
+def _host_includes_codex(host: str) -> bool:
+    return host in {"all", "codex"}
+
+
 def discover_sources(
     root: Path,
     home: Path,
+    codex_home: Path,
     task_paths: list[str],
     skills: list[str],
     explicit_sources: list[Path],
     include_canonical_rules: bool,
+    host: str,
 ) -> dict[Path, str]:
     sources: dict[Path, str] = {}
 
     for path in explicit_sources:
         _add_source(sources, path, "explicit", root=root, task_paths=task_paths)
 
-    global_files = [
-        home / ".claude" / "CLAUDE.md",
-        home / ".claude" / "AGENTS.md",
-        home / ".codex" / "AGENTS.md",
-    ]
+    global_files = []
+    if _host_includes_claude(host):
+        global_files.extend(
+            [
+                home / ".claude" / "CLAUDE.md",
+                home / ".claude" / "AGENTS.md",
+            ]
+        )
+    if _host_includes_codex(host):
+        global_files.append(codex_home / "AGENTS.md")
     for path in global_files:
         _add_source(sources, path, "global", root=root, task_paths=task_paths)
 
-    for base in (home / ".claude" / "rules", home / ".codex" / "rules"):
+    global_rule_roots = []
+    if _host_includes_claude(host):
+        global_rule_roots.append(home / ".claude" / "rules")
+    for base in global_rule_roots:
         for path in _iter_files(base, "**/*.md"):
             _add_source(sources, path, "global-rule", root=root, task_paths=task_paths)
 
-    project_files = [
-        root / "AGENTS.md",
-        root / "CLAUDE.md",
-        root / ".claude" / "CLAUDE.md",
-    ]
+    project_files = []
+    if _host_includes_codex(host):
+        project_files.extend(_codex_project_instruction_files(root, task_paths))
+    if _host_includes_claude(host):
+        project_files.extend(
+            [root / "AGENTS.md", root / "CLAUDE.md", root / ".claude" / "CLAUDE.md"]
+        )
     for path in project_files:
         _add_source(sources, path, "project", root=root, task_paths=task_paths)
 
-    for path in _iter_files(root / ".claude" / "rules", "**/*.md"):
-        _add_source(sources, path, "path-rule", root=root, task_paths=task_paths)
+    if _host_includes_claude(host):
+        for path in _iter_files(root / ".claude" / "rules", "**/*.md"):
+            _add_source(sources, path, "path-rule", root=root, task_paths=task_paths)
 
     if include_canonical_rules:
         for path in _iter_files(root / "rules" / "claude-rules", "**/*.md"):
@@ -213,9 +311,11 @@ def discover_sources(
     skill_roots = [
         root / "skills",
         root / "workflows",
-        home / ".claude" / "skills",
-        home / ".codex" / "skills",
     ]
+    if _host_includes_claude(host):
+        skill_roots.append(home / ".claude" / "skills")
+    if _host_includes_codex(host):
+        skill_roots.append(codex_home / "skills")
     for skill in skills:
         for base in skill_roots:
             _add_source(sources, base / skill / "SKILL.md", "skill", root=root, task_paths=task_paths)
@@ -223,20 +323,58 @@ def discover_sources(
     return sources
 
 
+def _codex_project_instruction_files(root: Path, task_paths: list[str]) -> list[Path]:
+    resolved_root = root.resolve()
+    instruction_files = {_codex_instruction_file(resolved_root)}
+    for task_path in task_paths:
+        candidate = Path(task_path)
+        if not candidate.is_absolute():
+            candidate = resolved_root / candidate
+        candidate = candidate.resolve()
+        try:
+            candidate.relative_to(resolved_root)
+        except ValueError:
+            continue
+        directory = candidate if candidate.is_dir() else candidate.parent
+        while directory != resolved_root:
+            instruction_files.add(_codex_instruction_file(directory))
+            parent = directory.parent
+            if parent == directory:
+                break
+            directory = parent
+    return sorted(instruction_files)
+
+
+def _codex_instruction_file(directory: Path) -> Path:
+    override_path = directory / "AGENTS.override.md"
+    return override_path if override_path.is_file() else directory / "AGENTS.md"
+
+
 def count_constraints(sources: dict[Path, str]) -> tuple[list[SourceReport], list[Constraint]]:
     seen: set[str] = set()
-    reports: list[SourceReport] = []
+    parsed_sources: list[tuple[SourceReport, list[Constraint]]] = []
     all_constraints: list[Constraint] = []
 
     for path, kind in sorted(sources.items(), key=lambda item: str(item[0])):
         text = _read_text(path)
         report = SourceReport(path=path, kind=kind)
-        for constraint in _iter_constraints(path, text):
-            if constraint.key in seen:
-                continue
-            seen.add(constraint.key)
-            report.constraints.append(constraint)
-            all_constraints.append(constraint)
+        parsed_sources.append((report, list(_iter_constraints(path, text))))
+
+    # Rule IDs win over equivalent shared-core rows so reports retain a useful
+    # canonical ID while still counting the semantic requirement only once.
+    for rule_pass in (True, False):
+        for report, constraints in parsed_sources:
+            for constraint in constraints:
+                if _is_rule_constraint(constraint) != rule_pass:
+                    continue
+                if constraint.key in seen:
+                    continue
+                seen.add(constraint.key)
+                report.constraints.append(constraint)
+                all_constraints.append(constraint)
+
+    reports: list[SourceReport] = []
+    for report, _constraints in parsed_sources:
         report.count = len(report.constraints)
         if report.count:
             reports.append(report)
@@ -260,7 +398,7 @@ def load_recent_event_text(log_paths: list[Path], max_lines: int) -> str:
 def low_frequency_candidates(constraints: list[Constraint], event_text: str, limit: int) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     for constraint in constraints:
-        if not constraint.key.startswith("rule:"):
+        if not _is_rule_constraint(constraint):
             continue
         rule_id = constraint.label
         if rule_id in event_text:
@@ -290,16 +428,23 @@ def status_for(total: int, warn_threshold: int, block_threshold: int) -> str:
 def build_report(args: argparse.Namespace) -> dict[str, Any]:
     root = _safe_resolve(Path(args.root))
     home = _safe_resolve(Path(args.home).expanduser())
+    codex_home = _safe_resolve(
+        Path(args.codex_home).expanduser()
+        if args.codex_home
+        else Path(os.environ.get("CODEX_HOME", home / ".codex")).expanduser()
+    )
     task_paths = args.task_path or []
     skills = args.skill or []
     explicit_sources = [Path(item) for item in (args.source or [])]
     sources = discover_sources(
         root,
         home,
+        codex_home,
         task_paths,
         skills,
         explicit_sources,
         args.include_canonical_rules,
+        args.host,
     )
     reports, constraints = count_constraints(sources)
     total = len(constraints)
@@ -325,7 +470,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         ],
         "constraints": [
             {
-                "id": constraint.label if constraint.key.startswith("rule:") else "",
+                "id": constraint.label if _is_rule_constraint(constraint) else "",
                 "label": constraint.label,
                 "source": str(constraint.source),
                 "line": constraint.line,
@@ -379,6 +524,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Count effective VibeGuard constraints")
     parser.add_argument("--root", default=".", help="Project root to scan")
     parser.add_argument("--home", default=str(Path.home()), help="Home directory for global agent surfaces")
+    parser.add_argument(
+        "--codex-home",
+        help="Codex home directory (default: $CODEX_HOME or <home>/.codex)",
+    )
+    parser.add_argument(
+        "--host",
+        choices=("all", "claude", "codex"),
+        default="all",
+        help="Agent host whose global surfaces are active",
+    )
     parser.add_argument("--task-path", action="append", help="Task path used to activate path-scoped rules")
     parser.add_argument("--skill", action="append", help="Active skill name whose SKILL.md is loaded")
     parser.add_argument("--source", action="append", help="Explicit markdown source to include")

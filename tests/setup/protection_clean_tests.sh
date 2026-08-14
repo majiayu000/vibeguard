@@ -627,7 +627,7 @@ printf '# malicious injection appended by something\n' >> "${HOME}/.codex/AGENTS
 external_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
 assert_contains "${external_agents_check_out}" "[WARN] ~/.codex/AGENTS.md has 1 non-empty unmanaged line(s) outside VibeGuard block" "--check warns on unmanaged Codex AGENTS content"
-assert_contains "${external_agents_check_out}" "Codex native hooks: PreToolUse(Bash/Edit/Write via apply_patch), PermissionRequest(Bash/Edit/Write via apply_patch), PostToolUse(Bash/Edit/Write via apply_patch), Stop(stop-guard/learn-evaluator)" "--check reports exact Codex native hook scope"
+assert_contains "${external_agents_check_out}" "Codex native hooks: PreToolUse(Bash/Edit/Write via apply_patch), PermissionRequest(Bash/Edit/Write via apply_patch), PostToolUse(Bash/Edit/Write via apply_patch); full/strict add Stop(stop-guard/learn-evaluator)" "--check reports profile-selected Codex native hook scope"
 
 header "setup --check uses managed rule count banners"
 _VALID_CLAUDE_MD="${TMP_HOME}/CLAUDE.md.valid.backup"

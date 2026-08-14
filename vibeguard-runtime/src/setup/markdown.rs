@@ -81,7 +81,14 @@ fn render_injected(
     if rule_count.parse::<u64>().is_err() {
         return Err(format!("Invalid rule count: {rule_count}").into());
     }
-    let rules = std::fs::read_to_string(rules_file)?
+    let rules_source = std::fs::read_to_string(rules_file)?;
+    validate_managed_source(&rules_source).map_err(|error| {
+        format!(
+            "Invalid managed rules source {}: {error}",
+            rules_file.display()
+        )
+    })?;
+    let rules = rules_source
         .replace("__VIBEGUARD_DIR__", repo_dir)
         .replace(RULE_COUNT_PLACEHOLDER, rule_count);
     let original = std::fs::read_to_string(target_file).unwrap_or_default();
@@ -97,6 +104,24 @@ fn render_injected(
         format!("{base}\n\n{}\n", rules.trim())
     };
     Ok(("APPENDED".to_string(), original, content))
+}
+
+fn validate_managed_source(text: &str) -> SetupResult<()> {
+    if text.matches(START).count() != 1 || text.matches(END).count() != 1 {
+        return Err("managed source must contain exactly one VibeGuard marker pair".into());
+    }
+    if !text.lines().any(|line| line == START) || !text.lines().any(|line| line == END) {
+        return Err("managed source markers must appear on standalone lines".into());
+    }
+    let start = text.find(START).expect("validated start marker count");
+    let end = text[start + START.len()..]
+        .find(END)
+        .map(|offset| start + START.len() + offset)
+        .ok_or("managed source end marker must follow its start marker")?;
+    if !text[..start].trim().is_empty() || !text[end + END.len()..].trim().is_empty() {
+        return Err("managed source must not contain content outside its marker pair".into());
+    }
+    Ok(())
 }
 
 fn replace_managed_block(original: &str, rules: &str) -> String {

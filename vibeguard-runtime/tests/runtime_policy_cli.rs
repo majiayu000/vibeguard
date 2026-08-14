@@ -51,6 +51,7 @@ fn run_runtime_policy(repo: &Path, hook_name: &str) -> std::process::Output {
         .current_dir(repo)
         .env_remove("VIBEGUARD_PROJECT_CONFIG")
         .env_remove("VIBEGUARD_USER_CONFIG_FILE")
+        .env_remove("VIBEGUARD_PROFILE")
         .output()
         .expect("runtime policy command should run")
 }

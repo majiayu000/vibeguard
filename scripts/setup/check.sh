@@ -53,6 +53,7 @@ DEV_REPO=0
 VIBEGUARD_SETUP_GEMINI="${VIBEGUARD_SETUP_GEMINI:-0}"
 PROFILE="${VIBEGUARD_SETUP_PROFILE:-}"
 LANGUAGES="${VIBEGUARD_SETUP_LANGUAGES:-}"
+PROFILE_RESOLUTION_ERROR=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quiet|-q)     QUIET=1; shift ;;
@@ -100,7 +101,8 @@ Top-level commands:
   --no-summary   Legacy mode: no rollup table, always exit 0.
                  Equivalent to the pre-summary behavior.
   --profile      Override the install-state profile used for Claude hook
-                 coverage checks. Defaults to the installed profile, then core.
+                 coverage checks. Defaults to core only when install-state is absent;
+                 an invalid existing install-state fails visibly.
 
 Exit codes (--strict / --json / --install only):
   0  healthy
@@ -120,16 +122,6 @@ USAGE
       ;;
   esac
 done
-
-check_installed_profile() {
-  local state_out detected
-  state_out="$(state_list 2>/dev/null)" || return 1
-  detected="$(awk -F': ' '/^Profile:/ {print $2; exit}' <<< "${state_out}")"
-  case "${detected}" in
-    minimal|core|full|strict) printf '%s\n' "${detected}" ;;
-    *) return 1 ;;
-  esac
-}
 
 check_installed_languages() {
   local state_out detected
@@ -341,9 +333,13 @@ if ! ensure_setup_runtime_available >/dev/null 2>&1; then
 fi
 
 if [[ -z "${PROFILE}" ]]; then
-  PROFILE="$(check_installed_profile 2>/dev/null || true)"
+  profile_error_file="$(mktemp -t vg-profile-error.XXXXXX 2>/dev/null || mktemp)"
+  if ! PROFILE="$(state_installed_profile)" 2>"${profile_error_file}"; then
+    PROFILE_RESOLUTION_ERROR="$(<"${profile_error_file}")"
+    PROFILE="core"
+  fi
+  rm -f "${profile_error_file}" 2>/dev/null || true
 fi
-PROFILE="${PROFILE:-core}"
 validate_setup_profile "${PROFILE}"
 if [[ -z "${LANGUAGES}" ]]; then
   LANGUAGES="$(check_installed_languages 2>/dev/null || true)"
@@ -611,6 +607,13 @@ _check_vibeguard_command() {
 run_legacy_checks() {
   echo "VibeGuard Installation Status"
   echo "=============================="
+
+  if [[ -n "${PROFILE_RESOLUTION_ERROR}" ]]; then
+    red "[FAIL] Installed profile could not be determined; using core only to complete the health report"
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] && red "  ${line}"
+    done <<< "${PROFILE_RESOLUTION_ERROR}"
+  fi
 
   # Check hook wrapper
   VIBEGUARD_HOME="${HOME}/.vibeguard"

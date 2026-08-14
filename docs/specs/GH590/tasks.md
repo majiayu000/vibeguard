@@ -11,7 +11,7 @@ GH-590
 
 ## 实现任务
 
-- [ ] `SP590-T1` Covers: B-001, B-002, B-003, B-004, B-006, B-008。Owner: Rust cooldown decision owner。Depends on: canonical packet 经 human approval、spec PR #593 merge、fresh duplicate evidence 与 implement route allowed。范围为 `vibeguard-runtime/src/hook_checks/history.rs`、`vibeguard-runtime/src/hook_orchestrator/post_edit_history.rs` 及同模块 unit tests；实现有向 tuple opaque key、config cooldown、shown evidence 与 bounded lookup，保持 `recent_overlap` candidate 语义。Done when: first/no/invalid evidence 显示完整 warning；same key inside window 可 suppress；exact boundary、future/bad/missing/>500 rows、unknown session、different key、reverse pair 均 fail-open；suppressed event 不续期。Verify: `cargo test --manifest-path vibeguard-runtime/Cargo.toml hook_orchestrator_post_edit_history` 与 focused helper tests，禁止 process-global env mutation。
+- [ ] `SP590-T1` Covers: B-001, B-002, B-003, B-004, B-006, B-008。Owner: Rust cooldown decision owner。Depends on: canonical packet 经 human approval、spec PR #593 merge、fresh duplicate evidence 与 implement route allowed。范围为 `vibeguard-runtime/src/hook_checks/history.rs`、`vibeguard-runtime/src/hook_orchestrator/post_edit_history.rs` 及同模块 unit tests；实现有向 tuple opaque key、config cooldown、shown evidence 与 bounded lookup，保持 `recent_overlap` candidate 语义。Done when: first/no/invalid evidence 显示完整 warning；same key inside window 可 suppress；exact boundary、future/bad/missing/>500 rows、unknown session、different key、reverse pair 均 fail-open；suppressed event 不续期。Verify: `cargo test --manifest-path vibeguard-runtime/Cargo.toml 'hook_orchestrator::post_edit_history'` 与 focused helper tests，禁止 process-global env mutation。
 
 - [ ] `SP590-T2` Covers: B-005, B-007, B-009。Owner: Rust event/output owner（与 T1 串行）。Depends on: SP590-T1。新增 schema-valid `decision=pass,status=skipped` telemetry，只有 append 成功才省略 W-14；失败回到 visible warning；同 run 其他 warnings 继续决定最终 output，并扩展 observe/prior-warn tests。Done when: telemetry shape、reason prefix、file detail、w14_key 稳定；raw W-14 frequency 可见但 negative/prior escalation 不增加；append failure 不 silent pass；mixed warning 只移除重复 W-14。Verify: focused Rust tests、observe tests 与 `cargo test --manifest-path vibeguard-runtime/Cargo.toml`。
 
@@ -25,7 +25,7 @@ GH-590
 
 | Lane | Owner | Writable files | Ordering |
 | --- | --- | --- | --- |
-| Rust decision + event | one implementation owner | `hook_checks_history.rs`, `hook_orchestrator_post_edit_history.rs` 及内联 tests | T1 → T2 serial |
+| Rust decision + event | one implementation owner | `vibeguard-runtime/src/hook_checks/history.rs`, `vibeguard-runtime/src/hook_orchestrator/post_edit_history.rs` 及内联 tests | T1 → T2 serial |
 | Config distribution | one config owner | config example/README、`runtime_config_cli.rs`、setup fixture | 可与 T1 并行；在 T4 前合并 |
 | Production regression | one sequential test owner | `tests/hooks/test_post_edit_w14.sh`；仅在既有 harness 必需时触及 test registry | T1/T2/T3 后 |
 | Verification | coordinator | no concurrent source writes | T4 后 |

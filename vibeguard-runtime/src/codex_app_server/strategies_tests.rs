@@ -748,6 +748,11 @@ fn changed_files_filters_to_source_extensions() {
 #[test]
 fn turn_completed_reads_nested_turn_payload() {
     let repo_dir = temp_dir("nested_turn_completed");
+    fs::write(
+        Path::new(&repo_dir).join(".vibeguard.json"),
+        r#"{"profile":"full"}"#,
+    )
+    .expect("full profile policy should be written");
     write_hook(
         &repo_dir,
         "stop-guard.sh",

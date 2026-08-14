@@ -12,6 +12,7 @@ mod hook_input_diag;
 mod hook_orchestrator;
 mod hook_output;
 mod hook_status;
+mod installed_profile;
 mod json_field;
 mod logging;
 mod observe;
@@ -154,7 +155,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "active-constraints",
-        usage: "--root DIR --home DIR [--task-path PATH] [--skill NAME] [--json|--hook-fields]  — count effective active constraints",
+        usage: "--root DIR --home DIR [--host all|claude|codex] [--task-path PATH] [--skill NAME] [--json|--hook-fields]  — count effective active constraints",
         handler: active_constraints::run,
     },
     Command {
@@ -534,7 +535,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-codex-hooks-upsert",
-        usage: "<repo-dir> <hooks-file> <wrapper>  — upsert Codex hooks",
+        usage: "<repo-dir> <hooks-file> <wrapper> [profile]  — upsert Codex hooks",
         handler: setup::codex_hooks::codex_hooks_upsert,
     },
     Command {
@@ -544,7 +545,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-codex-hooks-check",
-        usage: "<repo-dir> <hooks-file> <wrapper>  — check Codex hooks",
+        usage: "<repo-dir> <hooks-file> <wrapper> [profile]  — check Codex hooks",
         handler: setup::codex_hooks::codex_hooks_check,
     },
     Command {

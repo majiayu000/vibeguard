@@ -539,7 +539,7 @@ pub(crate) fn validate_state_for_preflight_with_released_inventory(
     Ok(())
 }
 
-fn state_generation(state: &Value) -> SetupResult<(bool, u64)> {
+pub(crate) fn state_generation(state: &Value) -> SetupResult<(bool, u64)> {
     match (state.get("generation"), state.get("complete")) {
         (None, None) => Ok((true, 0)),
         (Some(generation), Some(complete)) => {
