@@ -5,6 +5,7 @@ __pycache__/
 *.swo
 *~
 node_modules/
+plugins/dsh/dist/
 mcp-server/
 .vibeguard/worktrees/
 .claude/worktrees/

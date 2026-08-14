@@ -6,7 +6,7 @@
 
 [English README](../README.md) | [规则索引](rule-reference.md) | [贡献指南](../CONTRIBUTING.md)
 
-无论你在用 Claude Code、Codex 还是 Gemini CLI，AI 都很容易出现同一类失误：编造不存在的 API、重复造轮子、硬编码假数据、顺手做一堆你没要求的“优化”。VibeGuard 通过 **规则注入 + 实时拦截 + 静态扫描** 三层防线，把能机械覆盖的高风险场景先告警或拦截；未被 hook/guard 覆盖的规则则通过审查、工作流和验证契约约束。
+无论你在用 Claude Code、Codex、DeepSeek Harness 还是 Gemini CLI，AI 都很容易出现同一类失误：编造不存在的 API、重复造轮子、硬编码假数据、顺手做一堆你没要求的“优化”。VibeGuard 通过 **规则注入 + 实时拦截 + 静态扫描** 三层防线，把能机械覆盖的高风险场景先告警或拦截；未被 hook/guard 覆盖的规则则通过审查、工作流和验证契约约束。
 
 > **VibeGuard vs Everything Claude Code：** ECC 更偏通用生产力工具箱；VibeGuard 更偏“防守系统”，重点是约束、拦截、验证和回放。两者不是互斥关系，反而适合一起使用。
 
@@ -272,6 +272,20 @@ Codex 中的 hook 命令名会使用 `vibeguard-*.sh` 命名空间，避免与�
 - 运行时是 Rust-only 的 `vibeguard-runtime` 子命令，不再保留 Python app-server wrapper 兼容入口。
 - 本地默认保护应使用 `~/.codex/hooks.json` 里的 Codex 原生 hooks
 - 原生 Codex 路径仍不支持：`Read`/`Glob`/`Grep` 这类 hook，例如 `analysis-paralysis`
+
+## DeepSeek Harness 集成
+
+可安装的 [`@vibeguard/dsh`](../plugins/dsh/README.zh.md) bundle 把全部 10 个
+可映射 hook 接到 DSH 的 session、tool 与 turn 生命周期，并直接复用本机已安装的
+VibeGuard 脚本。所有决定都使用带 `signals[]` 的版本化 JSON；Stop/完成守卫每回合
+最多继续一次，不会形成反馈循环。
+
+```bash
+cd plugins/dsh
+corepack pnpm build
+corepack pnpm pack --pack-destination dist
+dsh plugin --profile demo add ./dist/vibeguard-dsh-0.1.0.tgz
+```
 
 ## 安装选项
 

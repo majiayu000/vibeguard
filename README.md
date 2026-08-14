@@ -502,7 +502,22 @@ Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions 
 
 Hook status is a separate human diagnostics surface. Use `vibeguard-runtime hook-status --mode focused` inside a git repository to inspect the matching project log, or add `--scope global` for `~/.vibeguard/events.jsonl`. `--log-file PATH` always wins for explicit fixtures or one-off diagnosis. The command reports recent `pass`, `skipped`, `slow`, `timeout`, and adapter-error states without adding successful hook summaries to the model context. Only actionable `warn` / `block` results should continue through `hookSpecificOutput.additionalContext`. See `docs/reference/codex-hook-status.md`.
 
-**MCP server status:** the legacy `mcp-server/` prototype is not installed by `setup.sh` and is not part of the supported runtime surface. Supported integrations are the Claude Code hooks, native Codex hooks, and the optional app-server wrapper below; any future MCP reintroduction must go through an explicit install path and hash/audit baseline.
+**MCP server status:** the legacy `mcp-server/` prototype is not installed by `setup.sh` and is not part of the supported runtime surface. Supported integrations are the Claude Code hooks, native Codex hooks, the DeepSeek Harness plugin below, and the optional app-server wrapper; any future MCP reintroduction must go through an explicit install path and hash/audit baseline.
+
+### DeepSeek Harness integration
+
+The installable [`@vibeguard/dsh`](plugins/dsh/README.md) bundle maps all ten
+DSH-compatible canonical hooks onto session, tool, and turn listeners. It
+reuses the installed VibeGuard scripts instead of copying their rules. Decisions
+use a versioned JSON envelope with `signals[]`, and Stop/completion continuation
+is limited to once per turn.
+
+```bash
+cd plugins/dsh
+corepack pnpm build
+corepack pnpm pack --pack-destination dist
+dsh plugin --profile demo add ./dist/vibeguard-dsh-0.1.0.tgz
+```
 
 ### Gemini CLI integration
 
