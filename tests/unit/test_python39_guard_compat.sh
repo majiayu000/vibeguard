@@ -13,14 +13,24 @@ TOTAL=0
 green() { printf '\033[32m  PASS: %s\033[0m\n' "$1"; }
 red() { printf '\033[31m  FAIL: %s\033[0m\n' "$1"; }
 
+skip_unavailable() {
+  local reason="$1"
+  if [[ "${CI:-}" == "true" ]]; then
+    red "$reason"
+    printf 'Total: 1  Pass: 0  Fail: 1  Skip: 0\n'
+    exit 1
+  fi
+  printf '\033[33m  SKIP: %s\033[0m\n' "$reason"
+  printf 'Total: 1  Pass: 0  Fail: 0  Skip: 1\n'
+  exit 0
+}
+
 if command -v python3.9 >/dev/null 2>&1; then
   PYTHON39=(python3.9)
 elif command -v uv >/dev/null 2>&1; then
   PYTHON39=(uv run --no-project --python 3.9 python)
 else
-  printf '\033[33m  SKIP: Python 3.9 and uv are unavailable\033[0m\n'
-  printf 'Total: 1  Pass: 0  Fail: 0  Skip: 1\n'
-  exit 0
+  skip_unavailable "Python 3.9 and uv are unavailable"
 fi
 
 export PYTHONDONTWRITEBYTECODE=1
@@ -28,7 +38,9 @@ export PYTHONDONTWRITEBYTECODE=1
 printf '\n=== Python 3.9 guard compatibility ===\n'
 
 TOTAL=$((TOTAL + 1))
-version="$("${PYTHON39[@]}" -c 'import platform; print(platform.python_version())')"
+if ! version="$("${PYTHON39[@]}" -c 'import platform; print(platform.python_version())' 2>/dev/null)"; then
+  skip_unavailable "Python 3.9 could not be provisioned without a working interpreter source"
+fi
 if [[ "$version" == 3.9.* ]]; then
   green "selected interpreter is Python 3.9 (${version})"
   PASS=$((PASS + 1))
