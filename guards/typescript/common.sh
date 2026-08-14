@@ -258,7 +258,7 @@ with open(out_path, "w") as out:
 }
 
 # Temporary file cleaning directory
-_VG_TMPDIR=""
+_VG_TMPDIR="$(mktemp -d)"
 
 _vg_cleanup() {
   [[ -n "$_VG_TMPDIR" && -d "$_VG_TMPDIR" ]] && rm -rf "$_VG_TMPDIR" || true
@@ -266,9 +266,6 @@ _vg_cleanup() {
 trap '_vg_cleanup' EXIT
 
 create_tmpfile() {
-  if [[ -z "$_VG_TMPDIR" ]]; then
-    _VG_TMPDIR=$(mktemp -d)
-  fi
   mktemp "$_VG_TMPDIR/vg.XXXXXX"
 }
 

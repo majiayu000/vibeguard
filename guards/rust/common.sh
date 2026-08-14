@@ -98,7 +98,7 @@ parse_guard_args() {
 }
 
 # Temporary file cleaning directory: all guards share the same cleaning trap
-_VG_TMPDIR=""
+_VG_TMPDIR="$(mktemp -d)"
 
 _vg_cleanup() {
   [[ -n "$_VG_TMPDIR" && -d "$_VG_TMPDIR" ]] && rm -rf "$_VG_TMPDIR" || true
@@ -108,9 +108,6 @@ trap '_vg_cleanup' EXIT
 #Create temporary files and automatically clean them when the script exits
 # Usage: TMPFILE=$(create_tmpfile)
 create_tmpfile() {
-  if [[ -z "$_VG_TMPDIR" ]]; then
-    _VG_TMPDIR=$(mktemp -d)
-  fi
   mktemp "$_VG_TMPDIR/vg.XXXXXX"
 }
 
@@ -170,9 +167,8 @@ vg_path_enforcement_class() {
   printf '%s:%s:%s\n' "$source" "$excluded" "$test"
 }
 
-vg_staged_inline_test_removed() {
-  git diff --cached -M -U0 -- ":(top)$1" ":(top)$2" 2>/dev/null \
-    | grep -qE '^-[[:space:]]*#\[cfg\(test\)\]'
+vg_staged_inline_test_count() {
+  git show "$1" 2>/dev/null | grep -cE '^[[:space:]]*#\[cfg\(test\)\]' || true
 }
 
 # vg_staged_file_diff FILE
@@ -182,7 +178,7 @@ vg_staged_inline_test_removed() {
 # because the destination is newly under production enforcement.
 vg_staged_file_diff() {
   local f="$1"
-  local git_root rel old old_class new_class inline_test_removed=0 i
+  local git_root rel old old_class new_class old_inline_tests new_inline_tests i
   rel="$f"
   if [[ "$f" == /* ]]; then
     git_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
@@ -206,8 +202,9 @@ vg_staged_file_diff() {
   if [[ -n "$old" ]]; then
     old_class=$(vg_path_enforcement_class "$old")
     new_class=$(vg_path_enforcement_class "$rel")
-    vg_staged_inline_test_removed "$old" "$rel" && inline_test_removed=1
-    if [[ "$old_class" == "$new_class" && "$inline_test_removed" -eq 0 ]]; then
+    old_inline_tests=$(vg_staged_inline_test_count "HEAD:${old}")
+    new_inline_tests=$(vg_staged_inline_test_count ":${rel}")
+    if [[ "$old_class" == "$new_class" && "$new_inline_tests" -ge "$old_inline_tests" ]]; then
       git diff --cached -M -U0 -- ":(top)${old}" ":(top)${rel}" 2>/dev/null
     else
       git diff --cached -U0 -- "$f" 2>/dev/null

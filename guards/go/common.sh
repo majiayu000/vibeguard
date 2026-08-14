@@ -255,7 +255,7 @@ with open(out_path, "w") as out_f:
 }
 
 # Temporary file cleaning directory: all guards share the same cleaning trap
-_VG_TMPDIR=""
+_VG_TMPDIR="$(mktemp -d)"
 
 _vg_cleanup() {
   [[ -n "$_VG_TMPDIR" && -d "$_VG_TMPDIR" ]] && rm -rf "$_VG_TMPDIR" || true
@@ -265,9 +265,6 @@ trap '_vg_cleanup' EXIT
 #Create temporary files and automatically clean them when the script exits
 # Usage: TMPFILE=$(create_tmpfile)
 create_tmpfile() {
-  if [[ -z "$_VG_TMPDIR" ]]; then
-    _VG_TMPDIR=$(mktemp -d)
-  fi
   mktemp "$_VG_TMPDIR/vg.XXXXXX"
 }
 

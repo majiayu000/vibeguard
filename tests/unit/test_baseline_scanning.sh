@@ -1147,6 +1147,63 @@ else
 fi
 rm -f "$stagedR20"
 
+# ---- Rename test U: editing a preserved test attribute keeps rename pairing ----
+repoR21="${tmpdir}/rs03_inline_test_comment"
+init_repo "$repoR21"
+mkdir -p "${repoR21}/src"
+cat > "${repoR21}/src/old.rs" <<'EOF'
+pub fn existing(input: Option<i32>) -> i32 { input.unwrap() }
+
+#[cfg(test)]
+mod tests {
+    fn smoke() {}
+}
+EOF
+git -C "$repoR21" add src/old.rs
+git -C "$repoR21" commit -q -m "initial source with inline tests"
+git -C "$repoR21" mv src/old.rs src/new.rs
+sed -i.bak 's/#\[cfg(test)\]/#[cfg(test)] \/\/ tests/' "${repoR21}/src/new.rs"
+rm -f "${repoR21}/src/new.rs.bak"
+git -C "$repoR21" add src/new.rs
+
+stagedR21=$(staged_list "$repoR21" src/new.rs)
+TOTAL=$((TOTAL+1))
+rcR21=0
+outR21=$( (cd "$repoR21" && VIBEGUARD_STAGED_FILES="$stagedR21" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 ) || rcR21=$?
+if [[ $rcR21 -eq 0 ]] && ! echo "$outR21" | grep -q '\[RS-03\]'; then
+  green "preserved inline-test attribute does not resurface production debt"
+  PASS=$((PASS+1))
+else
+  red "editing a preserved #[cfg(test)] must retain rename pairing (rc=$rcR21, got: $outR21)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR21"
+
+# ---- Rename test V: removing the last CLI entry enables TS-03 enforcement ----
+repoR22="${tmpdir}/ts_cli_to_regular"
+init_repo "$repoR22"
+mkdir -p "${repoR22}/src"
+cat > "${repoR22}/src/cli.ts" <<'EOF'
+console.log("starting")
+const stable_one = 1
+const stable_two = 2
+EOF
+git -C "$repoR22" add src/cli.ts
+git -C "$repoR22" commit -q -m "initial CLI entry"
+git -C "$repoR22" mv src/cli.ts src/service.ts
+
+stagedR22=$(staged_list "$repoR22" src/service.ts)
+TOTAL=$((TOTAL+1))
+outR22=$( (cd "$repoR22" && VIBEGUARD_STAGED_FILES="$stagedR22" bash "${REPO_DIR}/guards/typescript/check_console_residual.sh" --strict .) 2>&1 || true )
+if echo "$outR22" | grep -q '\[TS-03\].*/src/service.ts:1'; then
+  green "CLI-to-regular rename re-enables TS-03"
+  PASS=$((PASS+1))
+else
+  red "src/cli.ts → src/service.ts must report unchanged console usage (got: $outR22)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR22"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0
