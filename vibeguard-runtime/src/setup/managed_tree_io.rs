@@ -79,8 +79,12 @@ pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
     let from = CString::new(from.as_os_str().as_bytes())?;
     let to = CString::new(to.as_os_str().as_bytes())?;
+    // SAFETY: both pointers come from live `CString` values and remain valid
+    // for the duration of the syscall. `renameat2` reads but does not retain
+    // either string, and every variadic argument uses the kernel ABI type.
     let result = unsafe {
-        libc::renameat2(
+        libc::syscall(
+            libc::SYS_renameat2,
             libc::AT_FDCWD,
             from.as_ptr(),
             libc::AT_FDCWD,
@@ -150,4 +154,33 @@ pub(crate) fn now_nanos() -> u128 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rename_noreplace_moves_once_and_preserves_a_collision() {
+        let root = std::env::temp_dir().join(format!(
+            "vibeguard-rename-noreplace-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).expect("temporary directory should be created");
+        let first = root.join("first");
+        let second = root.join("second");
+        let destination = root.join("destination");
+        fs::write(&first, "first").expect("first source should be written");
+        fs::write(&second, "second").expect("second source should be written");
+
+        rename_noreplace(&first, &destination).expect("first rename should succeed");
+        let error = rename_noreplace(&second, &destination)
+            .expect_err("existing destination must not be replaced");
+
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "first");
+        assert_eq!(fs::read_to_string(&second).unwrap(), "second");
+        fs::remove_dir_all(root).expect("temporary directory should be removed");
+    }
 }
