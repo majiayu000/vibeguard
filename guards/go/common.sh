@@ -145,15 +145,15 @@ def rename_source(git_root, fpath):
                 mapping[os.path.realpath(os.path.join(git_root, parts[2]))] = parts[1]
         _rename_cache[key] = mapping
     old = _rename_cache[key].get(os.path.realpath(fpath), "")
-    if old and _is_go_guard_excluded_path(os.path.join(git_root, old)) != _is_go_guard_excluded_path(fpath):
+    if old and _go_guard_path_state(os.path.join(git_root, old)) != _go_guard_path_state(fpath):
         return ""
     return old
 
-def _is_go_guard_excluded_path(path):
+def _go_guard_path_state(path):
     n = path.replace("\\", "/")
     base = n.rsplit("/", 1)[-1]
     normalized = "/" + n.strip("/") + "/"
-    return base.endswith("_test.go") or "/vendor/" in normalized
+    return (base.endswith(".go"), base.endswith("_test.go"), "/vendor/" in normalized)
 
 def iter_files():
     if staged and os.path.isfile(staged):

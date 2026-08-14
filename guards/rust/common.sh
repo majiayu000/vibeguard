@@ -134,10 +134,18 @@ _vg_load_staged_rename_map() {
   fi
 }
 
-# vg_path_is_test PATH
-# True when PATH is classified as test/fixture code by the same filter RS-03 uses.
-vg_path_is_test() {
-  [[ -z "$(printf '%s\n' "$1" | filter_rs_prod_paths)" ]]
+# vg_path_enforcement_class PATH
+# Print the path properties that determine whether Rust guards enforce a file.
+# Rename pairing is safe only when every property is unchanged; otherwise the
+# destination must be treated as newly governed code.
+vg_path_enforcement_class() {
+  local path="$1"
+  local normalized="/${path#/}"
+  local source=0 excluded=0 test=0
+  [[ "$path" == *.rs ]] && source=1
+  printf '%s\n' "$normalized" | grep -qE "${VIBEGUARD_EXCLUDE_PATHS}" && excluded=1
+  [[ -z "$(printf '%s\n' "$path" | filter_rs_prod_paths)" ]] && test=1
+  printf '%s:%s:%s\n' "$source" "$excluded" "$test"
 }
 
 # vg_staged_file_diff FILE
@@ -147,7 +155,7 @@ vg_path_is_test() {
 # because the destination is newly under production enforcement.
 vg_staged_file_diff() {
   local f="$1"
-  local git_root rel old old_test=0 new_test=0
+  local git_root rel old old_class new_class
   rel="$f"
   if [[ "$f" == /* ]]; then
     git_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
@@ -167,9 +175,9 @@ vg_staged_file_diff() {
       | awk -F'\t' -v new="$rel" '$1 == new { print $2; exit }')
   fi
   if [[ -n "$old" ]]; then
-    vg_path_is_test "$old" && old_test=1
-    vg_path_is_test "$rel" && new_test=1
-    if [[ "$old_test" -eq "$new_test" ]]; then
+    old_class=$(vg_path_enforcement_class "$old")
+    new_class=$(vg_path_enforcement_class "$rel")
+    if [[ "$old_class" == "$new_class" ]]; then
       git diff --cached -M -U0 -- ":(top)${old}" ":(top)${rel}" 2>/dev/null
     else
       git diff --cached -U0 -- "$f" 2>/dev/null

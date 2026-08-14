@@ -147,18 +147,21 @@ def rename_source(git_root, fpath):
                 mapping[os.path.realpath(os.path.join(git_root, parts[2]))] = parts[1]
         _rename_cache[key] = mapping
     old = _rename_cache[key].get(os.path.realpath(fpath), "")
-    if old and _is_ts_rename_excluded(os.path.join(git_root, old), git_root) != _is_ts_rename_excluded(fpath, git_root):
+    if old and _ts_guard_path_state(os.path.join(git_root, old), git_root) != _ts_guard_path_state(fpath, git_root):
         return ""
     return old
 
 def _is_ts_test_path(path):
     return bool(re.search(r"(\.(test|spec)\.(ts|tsx|js|jsx)$|(^|/)(tests|__tests__|test|vendor)/)", path.replace("\\", "/")))
 
-def _is_ts_rename_excluded(path, git_root):
+def _ts_guard_path_state(path, git_root):
     real_path = os.path.realpath(path)
     git_rel = os.path.relpath(real_path, git_root).replace("\\", "/")
     target_rel = os.path.relpath(real_path, os.path.realpath(target_dir)).replace("\\", "/")
-    return _is_ts_test_path(git_rel) or bool(rename_excluded and re.search(rename_excluded, target_rel))
+    source = bool(re.search(r"\.(ts|tsx|js|jsx)$", git_rel))
+    test = _is_ts_test_path(git_rel)
+    rule_excluded = bool(rename_excluded and re.search(rename_excluded, target_rel))
+    return (source, test, rule_excluded)
 
 def iter_files():
     if staged and os.path.isfile(staged):

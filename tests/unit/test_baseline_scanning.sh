@@ -885,6 +885,105 @@ else
 fi
 rm -f "$stagedR10"
 
+# ---- Rename test K: non-Rust source → Rust source is newly enforced ----
+repoR11="${tmpdir}/rs03_non_source_to_rust"
+init_repo "$repoR11"
+printf 'pub fn read(input: Option<i32>) -> i32 { input.unwrap() }\n' > "${repoR11}/worker.txt"
+git -C "$repoR11" add worker.txt
+git -C "$repoR11" commit -q -m "initial non-Rust source"
+git -C "$repoR11" mv worker.txt worker.rs
+git -C "$repoR11" add worker.rs
+
+stagedR11=$(staged_list "$repoR11" worker.rs)
+TOTAL=$((TOTAL+1))
+outR11=$( (cd "$repoR11" && VIBEGUARD_STAGED_FILES="$stagedR11" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 || true )
+if echo "$outR11" | grep -q '\[RS-03\].*/worker.rs:1'; then
+  green "non-source-to-Rust rename is treated as newly enforced code"
+  PASS=$((PASS+1))
+else
+  red "worker.txt → worker.rs must report RS-03 (got: $outR11)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR11"
+
+# ---- Rename test L: excluded Rust source → production is newly enforced ----
+repoR12="${tmpdir}/rs03_target_to_prod"
+init_repo "$repoR12"
+mkdir -p "${repoR12}/target" "${repoR12}/src"
+printf 'pub fn read(input: Option<i32>) -> i32 { input.unwrap() }\n' > "${repoR12}/target/worker.rs"
+git -C "$repoR12" add -f target/worker.rs
+git -C "$repoR12" commit -q -m "initial excluded Rust source"
+git -C "$repoR12" mv target/worker.rs src/worker.rs
+git -C "$repoR12" add src/worker.rs
+
+stagedR12=$(staged_list "$repoR12" src/worker.rs)
+TOTAL=$((TOTAL+1))
+outR12=$( (cd "$repoR12" && VIBEGUARD_STAGED_FILES="$stagedR12" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 || true )
+if echo "$outR12" | grep -q '\[RS-03\].*/src/worker.rs:1'; then
+  green "excluded-to-production Rust rename is treated as newly enforced code"
+  PASS=$((PASS+1))
+else
+  red "target/worker.rs → src/worker.rs must report RS-03 (got: $outR12)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR12"
+
+# ---- Rename test M: non-Go source → Go source is newly enforced ----
+repoR13="${tmpdir}/go_non_source_to_go"
+init_repo "$repoR13"
+cat > "${repoR13}/worker.txt" <<'EOF'
+package worker
+
+func Existing() {
+    go loop()
+}
+
+func loop() {}
+EOF
+git -C "$repoR13" add worker.txt
+git -C "$repoR13" commit -q -m "initial non-Go source"
+git -C "$repoR13" mv worker.txt worker.go
+git -C "$repoR13" add worker.go
+
+stagedR13=$(staged_list "$repoR13" worker.go)
+TOTAL=$((TOTAL+1))
+outR13=$( (cd "$repoR13" && VIBEGUARD_STAGED_FILES="$stagedR13" bash "${REPO_DIR}/guards/go/check_goroutine_leak.sh" --strict .) 2>&1 || true )
+if echo "$outR13" | grep -q '\[GO-02\].*/worker.go:4:'; then
+  green "non-source-to-Go rename is treated as newly enforced code"
+  PASS=$((PASS+1))
+else
+  red "worker.txt → worker.go must report GO-02 (got: $outR13)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR13"
+
+# ---- Rename test N: non-TypeScript source → TypeScript is newly enforced ----
+repoR14="${tmpdir}/ts_non_source_to_ts"
+init_repo "$repoR14"
+printf 'const value: any = 1\n' > "${repoR14}/worker.txt"
+git -C "$repoR14" add worker.txt
+git -C "$repoR14" commit -q -m "initial non-TypeScript source"
+git -C "$repoR14" mv worker.txt worker.ts
+git -C "$repoR14" add worker.ts
+
+stagedR14=$(staged_list "$repoR14" worker.ts)
+linemapR14=$(mktemp)
+(
+  cd "$repoR14"
+  source "${REPO_DIR}/guards/typescript/common.sh"
+  VIBEGUARD_STAGED_FILES="$stagedR14" vg_build_diff_linemap "$linemapR14" '\.(ts|tsx|js|jsx)$'
+)
+TOTAL=$((TOTAL+1))
+repoR14_real=$(canon "$repoR14")
+if grep -q "${repoR14_real}/worker.ts:1$" "$linemapR14" 2>/dev/null; then
+  green "non-source-to-TypeScript rename is treated as newly enforced code"
+  PASS=$((PASS+1))
+else
+  red "worker.txt → worker.ts should add pre-existing lines to the linemap (got: $(cat "$linemapR14" 2>/dev/null))"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR14" "$linemapR14"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0
