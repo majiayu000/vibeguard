@@ -859,6 +859,32 @@ else
 fi
 rm -f "$stagedR9" "$linemapR9"
 
+# ---- Rename test J: TS rule exclusions are relative to the scan target ----
+repoR10="${tmpdir}/ts_monorepo_logger_target"
+init_repo "$repoR10"
+mkdir -p "${repoR10}/packages/logger-app/src"
+
+cat > "${repoR10}/packages/logger-app/src/logger.ts" <<'EOF'
+const value = 1
+console.log(value)
+EOF
+git -C "$repoR10" add packages/logger-app/src/logger.ts
+git -C "$repoR10" commit -q -m "initial monorepo logger file"
+git -C "$repoR10" mv packages/logger-app/src/logger.ts packages/logger-app/src/service.ts
+git -C "$repoR10" add packages/logger-app/src/service.ts
+
+stagedR10=$(staged_list "$repoR10" packages/logger-app/src/service.ts)
+TOTAL=$((TOTAL+1))
+outR10=$( (cd "$repoR10" && VIBEGUARD_STAGED_FILES="$stagedR10" bash "${REPO_DIR}/guards/typescript/check_console_residual.sh" --strict packages/logger-app) 2>&1 || true )
+if echo "$outR10" | grep -q '\[TS-03\].*/packages/logger-app/src/service.ts:2'; then
+  green "monorepo scan target name does not mask logger-to-production rename"
+  PASS=$((PASS+1))
+else
+  red "logger-app target must still report src/logger.ts → src/service.ts (got: $outR10)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR10"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

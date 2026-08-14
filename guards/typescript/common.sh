@@ -155,8 +155,10 @@ def _is_ts_test_path(path):
     return bool(re.search(r"(\.(test|spec)\.(ts|tsx|js|jsx)$|(^|/)(tests|__tests__|test|vendor)/)", path.replace("\\", "/")))
 
 def _is_ts_rename_excluded(path, git_root):
-    rel = os.path.relpath(os.path.realpath(path), git_root).replace("\\", "/")
-    return _is_ts_test_path(rel) or bool(rename_excluded and re.search(rename_excluded, rel))
+    real_path = os.path.realpath(path)
+    git_rel = os.path.relpath(real_path, git_root).replace("\\", "/")
+    target_rel = os.path.relpath(real_path, os.path.realpath(target_dir)).replace("\\", "/")
+    return _is_ts_test_path(git_rel) or bool(rename_excluded and re.search(rename_excluded, target_rel))
 
 def iter_files():
     if staged and os.path.isfile(staged):
