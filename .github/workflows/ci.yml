@@ -107,6 +107,11 @@ jobs:
           cargo fmt --manifest-path vibeguard-runtime/Cargo.toml -- --check
           cargo clippy --manifest-path vibeguard-runtime/Cargo.toml --all-targets -- -D warnings
           cargo check --manifest-path vibeguard-runtime/Cargo.toml
+          if [[ "${RUNNER_OS}" == "Linux" ]]; then
+            rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+            cargo check --locked --target x86_64-unknown-linux-musl --manifest-path vibeguard-runtime/Cargo.toml
+            cargo check --locked --target aarch64-unknown-linux-musl --manifest-path vibeguard-runtime/Cargo.toml
+          fi
           cargo test --manifest-path vibeguard-runtime/Cargo.toml
           cargo bench --manifest-path vibeguard-runtime/Cargo.toml --bench core_us --no-run
 
