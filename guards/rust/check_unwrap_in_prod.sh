@@ -153,6 +153,7 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
   fi
 
   if [[ -n "${STAGED_RS}" ]]; then
+    _vg_load_staged_rename_map
     while IFS= read -r f; do
       [[ -z "$f" || ! -f "$f" ]] && continue
       if command -v python3 >/dev/null 2>&1; then

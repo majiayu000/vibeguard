@@ -134,12 +134,20 @@ _vg_load_staged_rename_map() {
   fi
 }
 
+# vg_path_is_test PATH
+# True when PATH is classified as test/fixture code by the same filter RS-03 uses.
+vg_path_is_test() {
+  [[ -z "$(printf '%s\n' "$1" | filter_rs_prod_paths)" ]]
+}
+
 # vg_staged_file_diff FILE
 # Prints the staged -U0 diff for one file, pairing staged renames so that
-# moved-but-unchanged lines do not appear as additions.
+# moved-but-unchanged lines do not appear as additions. Pairing is skipped when
+# the rename crosses a test/production boundary (e.g. tests/helper.rs → src/helper.rs),
+# because the destination is newly under production enforcement.
 vg_staged_file_diff() {
   local f="$1"
-  local git_root rel old
+  local git_root rel old old_test=0 new_test=0
   rel="$f"
   if [[ "$f" == /* ]]; then
     git_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
@@ -159,7 +167,13 @@ vg_staged_file_diff() {
       | awk -F'\t' -v new="$rel" '$1 == new { print $2; exit }')
   fi
   if [[ -n "$old" ]]; then
-    git diff --cached -M -U0 -- ":(top)${old}" ":(top)${rel}" 2>/dev/null
+    vg_path_is_test "$old" && old_test=1
+    vg_path_is_test "$rel" && new_test=1
+    if [[ "$old_test" -eq "$new_test" ]]; then
+      git diff --cached -M -U0 -- ":(top)${old}" ":(top)${rel}" 2>/dev/null
+    else
+      git diff --cached -U0 -- "$f" 2>/dev/null
+    fi
   else
     git diff --cached -U0 -- "$f" 2>/dev/null
   fi

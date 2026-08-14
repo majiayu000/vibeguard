@@ -677,6 +677,73 @@ else
 fi
 rm -f "$stagedR3" "$linemapR3"
 
+# ---- Rename test D: test → production rename is treated as new production code ----
+repoR4="${tmpdir}/rs03_rename_test_to_prod"
+init_repo "$repoR4"
+mkdir -p "${repoR4}/tests" "${repoR4}/src"
+
+cat > "${repoR4}/tests/helper.rs" <<'EOF'
+pub fn read_value(input: Option<i32>) -> i32 {
+    input.unwrap()
+}
+EOF
+git -C "$repoR4" add tests/helper.rs
+git -C "$repoR4" commit -q -m "initial test helper with unwrap"
+
+git -C "$repoR4" mv tests/helper.rs src/helper.rs
+git -C "$repoR4" add src/helper.rs
+
+stagedR4=$(staged_list "$repoR4" src/helper.rs)
+TOTAL=$((TOTAL+1))
+outR4=$( (cd "$repoR4" && VIBEGUARD_STAGED_FILES="$stagedR4" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 || true )
+if echo "$outR4" | grep -q '\[RS-03\]'; then
+  green "test-to-production rename still reports pre-existing unwrap"
+  PASS=$((PASS+1))
+else
+  red "moving tests/helper.rs into src/ must report unwrap (got: $outR4)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR4"
+
+# ---- Rename test E: Go linemap treats *_test.go → prod as fully added ----
+repoR5="${tmpdir}/linemap_go_test_to_prod"
+init_repo "$repoR5"
+
+cat > "${repoR5}/helper_test.go" <<'EOF'
+package worker
+
+func Existing() {
+    go loop()
+}
+
+func loop() {}
+EOF
+git -C "$repoR5" add helper_test.go
+git -C "$repoR5" commit -q -m "initial test file with goroutine"
+
+git -C "$repoR5" mv helper_test.go helper.go
+git -C "$repoR5" add helper.go
+
+stagedR5=$(staged_list "$repoR5" helper.go)
+linemapR5=$(mktemp)
+(
+  cd "$repoR5"
+  source "${REPO_DIR}/guards/go/common.sh"
+  VIBEGUARD_STAGED_FILES="$stagedR5" vg_build_diff_linemap "$linemapR5" '\.go$'
+)
+
+TOTAL=$((TOTAL+1))
+repoR5_real=$(canon "$repoR5")
+# Without pairing, the pre-existing `go loop()` on line 4 must appear as added.
+if grep -q "${repoR5_real}/helper.go:4$" "$linemapR5" 2>/dev/null; then
+  green "Go linemap treats test-to-production rename as newly added lines"
+  PASS=$((PASS+1))
+else
+  red "helper_test.go → helper.go should add pre-existing lines to the linemap (got: $(cat "$linemapR5" 2>/dev/null))"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR5" "$linemapR5"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0
