@@ -984,6 +984,35 @@ else
 fi
 rm -f "$stagedR14" "$linemapR14"
 
+# ---- Rename test O: removing the last MCP marker enables TS-03 enforcement ----
+repoR15="${tmpdir}/ts_mcp_to_regular"
+init_repo "$repoR15"
+mkdir -p "${repoR15}/src"
+cat > "${repoR15}/src/mcp.ts" <<'EOF'
+console.log("server starting")
+const transport = "StdioServerTransport"
+const stable_one = 1
+const stable_two = 2
+EOF
+git -C "$repoR15" add src/mcp.ts
+git -C "$repoR15" commit -q -m "initial MCP source"
+git -C "$repoR15" mv src/mcp.ts src/service.ts
+sed -i.bak 's/StdioServerTransport/http/' "${repoR15}/src/service.ts"
+rm -f "${repoR15}/src/service.ts.bak"
+git -C "$repoR15" add src/service.ts
+
+stagedR15=$(staged_list "$repoR15" src/service.ts)
+TOTAL=$((TOTAL+1))
+outR15=$( (cd "$repoR15" && VIBEGUARD_STAGED_FILES="$stagedR15" bash "${REPO_DIR}/guards/typescript/check_console_residual.sh" --strict .) 2>&1 || true )
+if echo "$outR15" | grep -q '\[TS-03\].*/src/service.ts:1'; then
+  green "MCP-to-regular rename re-enables TS-03 for unchanged console usage"
+  PASS=$((PASS+1))
+else
+  red "removing the last MCP marker during rename must report TS-03 (got: $outR15)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR15"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0
