@@ -1013,6 +1013,140 @@ else
 fi
 rm -f "$stagedR15"
 
+# ---- Rename test P: Unicode Rust paths are parsed without Git quoting ----
+repoR16="${tmpdir}/rs03_unicode_rename"
+init_repo "$repoR16"
+mkdir -p "${repoR16}/src"
+printf 'pub fn read(input: Option<i32>) -> i32 { input.unwrap() }\n' > "${repoR16}/src/旧.rs"
+git -C "$repoR16" add "src/旧.rs"
+git -C "$repoR16" commit -q -m "initial Unicode Rust source"
+git -C "$repoR16" mv "src/旧.rs" "src/新.rs"
+
+stagedR16=$(staged_list "$repoR16" "src/新.rs")
+TOTAL=$((TOTAL+1))
+rcR16=0
+outR16=$( (cd "$repoR16" && VIBEGUARD_STAGED_FILES="$stagedR16" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 ) || rcR16=$?
+if [[ $rcR16 -eq 0 ]] && ! echo "$outR16" | grep -q '\[RS-03\]'; then
+  green "Unicode Rust rename preserves the pre-existing-code baseline"
+  PASS=$((PASS+1))
+else
+  red "src/旧.rs → src/新.rs must not resurface existing unwrap (rc=$rcR16, got: $outR16)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR16"
+
+# ---- Rename test Q: Unicode Go paths use the NUL-delimited rename map ----
+repoR17="${tmpdir}/go_unicode_rename"
+init_repo "$repoR17"
+cat > "${repoR17}/旧_worker.go" <<'EOF'
+package worker
+
+func Existing() {
+    go loop()
+}
+
+func loop() {}
+EOF
+git -C "$repoR17" add "旧_worker.go"
+git -C "$repoR17" commit -q -m "initial Unicode Go source"
+git -C "$repoR17" mv "旧_worker.go" "新_worker.go"
+printf '\nfunc Helper() string { return "ok" }\n' >> "${repoR17}/新_worker.go"
+git -C "$repoR17" add "新_worker.go"
+
+stagedR17=$(staged_list "$repoR17" "新_worker.go")
+linemapR17=$(mktemp)
+(
+  cd "$repoR17"
+  source "${REPO_DIR}/guards/go/common.sh"
+  VIBEGUARD_STAGED_FILES="$stagedR17" vg_build_diff_linemap "$linemapR17" '\.go$'
+)
+TOTAL=$((TOTAL+1))
+repoR17_real=$(canon "$repoR17")
+if grep -q "${repoR17_real}/新_worker.go:" "$linemapR17" 2>/dev/null \
+    && ! grep -q "${repoR17_real}/新_worker.go:4$" "$linemapR17" 2>/dev/null; then
+  green "Unicode Go rename preserves only newly edited lines"
+  PASS=$((PASS+1))
+else
+  red "Unicode Go rename must not resurface line 4 (got: $(cat "$linemapR17" 2>/dev/null))"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR17" "$linemapR17"
+
+# ---- Rename test R: Unicode TypeScript paths use the NUL-delimited rename map ----
+repoR18="${tmpdir}/ts_unicode_rename"
+init_repo "$repoR18"
+printf 'const existing: any = 1\n' > "${repoR18}/旧.ts"
+git -C "$repoR18" add "旧.ts"
+git -C "$repoR18" commit -q -m "initial Unicode TypeScript source"
+git -C "$repoR18" mv "旧.ts" "新.ts"
+printf 'const added = 2\n' >> "${repoR18}/新.ts"
+git -C "$repoR18" add "新.ts"
+
+stagedR18=$(staged_list "$repoR18" "新.ts")
+linemapR18=$(mktemp)
+(
+  cd "$repoR18"
+  source "${REPO_DIR}/guards/typescript/common.sh"
+  VIBEGUARD_STAGED_FILES="$stagedR18" vg_build_diff_linemap "$linemapR18" '\.(ts|tsx|js|jsx)$'
+)
+TOTAL=$((TOTAL+1))
+repoR18_real=$(canon "$repoR18")
+if grep -q "${repoR18_real}/新.ts:2$" "$linemapR18" 2>/dev/null \
+    && ! grep -q "${repoR18_real}/新.ts:1$" "$linemapR18" 2>/dev/null; then
+  green "Unicode TypeScript rename preserves only newly edited lines"
+  PASS=$((PASS+1))
+else
+  red "Unicode TypeScript rename must keep line 1 out of the linemap (got: $(cat "$linemapR18" 2>/dev/null))"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR18" "$linemapR18"
+
+# ---- Rename test S: Rust path classification does not allocate temp files ----
+repoR19="${tmpdir}/rs_classifier_temp"
+mkdir -p "${repoR19}/tmp"
+TOTAL=$((TOTAL+1))
+classR19=$(
+  cd "$repoR19"
+  TMPDIR="${repoR19}/tmp" source "${REPO_DIR}/guards/rust/common.sh"
+  TMPDIR="${repoR19}/tmp" vg_path_enforcement_class "src/worker.rs"
+)
+if [[ "$classR19" == "1:0:0" ]] && ! find "${repoR19}/tmp" -mindepth 1 -print -quit | grep -q .; then
+  green "Rust rename classification leaves no temp directories"
+  PASS=$((PASS+1))
+else
+  red "Rust rename classification leaked temp state (class=$classR19)"
+  FAIL=$((FAIL+1))
+fi
+
+# ---- Rename test T: removing #[cfg(test)] enables RS-03 enforcement ----
+repoR20="${tmpdir}/rs03_inline_test_to_prod"
+init_repo "$repoR20"
+mkdir -p "${repoR20}/src"
+cat > "${repoR20}/src/old.rs" <<'EOF'
+#[cfg(test)]
+mod tests {
+    pub fn read(input: Option<i32>) -> i32 { input.unwrap() }
+}
+EOF
+git -C "$repoR20" add src/old.rs
+git -C "$repoR20" commit -q -m "initial inline test module"
+git -C "$repoR20" mv src/old.rs src/new.rs
+sed -i.bak '1d' "${repoR20}/src/new.rs"
+rm -f "${repoR20}/src/new.rs.bak"
+git -C "$repoR20" add src/new.rs
+
+stagedR20=$(staged_list "$repoR20" src/new.rs)
+TOTAL=$((TOTAL+1))
+outR20=$( (cd "$repoR20" && VIBEGUARD_STAGED_FILES="$stagedR20" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 || true )
+if echo "$outR20" | grep -q '\[RS-03\].*/src/new.rs:2'; then
+  green "inline-test-to-production rename reports unchanged unwrap"
+  PASS=$((PASS+1))
+else
+  red "removing #[cfg(test)] during rename must report RS-03 (got: $outR20)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR20"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

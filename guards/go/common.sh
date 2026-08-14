@@ -134,15 +134,22 @@ def rename_source(git_root, fpath):
     key = (git_root, baseline)
     if key not in _rename_cache:
         if baseline:
-            cmd = ["git", "-C", git_root, "diff", "-M", "--name-status", baseline + "..HEAD"]
+            cmd = ["git", "-C", git_root, "diff", "-M", "--name-status", "-z", baseline + "..HEAD"]
         else:
-            cmd = ["git", "-C", git_root, "diff", "--cached", "-M", "--name-status"]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+            cmd = ["git", "-C", git_root, "diff", "--cached", "-M", "--name-status", "-z"]
+        r = subprocess.run(cmd, capture_output=True)
         mapping = {}
-        for line in r.stdout.splitlines():
-            parts = line.split("\t")
-            if len(parts) >= 3 and parts[0].startswith("R"):
-                mapping[os.path.realpath(os.path.join(git_root, parts[2]))] = parts[1]
+        fields = r.stdout.split(b"\0")
+        i = 0
+        while i + 1 < len(fields):
+            status = os.fsdecode(fields[i])
+            first_path = os.fsdecode(fields[i + 1])
+            i += 2
+            if status.startswith(("R", "C")) and i < len(fields):
+                second_path = os.fsdecode(fields[i])
+                i += 1
+                if status.startswith("R"):
+                    mapping[os.path.realpath(os.path.join(git_root, second_path))] = first_path
         _rename_cache[key] = mapping
     old = _rename_cache[key].get(os.path.realpath(fpath), "")
     if old and _go_guard_path_state(os.path.join(git_root, old)) != _go_guard_path_state(fpath):
