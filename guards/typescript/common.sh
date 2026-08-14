@@ -82,7 +82,7 @@ parse_guard_args() {
   fi
 }
 
-# vg_build_diff_linemap OUTPUT_FILE [EXT_FILTER]
+# vg_build_diff_linemap OUTPUT_FILE [EXT_FILTER] [RENAME_EXCLUDED_FILTER]
 #
 # Build diff and add new line number index file (each line format: "filepath:linenum").
 # Used for baseline scanning: only new problems added to this diff will be reported, existing problems will not be reported.
@@ -94,6 +94,7 @@ parse_guard_args() {
 vg_build_diff_linemap() {
   local out="$1"
   local ext_filter="${2:-}"
+  local rename_excluded_filter="${3:-}"
   : > "$out"
 
   command -v python3 >/dev/null 2>&1 || return 1
@@ -102,7 +103,7 @@ vg_build_diff_linemap() {
   local baseline="${BASELINE_COMMIT:-}"
   [[ -z "$staged" && -z "$baseline" ]] && return 1
 
-  VG_STAGED="$staged" VG_BASELINE="$baseline" VG_EXT="$ext_filter" VG_OUT="$out" VG_TARGET_DIR="${TARGET_DIR:-.}" \
+  VG_STAGED="$staged" VG_BASELINE="$baseline" VG_EXT="$ext_filter" VG_OUT="$out" VG_TARGET_DIR="${TARGET_DIR:-.}" VG_RENAME_EXCLUDED="$rename_excluded_filter" \
   python3 -c '
 import sys, re, subprocess, os
 
@@ -111,6 +112,7 @@ baseline   = os.environ.get("VG_BASELINE", "")
 ext_filter = os.environ.get("VG_EXT", "")
 out_path   = os.environ.get("VG_OUT", "")
 target_dir = os.environ.get("VG_TARGET_DIR", ".")
+rename_excluded = os.environ.get("VG_RENAME_EXCLUDED", "")
 
 _git_root_cache = {}
 
@@ -145,12 +147,16 @@ def rename_source(git_root, fpath):
                 mapping[os.path.realpath(os.path.join(git_root, parts[2]))] = parts[1]
         _rename_cache[key] = mapping
     old = _rename_cache[key].get(os.path.realpath(fpath), "")
-    if old and _is_ts_test_path(os.path.join(git_root, old)) != _is_ts_test_path(fpath):
+    if old and _is_ts_rename_excluded(os.path.join(git_root, old), git_root) != _is_ts_rename_excluded(fpath, git_root):
         return ""
     return old
 
 def _is_ts_test_path(path):
     return bool(re.search(r"(\.(test|spec)\.(ts|tsx|js|jsx)$|/tests/|/__tests__/|/test/)", path.replace("\\", "/")))
+
+def _is_ts_rename_excluded(path, git_root):
+    rel = os.path.relpath(os.path.realpath(path), git_root).replace("\\", "/")
+    return _is_ts_test_path(rel) or bool(rename_excluded and re.search(rename_excluded, rel))
 
 def iter_files():
     if staged and os.path.isfile(staged):

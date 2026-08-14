@@ -452,11 +452,11 @@ mod tests {
     fn missing_file_candidates_reports_tracked_stem_matches() {
         let root = unique_temp_dir("candidates");
         let repo = root.join("repo");
-        fs::create_dir_all(repo.join("src")).expect("create src");
+        fs::create_dir_all(repo.join("src/hook_orchestrator")).expect("create candidate directory");
         git(&repo, &["init"]);
-        let candidate = repo.join("src/hook_orchestrator::pre_edit.rs");
+        let candidate = repo.join("src/hook_orchestrator/pre_edit.rs");
         fs::write(&candidate, "fn existing() {}\n").expect("write candidate");
-        git(&repo, &["add", "src/hook_orchestrator::pre_edit.rs"]);
+        git(&repo, &["add", "src/hook_orchestrator/pre_edit.rs"]);
 
         let missing = repo.join("src/pre_edit_runtime.rs");
         let candidates = missing_file_candidates(&missing.to_string_lossy(), "pre_edit");

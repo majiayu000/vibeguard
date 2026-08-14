@@ -776,6 +776,33 @@ else
 fi
 rm -f "$stagedR6"
 
+# ---- Rename test G: TS logger exemption → production is treated as fully added ----
+repoR7="${tmpdir}/ts_logger_to_prod"
+init_repo "$repoR7"
+mkdir -p "${repoR7}/src"
+
+cat > "${repoR7}/src/logger.ts" <<'EOF'
+const value = 1
+console.log(value)
+EOF
+git -C "$repoR7" add src/logger.ts
+git -C "$repoR7" commit -q -m "initial logger file with console output"
+
+git -C "$repoR7" mv src/logger.ts src/service.ts
+git -C "$repoR7" add src/service.ts
+
+stagedR7=$(staged_list "$repoR7" src/service.ts)
+TOTAL=$((TOTAL+1))
+outR7=$( (cd "$repoR7" && VIBEGUARD_STAGED_FILES="$stagedR7" bash "${REPO_DIR}/guards/typescript/check_console_residual.sh" --strict .) 2>&1 || true )
+if echo "$outR7" | grep -q '\[TS-03\].*/src/service.ts:2'; then
+  green "logger-to-production rename still reports pre-existing console residual"
+  PASS=$((PASS+1))
+else
+  red "moving src/logger.ts to src/service.ts must report TS-03 (got: $outR7)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR7"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0
