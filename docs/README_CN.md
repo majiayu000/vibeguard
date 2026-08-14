@@ -79,7 +79,7 @@ Claude Code 的 `full` 和 `strict` profile 会把 `rules/claude-rules/` 中的�
 
 ### 2. Hooks 实时拦截
 
-多数 hooks 都是在 AI 操作过程中自动触发。`skills-loader` 是可选的手动脚本；Codex 会部署原生 Bash/apply_patch/PermissionRequest/PostToolUse/Stop hooks，读操作相关 hooks 仍只在 Claude Code 或 app-server wrapper 路径生效：
+多数 hooks 都是在 AI 操作过程中自动触发。`skills-loader` 是可选的手动脚本；所有 Codex profile 都会部署原生 Bash/apply_patch/PermissionRequest 和文件 PostToolUse hooks，`full` 与 `strict` 还会部署 post-build 和 Stop hooks。读操作相关 hooks 仍只在 Claude Code 或 app-server wrapper 路径生效：
 
 | 场景 | Hook | 结果 |
 |------|------|------|
@@ -96,7 +96,7 @@ Claude Code 的 `full` 和 `strict` profile 会把 `rules/claude-rules/` 中的�
 | `full` / `strict` 档位下编辑源码 | `post-build-check` | **告警**，自动跑对应语言的构建检查 |
 | `git commit` | `pre-commit-guard` | **拦截**，只检查 staged 改动，10 秒硬超时 |
 | AI 想结束但还没有验证改动 | `stop-guard` | **信号**，记录 Stop 提醒；Stop hook 退出 0 以避免反馈循环 |
-| 会话结束 | `learn-evaluator` | **评估**，收集指标并识别纠错信号 |
+| `full` / `strict` 档位下会话结束 | `learn-evaluator` | **评估**，收集指标并识别纠错信号 |
 
 U-16 文件行数限制只覆盖非测试源码扩展名：`.rs`、`.ts`、`.tsx`、`.js`、`.jsx`、`.py`、`.go`。默认 400 行以上触发典型范围告警（`~/.vibeguard/config.json` 中的 `u16.warn_limit` / `VG_U16_WARN_LIMIT`），800 行仍是硬上限（`~/.vibeguard/config.json` 中的 `u16.limit` / `VG_U16_LIMIT`）。在 Codex 路径里，`apply_patch Add File` 和 `apply_patch Update File` 都会先被规范化再进入文件 hook；如果 patch 会让生产源码超过硬上限，会在写入前被 deny。
 
@@ -226,7 +226,7 @@ VibeGuard 会同时给 Claude Code 和 Codex CLI 安装技能与 hooks。
 
 ### Codex Hooks
 
-`~/.codex/hooks.json` 中当前会部署以下 VibeGuard 管理的 hook：
+`~/.codex/hooks.json` 中当前会按 profile 部署以下 VibeGuard 管理的 hook。Bash/apply_patch 闸门与文件 post-hooks 属于所有 profile；`post-build-check` 和 `Stop` 两类只由 `full`、`strict` 安装：
 
 | 事件 | Hook | 作用 |
 |------|------|------|
@@ -298,7 +298,7 @@ Rust/Cargo 构建。
 ```bash
 # Profiles
 bash ~/vibeguard/setup.sh                              # 默认 core profile
-bash ~/vibeguard/setup.sh --profile minimal           # 最轻量 pre-hooks
+bash ~/vibeguard/setup.sh --profile minimal           # 最轻量 Bash/文件闸门 + 文件 post-hooks
 bash ~/vibeguard/setup.sh --profile full              # 增加 Stop 信号、Build Check、学习闭环
 bash ~/vibeguard/setup.sh --profile strict            # full hooks + Claude Code U-32 SessionStart 约束预算
 
@@ -331,8 +331,8 @@ bash ~/vibeguard/setup.sh --clean
 
 | Profile | 安装内容 | 适用场景 |
 |---------|----------|----------|
-| `minimal` | `pre-write` + `pre-edit` + `pre-bash` | 最轻量的关键拦截 |
-| `core` | `minimal` + `post-edit` + `post-write` + `analysis-paralysis` | 默认开发档 |
+| `minimal` | `pre-write` + `pre-edit` + `pre-bash` + `post-edit` + `post-write` | 最轻量 Bash/文件保护 |
+| `core` | `minimal` + Claude Code `analysis-paralysis`（Codex 原生 hooks 不支持） | 默认开发档 |
 | `full` | `core` + `stop-guard` + `learn-evaluator` + `post-build-check` | 完整防线 + 学习闭环 |
 | `strict` | `full` + Claude Code `count-active-constraints` (SessionStart/U-32)；Codex 原生 hooks 仍为 `full` | 最严格运行策略 |
 

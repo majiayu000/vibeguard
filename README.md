@@ -162,7 +162,7 @@ Canonical references for this contract:
 
 ### Hooks — Real-Time Interception
 
-Most hooks trigger automatically during AI operations. `skills-loader` remains an optional manual hook. Codex deploys native Bash/apply_patch/PermissionRequest/PostToolUse/Stop hooks; read-only exploration hooks remain Claude Code or app-server-wrapper only:
+Most hooks trigger automatically during AI operations. `skills-loader` remains an optional manual hook. Every Codex profile deploys native Bash/apply_patch/PermissionRequest and file PostToolUse hooks; `full` and `strict` additionally deploy post-build and Stop hooks. Read-only exploration hooks remain Claude Code or app-server-wrapper only:
 
 | Scenario | Hook | Result |
 |----------|------|--------|
@@ -179,7 +179,7 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 | AI edits code in `full` / `strict` profile | `post-build-check` | **Warn** — run language-appropriate build check |
 | `git commit` | `pre-commit-guard` | **Block** — quality + build checks (staged files only), 10s timeout |
 | AI tries to finish with unverified changes | `stop-guard` | **Signal** — logs a Stop reminder; the Stop hook exits 0 to avoid feedback loops |
-| Session ends | `learn-evaluator` | **Evaluate** — collect metrics and detect correction signals |
+| Session ends in `full` / `strict` profile | `learn-evaluator` | **Evaluate** — collect metrics and detect correction signals |
 
 U-16 file-size enforcement applies to non-test source files with `.rs`, `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, or `.go` extensions. The default typical-size advisory starts above 400 lines (`u16.warn_limit` in `~/.vibeguard/config.json` / `VG_U16_WARN_LIMIT`), while the hard limit remains 800 lines (`u16.limit` in `~/.vibeguard/config.json` / `VG_U16_LIMIT`). For Codex, `apply_patch Add File` and `apply_patch Update File` are both normalized before the file hook runs. U-16 is baseline-aware: new oversized files, files crossing the hard limit, and legacy oversized files that grow are blocked; legacy oversized files that stay the same size or shrink are allowed with a `U16_LEGACY_DEBT` advisory until they fall below the hard limit. The git pre-commit guard and CI changed-file check call the same runtime decision so oversized imports outside AI tool hooks are caught before submission.
 
@@ -396,7 +396,7 @@ and derives the expected README numerators and denominators from the report.
 ```bash
 # Profiles
 bash ~/vibeguard/setup.sh                              # Install (default: core profile)
-bash ~/vibeguard/setup.sh --profile minimal           # Minimal: pre-hooks only (lightweight)
+bash ~/vibeguard/setup.sh --profile minimal           # Minimal: Bash/file gates + file post-hooks
 bash ~/vibeguard/setup.sh --profile full              # Full: adds Stop signal + Build Check + learning
 bash ~/vibeguard/setup.sh --profile strict            # Strict: full hooks + Claude Code U-32 SessionStart constraint budget
 
@@ -433,8 +433,8 @@ Migration: `--check --strict` remains supported and maps to `verify-project`;
 
 | Profile | Hooks Installed | Use Case |
 |---------|----------------|----------|
-| `minimal` | pre-write, pre-edit, pre-bash | Lightweight — only critical interception |
-| `core` (default) | minimal + post-edit, post-write, analysis-paralysis | Standard development |
+| `minimal` | pre-write, pre-edit, pre-bash + post-edit, post-write | Lightweight Bash/file protection |
+| `core` (default) | minimal + Claude Code analysis-paralysis (unsupported by native Codex hooks) | Standard development |
 | `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
 | `strict` | full + Claude Code count-active-constraints (SessionStart/U-32); Codex native hooks remain full | Maximum enforcement |
 
@@ -466,7 +466,7 @@ The dashboard is generated as a local HTML artifact from the existing VibeGuard
 diagnostic commands. It is not remote telemetry and does not replace behavior
 eval gates.
 
-Hooks live in `~/.codex/hooks.json` (requires `[features].hooks = true` in `config.toml`):
+Hooks live in `~/.codex/hooks.json` (requires `[features].hooks = true` in `config.toml`). All profiles install the Bash/apply_patch gates and file post-hooks below; the `post-build-check` and `Stop` rows are installed only by `full` and `strict`:
 
 | Event | Hook | Function |
 |-------|------|----------|

@@ -212,20 +212,48 @@ class CompactRuleGenerationTests(unittest.TestCase):
     def test_codex_host_guidance_matches_profile_hook_contract(self) -> None:
         codex_host = generate_rule_docs.CODEX_HOST_RULES_PATH.read_text(encoding="utf-8")
         self.assertIn(
-            "Every Codex setup profile covers native Bash and `apply_patch` gates plus "
-            "`Stop` hooks, including `stop-guard`",
+            "Codex hook installation follows the selected setup profile",
             codex_host,
         )
         self.assertIn(
-            "unlike Claude Code, Codex hook installation is not profile-filtered",
+            "every profile covers native Bash and `apply_patch` gates; `full` and `strict` "
+            "additionally install `post-build-check` and `Stop` hooks",
             codex_host,
         )
+
+        manifest = json.loads((ROOT / "hooks" / "manifest.json").read_text(encoding="utf-8"))
+        all_profiles = set(manifest["profiles"])
+        hooks = {hook["name"]: hook for hook in manifest["hooks"]}
+        for name in (
+            "pre-bash-guard",
+            "pre-edit-guard",
+            "pre-write-guard",
+            "post-edit-guard",
+            "post-write-guard",
+        ):
+            with self.subTest(hook=name):
+                self.assertTrue(hooks[name]["codex"]["enabled"])
+                self.assertEqual(set(hooks[name]["claude"]["profiles"]), all_profiles)
+        for name in ("post-build-check", "stop-guard", "learn-evaluator"):
+            with self.subTest(hook=name):
+                self.assertTrue(hooks[name]["codex"]["enabled"])
+                self.assertEqual(set(hooks[name]["claude"]["profiles"]), {"full", "strict"})
 
         codex_setup = (ROOT / "scripts" / "setup" / "targets" / "codex-home.sh").read_text(
             encoding="utf-8"
         )
         self.assertIn("setup-codex-hooks-upsert", codex_setup)
-        self.assertNotIn('setup-codex-hooks-upsert "${PROFILE}"', codex_setup)
+        self.assertIn('"${wrapper}" "${PROFILE:-core}"', codex_setup)
+
+        for path in (ROOT / "README.md", ROOT / "docs" / "README_CN.md"):
+            minimal_row = next(
+                line
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.startswith("| `minimal` |")
+            )
+            with self.subTest(path=path):
+                self.assertIn("post-edit", minimal_row)
+                self.assertIn("post-write", minimal_row)
 
     def test_host_guidance_rejects_empty_or_managed_marker_content(self) -> None:
         shared = "<!-- vibeguard-start -->\nshared\n<!-- vibeguard-end -->\n"

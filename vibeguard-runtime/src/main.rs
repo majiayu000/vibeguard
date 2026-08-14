@@ -34,6 +34,7 @@ mod hook_orchestrator_pre_edit;
 mod hook_orchestrator_stop;
 mod hook_output;
 mod hook_status;
+mod installed_profile;
 mod json_field;
 mod log_append;
 mod log_query;
@@ -571,7 +572,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-codex-hooks-upsert",
-        usage: "<repo-dir> <hooks-file> <wrapper>  — upsert Codex hooks",
+        usage: "<repo-dir> <hooks-file> <wrapper> [profile]  — upsert Codex hooks",
         handler: setup_codex_hooks::codex_hooks_upsert,
     },
     Command {
@@ -581,7 +582,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-codex-hooks-check",
-        usage: "<repo-dir> <hooks-file> <wrapper>  — check Codex hooks",
+        usage: "<repo-dir> <hooks-file> <wrapper> [profile]  — check Codex hooks",
         handler: setup_codex_hooks::codex_hooks_check,
     },
     Command {

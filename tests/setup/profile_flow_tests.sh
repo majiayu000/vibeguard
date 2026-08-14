@@ -277,7 +277,7 @@ from pathlib import Path
 
 text = Path(sys.argv[1]).read_text(encoding="utf-8")
 bootstrap = text.index("ensure_setup_runtime_available")
-profile_lookup = text.index('PROFILE="$(check_installed_profile')
+profile_lookup = text.index('PROFILE="$(state_installed_profile)')
 raise SystemExit(0 if bootstrap < profile_lookup else 1)
 PY
 old_profile_runtime="${TMP_HOME}/old-profile-runtime"

@@ -53,10 +53,41 @@ assert_cmd() {
 ORIG_HOME="${HOME}"
 ORIG_PATH="${PATH}"
 TMP_HOME="$(mktemp -d)"
+REPO_GIT_HOOK_DIR="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null || true)"
+REPO_GIT_HOOK_BACKUP="${TMP_HOME}/repo-git-hooks-backup"
+
+backup_repo_git_hooks() {
+  [[ -n "${REPO_GIT_HOOK_DIR}" ]] || return 0
+  mkdir -p "${REPO_GIT_HOOK_BACKUP}"
+  local hook hook_path
+  for hook in pre-commit pre-push; do
+    hook_path="${REPO_GIT_HOOK_DIR}/${hook}"
+    if [[ -e "${hook_path}" || -L "${hook_path}" ]]; then
+      cp -pP "${hook_path}" "${REPO_GIT_HOOK_BACKUP}/${hook}"
+    fi
+  done
+}
+
+restore_repo_git_hooks() {
+  [[ -n "${REPO_GIT_HOOK_DIR}" ]] || return 0
+  mkdir -p "${REPO_GIT_HOOK_DIR}"
+  local hook hook_path backup_path
+  for hook in pre-commit pre-push; do
+    hook_path="${REPO_GIT_HOOK_DIR}/${hook}"
+    backup_path="${REPO_GIT_HOOK_BACKUP}/${hook}"
+    rm -f "${hook_path}"
+    if [[ -e "${backup_path}" || -L "${backup_path}" ]]; then
+      cp -pP "${backup_path}" "${hook_path}"
+    fi
+  done
+}
+
+backup_repo_git_hooks
 
 cleanup() {
   export HOME="${ORIG_HOME}"
   export PATH="${ORIG_PATH}"
+  restore_repo_git_hooks
   rm -rf "${TMP_HOME}"
 }
 trap cleanup EXIT
@@ -72,7 +103,10 @@ fi
 mkdir -p "${TMP_HOME}/bin"
 cat > "${TMP_HOME}/bin/launchctl" <<'SH'
 #!/usr/bin/env bash
-exit 0
+case "${1:-}" in
+  print) exit 1 ;;
+  *) exit 0 ;;
+esac
 SH
 chmod +x "${TMP_HOME}/bin/launchctl"
 export PATH="${TMP_HOME}/bin:${PATH}"
@@ -99,11 +133,89 @@ config_after="$(shasum -a 256 "${HOME}/.codex/config.toml" | cut -d' ' -f1)"
 
 assert_contains "${status_out}" "VibeGuard Codex Status" "Codex status command has a clear title"
 assert_contains "${status_out}" "VibeGuard-managed Codex hooks semantic check passed" "Codex status reports hook semantic health"
-assert_contains "${status_out}" "Codex native support: PreToolUse(Bash/apply_patch), PermissionRequest(Bash/apply_patch), PostToolUse(Bash/apply_patch), Stop" "Codex status reports exact native support"
+assert_contains "${status_out}" "Installed profile: core" "Codex status reports the installed profile"
+assert_contains "${status_out}" "Codex native support: profile-selected Bash/apply_patch gates; Stop hooks only in full/strict" "Codex status reports profile-selected native support"
+assert_contains "${status_out}" "Repair command: bash setup.sh --yes --profile core" "Codex status repair preserves the installed profile"
 assert_contains "${status_out}" "Latest Codex event: 2026-05-05T00:00:00Z | pre-bash-guard | pass | ${REPO_DIR}" "Codex status reports latest Codex event"
 assert_cmd "Codex status does not rewrite AGENTS" test "${agents_before}" = "${agents_after}"
 assert_cmd "Codex status does not rewrite hooks.json" test "${hooks_before}" = "${hooks_after}"
 assert_cmd "Codex status does not rewrite config.toml" test "${config_before}" = "${config_after}"
+
+header "standalone status follows the installed physical profile"
+for profile in minimal full strict; do
+  profile_install_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile "${profile}" 2>&1)"
+  assert_contains "${profile_install_out}" "Profile: ${profile}" "${profile} install selects the requested profile"
+  profile_status_out="$(bash "${REPO_DIR}/setup.sh" --codex-status 2>&1)"
+  assert_contains "${profile_status_out}" "Installed profile: ${profile}" "standalone status reads ${profile} from install-state"
+  assert_contains "${profile_status_out}" "VibeGuard-managed Codex hooks semantic check passed" "standalone status validates ${profile} physical hooks"
+  assert_contains "${profile_status_out}" "Repair command: bash setup.sh --yes --profile ${profile}" "${profile} repair command preserves profile"
+  case "${profile}" in
+    minimal)
+      assert_cmd "minimal physical hooks exclude Stop" bash -c "! grep -q 'vibeguard-stop-guard.sh' '${HOME}/.codex/hooks.json'"
+      ;;
+    full|strict)
+      assert_cmd "${profile} physical hooks include post-build" grep -q 'vibeguard-post-build-check.sh' "${HOME}/.codex/hooks.json"
+      assert_cmd "${profile} physical hooks include Stop" grep -q 'vibeguard-stop-guard.sh' "${HOME}/.codex/hooks.json"
+      ;;
+  esac
+done
+
+header "standalone status rejects malformed installed profiles"
+cp "${HOME}/.vibeguard/install-state.json" "${TMP_HOME}/install-state.valid.json"
+previous_state_existed=0
+if [[ -f "${HOME}/.vibeguard/install-state.previous.json" ]]; then
+  cp "${HOME}/.vibeguard/install-state.previous.json" "${TMP_HOME}/install-state.previous.valid.json"
+  previous_state_existed=1
+fi
+bad_profile_cases=(
+  '{}'
+  '[]'
+  '{"profile":null}'
+  '{"profile":7}'
+  '{"profile":""}'
+  '{"profile":"turbo"}'
+  '{"version":1,"profile":"full","files":"not-an-object"}'
+)
+for index in "${!bad_profile_cases[@]}"; do
+  printf '%s\n' "${bad_profile_cases[$index]}" > "${HOME}/.vibeguard/install-state.json"
+  set +e
+  bad_status_out="$(bash "${REPO_DIR}/setup.sh" --codex-status 2>&1)"
+  bad_status_rc=$?
+  set -e
+  assert_cmd "bad install-state case ${index} makes standalone status fail" test "${bad_status_rc}" -ne 0
+  assert_contains "${bad_status_out}" "ERROR:" "bad install-state case ${index} fails visibly"
+done
+cp "${TMP_HOME}/install-state.valid.json" "${HOME}/.vibeguard/install-state.json"
+
+header "standalone status rejects a previous-only install generation"
+rm -f "${HOME}/.vibeguard/install-state.json"
+printf '%s\n' '{"version":1,"generation":1,"complete":true,"profile":"full","files":{}}' \
+  > "${HOME}/.vibeguard/install-state.previous.json"
+set +e
+previous_only_out="$(bash "${REPO_DIR}/setup.sh" --codex-status 2>&1)"
+previous_only_rc=$?
+set -e
+assert_cmd "previous-only install-state makes standalone status fail" test "${previous_only_rc}" -ne 0
+assert_contains "${previous_only_out}" "current install-state is missing while previous snapshot exists" "previous-only install-state fails visibly instead of defaulting to core"
+
+header "standalone status rejects an incomplete current install generation"
+printf '%s\n' '{"version":1,"generation":2,"complete":false,"profile":"full","files":{}}' \
+  > "${HOME}/.vibeguard/install-state.json"
+printf '%s\n' '{"version":1,"generation":1,"complete":true,"profile":"core","files":{}}' \
+  > "${HOME}/.vibeguard/install-state.previous.json"
+set +e
+incomplete_status_out="$(bash "${REPO_DIR}/setup.sh" --codex-status 2>&1)"
+incomplete_status_rc=$?
+set -e
+assert_cmd "incomplete current install-state makes standalone status fail" test "${incomplete_status_rc}" -ne 0
+assert_contains "${incomplete_status_out}" "current install-state generation is incomplete" "incomplete current install-state fails visibly"
+
+cp "${TMP_HOME}/install-state.valid.json" "${HOME}/.vibeguard/install-state.json"
+if [[ "${previous_state_existed}" -eq 1 ]]; then
+  cp "${TMP_HOME}/install-state.previous.valid.json" "${HOME}/.vibeguard/install-state.previous.json"
+else
+  rm -f "${HOME}/.vibeguard/install-state.previous.json"
+fi
 
 header "setup --check downgrades semantic-only Codex drift"
 cp "${HOME}/.codex/config.toml" "${TMP_HOME}/config.toml.backup"

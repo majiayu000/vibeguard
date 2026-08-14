@@ -1,9 +1,13 @@
+use crate::installed_profile::installed_profile;
 use crate::project_config::{load_project_config, project_config_path};
+use crate::setup_support::home_dir;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
 
 const HOOKS_MANIFEST_JSON: &str = include_str!("../../hooks/manifest.json");
+const PROFILE_VALUES: &[&str] = &["minimal", "core", "full", "strict"];
+const DEFAULT_PROFILE: &str = "core";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HookPolicyDecision {
@@ -20,7 +24,22 @@ pub fn evaluate_hook_policy(
     cwd: Option<&str>,
     env_overrides: &HashMap<String, String>,
 ) -> HookPolicyDecision {
+    let canonical_hook = app_server_canonical_hook_name(hook_name);
     let Some(path) = project_config_path(cwd, env_overrides) else {
+        let default_profile = match default_runtime_profile(env_overrides) {
+            Ok(profile) => profile,
+            Err(reason) => return HookPolicyDecision::Error(reason),
+        };
+        let profile_allowed = match manifest_profile_allows_hook(&default_profile, &canonical_hook)
+        {
+            Ok(allowed) => allowed,
+            Err(reason) => return HookPolicyDecision::Error(reason),
+        };
+        if !profile_allowed {
+            return HookPolicyDecision::Skip(format!(
+                "VibeGuard policy skip: profile={default_profile} excludes {canonical_hook}"
+            ));
+        }
         return HookPolicyDecision::Run {
             warn_mode: false,
             reason: None,
@@ -32,7 +51,6 @@ pub fn evaluate_hook_policy(
         Err(reason) => return HookPolicyDecision::Error(reason),
     };
 
-    let canonical_hook = app_server_canonical_hook_name(hook_name);
     let enforcement = config.enforcement.as_deref().unwrap_or("block");
     if enforcement == "off" {
         return HookPolicyDecision::Skip("VibeGuard policy skip: enforcement=off".into());
@@ -48,8 +66,14 @@ pub fn evaluate_hook_policy(
         ));
     }
 
-    let profile = config.profile.as_deref().unwrap_or("core");
-    let profile_allowed = match manifest_profile_allows_hook(profile, &canonical_hook) {
+    let profile = match config.profile {
+        Some(profile) => profile,
+        None => match default_runtime_profile(env_overrides) {
+            Ok(profile) => profile,
+            Err(reason) => return HookPolicyDecision::Error(reason),
+        },
+    };
+    let profile_allowed = match manifest_profile_allows_hook(&profile, &canonical_hook) {
         Ok(allowed) => allowed,
         Err(reason) => return HookPolicyDecision::Error(reason),
     };
@@ -69,6 +93,44 @@ pub fn evaluate_hook_policy(
     HookPolicyDecision::Run {
         warn_mode: false,
         reason: None,
+    }
+}
+
+pub(crate) fn default_runtime_profile(
+    env_overrides: &HashMap<String, String>,
+) -> Result<String, String> {
+    default_runtime_profile_from_home(env_overrides, home_dir().as_deref())
+}
+
+fn default_runtime_profile_from_home(
+    env_overrides: &HashMap<String, String>,
+    home: Option<&Path>,
+) -> Result<String, String> {
+    let explicit_profile = env_overrides
+        .get("VIBEGUARD_PROFILE")
+        .cloned()
+        .or_else(|| std::env::var("VIBEGUARD_PROFILE").ok())
+        .filter(|value| !value.is_empty());
+    runtime_profile_from_sources(explicit_profile, home)
+}
+
+fn runtime_profile_from_sources(
+    explicit_profile: Option<String>,
+    home: Option<&Path>,
+) -> Result<String, String> {
+    let profile = match explicit_profile {
+        Some(profile) => profile,
+        None => match home {
+            Some(home) => installed_profile(home)?.unwrap_or_else(|| DEFAULT_PROFILE.to_string()),
+            None => DEFAULT_PROFILE.to_string(),
+        },
+    };
+    if PROFILE_VALUES.contains(&profile.as_str()) {
+        Ok(profile)
+    } else {
+        Err(format!(
+            "VibeGuard policy error: unsupported VIBEGUARD_PROFILE={profile} (expected minimal|core|full|strict)"
+        ))
     }
 }
 
@@ -280,7 +342,8 @@ mod tests {
             panic!("project config should be written: {err}");
         }
 
-        let decision = evaluate_hook_policy("post-build-check.sh", repo.to_str(), &HashMap::new());
+        let env = HashMap::from([("VIBEGUARD_PROFILE".to_string(), "core".to_string())]);
+        let decision = evaluate_hook_policy("post-build-check.sh", repo.to_str(), &env);
 
         assert!(
             matches!(decision, HookPolicyDecision::Skip(reason) if reason.contains("profile=core excludes post-build-check"))
@@ -288,6 +351,43 @@ mod tests {
         if let Err(err) = fs::remove_dir_all(&repo) {
             panic!("temp policy dir should be removed: {err}");
         }
+    }
+
+    #[test]
+    fn installed_profile_is_the_default_after_explicit_environment() {
+        let home = temp_policy_dir("installed_profile_default");
+        let state_dir = home.join(".vibeguard");
+        fs::create_dir_all(&state_dir).expect("state directory should be created");
+        fs::write(
+            state_dir.join("install-state.json"),
+            r#"{"version":1,"generation":1,"complete":true,"profile":"full","files":{}}"#,
+        )
+        .expect("install-state should be written");
+
+        assert_eq!(
+            runtime_profile_from_sources(None, Some(&home)),
+            Ok("full".to_string())
+        );
+        assert_eq!(
+            runtime_profile_from_sources(Some("minimal".to_string()), Some(&home)),
+            Ok("minimal".to_string())
+        );
+        fs::remove_dir_all(home).expect("temp home should be removed");
+    }
+
+    #[test]
+    fn project_profile_overrides_explicit_environment() {
+        let repo = temp_policy_dir("project_profile_precedence");
+        fs::write(repo.join(".vibeguard.json"), r#"{"profile":"core"}"#)
+            .expect("project config should be written");
+        let env = HashMap::from([("VIBEGUARD_PROFILE".to_string(), "full".to_string())]);
+
+        let decision = evaluate_hook_policy("post-build-check.sh", repo.to_str(), &env);
+
+        assert!(
+            matches!(decision, HookPolicyDecision::Skip(reason) if reason.contains("profile=core excludes post-build-check"))
+        );
+        fs::remove_dir_all(repo).expect("temp repo should be removed");
     }
 
     #[test]
