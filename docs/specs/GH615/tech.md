@@ -12,8 +12,8 @@ GH-615
 
 | Area | Files | Current behavior | Why relevant |
 | --- | --- | --- | --- |
-| Source-new orchestration | `vibeguard-runtime/src/hook_orchestrator/mod.rs:284-366` | 在 breaker check 前记录 attempt；以全部 prior attempts 触发 escalation；仅 breaker Run 时记录 reminder | 当前把不可见 attempt 错算为未响应证据 |
-| Escalation history | `vibeguard-runtime/src/hook_orchestrator/mod.rs:509-528` | 逆序扫描最近 500 行，只按 session/hook/`New source file attempt` 计数，不识别 Grep/Glob 边界 | 需要改为 visible-reminder-since-search 语义 |
+| Source-new orchestration | `vibeguard-runtime/src/hook_orchestrator/dispatch.rs:284-366` | 在 breaker check 前记录 attempt；以全部 prior attempts 触发 escalation；仅 breaker Run 时记录 reminder | 当前把不可见 attempt 错算为未响应证据 |
+| Escalation history | `vibeguard-runtime/src/hook_orchestrator/dispatch.rs:509-528` | 逆序扫描最近 500 行，只按 session/hook/`New source file attempt` 计数，不识别 Grep/Glob 边界 | 需要改为 visible-reminder-since-search 语义 |
 | Search evidence producer | `hooks/analysis-paralysis-guard.sh:97-108` | 每次 Read/Glob/Grep 都以原始 tool name 记录同 session pass event，且不受其 breaker 静默影响 | 已有 schema 足够表示 Grep/Glob heed boundary |
 | Shell regression | `tests/hooks/test_pre_write_guard.sh:188-214` | 明确断言 breaker-silenced attempts 会累计并断言无效 export 文案 | 必须 red-first 改写为新合同 |
 | Rust integration | `vibeguard-runtime/tests/cli_hook_orchestrator.rs:321-375` | 覆盖首次 attempt/reminder telemetry；文件已 799 行 | 保留 telemetry 回归，不在该文件继续追加超过 U-16 上限 |
@@ -99,7 +99,7 @@ escalation 并输出 block。`analysis-paralysis-guard.sh` 已把 Grep/Glob tool
 - [ ] Red evidence：先改旧 shell regression 期待“silent attempts 不累计、search 可恢复、无 export”，
   在 production 未改时确定性失败并保存输出。
 - [ ] Focused：`bash tests/hooks/test_pre_write_guard.sh`。
-- [ ] Size：`wc -l vibeguard-runtime/src/hook_orchestrator/mod.rs`，必须 `<800`；不得修改 799 行的既有 Rust
+- [ ] Size：`wc -l vibeguard-runtime/src/hook_orchestrator/dispatch.rs`，必须 `<800`；不得修改 799 行的既有 Rust
   integration test。
 - [ ] Rust build/test：`cargo check --manifest-path vibeguard-runtime/Cargo.toml`；
   `cargo test --manifest-path vibeguard-runtime/Cargo.toml`。

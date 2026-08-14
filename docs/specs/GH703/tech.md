@@ -55,7 +55,7 @@ GH-699 verified payload 不需要为了默认 retention surface 引入未声明�
 | Setup check | `scripts/setup/check.sh:603`; `scripts/setup/check.sh:619`; `scripts/setup/check.sh:694`; `scripts/setup/check.sh:704` | 只检查 scheduled GC，不验证 health/value job 或 summary freshness | doctor/verify 的正交状态需要新增独立检查 |
 | Setup clean | `scripts/setup/clean.sh:100`; `scripts/setup/clean.sh:120`; `scripts/setup/clean.sh:403`; `scripts/setup/clean.sh:414` | clean 删除 installed snapshot/GC state；默认保留 projects/config；不卸载 health scheduler | value job/state/report ownership 和 purge 语义尚未定义 |
 | Payload manifest | `scripts/release/payload-manifest.txt:1`; `scripts/release/payload-manifest.txt:19`; `scripts/release/payload-manifest.txt:44`; `scripts/release/payload-manifest.txt:60` | verified payload 包含 setup、hook-health 和 setup modules，但不含 health/value wrapper、installer、taxonomy 或 job templates | 当前 no-clone default install 无法产生周报 |
-| Canonical event schema/writers | `schemas/event-log.schema.json:1`; `hooks/_lib/log_write.sh:243`; `vibeguard-runtime/src/event_schema.rs:1`; `vibeguard-runtime/src/hook_orchestrator/mod.rs:609` | schema v1 的 `event_id`/`rule_id` 非必填且无 closed `reason_code`；shell/Rust writer 未持久化这些字段 | GH-703 必须自己建立最小 structured identity/classification producer 合同，不能从 free text 猜测 |
+| Canonical event schema/writers | `schemas/event-log.schema.json:1`; `hooks/_lib/log_write.sh:243`; `vibeguard-runtime/src/event_schema.rs:1`; `vibeguard-runtime/src/hook_orchestrator/dispatch.rs:609` | schema v1 的 `event_id`/`rule_id` 非必填且无 closed `reason_code`；shell/Rust writer 未持久化这些字段 | GH-703 必须自己建立最小 structured identity/classification producer 合同，不能从 free text 猜测 |
 | GC/archive/locking | `scripts/gc/gc-logs.sh:70`; `scripts/gc/gc-logs.sh:196`; `vibeguard-runtime/src/hook_checks/common.rs:422`; `tests/test_gc_logs_rotation.sh:1`; `tests/test_gc_logs_concurrent.sh:1` | GC 会把 live rows 移入 gzip archives；writer/GC 已共享 `<log>.lock.d` 协议 | weekly snapshot 必须覆盖 live+archives，并与 GC/append 使用兼容锁和封闭 snapshot |
 | Shared block aggregate | `vibeguard-runtime/src/observe/aggregate.rs:70`; `vibeguard-runtime/src/observe/aggregate.rs:258` | GH-706 的 rule/reason projection仍从 free-text reason 派生；non-protocol 是补集 | 只能做旧 summary compatibility，不能作为 GH-703 headline 的 canonical structured evidence |
 | Observe CLI | `vibeguard-runtime/src/observe/model.rs:8`; `vibeguard-runtime/src/observe/model.rs:55`; `vibeguard-runtime/src/observe/model.rs:77`; `vibeguard-runtime/src/observe/mod.rs:20`; `vibeguard-runtime/src/observe/mod.rs:45` | 只有 summary/health/session/export；默认 rolling window，没有 value-summary 命令 | 需要一个 exact-window、taxonomy-bound 的 Rust surface |
@@ -534,7 +534,7 @@ JSON：
     "vibeguard-runtime/src/event_coverage.rs",
     "vibeguard-runtime/src/event_coverage_tests.rs",
     "vibeguard-runtime/src/event_schema.rs",
-    "vibeguard-runtime/src/hook_checks/mod.rs",
+    "vibeguard-runtime/src/hook_checks/checks.rs",
     "vibeguard-runtime/src/hook_checks/bash.rs",
     "vibeguard-runtime/src/hook_checks/common.rs",
     "vibeguard-runtime/src/hook_checks/history.rs",
@@ -542,7 +542,7 @@ JSON：
     "vibeguard-runtime/src/hook_checks/write.rs",
     "vibeguard-runtime/src/hook_checks/write_tests.rs",
     "vibeguard-runtime/src/hook_input_diag.rs",
-    "vibeguard-runtime/src/hook_orchestrator/mod.rs",
+    "vibeguard-runtime/src/hook_orchestrator/dispatch.rs",
     "vibeguard-runtime/src/hook_orchestrator/context.rs",
     "vibeguard-runtime/src/hook_orchestrator/learn.rs",
     "vibeguard-runtime/src/hook_orchestrator/post_edit.rs",

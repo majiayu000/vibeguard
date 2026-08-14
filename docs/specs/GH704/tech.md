@@ -22,8 +22,8 @@ source head 都是该 current main 的祖先，不是替代 baseline。
 | --- | --- | --- | --- |
 | Runtime dependency/dispatch | `vibeguard-runtime/Cargo.toml:8-16`; `vibeguard-runtime/src/main.rs:68-516` | 仅有 JSON/regex/libc/toml 依赖和现有 hook/metrics/setup/config 命令；没有 model、inference、network client 或 semantic-defense command | L2 是新 Core production capability，不能声称已有 provider |
 | Runtime config | `vibeguard-runtime/src/runtime_config/mod.rs:11-104,106-171,174-223`; `schemas/vibeguard-runtime-config.schema.json:1-114` | config 被进程缓存；int/string/list getter 可由 env override；schema 新增 managed-skill opt-out，但没有 semantic tier/model/provider/network policy | 新配置必须 closed、fail-visible，并阻止未批准 env/provider 改 trust policy |
-| Runtime event identity | `vibeguard-runtime/src/event_schema.rs:9-41`; `vibeguard-runtime/src/hook_orchestrator/mod.rs:650-688` | `RULE_ID` 常量存在，但 canonical Rust append 没写 `rule_id`/`signal_id`，仍写 free-text reason/detail | precision、metrics、Learn 需要一条结构化权威投影 |
-| Existing W-12 | `vibeguard-runtime/src/hook_orchestrator/mod.rs:231-241`; `guards/universal/check_test_weakening.sh:105-165,211-232`; `rules/claude-rules/common/workflow.md:100-125` | runtime 阻止 test-infra 写入；deterministic guard 识别 assertion/skip/source/test surface | L2 只能增加 baseline 未覆盖的 semantic delta，不能重复实现或降低 block |
+| Runtime event identity | `vibeguard-runtime/src/event_schema.rs:9-41`; `vibeguard-runtime/src/hook_orchestrator/dispatch.rs:650-688` | `RULE_ID` 常量存在，但 canonical Rust append 没写 `rule_id`/`signal_id`，仍写 free-text reason/detail | precision、metrics、Learn 需要一条结构化权威投影 |
+| Existing W-12 | `vibeguard-runtime/src/hook_orchestrator/dispatch.rs:231-241`; `guards/universal/check_test_weakening.sh:105-165,211-232`; `rules/claude-rules/common/workflow.md:100-125` | runtime 阻止 test-infra 写入；deterministic guard 识别 assertion/skip/source/test surface | L2 只能增加 baseline 未覆盖的 semantic delta，不能重复实现或降低 block |
 | Existing W-02/W-15 | `vibeguard-runtime/src/hook_orchestrator/post_edit_history.rs:103-159,355-390` | edit count + consecutive build failures 给 W-02 相邻提示；shrinking radius 已给 W-15 runtime warning | H-010 必须选择 exact delta；edit count 本身不能证明同一 hypothesis 失败 |
 | Existing W-16 | `vibeguard-runtime/src/hook_orchestrator/stop.rs:61-135` | source edit 后无 verification 会 advisory；读取历史失败或 malformed event 会跳过 | 这是 baseline，不可重新计作 GH-704 的第二条新增 W-rule |
 | Session metrics | `vibeguard-runtime/src/session_metrics/signals.rs:14-177`; `vibeguard-runtime/src/session_metrics/engine.rs:49-193`; `schemas/session-metrics.schema.json:1-45` | correction signals 是 free-text string；metrics write error 被忽略 | 必须迁到 typed signal，写失败可见，不能从字符串重建 rule identity |
@@ -537,11 +537,11 @@ H-001–H-020 已批准。当前共 153 条唯一 repo paths：112 条 existing�
     "vibeguard-runtime/src/runtime_config/mod.rs",
     "vibeguard-runtime/src/runtime_config/validation.rs",
     "vibeguard-runtime/src/event_schema.rs",
-    "vibeguard-runtime/src/hook_orchestrator/mod.rs",
+    "vibeguard-runtime/src/hook_orchestrator/dispatch.rs",
     "vibeguard-runtime/src/hook_orchestrator/context.rs",
     "vibeguard-runtime/src/hook_orchestrator/post_edit.rs",
     "vibeguard-runtime/src/hook_orchestrator/post_edit_history.rs", "vibeguard-runtime/src/hook_orchestrator/post_edit_history_unit_tests.rs", "vibeguard-runtime/src/hook_orchestrator/post_edit_history_tests.rs",
-    "vibeguard-runtime/src/hook_orchestrator/stop.rs", "vibeguard-runtime/src/hook_orchestrator/learn.rs", "vibeguard-runtime/src/hook_checks/mod.rs", "vibeguard-runtime/src/hook_checks/common.rs", "vibeguard-runtime/src/hook_checks/history.rs", "vibeguard-runtime/src/hook_checks/tests.rs", "vibeguard-runtime/src/logging/append.rs", "vibeguard-runtime/src/logging/query.rs",
+    "vibeguard-runtime/src/hook_orchestrator/stop.rs", "vibeguard-runtime/src/hook_orchestrator/learn.rs", "vibeguard-runtime/src/hook_checks/checks.rs", "vibeguard-runtime/src/hook_checks/common.rs", "vibeguard-runtime/src/hook_checks/history.rs", "vibeguard-runtime/src/hook_checks/tests.rs", "vibeguard-runtime/src/logging/append.rs", "vibeguard-runtime/src/logging/query.rs",
     "vibeguard-runtime/src/session_metrics/signals.rs",
     "vibeguard-runtime/src/session_metrics/engine.rs",
     "vibeguard-runtime/src/hook_status/mod.rs",

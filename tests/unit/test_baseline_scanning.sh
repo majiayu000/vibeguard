@@ -744,6 +744,38 @@ else
 fi
 rm -f "$stagedR5" "$linemapR5"
 
+# ---- Rename test F: vendor/ → production is treated as fully added ----
+repoR6="${tmpdir}/go_vendor_to_prod"
+init_repo "$repoR6"
+mkdir -p "${repoR6}/vendor/pkg" "${repoR6}/src"
+
+cat > "${repoR6}/vendor/pkg/worker.go" <<'EOF'
+package worker
+
+func Existing() {
+    go loop()
+}
+
+func loop() {}
+EOF
+git -C "$repoR6" add vendor/pkg/worker.go
+git -C "$repoR6" commit -q -m "initial vendor file with goroutine"
+
+git -C "$repoR6" mv vendor/pkg/worker.go src/worker.go
+git -C "$repoR6" add src/worker.go
+
+stagedR6=$(staged_list "$repoR6" src/worker.go)
+TOTAL=$((TOTAL+1))
+outR6=$( (cd "$repoR6" && VIBEGUARD_STAGED_FILES="$stagedR6" bash "${REPO_DIR}/guards/go/check_goroutine_leak.sh" --strict .) 2>&1 || true )
+if echo "$outR6" | grep -q '\[GO-02\].*/src/worker.go:4:'; then
+  green "vendor-to-production rename still reports pre-existing goroutine risk"
+  PASS=$((PASS+1))
+else
+  red "moving vendor/pkg/worker.go into src/ must report GO-02 (got: $outR6)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR6"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0
