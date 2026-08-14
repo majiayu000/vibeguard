@@ -21,17 +21,17 @@ source head 都是该 current main 的祖先，不是替代 baseline。
 | Area | Files | Current behavior | Why relevant |
 | --- | --- | --- | --- |
 | Runtime dependency/dispatch | `vibeguard-runtime/Cargo.toml:8-16`; `vibeguard-runtime/src/main.rs:68-516` | 仅有 JSON/regex/libc/toml 依赖和现有 hook/metrics/setup/config 命令；没有 model、inference、network client 或 semantic-defense command | L2 是新 Core production capability，不能声称已有 provider |
-| Runtime config | `vibeguard-runtime/src/runtime_config.rs:11-104,106-171,174-223`; `schemas/vibeguard-runtime-config.schema.json:1-114` | config 被进程缓存；int/string/list getter 可由 env override；schema 新增 managed-skill opt-out，但没有 semantic tier/model/provider/network policy | 新配置必须 closed、fail-visible，并阻止未批准 env/provider 改 trust policy |
-| Runtime event identity | `vibeguard-runtime/src/event_schema.rs:9-41`; `vibeguard-runtime/src/hook_orchestrator.rs:650-688` | `RULE_ID` 常量存在，但 canonical Rust append 没写 `rule_id`/`signal_id`，仍写 free-text reason/detail | precision、metrics、Learn 需要一条结构化权威投影 |
-| Existing W-12 | `vibeguard-runtime/src/hook_orchestrator.rs:231-241`; `guards/universal/check_test_weakening.sh:105-165,211-232`; `rules/claude-rules/common/workflow.md:100-125` | runtime 阻止 test-infra 写入；deterministic guard 识别 assertion/skip/source/test surface | L2 只能增加 baseline 未覆盖的 semantic delta，不能重复实现或降低 block |
-| Existing W-02/W-15 | `vibeguard-runtime/src/hook_orchestrator_post_edit_history.rs:103-159,355-390` | edit count + consecutive build failures 给 W-02 相邻提示；shrinking radius 已给 W-15 runtime warning | H-010 必须选择 exact delta；edit count 本身不能证明同一 hypothesis 失败 |
-| Existing W-16 | `vibeguard-runtime/src/hook_orchestrator_stop.rs:61-135` | source edit 后无 verification 会 advisory；读取历史失败或 malformed event 会跳过 | 这是 baseline，不可重新计作 GH-704 的第二条新增 W-rule |
+| Runtime config | `vibeguard-runtime/src/runtime_config/mod.rs:11-104,106-171,174-223`; `schemas/vibeguard-runtime-config.schema.json:1-114` | config 被进程缓存；int/string/list getter 可由 env override；schema 新增 managed-skill opt-out，但没有 semantic tier/model/provider/network policy | 新配置必须 closed、fail-visible，并阻止未批准 env/provider 改 trust policy |
+| Runtime event identity | `vibeguard-runtime/src/event_schema.rs:9-41`; `vibeguard-runtime/src/hook_orchestrator/dispatch.rs:650-688` | `RULE_ID` 常量存在，但 canonical Rust append 没写 `rule_id`/`signal_id`，仍写 free-text reason/detail | precision、metrics、Learn 需要一条结构化权威投影 |
+| Existing W-12 | `vibeguard-runtime/src/hook_orchestrator/dispatch.rs:231-241`; `guards/universal/check_test_weakening.sh:105-165,211-232`; `rules/claude-rules/common/workflow.md:100-125` | runtime 阻止 test-infra 写入；deterministic guard 识别 assertion/skip/source/test surface | L2 只能增加 baseline 未覆盖的 semantic delta，不能重复实现或降低 block |
+| Existing W-02/W-15 | `vibeguard-runtime/src/hook_orchestrator/post_edit_history.rs:103-159,355-390` | edit count + consecutive build failures 给 W-02 相邻提示；shrinking radius 已给 W-15 runtime warning | H-010 必须选择 exact delta；edit count 本身不能证明同一 hypothesis 失败 |
+| Existing W-16 | `vibeguard-runtime/src/hook_orchestrator/stop.rs:61-135` | source edit 后无 verification 会 advisory；读取历史失败或 malformed event 会跳过 | 这是 baseline，不可重新计作 GH-704 的第二条新增 W-rule |
 | Session metrics | `vibeguard-runtime/src/session_metrics/signals.rs:14-177`; `vibeguard-runtime/src/session_metrics/engine.rs:49-193`; `schemas/session-metrics.schema.json:1-45` | correction signals 是 free-text string；metrics write error 被忽略 | 必须迁到 typed signal，写失败可见，不能从字符串重建 rule identity |
 | Precision | `scripts/precision-tracker.py:42-60,273-331`; `data/rule-scorecard.seed.json` | repo-local tracker 用现有固定阈值和 TP/FP/acceptable；它不是 model/policy/corpus-bound L2 approval | H-008 需新 evidence binding；旧 threshold 不得自动复用 |
 | Eval | `eval/run_paired_eval.py:13-40`; `eval/paired/thresholds.json:1-10`; `eval/model_baseline.py:17-21` | paired eval 是 commit-pinned prompt rule evaluator；thresholds 未 calibrated，Claude alias 是 eval provider | 不能当 production L2 provider、precision 或 latency 证据 |
 | Learn | `docs/specs/learn-first-class-signal-inbox.md:86-104,123-131,299-314`; `schemas/learn-signal.schema.json:7-24,44-67,119-147`; `scripts/learn/analyze.py:287-316,323-390`; `scripts/learn/adoption.py:17-25,92-122` | 已有 Signal Inbox → Adoption Compiler → Outcome Evaluator；stable ID 当前仍可能以 reason text 归一化；禁止自动 mutation | GH-704 必须扩展该合同，不建第二套 learning state |
 | Latency | `tests/bench_hook_latency.sh:1-67,360-458,460-506`; `tests/test_hook_perf_contract.sh:1-28`; `docs/reference/hook-latency-contract.md:5-23,27-47` | canonical runner 执行真实 direct/wrapper hook，记录 P50/P95/P99/max、budget 与 confirmation；contract test 固定 runner/gate 语义 | cold/warm L2 必须成为这个 runner 的具名 fixtures，并由 contract test 固定，不能只改 wrapper 或另造 microbench |
-| Doctor/status | `setup.sh:24-36,115-175`; `scripts/setup/check.sh:1-23,34-41,754-799`; `scripts/setup/runtime_config_health.sh:1-36`; `scripts/lib/status_report.sh:1-28,120-158,195-280`; `vibeguard-runtime/src/main.rs:168-173`; `vibeguard-runtime/src/hook_status.rs:1-90,428-459`; `vibeguard-runtime/src/hook_status_render.rs:7-39,159-209`; `schemas/hook-status.schema.json:1-82` | `doctor`/`--check` 是 public install/config health route；`hook-status` 已提供 per-run human/JSON 和 closed schema | H-014 推荐复用这两个 route；B-035 需要把 semantic state/identities 接入同一 canonical event/status renderer，而不是只在 hook 文本中显示 |
+| Doctor/status | `setup.sh:24-36,115-175`; `scripts/setup/check.sh:1-23,34-41,754-799`; `scripts/setup/runtime_config_health.sh:1-36`; `scripts/lib/status_report.sh:1-28,120-158,195-280`; `vibeguard-runtime/src/main.rs:168-173`; `vibeguard-runtime/src/hook_status/mod.rs:1-90,428-459`; `vibeguard-runtime/src/hook_status/render.rs:7-39,159-209`; `schemas/hook-status.schema.json:1-82` | `doctor`/`--check` 是 public install/config health route；`hook-status` 已提供 per-run human/JSON 和 closed schema | H-014 推荐复用这两个 route；B-035 需要把 semantic state/identities 接入同一 canonical event/status renderer，而不是只在 hook 文本中显示 |
 | GH-700 (separate PR evidence) | PR #713 merged source head `215a45157b1e7de94fcd813c745f8ac70e047072`, `docs/specs/GH700/product.md:65-74,104-118` | Spec 明确真正的 dependency/API inventory detector 尚不存在，benchmark 禁止 test-only detector | GH-704 生产 detector 是 GH-700 后续消费依赖；spec merge 不是实现或 precision 批准 |
 | GH-702 (separate spec evidence) | PR #716 merged source head `4d431c22dcbe56b9d3ce10d96b28ed8c215d6f37`, `docs/specs/GH702/product.md:69-73,94-112,295-310,322-324,352-368` | pack executable/capability、precision/default、network/offline 仍是未批准 H 决策；current invariants 继续要求 per-rule eligibility、显式 feedback export 与 stale/offline 降级 | GH-704 只交付 sealed Core；不得提前批准 pack 暴露或第二套 policy |
 
@@ -134,7 +134,7 @@ metrics activity 为零；override 指向 sibling/
 external opt-in file 时保持 off。任何
 `VIBEGUARD_SEMANTIC_DEFENSE*` enable env 同样无效且不能作为隐式默认。
 Codex app-server adapter 的 actual session container/lifecycle router
-`vibeguard-runtime/src/codex_app_server.rs` 必须持有 `codex_app_server_core.rs` 定义的
+`vibeguard-runtime/src/codex_app_server/mod.rs` 必须持有 `codex_app_server_core.rs` 定义的
 `SessionState`，并让 core 生成不可由 client thread ID/env 在 restart 后重现的 server-owned
 session capability；semantic Core 在
 owning Rust process 内消费 in-memory capability，Bash child 只运行 L1，不能从 stdin/env/cwd/file
@@ -526,27 +526,27 @@ H-001–H-020 已批准。当前共 153 条唯一 repo paths：112 条 existing�
     "vibeguard-runtime/benches/semantic_defense_core_us.rs",
     "vibeguard-runtime/src/lib.rs",
     "vibeguard-runtime/src/main.rs",
-    "vibeguard-runtime/src/codex_app_server.rs",
-    "vibeguard-runtime/src/codex_app_server_core.rs",
-    "vibeguard-runtime/src/codex_app_server_file_changes.rs",
-    "vibeguard-runtime/src/codex_app_server_hooks.rs",
-    "vibeguard-runtime/src/codex_app_server_strategies.rs",
-    "vibeguard-runtime/src/codex_app_server_strategies_tests.rs",
+    "vibeguard-runtime/src/codex_app_server/mod.rs",
+    "vibeguard-runtime/src/codex_app_server/core.rs",
+    "vibeguard-runtime/src/codex_app_server/file_changes.rs",
+    "vibeguard-runtime/src/codex_app_server/hooks.rs",
+    "vibeguard-runtime/src/codex_app_server/strategies.rs",
+    "vibeguard-runtime/src/codex_app_server/strategies_tests.rs",
     "vibeguard-runtime/src/git_root.rs",
-    "vibeguard-runtime/src/project_config.rs",
-    "vibeguard-runtime/src/runtime_config.rs",
-    "vibeguard-runtime/src/runtime_config_validation.rs",
+    "vibeguard-runtime/src/project_config/mod.rs",
+    "vibeguard-runtime/src/runtime_config/mod.rs",
+    "vibeguard-runtime/src/runtime_config/validation.rs",
     "vibeguard-runtime/src/event_schema.rs",
-    "vibeguard-runtime/src/hook_orchestrator.rs",
-    "vibeguard-runtime/src/hook_orchestrator_context.rs",
-    "vibeguard-runtime/src/hook_orchestrator_post_edit.rs",
-    "vibeguard-runtime/src/hook_orchestrator_post_edit_history.rs", "vibeguard-runtime/src/hook_orchestrator_post_edit_history_unit_tests.rs", "vibeguard-runtime/src/hook_orchestrator_post_edit_history_tests.rs",
-    "vibeguard-runtime/src/hook_orchestrator_stop.rs", "vibeguard-runtime/src/hook_orchestrator_learn.rs", "vibeguard-runtime/src/hook_checks.rs", "vibeguard-runtime/src/hook_checks_common.rs", "vibeguard-runtime/src/hook_checks_history.rs", "vibeguard-runtime/src/hook_checks_tests.rs", "vibeguard-runtime/src/log_append.rs", "vibeguard-runtime/src/log_query.rs",
+    "vibeguard-runtime/src/hook_orchestrator/dispatch.rs",
+    "vibeguard-runtime/src/hook_orchestrator/context.rs",
+    "vibeguard-runtime/src/hook_orchestrator/post_edit.rs",
+    "vibeguard-runtime/src/hook_orchestrator/post_edit_history.rs", "vibeguard-runtime/src/hook_orchestrator/post_edit_history_unit_tests.rs", "vibeguard-runtime/src/hook_orchestrator/post_edit_history_tests.rs",
+    "vibeguard-runtime/src/hook_orchestrator/stop.rs", "vibeguard-runtime/src/hook_orchestrator/learn.rs", "vibeguard-runtime/src/hook_checks/checks.rs", "vibeguard-runtime/src/hook_checks/common.rs", "vibeguard-runtime/src/hook_checks/history.rs", "vibeguard-runtime/src/hook_checks/tests.rs", "vibeguard-runtime/src/logging/append.rs", "vibeguard-runtime/src/logging/query.rs",
     "vibeguard-runtime/src/session_metrics/signals.rs",
     "vibeguard-runtime/src/session_metrics/engine.rs",
-    "vibeguard-runtime/src/hook_status.rs",
-    "vibeguard-runtime/src/hook_status_render.rs",
-    "vibeguard-runtime/src/hook_status_tests.rs",
+    "vibeguard-runtime/src/hook_status/mod.rs",
+    "vibeguard-runtime/src/hook_status/render.rs",
+    "vibeguard-runtime/src/hook_status/tests.rs",
     "vibeguard-runtime/src/observe/aggregate.rs", "vibeguard-runtime/src/observe/mod.rs", "vibeguard-runtime/src/observe/model.rs", "vibeguard-runtime/src/observe/prometheus.rs",
     "vibeguard-runtime/src/observe/read.rs", "vibeguard-runtime/src/observe/render.rs", "vibeguard-runtime/src/observe/stats_summary.rs", "vibeguard-runtime/tests/observe_cli.rs", "vibeguard-runtime/tests/cli_hook_checks.rs", "vibeguard-runtime/tests/cli_log_commands.rs",
     "vibeguard-runtime/src/semantic_defense/mod.rs",
@@ -672,9 +672,9 @@ Complete-path cross-check：
 | ResourceLedger + canonical project journal | `vibeguard-runtime/src/event_schema.rs`; `vibeguard-runtime/src/{hook_orchestrator,hook_orchestrator_post_edit,hook_checks_common,log_append}.rs`; `hooks/_lib/log_write.sh`; `scripts/gc/gc-logs.sh`; planned **vibeguard-runtime/src/semantic_defense/runtime_signal.rs**; `schemas/event-log.schema.json`; planned **tests/hooks/test_runtime_rule_signals.sh**; `tests/test_gc_logs_rotation.sh`; `tests/test_gc_logs_concurrent.sh`; `tests/test_observability_schemas.sh`; `docs/specs/GH704/{runtime-integrity.md,resource_ledger_model.json,resource_ledger_model.schema.json,verify_resource_ledger_model.py,json_schema_subset.py,resource_ledger_epoch.py}` | policy-epoch source/project templates deterministically materialize finite exact tuples/components/roots/pairs；one closed resource enum/reducer and one owner per kind；bundle terminal totality + replay receipts；project/derived/journal same-root live→scratch pair graph and no-early-credit compaction；queue metadata and allocator metadata fixed A/B accounting；history GC and adoption preflight；all Rust/shell writers share tail-read→WAL fsync→journal append lease；GC honors pins/watermarks |
 | W-02 integrity/retention authority | `docs/specs/GH704/{integrity_retention_model.json,integrity_retention_model.schema.json,verify_integrity_retention_model.py}`; planned **vibeguard-runtime/src/semantic_defense/runtime_signal.rs**; planned **tests/hooks/test_runtime_rule_signals.sh** | stdlib schema instance validation；policy-epoch source/project expansion bijection and finite completeness；every edge×tuple selector/transition crash + illegal-state relation；L1 prepared-write/fsync→row-write/fsync→publish order；adversarial mutations fail |
 | Install/config doctor | `setup.sh`; `scripts/setup/check.sh`; `scripts/setup/runtime_config_health.sh`; `scripts/lib/status_report.sh`; `tests/test_setup_check.sh`; `tests/test_setup.sh` | doctor/`--check` human/JSON/exit/no-data identity matrix and installed payload route |
-| Per-run status | `vibeguard-runtime/src/hook_status.rs`; `hook_status_render.rs`; `hook_status_tests.rs`; `schemas/hook-status.schema.json`; `tests/test_hook_status.sh` | human/JSON/schema carry exact semantic state and identities from one canonical event |
+| Per-run status | `vibeguard-runtime/src/hook_status/mod.rs`; `hook_status_render.rs`; `hook_status_tests.rs`; `schemas/hook-status.schema.json`; `tests/test_hook_status.sh` | human/JSON/schema carry exact semantic state and identities from one canonical event |
 | Typed reader/schema migration | `schemas/observe-output.schema.json`; schemas/fixtures；observe modules/CLI；`vibeguard-runtime/src/{hook_checks,hook_checks_history,hook_checks_tests,log_query,hook_orchestrator_learn,hook_orchestrator_post_edit_history,hook_orchestrator_post_edit_history_unit_tests,hook_orchestrator_post_edit_history_tests}.rs`; `vibeguard-runtime/tests/{cli_hook_checks,cli_log_commands}.rs`; `scripts/{stats.sh,health-report.py,quality-grader.sh,gc/reflection_digest.py,report-false-positive.py,constraints/count_active_constraints.py,setup/targets/codex-home.sh}` plus focused tests | exact v1 + aggregate-verifiable v2 fixtures；project canonical joins barrier；project history joins `projection_done`；global aggregate/status joins `project_acknowledged`；pending/aborted/lag empty；Learn errors typed/zero candidate |
-| Learn signal contract | `vibeguard-runtime/src/hook_orchestrator_learn.rs`; `schemas/learn-signal.schema.json`; `tests/test_workflow_contracts.sh`; `tests/test_learn_adoption.sh` | new semantic-defense signal/typed source positives and invalid classification/action/path preserve action space；log-tail/metrics errors fail-visible，never no-data |
+| Learn signal contract | `vibeguard-runtime/src/hook_orchestrator/learn.rs`; `schemas/learn-signal.schema.json`; `tests/test_workflow_contracts.sh`; `tests/test_learn_adoption.sh` | new semantic-defense signal/typed source positives and invalid classification/action/path preserve action space；log-tail/metrics errors fail-visible，never no-data |
 | Semantic release assets | `.github/workflows/release.yml`; `.github/workflows/semantic-assets.yml`; `tests/test_release_workflow.sh`; `tests/test_payload.sh`; `scripts/release/payload-manifest.txt` | release contract fixes same-tag checksums, attestations, dependency metadata, target matrix, explicit install provenance and revoke/rollback behavior for every semantic artifact |
 | U-22 measured coverage | planned **scripts/ci/self-application/u22-critical-files.json**; `scripts/ci/self-application/check-u22-coverage.sh`; tests/manifests/Cargo/CI | runtime/sidecar each ≥80%；100% line+branch: runtime `{git_root,project_config,codex_app_server,codex_app_server_core,codex_app_server_file_changes,codex_app_server_hooks,codex_app_server_strategies,hook_orchestrator_context,hook_orchestrator,hook_orchestrator_post_edit,hook_orchestrator_post_edit_history,hook_orchestrator_learn,hook_checks,hook_checks_common,hook_checks_history,log_append,log_query,event_schema}.rs`、`observe/{aggregate,prometheus,read,render,stats_summary}.rs`、`semantic_defense/{mod,config,identity,protocol,provider,inventory,inventory_adapters/mod,inventory_adapters/typescript_npm,test_weakening,runtime_signal,cache,metrics}.rs`、sidecar `{protocol,sandbox}.rs`；每个 critical file 恰一次携带非空 exact `owner_suites`，gate 双向核对 [verification.md](verification.md) 的 Product-to-Test mapping/Cargo exact name/shell selector，missing/empty/unknown/duplicate/zero-match/rename-drift/无反向 owner、condition arms 与 aggregate masking 均失败；independent B-001/B-003/B-009/B-011–B-015/B-017–B-020/B-022–B-028/B-035/B-037 matrices map every branch ID |
 

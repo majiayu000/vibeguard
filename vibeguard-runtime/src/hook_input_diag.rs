@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::hook_checks_common::nested_str;
+use crate::hook_checks::common::nested_str;
 
 /// Distinguish the three fail-closed input shapes (empty stdin, invalid JSON,
 /// well-formed JSON missing the required field) so block events in

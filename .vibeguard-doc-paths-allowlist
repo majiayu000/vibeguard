@@ -32,3 +32,13 @@ tools/install_codex_skills.py | historical | docs/specs/GH595/** | - | GH595 ret
 review/human_final_review.md | historical | docs/specs/GH595/** | - | GH595 retains the former review template path as historical evidence
 schemas/workflow-routing-decision.schema.json | historical | docs/specs/GH658/** | - | GH658 retains the former routing schema path as historical evidence
 checks/route_gate.py | historical | docs/specs/GH720/** | - | GH720 retains the former route gate path as historical evidence
+vibeguard-runtime/src/codex_app_server.rs | historical | plan/** | - | Completed plans retain the pre-reorg flat module path (now codex_app_server/mod.rs)
+vibeguard-runtime/src/codex_app_server_core.rs | historical | plan/** | - | Completed plans retain the pre-reorg flat module path (now codex_app_server/core.rs)
+vibeguard-runtime/src/codex_app_server_file_changes.rs | historical | plan/** | - | Completed plans retain the pre-reorg flat module path (now codex_app_server/file_changes.rs)
+vibeguard-runtime/src/codex_app_server_strategies.rs | historical | plan/** | - | Completed plans retain the pre-reorg flat module path (now codex_app_server/strategies.rs)
+vibeguard-runtime/src/codex_hooks.rs | historical | plan/** | - | Completed plans retain the pre-reorg flat module path (now codex_hooks/mod.rs)
+vibeguard-runtime/src/hook_checks.rs | historical | plan/** | - | Completed plans retain the pre-reorg flat module path (now hook_checks/mod.rs)
+vibeguard-runtime/src/hook_checks_common.rs | historical | plan/** | - | Completed plans retain the pre-reorg flat module path (now hook_checks/common.rs)
+vibeguard-runtime/src/hook_checks_write.rs | historical | plan/** | - | Completed plans retain the pre-reorg flat module path (now hook_checks/write.rs)
+vibeguard-runtime/src/log_query.rs | historical | plan/** | - | Completed plans retain the pre-reorg flat module path (now logging/query.rs)
+vibeguard-runtime/src/log_query.rs | historical | docs/internal/** | - | Internal audit evidence retains the pre-reorg flat module path (now logging/query.rs)

@@ -12,7 +12,7 @@ GH-719
 两条路径都不查询任何用户意图，也不区分「从未安装」与「装过但被删除」。
 
 `~/.vibeguard/config.json` 已有一套集中式契约：字段在
-`vibeguard-runtime/src/runtime_config_validation.rs` 的 `RUNTIME_CONFIG_FIELDS`
+`vibeguard-runtime/src/runtime_config/validation.rs` 的 `RUNTIME_CONFIG_FIELDS`
 注册表中声明，未声明的字段直接被拒绝（`config_unknown_field`），并与
 `schemas/vibeguard-runtime-config.schema.json`、
 `templates/vibeguard-config.json.example` 由
@@ -122,12 +122,12 @@ skill，只续存该公开 skill 根下 type=copy 且当前 checksum 可验证�
 
 | 文件 | 变更 |
 |---|---|
-| `vibeguard-runtime/src/runtime_config_validation.rs` | `StringArray` 字段类型 + `disabled_skills` 声明 |
-| `vibeguard-runtime/src/runtime_config.rs` | `runtime_config_get_list` |
-| `vibeguard-runtime/src/setup_install_state.rs` | `list_tracked_under` |
-| `vibeguard-runtime/src/setup_managed_tree_remove.rs` | durable quarantine/release 与 terminal transaction recovery |
-| `vibeguard-runtime/src/setup_quarantine_inventory.rs` | active quarantine count、drift locator 映射与 checksum-verifiable incomplete retry inventory carry |
-| `vibeguard-runtime/src/setup_lock_lifecycle.rs` | canonical lock directory 的原子 acquire/release |
+| `vibeguard-runtime/src/runtime_config/validation.rs` | `StringArray` 字段类型 + `disabled_skills` 声明 |
+| `vibeguard-runtime/src/runtime_config/mod.rs` | `runtime_config_get_list` |
+| `vibeguard-runtime/src/setup/install_state.rs` | `list_tracked_under` |
+| `vibeguard-runtime/src/setup/managed_tree_remove.rs` | durable quarantine/release 与 terminal transaction recovery |
+| `vibeguard-runtime/src/setup/quarantine_inventory.rs` | active quarantine count、drift locator 映射与 checksum-verifiable incomplete retry inventory carry |
+| `vibeguard-runtime/src/setup/lock_lifecycle.rs` | canonical lock directory 的原子 acquire/release |
 | `vibeguard-runtime/src/main.rs` | runtime 命令注册 |
 | `scripts/setup/lib.sh` | source 专责模块、探测列表 |
 | `scripts/setup/workflow-skills.sh` | 禁用列表读取、Codex-only 跳过/quarantine/恢复告警 |

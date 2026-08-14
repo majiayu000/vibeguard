@@ -117,8 +117,8 @@ export VIBEGUARD_STAGED_FILES="$_STAGED_TMPFILE"
 # VIBEGUARD_DIFF_ADDED_LINES — points to a temporary file containing all staged new lines (+ prefix removed)
 # The guard script can choose to read this file instead of scanning the entire file, so that only the new lines of code are checked.
 export VIBEGUARD_DIFF_ONLY=1
-# PERF-OK: single cached diff for all staged files avoids O(n) git invocations.
-git diff --cached -U0 2>/dev/null \
+# PERF-OK: one cached staged diff; -M pairs renames so moved lines stay out of the baseline.
+git diff --cached -M -U0 2>/dev/null \
   | grep '^+' \
   | grep -v '^+++' \
   | sed 's/^+//' \

@@ -1,5 +1,5 @@
 use crate::codex_hooks::ensure_no_args;
-use crate::hook_checks_common::read_stdin;
+use crate::hook_checks::common::read_stdin;
 use serde_json::{Value, json};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;

@@ -12,7 +12,7 @@ GH-615
 ## 实现任务
 
 - [ ] `SP615-T1` Owner: `/root` — 在 `tests/hooks/test_pre_write_guard.sh` 将“silent attempts 也累计”的旧合同改为 reminder-aware recovery 合同，覆盖 breaker-silenced writes、达到阈值、same-session Grep/Glob、Read、other-session Grep、malformed/unrelated events、重新累计与 copy。Depends on: Spec PR merged and implementation route allowed。Covers: B-001-B-008。Done when: 当前 production 对新期望确定性红，失败来自 GH-615 语义而非 fixture/环境错误，并单独提交 red test commit；copy assertion 禁止 session-local export，并在保留 threshold 备选时要求 exact config path/key/persistent-global 说明。Verify: `bash tests/hooks/test_pre_write_guard.sh`（production 修复前预期红）。
-- [ ] `SP615-T2` Owner: `/root` — 在 `vibeguard-runtime/src/hook_orchestrator.rs` 实现 same-session Grep/Glob boundary 之后的 visible reminder counter，保留 attempt telemetry、breaker flow、500-event bound 与 mode/config semantics，并改正 escalation copy。Depends on: SP615-T1。Covers: B-001-B-008。Done when: focused red tests转绿；silent attempts 不计数；有效搜索恢复；无效事件不恢复；重新忽略 reminders 会再次阻断。Verify: focused shell test 与 Rust tests。
+- [ ] `SP615-T2` Owner: `/root` — 在 `vibeguard-runtime/src/hook_orchestrator/dispatch.rs` 实现 same-session Grep/Glob boundary 之后的 visible reminder counter，保留 attempt telemetry、breaker flow、500-event bound 与 mode/config semantics，并改正 escalation copy。Depends on: SP615-T1。Covers: B-001-B-008。Done when: focused red tests转绿；silent attempts 不计数；有效搜索恢复；无效事件不恢复；重新忽略 reminders 会再次阻断。Verify: focused shell test 与 Rust tests。
 - [ ] `SP615-T3` Owner: `/root` — 仅在 shell test 无法确定性覆盖 counter event ordering 时，新建 `cli_hook_pre_write` focused Rust integration target；不得向 799 行的 `cli_hook_orchestrator.rs` 追加。Depends on: SP615-T2。Covers: B-001, B-002, B-003, B-005, B-006。Done when: 缺失的 runtime contract 被 focused integration test 覆盖，或以已有 shell evidence 记录本任务 N/A。Verify: `cargo test --manifest-path vibeguard-runtime/Cargo.toml --test cli_hook_pre_write`（若创建）。
 - [ ] `SP615-T4` Owner: `/root` — 执行 hook/Rust/broad regression、独立审查和 current-head PR gates。Depends on: SP615-T2 and SP615-T3 disposition。Covers: B-001-B-008。Done when: tech spec 全部 fresh 命令通过，独立 reviewer 无 blocker，CI/threads/SpecRail required gate 全部通过。Verify: tech spec 测试计划中的全部命令。
 
@@ -43,7 +43,7 @@ GH-615
   focused/Rust/hook/quick test 失败；独立 reviewer 有 blocker；
   current-head CI、review threads 或 SpecRail required gate 未通过。
 - `lane_map`: specification `/root` 独占 `docs/specs/GH615/`、triage artifact 与 spec index；
-  implementation `/root` 独占 `vibeguard-runtime/src/hook_orchestrator.rs`、
+  implementation `/root` 独占 `vibeguard-runtime/src/hook_orchestrator/dispatch.rs`、
   `tests/hooks/test_pre_write_guard.sh` 及必要时新增的 focused Rust test；independent reviewer
   `/root/review_pr612` 只读，无可写文件。
 - Spec PR 只 `Refs #615`；只有独立 Impl PR 使用 `Fixes #615` 并在合并后关闭 Issue。

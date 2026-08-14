@@ -6,7 +6,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use crate::event_schema::field;
-use crate::log_scope::{LogScopeOptions, resolve_log_file};
+use crate::logging::scope::{LogScopeOptions, resolve_log_file};
 use crate::time_utils::parse_iso_ts;
 
 use super::Result;
