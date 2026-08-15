@@ -96,6 +96,11 @@ for language in ("rust", "go", "typescript"):
             raise SystemExit(f"{relative}: compatibility shim still owns an ast-grep scan")
 if not guards:
     raise SystemExit("no production language guard compatibility shims found")
+behavior_eval = (repo / "eval" / "run_behavior_eval.py").read_text(encoding="utf-8")
+if behavior_eval.index('"target" / "release" / "vibeguard-runtime"') > behavior_eval.index(
+    '"target" / "debug" / "vibeguard-runtime"'
+):
+    raise SystemExit("behavior eval lets debug runtime shadow release")
 PY
 }
 

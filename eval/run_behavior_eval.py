@@ -289,8 +289,8 @@ def build_env(sample: dict[str, Any], repo_root: Path, tmp_path: Path) -> dict[s
         env["HOME"] = str(home)
     if sample["runner"] == "guard":
         candidates = [
-            repo_root / "vibeguard-runtime" / "target" / "debug" / "vibeguard-runtime",
             repo_root / "vibeguard-runtime" / "target" / "release" / "vibeguard-runtime",
+            repo_root / "vibeguard-runtime" / "target" / "debug" / "vibeguard-runtime",
         ]
         runtime = next((candidate for candidate in candidates if candidate.is_file()), None)
         if runtime is None:

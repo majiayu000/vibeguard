@@ -115,6 +115,30 @@ printf '\377' > "${proj7}/.vibeguard-duplicate-types-allowlist"
 assert_output_contains "invalid UTF-8 allowlist fails visibly" "cannot read" \
   bash "$GUARD" --strict "$proj7"
 
+# --- BASELINE: historical duplicate debt is quiet until a definition changes ---
+proj8="${tmpdir}/baseline_duplicate_debt"
+mkdir -p "${proj8}/src/a" "${proj8}/src/b"
+git -C "$proj8" init -q
+git -C "$proj8" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj8" config user.name "VibeGuard Tests"
+printf 'pub struct ExistingDuplicate;\n' > "${proj8}/src/a/types.rs"
+printf 'pub struct ExistingDuplicate;\n' > "${proj8}/src/b/types.rs"
+git -C "$proj8" add src/a/types.rs src/b/types.rs
+git -C "$proj8" commit -q -m initial
+baseline8="$(git -C "$proj8" rev-parse HEAD)"
+printf 'pub struct Unrelated;\n' > "${proj8}/src/unrelated.rs"
+git -C "$proj8" add src/unrelated.rs
+git -C "$proj8" commit -q -m unrelated
+assert_ok "baseline ignores pre-existing duplicate types" \
+  bash "$GUARD" --strict --baseline "$baseline8" "$proj8"
+
+mkdir -p "${proj8}/src/c"
+printf 'pub struct ExistingDuplicate;\n' > "${proj8}/src/c/types.rs"
+git -C "$proj8" add src/c/types.rs
+git -C "$proj8" commit -q -m new-duplicate
+assert_fail "baseline reports a newly added duplicate definition" \
+  bash "$GUARD" --strict --baseline "$baseline8" "$proj8"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

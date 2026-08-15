@@ -10,7 +10,7 @@ pub(super) fn duplicate_types(context: &ScanContext) -> Result<ScanResult> {
     let definition = Regex::new(r"^\s*pub\s+(?:struct|enum)\s+([A-Za-z_][A-Za-z0-9_]*)")?;
     let allowlist = read_allowlist(&context.target.join(".vibeguard-duplicate-types-allowlist"))?;
     let mut definitions: BTreeMap<String, Vec<(PathBuf, usize)>> = BTreeMap::new();
-    for path in rust_files(context) {
+    for path in all_rust_files(context) {
         let content = context.read(&path)?;
         let masked = mask_rust_non_code(&content);
         for (index, line) in masked.lines().enumerate() {
@@ -24,27 +24,33 @@ pub(super) fn duplicate_types(context: &ScanContext) -> Result<ScanResult> {
     }
     let findings = definitions
         .into_iter()
-        .filter(|(name, locations)| {
-            !allowlist.contains(name)
-                && locations
+        .filter_map(|(name, locations)| {
+            if allowlist.contains(&name)
+                || locations
                     .iter()
                     .map(|(path, _)| path)
                     .collect::<BTreeSet<_>>()
                     .len()
-                    > 1
-        })
-        .map(|(name, locations)| Finding {
-            rule: "RS-05",
-            path: locations[0].0.clone(),
-            line: locations[0].1,
-            message: format!(
-                "Duplicate type: {name}; locations: {}",
-                locations
-                    .iter()
-                    .map(|(path, line)| format!("{}:{line}", path.display()))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+                    <= 1
+            {
+                return None;
+            }
+            let changed = locations
+                .iter()
+                .find(|(path, line)| context.allows_line(path, *line))?;
+            Some(Finding {
+                rule: "RS-05",
+                path: changed.0.clone(),
+                line: changed.1,
+                message: format!(
+                    "Duplicate type: {name}; locations: {}",
+                    locations
+                        .iter()
+                        .map(|(path, line)| format!("{}:{line}", path.display()))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            })
         })
         .collect();
     Ok(ScanResult::new(
