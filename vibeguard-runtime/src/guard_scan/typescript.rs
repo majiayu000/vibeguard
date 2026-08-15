@@ -7,19 +7,14 @@ use crate::hook_checks::js::mask_javascript_non_code;
 use super::shared::{Finding, Result, ScanContext, ScanResult, is_typescript_test_path};
 
 pub(super) fn any_abuse(context: &ScanContext) -> Result<ScanResult> {
-    let any_cast = Regex::new(r"\bas\s+any\b")?;
-    let any_annotation = Regex::new(r":\s*any\b")?;
     let mut findings = Vec::new();
     for path in production_files(context) {
         let content = context.read(&path)?;
         let masked = mask_javascript_non_code(&content);
         let raw_lines = content.lines().collect::<Vec<_>>();
         let mut current = Vec::new();
-        for (index, code) in masked.lines().enumerate() {
-            let line_number = index + 1;
-            if context.allows_line(&path, line_number)
-                && (any_cast.is_match(code) || has_any_type_annotation(code, &any_annotation))
-            {
+        for line_number in any_type_lines(&masked) {
+            if context.allows_line(&path, line_number) {
                 current.push(Finding {
                     rule: "TS-01",
                     path: path.clone(),
@@ -27,6 +22,9 @@ pub(super) fn any_abuse(context: &ScanContext) -> Result<ScanResult> {
                     message: "[review] [this-line] OBSERVATION: 'any' type usage".to_string(),
                 });
             }
+        }
+        for (index, _) in masked.lines().enumerate() {
+            let line_number = index + 1;
             let raw = raw_lines.get(index).copied().unwrap_or("");
             if context.allows_line(&path, line_number) && raw.contains("@ts-ignore") {
                 current.push(Finding {
@@ -69,7 +67,7 @@ pub(super) fn console_residual(context: &ScanContext) -> Result<ScanResult> {
             &[],
         ));
     }
-    let console = Regex::new(r"\bconsole\.(?:log|warn|error|info|debug|trace)\s*(?:\?\.)?\s*\(")?;
+    let console = Regex::new(r"\bconsole\.[A-Za-z_$][A-Za-z0-9_$]*\s*(?:\?\.)?\s*\(")?;
     let mut findings = Vec::new();
     for path in production_files(context) {
         let relative = path.strip_prefix(&context.target).unwrap_or(&path);
@@ -140,7 +138,7 @@ pub(super) fn duplicate_constants(context: &ScanContext) -> Result<ScanResult> {
     let mut constants = BTreeMap::new();
     let mut types = BTreeMap::new();
     let mut functions = BTreeMap::new();
-    for path in production_files(context) {
+    for path in all_production_files(context) {
         if !path.starts_with(context.target.join("src")) {
             continue;
         }
@@ -150,9 +148,9 @@ pub(super) fn duplicate_constants(context: &ScanContext) -> Result<ScanResult> {
         collect_names(&type_definition, &masked, &path, &mut types);
         collect_names(&function, &masked, &path, &mut functions);
     }
-    let mut findings = duplicate_name_findings("DUP-CONST", constants, 2);
-    findings.extend(duplicate_name_findings("DUP-TYPE", types, 2));
-    findings.extend(duplicate_name_findings("DUP-FUNC", functions, 3));
+    let mut findings = duplicate_name_findings(context, "DUP-CONST", constants, 2);
+    findings.extend(duplicate_name_findings(context, "DUP-TYPE", types, 2));
+    findings.extend(duplicate_name_findings(context, "DUP-FUNC", functions, 3));
     Ok(ScanResult::new(
         findings,
         "=== Summary: 0 duplicate issues found ===",
@@ -266,37 +264,56 @@ fn collect_names(
     pattern: &Regex,
     content: &str,
     path: &Path,
-    output: &mut BTreeMap<String, BTreeSet<std::path::PathBuf>>,
+    output: &mut BTreeMap<String, BTreeSet<(std::path::PathBuf, usize)>>,
 ) {
-    for captures in pattern.captures_iter(content) {
-        output
-            .entry(captures[1].to_string())
-            .or_default()
-            .insert(path.to_path_buf());
+    for (index, line) in content.lines().enumerate() {
+        for captures in pattern.captures_iter(line) {
+            output
+                .entry(captures[1].to_string())
+                .or_default()
+                .insert((path.to_path_buf(), index + 1));
+        }
     }
 }
 
 fn duplicate_name_findings(
+    context: &ScanContext,
     rule: &'static str,
-    definitions: BTreeMap<String, BTreeSet<std::path::PathBuf>>,
+    definitions: BTreeMap<String, BTreeSet<(std::path::PathBuf, usize)>>,
     threshold: usize,
 ) -> Vec<Finding> {
     definitions
         .into_iter()
-        .filter(|(_, paths)| paths.len() >= threshold)
-        .map(|(name, paths)| Finding {
-            rule,
-            path: paths.iter().next().cloned().unwrap_or_default(),
-            line: 1,
-            message: format!(
-                "{name} defined in {} files: {}",
-                paths.len(),
-                paths
-                    .iter()
-                    .map(|path| path.display().to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+        .filter(|(_, locations)| {
+            locations
+                .iter()
+                .map(|(path, _)| path)
+                .collect::<BTreeSet<_>>()
+                .len()
+                >= threshold
+        })
+        .filter_map(|(name, locations)| {
+            let changed = locations
+                .iter()
+                .find(|(path, line)| context.allows_line(path, *line))?;
+            let paths = locations
+                .iter()
+                .map(|(path, _)| path)
+                .collect::<BTreeSet<_>>();
+            Some(Finding {
+                rule,
+                path: changed.0.clone(),
+                line: changed.1,
+                message: format!(
+                    "{name} defined in {} files: {}",
+                    paths.len(),
+                    paths
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            })
         })
         .collect()
 }
@@ -334,6 +351,14 @@ fn production_files(context: &ScanContext) -> Vec<std::path::PathBuf> {
         .collect()
 }
 
+fn all_production_files(context: &ScanContext) -> Vec<std::path::PathBuf> {
+    context
+        .all_files_with_extensions(&["ts", "tsx", "js", "jsx"])
+        .into_iter()
+        .filter(|path| !is_typescript_test_path(path))
+        .collect()
+}
+
 fn is_cli_project(target: &Path) -> bool {
     let package = target.join("package.json");
     if let Ok(content) = std::fs::read_to_string(package)
@@ -350,26 +375,163 @@ fn is_cli_project(target: &Path) -> bool {
     })
 }
 
-fn has_any_type_annotation(line: &str, annotation: &Regex) -> bool {
-    annotation.find_iter(line).any(|found| {
-        let prefix = &line[..found.start()];
-        let suffix = line[found.end()..].trim_start();
-        let looks_like_object_value = matches!(suffix.chars().next(), Some(',' | '}'))
-            && prefix.rfind('{').is_some_and(|brace| {
-                let before_brace = prefix[..brace].trim_end();
-                let declaration = before_brace.trim_start();
-                !declaration.starts_with("type ")
-                    && !declaration.starts_with("interface ")
-                    && (before_brace.ends_with('=')
-                        || before_brace.ends_with('(')
-                        || before_brace.ends_with('[')
-                        || before_brace.ends_with(',')
-                        || before_brace.ends_with("=>")
-                        || before_brace
-                            .split_whitespace()
-                            .next_back()
-                            .is_some_and(|word| word == "return"))
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BraceKind {
+    Object,
+    Type,
+    Block,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Delimiter {
+    Brace(BraceKind),
+    Paren,
+    Bracket,
+}
+
+#[derive(Clone)]
+struct TypeToken {
+    text: String,
+    line: usize,
+}
+
+fn any_type_lines(masked: &str) -> BTreeSet<usize> {
+    let tokens = type_tokens(masked);
+    let mut findings = BTreeSet::new();
+    let mut stack = Vec::new();
+    let mut object_colons = BTreeSet::new();
+    for (index, token) in tokens.iter().enumerate() {
+        match token.text.as_str() {
+            "{" => {
+                let kind = classify_brace(&tokens, index, &object_colons);
+                stack.push(Delimiter::Brace(kind));
+            }
+            "(" => stack.push(Delimiter::Paren),
+            "[" => stack.push(Delimiter::Bracket),
+            "}" => pop_delimiter(&mut stack, |value| matches!(value, Delimiter::Brace(_))),
+            ")" => pop_delimiter(&mut stack, |value| value == Delimiter::Paren),
+            "]" => pop_delimiter(&mut stack, |value| value == Delimiter::Bracket),
+            ":" if is_object_property_colon(&tokens, index, &stack) => {
+                object_colons.insert(index);
+            }
+            "any" => {
+                let previous = index.checked_sub(1).and_then(|value| tokens.get(value));
+                if previous.is_some_and(|value| value.text == "as")
+                    || previous.is_some_and(|value| value.text == ":")
+                        && !index
+                            .checked_sub(1)
+                            .is_some_and(|value| object_colons.contains(&value))
+                {
+                    findings.insert(token.line);
+                }
+            }
+            _ => {}
+        }
+    }
+    findings
+}
+
+fn type_tokens(masked: &str) -> Vec<TypeToken> {
+    let bytes = masked.as_bytes();
+    let mut tokens = Vec::new();
+    let mut index = 0;
+    let mut line = 1;
+    while index < bytes.len() {
+        if bytes[index] == b'\n' {
+            line += 1;
+            index += 1;
+        } else if bytes[index].is_ascii_whitespace() {
+            index += 1;
+        } else if bytes[index].is_ascii_alphabetic() || matches!(bytes[index], b'_' | b'$') {
+            let start = index;
+            index += 1;
+            while index < bytes.len()
+                && (bytes[index].is_ascii_alphanumeric() || matches!(bytes[index], b'_' | b'$'))
+            {
+                index += 1;
+            }
+            tokens.push(TypeToken {
+                text: masked[start..index].to_string(),
+                line,
             });
-        !looks_like_object_value
-    })
+        } else if bytes[index..].starts_with(b"=>") {
+            tokens.push(TypeToken {
+                text: "=>".to_string(),
+                line,
+            });
+            index += 2;
+        } else {
+            tokens.push(TypeToken {
+                text: (bytes[index] as char).to_string(),
+                line,
+            });
+            index += 1;
+        }
+    }
+    tokens
+}
+
+fn classify_brace(
+    tokens: &[TypeToken],
+    index: usize,
+    object_colons: &BTreeSet<usize>,
+) -> BraceKind {
+    let previous = index.checked_sub(1).and_then(|value| tokens.get(value));
+    if previous.is_some_and(|value| value.text == ":") {
+        return if index
+            .checked_sub(1)
+            .is_some_and(|value| object_colons.contains(&value))
+        {
+            BraceKind::Object
+        } else {
+            BraceKind::Type
+        };
+    }
+    let boundary = tokens[..index]
+        .iter()
+        .rposition(|token| matches!(token.text.as_str(), ";" | "{" | "}"));
+    let statement = &tokens[boundary.map_or(0, |value| value + 1)..index];
+    if statement.iter().any(|token| token.text == "interface")
+        || statement.first().is_some_and(|token| token.text == "type")
+    {
+        BraceKind::Type
+    } else if previous
+        .is_some_and(|token| matches!(token.text.as_str(), "=" | "(" | "[" | "," | "return"))
+    {
+        BraceKind::Object
+    } else {
+        BraceKind::Block
+    }
+}
+
+fn is_object_property_colon(tokens: &[TypeToken], index: usize, stack: &[Delimiter]) -> bool {
+    if !matches!(stack.last(), Some(Delimiter::Brace(BraceKind::Object))) {
+        return false;
+    }
+    let Some(previous) = index.checked_sub(1).and_then(|value| tokens.get(value)) else {
+        return false;
+    };
+    let (key_index, key) = if previous.text == "?" {
+        let Some(key_index) = index.checked_sub(2) else {
+            return false;
+        };
+        (key_index, &tokens[key_index])
+    } else {
+        (index - 1, previous)
+    };
+    if !key
+        .text
+        .as_bytes()
+        .first()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || matches!(byte, b'_' | b'$'))
+    {
+        return false;
+    }
+    key_index == 0 || matches!(tokens[key_index - 1].text.as_str(), "{" | "," | ";")
+}
+
+fn pop_delimiter(stack: &mut Vec<Delimiter>, matches: impl Fn(Delimiter) -> bool) {
+    if let Some(position) = stack.iter().rposition(|value| matches(*value)) {
+        stack.truncate(position);
+    }
 }

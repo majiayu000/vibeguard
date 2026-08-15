@@ -1,19 +1,17 @@
 use regex::Regex;
 
-use crate::hook_checks::js::mask_javascript_non_code;
-
 use super::shared::{Finding, Result, ScanContext, ScanResult};
 
 pub(super) fn error_handling(context: &ScanContext) -> Result<ScanResult> {
-    let discard = Regex::new(r"^\s*_(?:\s*,\s*_)?\s*:?=\s*[^=]")?;
+    let discard = Regex::new(r"(?:^|[;{}])\s*_(?:\s*,\s*_)?\s*:?=\s*[^=]")?;
     let call = Regex::new(
-        r"^\s*_(?:\s*,\s*_)?\s*:?=\s*[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\s*\(",
+        r"(?:^|[;{}])\s*_(?:\s*,\s*_)?\s*:?=\s*[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\[[^\n()]+\])?\s*\(",
     )?;
     let comma_ok = Regex::new(r",\s*(ok|found|exists)\s*:?=")?;
     let mut findings = Vec::new();
     for path in production_files(context) {
         let content = context.read(&path)?;
-        let masked = mask_javascript_non_code(&content);
+        let masked = mask_go_non_code(&content);
         let current = masked
             .lines()
             .enumerate()
@@ -44,6 +42,63 @@ pub(super) fn error_handling(context: &ScanContext) -> Result<ScanResult> {
             "ACTION: REVIEW",
         ],
     ))
+}
+
+fn mask_go_non_code(source: &str) -> String {
+    let bytes = source.as_bytes();
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    let mut block_comment_depth = 0usize;
+    let mut quoted = None;
+    while index < bytes.len() {
+        if let Some(end) = quoted {
+            if end != b'`' && bytes[index] == b'\\' && index + 1 < bytes.len() {
+                output.extend_from_slice(b"  ");
+                index += 2;
+            } else if bytes[index] == end {
+                output.push(b' ');
+                index += 1;
+                quoted = None;
+            } else {
+                output.push(if bytes[index] == b'\n' { b'\n' } else { b' ' });
+                index += 1;
+            }
+            continue;
+        }
+        if block_comment_depth > 0 {
+            if bytes[index..].starts_with(b"/*") {
+                output.extend_from_slice(b"  ");
+                index += 2;
+                block_comment_depth += 1;
+            } else if bytes[index..].starts_with(b"*/") {
+                output.extend_from_slice(b"  ");
+                index += 2;
+                block_comment_depth -= 1;
+            } else {
+                output.push(if bytes[index] == b'\n' { b'\n' } else { b' ' });
+                index += 1;
+            }
+            continue;
+        }
+        if bytes[index..].starts_with(b"//") {
+            while index < bytes.len() && bytes[index] != b'\n' {
+                output.push(b' ');
+                index += 1;
+            }
+        } else if bytes[index..].starts_with(b"/*") {
+            output.extend_from_slice(b"  ");
+            index += 2;
+            block_comment_depth = 1;
+        } else if matches!(bytes[index], b'"' | b'\'' | b'`') {
+            quoted = Some(bytes[index]);
+            output.push(b' ');
+            index += 1;
+        } else {
+            output.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(output).expect("masked Go preserves UTF-8 byte positions")
 }
 
 pub(super) fn goroutine_leak(context: &ScanContext) -> Result<ScanResult> {

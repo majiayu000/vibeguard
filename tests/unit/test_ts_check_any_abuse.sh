@@ -126,6 +126,27 @@ export function sendPayload(consume: (value: object) => void) { consume({ value:
 EOF
 assert_ok "object values named any pass in assignments, returns, and arguments" bash "$GUARD" --strict "$proj_object"
 
+# --- PASS: nested object values named any are still values, not annotations ---
+proj_nested_object="${tmpdir}/pass_nested_any_object_value"
+mkdir -p "${proj_nested_object}/src"
+cat > "${proj_nested_object}/src/value.ts" <<'EOF'
+declare const any: unknown;
+export const payload = { nested: { item: any } };
+EOF
+assert_ok "nested object values named any pass" bash "$GUARD" --strict "$proj_nested_object"
+
+# --- FAIL: multiline type annotations and casts preserve syntax-level coverage ---
+proj_multiline_any="${tmpdir}/fail_multiline_any"
+mkdir -p "${proj_multiline_any}/src"
+cat > "${proj_multiline_any}/src/value.ts" <<'EOF'
+declare const input: unknown;
+export const annotated:
+  any = input;
+export const cast = input as
+  any;
+EOF
+assert_fail "multiline any annotation and cast fail --strict" bash "$GUARD" --strict "$proj_multiline_any"
+
 # --- FAIL: object type members remain type annotations ---
 proj_object_type="${tmpdir}/fail_any_object_type"
 mkdir -p "${proj_object_type}/src"

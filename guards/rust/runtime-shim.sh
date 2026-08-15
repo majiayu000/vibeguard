@@ -10,8 +10,8 @@ run_runtime_guard() {
   repo_dir="$(cd "${script_dir}/../.." && pwd)"
   for candidate in \
     "${VIBEGUARD_RUNTIME:-}" \
-    "${repo_dir}/vibeguard-runtime/target/debug/vibeguard-runtime" \
     "${repo_dir}/vibeguard-runtime/target/release/vibeguard-runtime" \
+    "${repo_dir}/vibeguard-runtime/target/debug/vibeguard-runtime" \
     "${HOME:-}/.vibeguard/installed/bin/vibeguard-runtime"; do
     if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
       exec "${candidate}" scan "${language}" "${rule}" "$@"

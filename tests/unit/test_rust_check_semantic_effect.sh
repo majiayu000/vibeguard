@@ -48,6 +48,17 @@ pub fn update_status(id: u64) -> Result<String, String> {
 EOF
 assert_fail "update_ fn without writes in task/ path fails --strict" bash "$GUARD" --strict "$proj_update"
 
+# --- PASS: bodyless action-named trait declarations are not implementations ---
+proj_trait="${tmpdir}/pass_bodyless_trait_action"
+mkdir -p "${proj_trait}/src/task"
+cat > "${proj_trait}/src/task/api.rs" <<'EOF'
+pub trait TaskApi {
+    fn update_task(&self);
+}
+fn unrelated() -> Result<(), String> { Ok(()) }
+EOF
+assert_ok "bodyless trait action declaration does not consume later body" bash "$GUARD" --strict "$proj_trait"
+
 # --- PASS: mark_done with state mutation (insert/push) ---
 proj_with_effect="${tmpdir}/pass_with_effect"
 mkdir -p "${proj_with_effect}/src/task"

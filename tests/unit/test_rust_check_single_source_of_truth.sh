@@ -53,6 +53,20 @@ static TODO_ARCHIVE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::
 EOF
 assert_fail "Todo* family with multiple todo-named state stores fails --strict" bash "$GUARD" --strict "$proj_multi_state"
 
+# --- FAIL: same field name at separate definitions is still multiple state ---
+proj_same_name="${tmpdir}/fail_same_name_stores"
+mkdir -p "${proj_same_name}/src"
+cat > "${proj_same_name}/src/state.rs" <<'EOF'
+use std::sync::Mutex;
+struct Primary {
+    task_state: Mutex<Vec<String>>,
+}
+struct Secondary {
+    task_state: Mutex<Vec<String>>,
+}
+EOF
+assert_fail "same-named task stores at separate locations fail --strict" bash "$GUARD" --strict "$proj_same_name"
+
 # --- PASS: single task system with one state store ---
 proj_single="${tmpdir}/pass_single_task"
 mkdir -p "${proj_single}/src"

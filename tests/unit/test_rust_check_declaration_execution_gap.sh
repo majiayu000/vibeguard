@@ -158,6 +158,77 @@ assert_fail "unused persistence method on non-Config type fails" \
 assert_output_contains "non-Config persistence finding names the type" "StateStore::persist()" \
   bash "$GUARD" --strict "$proj_store"
 
+# --- PASS: same-named Config types keep their qualified module identities ---
+proj_qualified="${tmpdir}/pass_qualified_config_identity"
+mkdir -p "${proj_qualified}/src"
+cat > "${proj_qualified}/src/config_a.rs" <<'EOF'
+pub struct AppConfig;
+impl AppConfig { pub fn load() -> Self { Self } }
+EOF
+cat > "${proj_qualified}/src/config_b.rs" <<'EOF'
+pub struct AppConfig;
+impl Default for AppConfig { fn default() -> Self { Self } }
+EOF
+cat > "${proj_qualified}/src/main.rs" <<'EOF'
+mod config_a;
+mod config_b;
+fn main() {
+    let _loaded = config_a::AppConfig::load();
+    let _defaults = config_b::AppConfig::default();
+}
+EOF
+assert_ok "qualified Config identity avoids cross-module load pollution" \
+  bash "$GUARD" --strict "$proj_qualified"
+
+# --- FAIL: balanced nested generic impl headers still register load() ---
+proj_nested_generic="${tmpdir}/fail_nested_generic_impl"
+mkdir -p "${proj_nested_generic}/src"
+cat > "${proj_nested_generic}/src/config.rs" <<'EOF'
+pub struct AppConfig<T>(T);
+impl<T: Into<Vec<u8>>> AppConfig<T> {
+    pub fn load(value: T) -> Self { Self(value) }
+}
+impl<T: Default> Default for AppConfig<T> {
+    fn default() -> Self { Self(T::default()) }
+}
+EOF
+cat > "${proj_nested_generic}/src/main.rs" <<'EOF'
+mod config;
+use config::AppConfig;
+fn main() { let _config = AppConfig::<Vec<u8>>::default(); }
+EOF
+assert_fail "nested generic Config impl still protects default()" \
+  bash "$GUARD" --strict "$proj_nested_generic"
+
+# --- STAGED: unchanged Config impls participate in the method index ---
+proj_staged="${tmpdir}/fail_staged_unchanged_impl"
+mkdir -p "${proj_staged}/src"
+git -C "$proj_staged" init -q
+git -C "$proj_staged" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_staged" config user.name "VibeGuard Tests"
+cat > "${proj_staged}/src/config.rs" <<'EOF'
+pub struct AppConfig;
+impl AppConfig { pub fn load() -> Self { Self } }
+EOF
+cat > "${proj_staged}/src/main.rs" <<'EOF'
+mod config;
+fn main() { let _config = config::AppConfig::load(); }
+EOF
+git -C "$proj_staged" add src/config.rs src/main.rs
+git -C "$proj_staged" commit -q -m initial
+cat > "${proj_staged}/src/main.rs" <<'EOF'
+mod config;
+fn main() {
+    let _loaded = config::AppConfig::load();
+    let _defaults = config::AppConfig::default();
+}
+EOF
+git -C "$proj_staged" add src/main.rs
+staged_list="${proj_staged}/staged-files"
+printf '%s\n' "${proj_staged}/src/main.rs" > "$staged_list"
+assert_fail "staged default() sees unchanged load() implementation" \
+  env VIBEGUARD_STAGED_FILES="$staged_list" bash "$GUARD" --strict "$proj_staged"
+
 # --- PASS: empty project ---
 proj_empty="${tmpdir}/pass_empty"
 mkdir -p "${proj_empty}/src"

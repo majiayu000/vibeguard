@@ -76,6 +76,18 @@ export async function fetchData(url: string): Promise<string> {
 EOF
 assert_fail "console.error fails --strict in non-MCP file" bash "$GUARD" --strict "$proj_err"
 
+# --- FAIL: every console method call is residual output, not a six-method allowlist ---
+proj_other_methods="${tmpdir}/fail_other_console_methods"
+mkdir -p "${proj_other_methods}/src"
+cat > "${proj_other_methods}/src/service.ts" <<'EOF'
+export function inspect(data: unknown): void {
+  console.table(data);
+  console.dir(data);
+  console.assert(data !== null);
+}
+EOF
+assert_fail "console.table/dir/assert fail --strict" bash "$GUARD" --strict "$proj_other_methods"
+
 # --- PASS: no console calls ---
 proj_clean="${tmpdir}/pass_clean"
 mkdir -p "${proj_clean}/src"

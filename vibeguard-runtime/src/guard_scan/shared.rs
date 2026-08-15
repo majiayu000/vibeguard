@@ -167,6 +167,7 @@ pub(super) struct ScanContext {
     pub(super) language: String,
     rule: String,
     files: Vec<PathBuf>,
+    all_files: Vec<PathBuf>,
     diff: Option<DiffMap>,
     staged: bool,
     git_root: Option<PathBuf>,
@@ -180,12 +181,15 @@ impl ScanContext {
             .filter(|path| path.is_file());
         let staged = staged_file.is_some();
         let git_root = git_root(&args.target);
-        let files = if let Some(path) = staged_file {
-            read_staged_files(&path, &args.target)?
-        } else if let Some(root) = git_root.as_deref() {
+        let all_files = if let Some(root) = git_root.as_deref() {
             tracked_files(root, &args.target)?
         } else {
             walked_files(&args.target)?
+        };
+        let files = if let Some(path) = staged_file {
+            read_staged_files(&path, &args.target)?
+        } else {
+            all_files.clone()
         };
         let diff = if staged || args.baseline.is_some() {
             let root = git_root
@@ -200,6 +204,7 @@ impl ScanContext {
             language: args.language.clone(),
             rule: args.rule.clone(),
             files,
+            all_files,
             diff,
             staged,
             git_root,
@@ -209,6 +214,18 @@ impl ScanContext {
 
     pub(super) fn files_with_extensions(&self, extensions: &[&str]) -> Vec<PathBuf> {
         self.files
+            .iter()
+            .filter(|path| {
+                path.extension()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|value| extensions.contains(&value))
+            })
+            .cloned()
+            .collect()
+    }
+
+    pub(super) fn all_files_with_extensions(&self, extensions: &[&str]) -> Vec<PathBuf> {
+        self.all_files
             .iter()
             .filter(|path| {
                 path.extension()

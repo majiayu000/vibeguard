@@ -110,6 +110,20 @@ pub fn load() -> String {
 EOF
 assert_fail "expect() in prod code fails --strict" bash "$GUARD" --strict "$proj2"
 
+# --- FAIL: Rust permits whitespace and line breaks before call parentheses ---
+proj_whitespace="${tmpdir}/fail_unwrap_whitespace"
+mkdir -p "${proj_whitespace}/src"
+cat > "${proj_whitespace}/src/lib.rs" <<'EOF'
+pub fn parse(value: Option<i32>) -> i32 {
+    value.unwrap
+        ()
+}
+pub fn require(value: Option<i32>) -> i32 {
+    value.expect ("required")
+}
+EOF
+assert_fail "whitespace-separated unwrap/expect calls fail --strict" bash "$GUARD" --strict "$proj_whitespace"
+
 # --- PASS: only safe unwrap_or variants ---
 proj3="${tmpdir}/pass_safe"
 mkdir -p "${proj3}/src"
@@ -444,6 +458,28 @@ assert_output_contains "staged block-comment case remains visible" \
   "block_comment.rs" run_staged_lexer_guard
 assert_output_contains "staged multiline-string case remains visible" \
   "multiline_string.rs" run_staged_lexer_guard
+
+# --- STAGED: deleting an identical test call does not shift production identity ---
+proj_identity="${tmpdir}/staged_unwrap_identity"
+mkdir -p "${proj_identity}/src"
+git -C "$proj_identity" init -q
+git -C "$proj_identity" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_identity" config user.name "VibeGuard Tests"
+cat > "${proj_identity}/src/lib.rs" <<'EOF'
+#[cfg(test)]
+fn fixture(input: Option<i32>) -> i32 { input.unwrap() }
+fn production(input: Option<i32>) -> i32 { input.unwrap() }
+EOF
+git -C "$proj_identity" add src/lib.rs
+git -C "$proj_identity" commit -q -m initial
+cat > "${proj_identity}/src/lib.rs" <<'EOF'
+fn production(input: Option<i32>) -> i32 { input.unwrap() }
+EOF
+git -C "$proj_identity" add src/lib.rs
+staged_identity="${proj_identity}/staged-files"
+printf '%s\n' "${proj_identity}/src/lib.rs" > "$staged_identity"
+assert_ok "deleted identical test call does not resurface unchanged production call" \
+  env VIBEGUARD_STAGED_FILES="$staged_identity" bash "$GUARD" --strict "$proj_identity"
 
 # --- PASS: empty project (no .rs files) ---
 proj6="${tmpdir}/pass_empty"

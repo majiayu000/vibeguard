@@ -84,6 +84,7 @@ pub(super) fn workspace_consistency(context: &ScanContext) -> Result<ScanResult>
     let members = workspace_members(&context.target, &cargo)?;
     let env_regex = Regex::new(r#"(?:env::var|env::var_os|option_env!)\s*\(\s*"([^"]+)""#)?;
     let db_regex = Regex::new(r#""([^"]*\.(?:db|sqlite))""#)?;
+    let named_constant = Regex::new(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const|static)\b")?;
     let mut semantic_vars: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
     let mut db_files = BTreeSet::new();
     for member in members {
@@ -116,6 +117,9 @@ pub(super) fn workspace_consistency(context: &ScanContext) -> Result<ScanResult>
             }
             for line in content.lines() {
                 let code = line.split("//").next().unwrap_or("");
+                if named_constant.is_match(code) {
+                    continue;
+                }
                 for captures in db_regex.captures_iter(code) {
                     db_files.insert(captures[1].to_string());
                 }
@@ -172,15 +176,15 @@ pub(super) fn single_source_of_truth(context: &ScanContext) -> Result<ScanResult
         let masked = mask_rust_non_code(&content);
         has_todo |= todo.is_match(&masked);
         has_task |= task.is_match(&masked);
-        for line in masked.lines() {
+        for (index, line) in masked.lines().enumerate() {
             let lower = line.to_ascii_lowercase();
             if !lower.contains("task") && !lower.contains("todo") {
                 continue;
             }
             if let Some(captures) = static_store.captures(line) {
-                stores.insert(captures[1].to_string());
+                stores.insert((path.clone(), index + 1, captures[1].to_string()));
             } else if let Some(captures) = field_store.captures(line) {
-                stores.insert(captures[1].to_string());
+                stores.insert((path.clone(), index + 1, captures[1].to_string()));
             }
         }
     }
@@ -199,7 +203,11 @@ pub(super) fn single_source_of_truth(context: &ScanContext) -> Result<ScanResult
             &format!(
                 "Multiple task/todo state stores detected ({}): {}",
                 stores.len(),
-                stores.into_iter().collect::<Vec<_>>().join(", ")
+                stores
+                    .into_iter()
+                    .map(|(path, line, name)| format!("{name} at {}:{line}", path.display()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
         ));
     }
@@ -245,6 +253,7 @@ pub(super) fn semantic_effect(context: &ScanContext) -> Result<ScanResult> {
             let start = index;
             let mut depth = 0isize;
             let mut entered = false;
+            let mut bodyless = false;
             let mut body = String::new();
             while index < lines.len() {
                 body.push_str(lines[index]);
@@ -252,13 +261,16 @@ pub(super) fn semantic_effect(context: &ScanContext) -> Result<ScanResult> {
                 let delta = lines[index].matches('{').count() as isize
                     - lines[index].matches('}').count() as isize;
                 entered |= lines[index].contains('{');
+                if !entered && lines[index].contains(';') {
+                    bodyless = true;
+                }
                 depth += delta;
                 index += 1;
-                if entered && depth <= 0 {
+                if bodyless || entered && depth <= 0 {
                     break;
                 }
             }
-            if !effect.is_match(&body) && result.is_match(&body) {
+            if !bodyless && !effect.is_match(&body) && result.is_match(&body) {
                 current.push(Finding {
                     rule: "RS-13",
                     path: path.clone(),
@@ -280,39 +292,29 @@ pub(super) fn semantic_effect(context: &ScanContext) -> Result<ScanResult> {
 }
 
 pub(super) fn declaration_execution_gap(context: &ScanContext) -> Result<ScanResult> {
-    let impl_header = Regex::new(
-        r"\bimpl(?:<[^>]+>)?\s+(?:[A-Za-z_:<>]+\s+for\s+)?(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z_][A-Za-z0-9_]*)\b",
-    )?;
     let default_call = Regex::new(
-        r"((?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z_][A-Za-z0-9_]*Config))(?:::\s*<[^>]+>)?::default\(\)",
+        r"((?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z_][A-Za-z0-9_]*Config))(?:::\s*<[^;\n]+>)?::default\(\)",
     )?;
     let method = Regex::new(r"\bfn\s+(load|save|persist|restore)\s*\(")?;
     let mut type_methods: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut declarations = Vec::new();
     let mut sources = Vec::new();
-    for path in rust_files(context) {
+    for path in all_rust_files(context) {
         let content = context.read(&path)?;
         let masked = mask_rust_non_code(&content);
-        let mut current_type = None;
-        let mut depth = 0isize;
-        let mut impl_depth = 0isize;
-        for line in masked.lines() {
-            if current_type.is_none()
-                && let Some(captures) = impl_header.captures(line)
-            {
-                current_type = Some(captures[1].to_string());
-                impl_depth = depth;
-            }
-            if let Some(type_name) = current_type.as_ref()
-                && let Some(captures) = method.captures(line)
-            {
+        for block in impl_blocks(&masked, &path, &context.target)? {
+            for captures in method.captures_iter(&masked[block.body_start..block.body_end]) {
+                let method_name = captures[1].to_string();
+                let line = 1 + masked.as_bytes()
+                    [..block.body_start + captures.get(0).map_or(0, |matched| matched.start())]
+                    .iter()
+                    .filter(|byte| **byte == b'\n')
+                    .count();
                 type_methods
-                    .entry(type_name.clone())
+                    .entry(block.identity.clone())
                     .or_default()
-                    .insert(captures[1].to_string());
-            }
-            depth += line.matches('{').count() as isize - line.matches('}').count() as isize;
-            if current_type.is_some() && depth <= impl_depth && line.contains('}') {
-                current_type = None;
+                    .insert(method_name.clone());
+                declarations.push((path.clone(), line, block.bare.clone(), method_name));
             }
         }
         sources.push((path, content, masked));
@@ -328,10 +330,9 @@ pub(super) fn declaration_execution_gap(context: &ScanContext) -> Result<ScanRes
         let mut current = Vec::new();
         for (index, line) in masked.lines().enumerate() {
             for captures in default_call.captures_iter(line) {
-                let bare = captures[2].to_string();
-                if type_methods
-                    .get(&bare)
-                    .is_some_and(|methods| methods.contains("load"))
+                let full = normalize_type_path(&captures[1]);
+                if context.allows_line(path, index + 1)
+                    && resolves_to_load(&type_methods, path, &context.target, &full)
                 {
                     current.push(Finding {
                         rule: "RS-14",
@@ -344,20 +345,21 @@ pub(super) fn declaration_execution_gap(context: &ScanContext) -> Result<ScanRes
         }
         findings.extend(context.keep_unsuppressed(content, current));
     }
-    for (type_name, methods) in type_methods {
-        for method_name in methods {
-            let call = Regex::new(&format!(
-                r"(?:{}\s*::|\.)\s*{}\s*\(",
-                regex::escape(&type_name),
-                regex::escape(&method_name)
-            ))?;
-            if !call.is_match(&startup) {
-                findings.push(structural(
-                    context,
-                    "RS-14",
-                    &format!("Persistence method '{type_name}::{method_name}()' is declared but not called at startup"),
-                ));
-            }
+    for (path, line, type_name, method_name) in declarations {
+        let call = Regex::new(&format!(
+            r"(?:{}\s*::|\.)\s*{}\s*\(",
+            regex::escape(&type_name),
+            regex::escape(&method_name)
+        ))?;
+        if context.allows_line(&path, line) && !call.is_match(&startup) {
+            findings.push(Finding {
+                rule: "RS-14",
+                path,
+                line,
+                message: format!(
+                    "Persistence method '{type_name}::{method_name}()' is declared but not called at startup"
+                ),
+            });
         }
     }
     Ok(ScanResult::new(
@@ -374,6 +376,192 @@ fn rust_files(context: &ScanContext) -> Vec<PathBuf> {
         .into_iter()
         .filter(|path| !is_rust_test_path(path))
         .collect()
+}
+
+fn all_rust_files(context: &ScanContext) -> Vec<PathBuf> {
+    context
+        .all_files_with_extensions(&["rs"])
+        .into_iter()
+        .filter(|path| !is_rust_test_path(path))
+        .collect()
+}
+
+struct ImplBlock {
+    identity: String,
+    bare: String,
+    body_start: usize,
+    body_end: usize,
+}
+
+fn impl_blocks(masked: &str, path: &Path, target: &Path) -> Result<Vec<ImplBlock>> {
+    let keyword = Regex::new(r"\bimpl\b")?;
+    let mut blocks = Vec::new();
+    for found in keyword.find_iter(masked) {
+        let Some(open) = impl_open_brace(masked, found.end()) else {
+            continue;
+        };
+        let Some(close) = matching_brace(masked, open) else {
+            continue;
+        };
+        let Some(raw_type) = impl_target(&masked[found.end()..open]) else {
+            continue;
+        };
+        let normalized = normalize_type_path(raw_type);
+        let bare = normalized
+            .rsplit("::")
+            .next()
+            .unwrap_or(&normalized)
+            .to_string();
+        let identity = if normalized.contains("::") {
+            normalized
+        } else if let Some(module) = file_module(path, target) {
+            format!("{module}::{bare}")
+        } else {
+            bare.clone()
+        };
+        blocks.push(ImplBlock {
+            identity,
+            bare,
+            body_start: open + 1,
+            body_end: close,
+        });
+    }
+    Ok(blocks)
+}
+
+fn impl_open_brace(source: &str, start: usize) -> Option<usize> {
+    let mut angles = 0isize;
+    for (offset, character) in source[start..].char_indices() {
+        match character {
+            '<' => angles += 1,
+            '>' => angles = angles.saturating_sub(1),
+            '{' if angles == 0 => return Some(start + offset),
+            ';' if angles == 0 => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
+fn matching_brace(source: &str, open: usize) -> Option<usize> {
+    let mut depth = 0isize;
+    for (offset, character) in source[open..].char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(open + offset);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn impl_target(header: &str) -> Option<&str> {
+    let header = header.trim_start();
+    let header = if header.starts_with('<') {
+        let end = balanced_angle_end(header)?;
+        header[end..].trim_start()
+    } else {
+        header
+    };
+    let header = header.split("where").next().unwrap_or(header).trim();
+    let target = top_level_for(header).map_or(header, |index| &header[index + 3..]);
+    let target = target.trim_start();
+    let end = target
+        .char_indices()
+        .take_while(|(_, character)| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | ':')
+        })
+        .map(|(index, character)| index + character.len_utf8())
+        .last()?;
+    Some(&target[..end])
+}
+
+fn balanced_angle_end(value: &str) -> Option<usize> {
+    let mut depth = 0isize;
+    for (index, character) in value.char_indices() {
+        match character {
+            '<' => depth += 1,
+            '>' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn top_level_for(value: &str) -> Option<usize> {
+    let mut depth = 0isize;
+    for (index, character) in value.char_indices() {
+        match character {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            'f' if depth == 0 && value[index..].starts_with("for ") => return Some(index),
+            _ => {}
+        }
+    }
+    None
+}
+
+fn normalize_type_path(value: &str) -> String {
+    value
+        .trim()
+        .trim_start_matches("crate::")
+        .trim_start_matches("self::")
+        .to_string()
+}
+
+fn file_module(path: &Path, target: &Path) -> Option<String> {
+    let relative = path.strip_prefix(target).unwrap_or(path);
+    let components = relative
+        .components()
+        .map(|part| part.as_os_str())
+        .collect::<Vec<_>>();
+    let src = components.iter().rposition(|part| *part == "src")?;
+    let mut modules = components[src + 1..components.len().saturating_sub(1)]
+        .iter()
+        .map(|part| part.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    let stem = path.file_stem()?.to_string_lossy();
+    if !matches!(stem.as_ref(), "lib" | "main" | "mod") {
+        modules.push(stem.to_string());
+    }
+    (!modules.is_empty()).then(|| modules.join("::"))
+}
+
+fn resolves_to_load(
+    methods: &BTreeMap<String, BTreeSet<String>>,
+    path: &Path,
+    target: &Path,
+    requested: &str,
+) -> bool {
+    if requested.contains("::") {
+        return methods
+            .get(requested)
+            .is_some_and(|values| values.contains("load"));
+    }
+    if let Some(module) = file_module(path, target)
+        && methods
+            .get(&format!("{module}::{requested}"))
+            .is_some_and(|values| values.contains("load"))
+    {
+        return true;
+    }
+    let matches = methods
+        .iter()
+        .filter(|(identity, values)| {
+            identity.rsplit("::").next() == Some(requested) && values.contains("load")
+        })
+        .count();
+    matches == 1
 }
 
 fn read_allowlist(path: &Path) -> Result<BTreeSet<String>> {

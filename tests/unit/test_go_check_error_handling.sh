@@ -129,6 +129,28 @@ func Ignore(value int) { _ = value }
 EOF
 assert_ok "ordinary value assigned to blank identifier passes" bash "$GUARD" --strict "$proj_value"
 
+# --- FAIL: discarded calls inside inline blocks and generic calls are detected ---
+proj_inline_generic="${tmpdir}/fail_inline_generic"
+mkdir -p "$proj_inline_generic"
+cat > "${proj_inline_generic}/discard.go" <<'EOF'
+package discard
+func load[T any]() error { return nil }
+func Cleanup(stale bool) { if stale { _ = load[map[string]int]() } }
+EOF
+assert_fail "inline generic discarded call fails --strict" bash "$GUARD" --strict "$proj_inline_generic"
+
+# --- PASS: Go raw strings never become executable scanner input ---
+proj_raw_string="${tmpdir}/pass_raw_string"
+mkdir -p "$proj_raw_string"
+cat > "${proj_raw_string}/raw.go" <<'EOF'
+package raw
+const template = `${
+_ = fake()
+}`
+func Keep() string { return template }
+EOF
+assert_ok "discard syntax inside Go raw strings passes" bash "$GUARD" --strict "$proj_raw_string"
+
 # --- PASS: call-like text in block comments is ignored ---
 proj_comment="${tmpdir}/pass_block_comment"
 mkdir -p "$proj_comment"

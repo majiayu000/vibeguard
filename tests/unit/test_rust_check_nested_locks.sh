@@ -143,6 +143,21 @@ impl Scoped {
 EOF
 assert_ok "sequential one-line lock scopes pass" bash "$GUARD" --strict "$proj_scoped"
 
+# --- PASS: unbound temporary guards end at each statement boundary ---
+proj_temporary="${tmpdir}/pass_temporary_statement_guards"
+mkdir -p "${proj_temporary}/src"
+cat > "${proj_temporary}/src/temporary.rs" <<'EOF'
+use std::sync::Mutex;
+struct Temporary { a: Mutex<i32>, b: Mutex<i32> }
+impl Temporary {
+    fn inspect(&self) {
+        self.a.lock().unwrap().count_ones();
+        self.b.lock().unwrap().count_ones();
+    }
+}
+EOF
+assert_ok "sequential temporary lock guards pass" bash "$GUARD" --strict "$proj_temporary"
+
 # --- Pre-commit mode: VIBEGUARD_STAGED_FILES with no .rs files (pipefail regression) ---
 staged_no_rs=$(mktemp)
 printf 'main.go\nApp.tsx\nstyles.css\n' > "$staged_no_rs"

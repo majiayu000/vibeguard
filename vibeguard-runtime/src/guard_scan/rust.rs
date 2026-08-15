@@ -2,6 +2,7 @@ use super::shared::{Finding, Result, ScanContext, ScanResult, is_rust_test_path}
 use regex::Regex;
 
 pub(super) fn unwrap(context: &ScanContext) -> Result<ScanResult> {
+    let unwrap_call = Regex::new(r"\.(?:unwrap|expect)\s*\(")?;
     let mut findings = Vec::new();
     for path in context
         .files_with_extensions(&["rs"])
@@ -16,13 +17,11 @@ pub(super) fn unwrap(context: &ScanContext) -> Result<ScanResult> {
                 let previous_masked = mask_rust_non_code(&previous);
                 let previous_test_lines = test_scope_lines(&previous_masked);
                 let mut scopes = std::collections::BTreeMap::<String, Vec<bool>>::new();
-                for (index, line) in previous_masked.lines().enumerate() {
-                    if line.contains(".unwrap(") || line.contains(".expect(") {
-                        scopes
-                            .entry(line.trim().to_string())
-                            .or_default()
-                            .push(previous_test_lines.contains(&(index + 1)));
-                    }
+                for site in unwrap_call_sites(&previous_masked, &unwrap_call) {
+                    scopes
+                        .entry(site.key)
+                        .or_default()
+                        .push(previous_test_lines.contains(&site.line));
                 }
                 scopes
             }
@@ -30,28 +29,23 @@ pub(super) fn unwrap(context: &ScanContext) -> Result<ScanResult> {
         };
         let mut current = Vec::new();
         let mut current_occurrences = std::collections::BTreeMap::<String, usize>::new();
-        for (index, line) in masked.lines().enumerate() {
-            if !line.contains(".unwrap(") && !line.contains(".expect(") {
-                continue;
-            }
-            let line_number = index + 1;
-            let key = line.trim().to_string();
-            let occurrence = current_occurrences.entry(key.clone()).or_default();
+        for site in unwrap_call_sites(&masked, &unwrap_call) {
+            let occurrence = current_occurrences.entry(site.key.clone()).or_default();
             let was_test_scoped = previous_call_scopes
-                .get(&key)
+                .get(&site.key)
                 .and_then(|scopes| scopes.get(*occurrence))
                 .copied()
                 .unwrap_or(false);
             *occurrence += 1;
-            if test_lines.contains(&line_number)
-                || (!was_test_scoped && !context.allows_line(&path, line_number))
+            if test_lines.contains(&site.line)
+                || (!was_test_scoped && !context.allows_line(&path, site.line))
             {
                 continue;
             }
             current.push(Finding {
                 rule: "RS-03",
                 path: path.clone(),
-                line: line_number,
+                line: site.line,
                 message: "[review] [this-edit] OBSERVATION: unwrap()/expect() in production code"
                     .to_string(),
             });
@@ -87,7 +81,7 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
         let mut function_line = 0;
         let mut function_depth = 0isize;
         let mut depth = 0isize;
-        let mut lock_depths = Vec::new();
+        let mut lock_depths: Vec<(isize, bool)> = Vec::new();
         let mut max_active = 0usize;
         let mut total = 0usize;
         let mut current = Vec::new();
@@ -113,16 +107,17 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
             for (position, character) in line.char_indices() {
                 while track_locks && lock_positions.get(next_lock) == Some(&position) {
                     total += 1;
-                    lock_depths.push(depth);
+                    lock_depths.push((depth, lock_is_temporary(line, position)));
                     max_active = max_active.max(lock_depths.len());
                     next_lock += 1;
                 }
                 match character {
                     '{' => depth += 1,
                     '}' => {
-                        lock_depths.retain(|lock_depth| *lock_depth < depth);
+                        lock_depths.retain(|(lock_depth, _)| *lock_depth < depth);
                         depth = depth.saturating_sub(1);
                     }
+                    ';' => lock_depths.retain(|(_, temporary)| !*temporary),
                     _ => {}
                 }
             }
@@ -163,6 +158,7 @@ pub(super) fn taste_invariants(context: &ScanContext) -> Result<ScanResult> {
     let ansi = Regex::new(r"\\(?:x1b|033|e)\[")?;
     let panic = Regex::new(r#"panic!\s*\(\s*(?:""\s*)?\)"#)?;
     let function = Regex::new(r"\basync\s+fn\s+")?;
+    let unwrap_call = Regex::new(r"\.(?:unwrap|expect)\s*\(")?;
     let mut findings = Vec::new();
     for path in context
         .files_with_extensions(&["rs"])
@@ -195,9 +191,9 @@ pub(super) fn taste_invariants(context: &ScanContext) -> Result<ScanResult> {
             }
             if function.is_match(code) {
                 pending_async = true;
-                if code.contains(';') && !code.contains('{') {
-                    pending_async = false;
-                }
+            }
+            if pending_async && code.contains(';') && !code.contains('{') {
+                pending_async = false;
             }
             let delta = brace_delta(code);
             if pending_async && code.contains('{') {
@@ -205,7 +201,7 @@ pub(super) fn taste_invariants(context: &ScanContext) -> Result<ScanResult> {
                 pending_async = false;
             }
             if async_depth.is_some()
-                && (code.contains(".unwrap(") || code.contains(".expect("))
+                && unwrap_call.is_match(code)
                 && context.allows_line(&path, line_number)
             {
                 current.push(Finding {
@@ -418,6 +414,119 @@ fn test_scope_lines(masked: &str) -> std::collections::BTreeSet<usize> {
         }
     }
     result
+}
+
+struct UnwrapCallSite {
+    line: usize,
+    key: String,
+}
+
+fn unwrap_call_sites(masked: &str, pattern: &Regex) -> Vec<UnwrapCallSite> {
+    let functions = function_names_by_line(masked);
+    let lines = masked.lines().collect::<Vec<_>>();
+    pattern
+        .find_iter(masked)
+        .map(|found| {
+            let line = masked.as_bytes()[..found.start()]
+                .iter()
+                .filter(|byte| **byte == b'\n')
+                .count()
+                + 1;
+            let function = functions
+                .get(line - 1)
+                .and_then(|value| value.as_deref())
+                .unwrap_or("<module>");
+            let source_line = lines.get(line - 1).copied().unwrap_or("");
+            let normalized = source_line.split_whitespace().collect::<String>();
+            UnwrapCallSite {
+                line,
+                key: format!("{function}:{normalized}"),
+            }
+        })
+        .collect()
+}
+
+fn function_names_by_line(masked: &str) -> Vec<Option<String>> {
+    let mut names = Vec::new();
+    let mut active: Option<(String, isize, bool)> = None;
+    let mut depth = 0isize;
+    for line in masked.lines() {
+        if active.is_none()
+            && let Some(name) = rust_function_name(line)
+        {
+            active = Some((name.to_string(), depth, line.contains('{')));
+        }
+        names.push(active.as_ref().map(|(name, _, _)| name.clone()));
+        if let Some((_, _, entered)) = active.as_mut() {
+            *entered |= line.contains('{');
+            if !*entered && line.contains(';') {
+                active = None;
+            }
+        }
+        depth += brace_delta(line);
+        if active
+            .as_ref()
+            .is_some_and(|(_, base, entered)| *entered && depth <= *base)
+        {
+            active = None;
+        }
+    }
+    names
+}
+
+fn rust_function_name(line: &str) -> Option<&str> {
+    let bytes = line.as_bytes();
+    let mut search = 0;
+    while let Some(offset) = line[search..].find("fn") {
+        let start = search + offset;
+        let boundary_before = start == 0 || !is_rust_ident(bytes[start - 1]);
+        let mut index = start + 2;
+        let boundary_after = bytes
+            .get(index)
+            .is_some_and(|byte| byte.is_ascii_whitespace());
+        if boundary_before && boundary_after {
+            while bytes
+                .get(index)
+                .is_some_and(|byte| byte.is_ascii_whitespace())
+            {
+                index += 1;
+            }
+            let name_start = index;
+            while bytes.get(index).is_some_and(|byte| is_rust_ident(*byte)) {
+                index += 1;
+            }
+            if index > name_start {
+                return Some(&line[name_start..index]);
+            }
+        }
+        search = start + 2;
+    }
+    None
+}
+
+fn is_rust_ident(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+fn lock_is_temporary(line: &str, lock_position: usize) -> bool {
+    let prefix = &line[..lock_position];
+    let statement_start = prefix
+        .rfind([';', '{', '}'])
+        .map_or(0, |position| position + 1);
+    !has_assignment(&prefix[statement_start..])
+}
+
+fn has_assignment(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.iter().enumerate().any(|(index, byte)| {
+        *byte == b'='
+            && !bytes
+                .get(index.saturating_sub(1))
+                .is_some_and(|previous| matches!(previous, b'=' | b'!' | b'<' | b'>'))
+            && !bytes
+                .get(index + 1)
+                .is_some_and(|next| matches!(next, b'=' | b'>'))
+    })
 }
 
 fn brace_delta(line: &str) -> isize {

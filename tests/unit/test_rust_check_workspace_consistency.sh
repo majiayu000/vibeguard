@@ -80,8 +80,8 @@ EOF
 assert_fail "inconsistent DB env vars across members fails --strict" bash "$GUARD" --strict "$proj_incon"
 assert_output_contains "output contains RS-06 tag" "[RS-06]" bash "$GUARD" --strict "$proj_incon"
 
-# --- FAIL: two members use different hardcoded .db filenames ---
-proj_dbnames="${tmpdir}/fail_db_names"
+# --- PASS: named database constants are centralized declarations, not use sites ---
+proj_dbnames="${tmpdir}/pass_named_db_constants"
 mkdir -p "${proj_dbnames}/api/src" "${proj_dbnames}/cli/src"
 cat > "${proj_dbnames}/Cargo.toml" <<'EOF'
 [workspace]
@@ -103,7 +103,7 @@ EOF
 cat > "${proj_dbnames}/cli/src/db.rs" <<'EOF'
 const DB_FILE: &str = "data.db";
 EOF
-assert_fail "different hardcoded .db names across members fails --strict" bash "$GUARD" --strict "$proj_dbnames"
+assert_ok "different named database constants are excluded" bash "$GUARD" --strict "$proj_dbnames"
 
 # --- PASS: workspace with consistent (same) env var and same db filename across members ---
 # NOTE: Both members include the same "app.db" literal so the DB_FILE_MEMBERS associative

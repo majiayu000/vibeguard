@@ -84,6 +84,8 @@ for language in ("rust", "go", "typescript"):
     shim = (language_dir / "runtime-shim.sh").read_text(encoding="utf-8")
     if 'scan "${language}" "${rule}"' not in shim:
         raise SystemExit(f"guards/{language}/runtime-shim.sh does not dispatch runtime scan")
+    if shim.index("target/release/vibeguard-runtime") > shim.index("target/debug/vibeguard-runtime"):
+        raise SystemExit(f"guards/{language}/runtime-shim.sh lets debug shadow release")
     for path in sorted(language_dir.glob("check_*.sh")):
         guards.append(path)
         content = path.read_text(encoding="utf-8")
