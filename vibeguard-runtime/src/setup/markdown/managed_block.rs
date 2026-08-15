@@ -12,7 +12,7 @@ pub(super) fn validate_managed_source(text: &str) -> SetupResult<()> {
     if !text.lines().any(|line| line == START) || !text.lines().any(|line| line == END) {
         return Err("managed source markers must appear on standalone lines".into());
     }
-    if !text.lines().any(|line| line == MANAGED_HEADING) {
+    if standalone_line_ranges(text, MANAGED_HEADING).is_empty() {
         return Err(format!("managed source must contain heading: {MANAGED_HEADING}").into());
     }
     let start = text.find(START).expect("validated start marker count");

@@ -149,6 +149,10 @@ fn invalid_managed_source_fails_before_mutating_the_target() {
             "duplicate-end.md",
             "<!-- vibeguard-start -->\nrules\n<!-- vibeguard-end -->\n<!-- vibeguard-end -->\n",
         ),
+        (
+            "fenced-heading.md",
+            "<!-- vibeguard-start -->\n```markdown\n# VibeGuard shared core\n```\n<!-- vibeguard-end -->\n",
+        ),
     ] {
         let rules = fixture.write(name, invalid);
         let output = run(
