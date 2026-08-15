@@ -7,6 +7,46 @@ use std::process::Command;
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+pub(super) fn rust_file_module(path: &Path, target: &Path) -> Option<String> {
+    let relative = path.strip_prefix(target).unwrap_or(path);
+    let components = relative
+        .components()
+        .map(|part| part.as_os_str())
+        .collect::<Vec<_>>();
+    let src = components.iter().rposition(|part| *part == "src")?;
+    let mut modules = components[src + 1..components.len().saturating_sub(1)]
+        .iter()
+        .map(|part| part.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    let stem = path.file_stem()?.to_string_lossy();
+    if !matches!(stem.as_ref(), "lib" | "main" | "mod") {
+        modules.push(stem.to_string());
+    }
+    (!modules.is_empty()).then(|| modules.join("::"))
+}
+
+pub(super) fn resolve_rust_type_path(value: &str, path: &Path, target: &Path) -> String {
+    let value = value.trim();
+    if let Some(value) = value.strip_prefix("crate::") {
+        return value.to_string();
+    }
+    let mut modules = rust_file_module(path, target)
+        .map(|module| module.split("::").map(str::to_string).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let mut relative = value;
+    if let Some(value) = relative.strip_prefix("self::") {
+        relative = value;
+    } else if !relative.starts_with("super::") {
+        return relative.to_string();
+    }
+    while let Some(value) = relative.strip_prefix("super::") {
+        modules.pop();
+        relative = value;
+    }
+    modules.push(relative.to_string());
+    modules.join("::")
+}
+
 #[derive(Debug)]
 pub(super) struct ScanArgs {
     pub(super) language: String,
@@ -158,7 +198,7 @@ impl ScanResult {
 #[derive(Default)]
 struct DiffMap {
     added: BTreeMap<PathBuf, BTreeSet<usize>>,
-    deleted: BTreeMap<PathBuf, BTreeSet<usize>>,
+    deleted: BTreeMap<PathBuf, Vec<(usize, String)>>,
     renames: BTreeMap<PathBuf, PathBuf>,
 }
 
@@ -272,13 +312,27 @@ impl ScanContext {
             .is_some_and(|lines| lines.contains(&line))
     }
 
-    pub(super) fn has_deleted_between(&self, path: &Path, start: usize, end: usize) -> bool {
+    pub(super) fn has_deleted_between(
+        &self,
+        path: &Path,
+        start: usize,
+        end: usize,
+        pattern: &Regex,
+    ) -> bool {
         self.diff.as_ref().is_some_and(|diff| {
             diff.deleted.get(path).is_some_and(|lines| {
                 lines
                     .iter()
-                    .any(|deleted| *deleted >= start && *deleted <= end)
+                    .any(|(line, text)| *line >= start && *line <= end && pattern.is_match(text))
             })
+        })
+    }
+
+    pub(super) fn has_deleted_match(&self, path: &Path, pattern: &Regex) -> bool {
+        self.diff.as_ref().is_some_and(|diff| {
+            diff.deleted
+                .get(path)
+                .is_some_and(|lines| lines.iter().any(|(_, text)| pattern.is_match(text)))
         })
     }
 
@@ -446,10 +500,6 @@ fn build_diff_map(root: &Path, staged: bool, baseline: Option<&str>) -> Result<D
 
 fn parse_diff(root: &Path, text: &str) -> DiffMap {
     let hunk = Regex::new(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@").expect("valid hunk regex");
-    let go_exit = Regex::new(
-        r"ctx\.Done|context\.WithCancel|wg\.(?:Add|Done|Wait)|errgroup|<-\s*(?:done|quit|stop)|time\.After|ticker",
-    )
-    .expect("valid Go exit-mechanism regex");
     let mut map = DiffMap::default();
     let mut path = None;
     let mut new_line = 0usize;
@@ -475,12 +525,10 @@ fn parse_diff(root: &Path, text: &str) -> DiffMap {
                 .insert(new_line);
             new_line += 1;
         } else if line.starts_with('-') && !line.starts_with("---") {
-            if go_exit.is_match(line.trim_start_matches('-')) {
-                map.deleted
-                    .entry(current.clone())
-                    .or_default()
-                    .insert(new_line.max(1));
-            }
+            map.deleted.entry(current.clone()).or_default().push((
+                new_line.max(1),
+                line.strip_prefix('-').unwrap_or(line).to_string(),
+            ));
         } else if !line.starts_with('\\') {
             new_line += 1;
         }

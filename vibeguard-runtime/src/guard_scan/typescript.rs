@@ -67,7 +67,9 @@ pub(super) fn console_residual(context: &ScanContext) -> Result<ScanResult> {
             &[],
         ));
     }
-    let console = Regex::new(r"\bconsole\.[A-Za-z_$][A-Za-z0-9_$]*\s*(?:\?\.)?\s*\(")?;
+    let console = Regex::new(
+        r"\bconsole[ \t\r\n]*\.[ \t\r\n]*[A-Za-z_$][A-Za-z0-9_$]*[ \t\r\n]*(?:\?\.)?[ \t\r\n]*\(",
+    )?;
     let mut findings = Vec::new();
     for path in production_files(context) {
         let relative = path.strip_prefix(&context.target).unwrap_or(&path);
@@ -96,18 +98,23 @@ pub(super) fn console_residual(context: &ScanContext) -> Result<ScanResult> {
                 .any(|marker| previous.contains(marker))
         });
         let masked = mask_javascript_non_code(&content);
-        let current = masked
-            .lines()
-            .enumerate()
-            .filter(|(index, line)| {
-                (mcp_exemption_removed || context.allows_line(&path, index + 1))
-                    && console.is_match(line)
-            })
-            .map(|(index, _)| Finding {
-                rule: "TS-03",
-                path: path.clone(),
-                line: index + 1,
-                message: "[review] [this-line] OBSERVATION: console residual".to_string(),
+        let current = console
+            .find_iter(&masked)
+            .filter_map(|found| {
+                let line = masked.as_bytes()[..found.start()]
+                    .iter()
+                    .filter(|byte| **byte == b'\n')
+                    .count()
+                    + 1;
+                let end_line = line + found.as_str().matches('\n').count();
+                (mcp_exemption_removed
+                    || (line..=end_line).any(|candidate| context.allows_line(&path, candidate)))
+                .then(|| Finding {
+                    rule: "TS-03",
+                    path: path.clone(),
+                    line,
+                    message: "[review] [this-line] OBSERVATION: console residual".to_string(),
+                })
             })
             .collect();
         findings.extend(context.keep_unsuppressed(&content, current));
@@ -428,7 +435,7 @@ fn any_is_type(tokens: &[TypeToken], index: usize, object_colons: &BTreeSet<usiz
         match tokens[cursor].text.as_str() {
             ":" => return !object_colons.contains(&cursor),
             "as" => return true,
-            "," if !inside_angle(tokens, cursor) => return false,
+            "," if !inside_type_container(tokens, cursor) => return false,
             "=" => return statement_is_type_alias(tokens, cursor),
             ";" | "{" | "}" => return false,
             _ => {}
@@ -437,16 +444,19 @@ fn any_is_type(tokens: &[TypeToken], index: usize, object_colons: &BTreeSet<usiz
     false
 }
 
-fn inside_angle(tokens: &[TypeToken], index: usize) -> bool {
-    tokens[..index].iter().fold(0usize, |depth, token| {
-        if token.text == "<" {
-            depth + 1
-        } else if token.text == ">" {
-            depth.saturating_sub(1)
-        } else {
-            depth
-        }
-    }) > 0
+fn inside_type_container(tokens: &[TypeToken], index: usize) -> bool {
+    tokens[..index]
+        .iter()
+        .fold((0usize, 0usize), |(angle, bracket), token| {
+            match token.text.as_str() {
+                "<" => (angle + 1, bracket),
+                ">" => (angle.saturating_sub(1), bracket),
+                "[" => (angle, bracket + 1),
+                "]" => (angle, bracket.saturating_sub(1)),
+                _ => (angle, bracket),
+            }
+        })
+        != (0, 0)
 }
 
 fn statement_is_type_alias(tokens: &[TypeToken], index: usize) -> bool {

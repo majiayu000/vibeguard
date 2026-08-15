@@ -69,6 +69,7 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
     let immediate_value = Regex::new(
         r"\.(?:read|write|lock)\s*\([^)]*\)\.(?:clone|to_owned|to_string|len|is_empty|contains)\(",
     )?;
+    let drop_call = Regex::new(r"\bdrop\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)")?;
     let mut findings = Vec::new();
     for path in context
         .files_with_extensions(&["rs"])
@@ -81,7 +82,7 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
         let mut function_line = 0;
         let mut function_depth = 0isize;
         let mut depth = 0isize;
-        let mut lock_depths: Vec<(isize, bool)> = Vec::new();
+        let mut lock_depths: Vec<(isize, Option<String>)> = Vec::new();
         let mut max_active = 0usize;
         let mut total = 0usize;
         let mut current = Vec::new();
@@ -103,13 +104,31 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
                 .map(|found| found.start())
                 .collect::<Vec<_>>();
             let track_locks = !(lock_positions.len() == 1 && immediate_value.is_match(line));
+            let drops = drop_call
+                .captures_iter(line)
+                .filter_map(|captures| {
+                    Some((
+                        captures.get(0)?.start(),
+                        captures.get(1)?.as_str().to_string(),
+                    ))
+                })
+                .collect::<Vec<_>>();
             let mut next_lock = 0usize;
+            let mut next_drop = 0usize;
             for (position, character) in line.char_indices() {
                 while track_locks && lock_positions.get(next_lock) == Some(&position) {
                     total += 1;
-                    lock_depths.push((depth, lock_is_temporary(line, position)));
+                    lock_depths.push((depth, lock_binding_name(line, position)));
                     max_active = max_active.max(lock_depths.len());
                     next_lock += 1;
+                }
+                while drops
+                    .get(next_drop)
+                    .is_some_and(|(start, _)| *start == position)
+                {
+                    let name = &drops[next_drop].1;
+                    lock_depths.retain(|(_, binding)| binding.as_deref() != Some(name));
+                    next_drop += 1;
                 }
                 match character {
                     '{' => depth += 1,
@@ -117,7 +136,7 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
                         lock_depths.retain(|(lock_depth, _)| *lock_depth < depth);
                         depth = depth.saturating_sub(1);
                     }
-                    ';' => lock_depths.retain(|(_, temporary)| !*temporary),
+                    ';' => lock_depths.retain(|(_, binding)| binding.is_some()),
                     _ => {}
                 }
             }
@@ -508,17 +527,24 @@ fn is_rust_ident(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
-fn lock_is_temporary(line: &str, lock_position: usize) -> bool {
+fn lock_binding_name(line: &str, lock_position: usize) -> Option<String> {
     let prefix = &line[..lock_position];
     let statement_start = prefix
         .rfind([';', '{', '}'])
         .map_or(0, |position| position + 1);
-    !has_assignment(&prefix[statement_start..])
+    let statement = &prefix[statement_start..];
+    let assignment = assignment_position(statement)?;
+    let name = statement[..assignment]
+        .split(':')
+        .next()?
+        .split_whitespace()
+        .next_back()?;
+    name.bytes().all(is_rust_ident).then(|| name.to_string())
 }
 
-fn has_assignment(text: &str) -> bool {
+fn assignment_position(text: &str) -> Option<usize> {
     let bytes = text.as_bytes();
-    bytes.iter().enumerate().any(|(index, byte)| {
+    bytes.iter().enumerate().position(|(index, byte)| {
         *byte == b'='
             && !bytes
                 .get(index.saturating_sub(1))

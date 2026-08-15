@@ -158,6 +158,23 @@ impl Temporary {
 EOF
 assert_ok "sequential temporary lock guards pass" bash "$GUARD" --strict "$proj_temporary"
 
+# --- PASS: explicit drop() releases a bound guard before the next lock ---
+proj_drop="${tmpdir}/pass_explicit_drop"
+mkdir -p "${proj_drop}/src"
+cat > "${proj_drop}/src/drop.rs" <<'EOF'
+use std::sync::Mutex;
+struct ExplicitDrop { a: Mutex<i32>, b: Mutex<i32> }
+impl ExplicitDrop {
+    fn inspect(&self) {
+        let first = self.a.lock();
+        drop(first);
+        let second = self.b.lock();
+        drop(second);
+    }
+}
+EOF
+assert_ok "explicitly dropped lock guards pass" bash "$GUARD" --strict "$proj_drop"
+
 # --- Pre-commit mode: VIBEGUARD_STAGED_FILES with no .rs files (pipefail regression) ---
 staged_no_rs=$(mktemp)
 printf 'main.go\nApp.tsx\nstyles.css\n' > "$staged_no_rs"

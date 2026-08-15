@@ -158,6 +158,15 @@ EOF
 assert_fail "any nested inside generic type annotations fails --strict" \
   bash "$GUARD" --strict "$proj_nested_type"
 
+# --- FAIL: tuple commas remain inside the surrounding type annotation ---
+proj_tuple_type="${tmpdir}/fail_tuple_any_type"
+mkdir -p "${proj_tuple_type}/src"
+cat > "${proj_tuple_type}/src/value.ts" <<'EOF'
+declare const value: unknown;
+export const pair: [string, any] = value as [string, unknown];
+EOF
+assert_fail "any inside tuple type annotations fails --strict" bash "$GUARD" --strict "$proj_tuple_type"
+
 # --- FAIL: object type members remain type annotations ---
 proj_object_type="${tmpdir}/fail_any_object_type"
 mkdir -p "${proj_object_type}/src"

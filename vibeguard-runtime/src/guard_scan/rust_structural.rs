@@ -4,7 +4,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::rust::mask_rust_non_code;
-use super::shared::{Finding, Result, ScanContext, ScanResult, is_rust_test_path};
+use super::shared::{
+    Finding, Result, ScanContext, ScanResult, is_rust_test_path, resolve_rust_type_path,
+    rust_file_module,
+};
 
 pub(super) fn duplicate_types(context: &ScanContext) -> Result<ScanResult> {
     let definition = Regex::new(r"^\s*pub\s+(?:struct|enum)\s+([A-Za-z_][A-Za-z0-9_]*)")?;
@@ -338,7 +341,7 @@ pub(super) fn declaration_execution_gap(context: &ScanContext) -> Result<ScanRes
         let mut current = Vec::new();
         for (index, line) in masked.lines().enumerate() {
             for captures in default_call.captures_iter(line) {
-                let full = normalize_type_path(&captures[1]);
+                let full = resolve_rust_type_path(&captures[1], path, &context.target);
                 if context.allows_line(path, index + 1)
                     && resolves_to_load(&type_methods, path, &context.target, &full)
                 {
@@ -359,7 +362,10 @@ pub(super) fn declaration_execution_gap(context: &ScanContext) -> Result<ScanRes
             regex::escape(&type_name),
             regex::escape(&method_name)
         ))?;
-        if context.allows_line(&path, line) && !call.is_match(&startup) {
+        let deleted_call = sources
+            .iter()
+            .any(|(source, _, _)| startup_path(source) && context.has_deleted_match(source, &call));
+        if (context.allows_line(&path, line) || deleted_call) && !call.is_match(&startup) {
             let finding = Finding {
                 rule: "RS-14",
                 path: path.clone(),
@@ -368,16 +374,12 @@ pub(super) fn declaration_execution_gap(context: &ScanContext) -> Result<ScanRes
                     "Persistence method '{type_name}::{method_name}()' is declared but not called at startup"
                 ),
             };
-            let content = sources
-                .iter()
-                .find(|(source, _, _)| source == &path)
-                .map(|(_, content, _)| content.as_str())
-                .ok_or_else(|| {
-                    format!(
-                        "persistence declaration source is not indexed: {}",
-                        path.display()
-                    )
-                })?;
+            let Some((_, content, _)) = sources.iter().find(|(source, _, _)| source == &path)
+            else {
+                return Err(
+                    format!("persistence declaration source missing: {}", path.display()).into(),
+                );
+            };
             findings.extend(context.keep_unsuppressed(content, vec![finding]));
         }
     }
@@ -425,7 +427,7 @@ fn impl_blocks(masked: &str, path: &Path, target: &Path) -> Result<Vec<ImplBlock
         let Some(raw_type) = impl_target(&masked[found.end()..open]) else {
             continue;
         };
-        let normalized = normalize_type_path(raw_type);
+        let normalized = resolve_rust_type_path(raw_type, path, target);
         let bare = normalized
             .rsplit("::")
             .next()
@@ -433,7 +435,7 @@ fn impl_blocks(masked: &str, path: &Path, target: &Path) -> Result<Vec<ImplBlock
             .to_string();
         let identity = if normalized.contains("::") {
             normalized
-        } else if let Some(module) = file_module(path, target) {
+        } else if let Some(module) = rust_file_module(path, target) {
             format!("{module}::{bare}")
         } else {
             bare.clone()
@@ -530,32 +532,6 @@ fn top_level_for(value: &str) -> Option<usize> {
     None
 }
 
-fn normalize_type_path(value: &str) -> String {
-    value
-        .trim()
-        .trim_start_matches("crate::")
-        .trim_start_matches("self::")
-        .to_string()
-}
-
-fn file_module(path: &Path, target: &Path) -> Option<String> {
-    let relative = path.strip_prefix(target).unwrap_or(path);
-    let components = relative
-        .components()
-        .map(|part| part.as_os_str())
-        .collect::<Vec<_>>();
-    let src = components.iter().rposition(|part| *part == "src")?;
-    let mut modules = components[src + 1..components.len().saturating_sub(1)]
-        .iter()
-        .map(|part| part.to_string_lossy().to_string())
-        .collect::<Vec<_>>();
-    let stem = path.file_stem()?.to_string_lossy();
-    if !matches!(stem.as_ref(), "lib" | "main" | "mod") {
-        modules.push(stem.to_string());
-    }
-    (!modules.is_empty()).then(|| modules.join("::"))
-}
-
 fn resolves_to_load(
     methods: &BTreeMap<String, BTreeSet<String>>,
     path: &Path,
@@ -567,7 +543,7 @@ fn resolves_to_load(
             .get(requested)
             .is_some_and(|values| values.contains("load"));
     }
-    if let Some(module) = file_module(path, target)
+    if let Some(module) = rust_file_module(path, target)
         && methods
             .get(&format!("{module}::{requested}"))
             .is_some_and(|values| values.contains("load"))

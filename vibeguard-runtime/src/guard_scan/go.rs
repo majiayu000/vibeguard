@@ -50,7 +50,7 @@ fn mask_go_non_code(source: &str) -> String {
     let bytes = source.as_bytes();
     let mut output = Vec::with_capacity(bytes.len());
     let mut index = 0;
-    let mut block_comment_depth = 0usize;
+    let mut in_block_comment = false;
     let mut quoted = None;
     while index < bytes.len() {
         if let Some(end) = quoted {
@@ -67,15 +67,11 @@ fn mask_go_non_code(source: &str) -> String {
             }
             continue;
         }
-        if block_comment_depth > 0 {
-            if bytes[index..].starts_with(b"/*") {
+        if in_block_comment {
+            if bytes[index..].starts_with(b"*/") {
                 output.extend_from_slice(b"  ");
                 index += 2;
-                block_comment_depth += 1;
-            } else if bytes[index..].starts_with(b"*/") {
-                output.extend_from_slice(b"  ");
-                index += 2;
-                block_comment_depth -= 1;
+                in_block_comment = false;
             } else {
                 output.push(if bytes[index] == b'\n' { b'\n' } else { b' ' });
                 index += 1;
@@ -90,7 +86,7 @@ fn mask_go_non_code(source: &str) -> String {
         } else if bytes[index..].starts_with(b"/*") {
             output.extend_from_slice(b"  ");
             index += 2;
-            block_comment_depth = 1;
+            in_block_comment = true;
         } else if matches!(bytes[index], b'"' | b'\'' | b'`') {
             quoted = Some(bytes[index]);
             output.push(b' ');
@@ -117,7 +113,12 @@ pub(super) fn goroutine_leak(context: &ScanContext) -> Result<ScanResult> {
         for (index, line) in lines.iter().enumerate() {
             let line_number = index + 1;
             let changed = context.allows_line(&path, line_number)
-                || context.has_deleted_between(&path, line_number, line_number.saturating_add(20));
+                || context.has_deleted_between(
+                    &path,
+                    line_number,
+                    line_number.saturating_add(20),
+                    &exit,
+                );
             if !changed {
                 continue;
             }

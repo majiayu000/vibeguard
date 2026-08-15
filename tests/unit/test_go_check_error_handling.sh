@@ -176,6 +176,20 @@ func Clean() {}
 EOF
 assert_ok "discarded call text inside block comment passes" bash "$GUARD" --strict "$proj_comment"
 
+# --- FAIL: Go block comments end at the first closing delimiter ---
+proj_non_nested_comment="${tmpdir}/fail_non_nested_block_comment"
+mkdir -p "$proj_non_nested_comment"
+cat > "${proj_non_nested_comment}/comment.go" <<'EOF'
+package comment
+func cleanup() error { return nil }
+func Clean() {
+    /* text /* marker */
+    _ = cleanup()
+}
+EOF
+assert_fail "discard after non-nested Go block comment fails --strict" \
+  bash "$GUARD" --strict "$proj_non_nested_comment"
+
 # --- PASS: test files are excluded ---
 proj_test="${tmpdir}/pass_test_excluded"
 mkdir -p "${proj_test}"

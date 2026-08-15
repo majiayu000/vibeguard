@@ -88,6 +88,17 @@ export function inspect(data: unknown): void {
 EOF
 assert_fail "console.table/dir/assert fail --strict" bash "$GUARD" --strict "$proj_other_methods"
 
+# --- FAIL: member access may cross a physical line boundary ---
+proj_multiline="${tmpdir}/fail_multiline_console"
+mkdir -p "${proj_multiline}/src"
+cat > "${proj_multiline}/src/service.ts" <<'EOF'
+export function inspect(data: unknown): void {
+  console
+    .log(data);
+}
+EOF
+assert_fail "multiline console member call fails --strict" bash "$GUARD" --strict "$proj_multiline"
+
 # --- PASS: no console calls ---
 proj_clean="${tmpdir}/pass_clean"
 mkdir -p "${proj_clean}/src"

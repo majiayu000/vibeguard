@@ -180,6 +180,21 @@ EOF
 assert_ok "qualified Config identity avoids cross-module load pollution" \
   bash "$GUARD" --strict "$proj_qualified"
 
+# --- FAIL: super-qualified Config paths resolve from the caller module ---
+proj_super="${tmpdir}/fail_super_qualified_config"
+mkdir -p "${proj_super}/src/commands"
+cat > "${proj_super}/src/commands/config.rs" <<'EOF'
+pub struct AppConfig;
+impl AppConfig { pub fn load() -> Self { Self } }
+EOF
+cat > "${proj_super}/src/commands/start.rs" <<'EOF'
+pub fn start() {
+    let _config = super::config::AppConfig::default();
+}
+EOF
+assert_output_contains "super-qualified Config path detects load bypass" \
+  "super::config::AppConfig::default()" bash "$GUARD" --strict "$proj_super"
+
 # --- FAIL: balanced nested generic impl headers still register load() ---
 proj_nested_generic="${tmpdir}/fail_nested_generic_impl"
 mkdir -p "${proj_nested_generic}/src"
@@ -240,6 +255,32 @@ impl AppConfig {
 }
 EOF
 assert_ok "suppressed persistence declaration passes" bash "$GUARD" --strict "$proj_suppressed"
+
+# --- BASELINE: deleting the only startup call rechecks an unchanged declaration ---
+proj_deleted_call="${tmpdir}/fail_deleted_startup_call"
+mkdir -p "${proj_deleted_call}/src"
+git -C "$proj_deleted_call" init -q
+git -C "$proj_deleted_call" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_deleted_call" config user.name "VibeGuard Tests"
+cat > "${proj_deleted_call}/src/config.rs" <<'EOF'
+pub struct AppConfig;
+impl AppConfig { pub fn load() -> Self { Self } }
+EOF
+cat > "${proj_deleted_call}/src/main.rs" <<'EOF'
+mod config;
+fn main() { let _config = config::AppConfig::load(); }
+EOF
+git -C "$proj_deleted_call" add src/config.rs src/main.rs
+git -C "$proj_deleted_call" commit -q -m initial
+deleted_call_baseline="$(git -C "$proj_deleted_call" rev-parse HEAD)"
+cat > "${proj_deleted_call}/src/main.rs" <<'EOF'
+mod config;
+fn main() {}
+EOF
+git -C "$proj_deleted_call" add src/main.rs
+git -C "$proj_deleted_call" commit -q -m remove-load
+assert_fail "deleted startup persistence call fails baseline scan" \
+  bash "$GUARD" --strict --baseline "$deleted_call_baseline" "$proj_deleted_call"
 
 # --- PASS: empty project ---
 proj_empty="${tmpdir}/pass_empty"
