@@ -6,6 +6,9 @@ mod rust_structural;
 mod shared;
 mod typescript;
 
+#[cfg(test)]
+mod tests;
+
 use shared::{ScanArgs, ScanContext, ScanResult};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;

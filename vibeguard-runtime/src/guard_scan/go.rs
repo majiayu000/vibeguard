@@ -9,6 +9,7 @@ pub(super) fn error_handling(context: &ScanContext) -> Result<ScanResult> {
     let call = Regex::new(
         r"^\s*_(?:\s*,\s*_)?\s*:?=\s*[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\s*\(",
     )?;
+    let comma_ok = Regex::new(r",\s*(ok|found|exists)\s*:?=")?;
     let mut findings = Vec::new();
     for path in production_files(context) {
         let content = context.read(&path)?;
@@ -22,9 +23,7 @@ pub(super) fn error_handling(context: &ScanContext) -> Result<ScanResult> {
                     && discard.is_match(line)
                     && call.is_match(line)
                     && !line.contains("range")
-                    && !Regex::new(r",\s*(ok|found|exists)\s*:?=")
-                        .expect("valid exclusion regex")
-                        .is_match(line)
+                    && !comma_ok.is_match(line)
             })
             .map(|(index, _)| Finding {
                 rule: "GO-01",

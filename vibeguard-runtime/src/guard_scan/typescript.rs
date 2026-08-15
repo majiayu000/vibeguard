@@ -174,20 +174,23 @@ pub(super) fn component_duplication(context: &ScanContext) -> Result<ScanResult>
     let mut sortable_tables = Vec::new();
     let mut query_hooks = Vec::new();
     let style = Regex::new(r#"(?:className|class|Style)\s*[:=]\s*['\"]([^'\"]{60,})['\"]"#)?;
+    let required = Regex::new(r"required\s*[?:}]")?;
+    let sort_state = Regex::new(r"useState.*sort|setSortKey|setSortDir|setSortOrder")?;
+    let table = Regex::new(r"<table|<Table|<th|<thead")?;
+    let query = Regex::new(r"useQuery|useSWR|useInfiniteQuery")?;
+    let query_state = Regex::new(r"isLoading|loading.*error|refetch|data.*error")?;
     let mut styles: BTreeMap<String, BTreeSet<std::path::PathBuf>> = BTreeMap::new();
     for path in production_files(context) {
         let content = context.read(&path)?;
         if content.contains("<label")
             && (content.contains("{children}") || content.contains("{props.children}"))
             && (content.contains("isRequired")
-                || Regex::new(r"required\s*[?:}]")?.is_match(&content)
+                || required.is_match(&content)
                 || content.contains("props.required"))
         {
             form_fields.push(path.clone());
         }
-        if Regex::new(r"useState.*sort|setSortKey|setSortDir|setSortOrder")?.is_match(&content)
-            && Regex::new(r"<table|<Table|<th|<thead")?.is_match(&content)
-        {
+        if sort_state.is_match(&content) && table.is_match(&content) {
             sortable_tables.push(path.clone());
         }
         let normalized = path.to_string_lossy().replace('\\', "/");
@@ -196,8 +199,8 @@ pub(super) fn component_duplication(context: &ScanContext) -> Result<ScanResult>
                 .file_name()
                 .and_then(|value| value.to_str())
                 .is_some_and(|name| name.starts_with("use")))
-            && Regex::new(r"useQuery|useSWR|useInfiniteQuery")?.is_match(&content)
-            && Regex::new(r"isLoading|loading.*error|refetch|data.*error")?.is_match(&content)
+            && query.is_match(&content)
+            && query_state.is_match(&content)
         {
             query_hooks.push(path.clone());
         }
@@ -333,14 +336,13 @@ fn production_files(context: &ScanContext) -> Vec<std::path::PathBuf> {
 
 fn is_cli_project(target: &Path) -> bool {
     let package = target.join("package.json");
-    if let Ok(content) = std::fs::read_to_string(package) {
-        if content.contains("\"bin\"")
+    if let Ok(content) = std::fs::read_to_string(package)
+        && (content.contains("\"bin\"")
             || Regex::new(r#""[^"]+"\s*:\s*"[^"]*cli[^"]*""#)
                 .expect("valid CLI regex")
-                .is_match(&content)
-        {
-            return true;
-        }
+                .is_match(&content))
+    {
+        return true;
     }
     ["ts", "tsx", "js", "jsx"].iter().any(|extension| {
         target.join(format!("src/cli.{extension}")).exists()

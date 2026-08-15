@@ -296,19 +296,19 @@ pub(super) fn declaration_execution_gap(context: &ScanContext) -> Result<ScanRes
         let mut depth = 0isize;
         let mut impl_depth = 0isize;
         for line in masked.lines() {
-            if current_type.is_none() {
-                if let Some(captures) = impl_header.captures(line) {
-                    current_type = Some(captures[1].to_string());
-                    impl_depth = depth;
-                }
+            if current_type.is_none()
+                && let Some(captures) = impl_header.captures(line)
+            {
+                current_type = Some(captures[1].to_string());
+                impl_depth = depth;
             }
-            if let Some(type_name) = current_type.as_ref() {
-                if let Some(captures) = method.captures(line) {
-                    type_methods
-                        .entry(type_name.clone())
-                        .or_default()
-                        .insert(captures[1].to_string());
-                }
+            if let Some(type_name) = current_type.as_ref()
+                && let Some(captures) = method.captures(line)
+            {
+                type_methods
+                    .entry(type_name.clone())
+                    .or_default()
+                    .insert(captures[1].to_string());
             }
             depth += line.matches('{').count() as isize - line.matches('}').count() as isize;
             if current_type.is_some() && depth <= impl_depth && line.contains('}') {
@@ -412,12 +412,12 @@ fn workspace_members(root: &Path, cargo: &str) -> Result<Vec<PathBuf>> {
     let mut available = Vec::new();
     if patterns
         .iter()
-        .any(|pattern| pattern.contains(|character| matches!(character, '*' | '?' | '[')))
+        .any(|pattern| pattern.contains(['*', '?', '[']))
     {
         collect_manifest_dirs(root, root, &mut available)?;
     }
     for pattern in patterns {
-        if pattern.contains(|character| matches!(character, '*' | '?' | '[')) {
+        if pattern.contains(['*', '?', '[']) {
             members.extend(
                 available
                     .iter()

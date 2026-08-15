@@ -220,21 +220,20 @@ impl ScanContext {
     }
 
     pub(super) fn read(&self, path: &Path) -> Result<String> {
-        if self.staged {
-            if let (Some(root), Ok(relative)) = (
+        if self.staged
+            && let (Some(root), Ok(relative)) = (
                 self.git_root.as_deref(),
                 path.strip_prefix(self.git_root.as_deref().unwrap_or(Path::new(""))),
-            ) {
-                let output = Command::new("git")
-                    .args(["-C"])
-                    .arg(root)
-                    .args(["show", &format!(":{}", relative.to_string_lossy())])
-                    .output()?;
-                if output.status.success() {
-                    return String::from_utf8(output.stdout).map_err(|error| {
-                        format!("{} is not UTF-8: {error}", path.display()).into()
-                    });
-                }
+            )
+        {
+            let output = Command::new("git")
+                .args(["-C"])
+                .arg(root)
+                .args(["show", &format!(":{}", relative.to_string_lossy())])
+                .output()?;
+            if output.status.success() {
+                return String::from_utf8(output.stdout)
+                    .map_err(|error| format!("{} is not UTF-8: {error}", path.display()).into());
             }
         }
         fs::read_to_string(path)
@@ -245,12 +244,11 @@ impl ScanContext {
         let Some(diff) = &self.diff else {
             return true;
         };
-        if let Some(old) = diff.renames.get(path) {
-            if path_enforcement_class(&self.language, &self.rule, &self.target, old)
+        if let Some(old) = diff.renames.get(path)
+            && path_enforcement_class(&self.language, &self.rule, &self.target, old)
                 != path_enforcement_class(&self.language, &self.rule, &self.target, path)
-            {
-                return true;
-            }
+        {
+            return true;
         }
         diff.added
             .get(path)

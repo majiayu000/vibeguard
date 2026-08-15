@@ -94,15 +94,15 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
         let masked_lines = masked.lines().collect::<Vec<_>>();
         for (index, line) in masked_lines.iter().enumerate() {
             let line_number = index + 1;
-            if function_name.is_none() {
-                if let Some(captures) = function.captures(line) {
-                    function_name = Some(captures[1].to_string());
-                    function_line = line_number;
-                    function_depth = depth;
-                    lock_depths.clear();
-                    max_active = 0;
-                    total = 0;
-                }
+            if function_name.is_none()
+                && let Some(captures) = function.captures(line)
+            {
+                function_name = Some(captures[1].to_string());
+                function_line = line_number;
+                function_depth = depth;
+                lock_depths.clear();
+                max_active = 0;
+                total = 0;
             }
             let lock_positions = lock
                 .find_iter(line)
@@ -126,26 +126,27 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
                     _ => {}
                 }
             }
-            if let Some(name) = function_name.as_deref() {
-                if depth <= function_depth && line.contains('}') {
-                    let changed_lock = (function_line..=line_number).any(|candidate| {
-                        context.allows_line(&path, candidate)
-                            && masked_lines
-                                .get(candidate.saturating_sub(1))
-                                .is_some_and(|candidate_line| lock.is_match(candidate_line))
+            if let Some(name) = function_name.as_deref()
+                && depth <= function_depth
+                && line.contains('}')
+            {
+                let changed_lock = (function_line..=line_number).any(|candidate| {
+                    context.allows_line(&path, candidate)
+                        && masked_lines
+                            .get(candidate.saturating_sub(1))
+                            .is_some_and(|candidate_line| lock.is_match(candidate_line))
+                });
+                if max_active > 1 && changed_lock {
+                    current.push(Finding {
+                        rule: "RS-01",
+                        path: path.clone(),
+                        line: function_line,
+                        message: format!(
+                            "fn {name} — {max_active} concurrent lock acquisitions (of {total} total)"
+                        ),
                     });
-                    if max_active > 1 && changed_lock {
-                        current.push(Finding {
-                            rule: "RS-01",
-                            path: path.clone(),
-                            line: function_line,
-                            message: format!(
-                                "fn {name} — {max_active} concurrent lock acquisitions (of {total} total)"
-                            ),
-                        });
-                    }
-                    function_name = None;
                 }
+                function_name = None;
             }
         }
         findings.extend(context.keep_unsuppressed(&content, current));
@@ -307,12 +308,12 @@ pub(super) fn mask_rust_non_code(source: &str) -> String {
             lexer.in_string = true;
             continue;
         }
-        if bytes[index] == b'\'' {
-            if let Some(length) = char_literal_length(&bytes[index..]) {
-                output.extend(std::iter::repeat_n(b' ', length));
-                index += length;
-                continue;
-            }
+        if bytes[index] == b'\''
+            && let Some(length) = char_literal_length(&bytes[index..])
+        {
+            output.extend(std::iter::repeat_n(b' ', length));
+            index += length;
+            continue;
         }
         output.push(bytes[index]);
         index += 1;
