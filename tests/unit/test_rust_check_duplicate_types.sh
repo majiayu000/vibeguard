@@ -107,6 +107,14 @@ pub enum Priority { Low, Medium, High }
 EOF
 assert_ok "single definition passes" bash "$GUARD" --strict "$proj6"
 
+# --- ERROR: unreadable/invalid allowlist data must not disable detection silently ---
+proj7="${tmpdir}/fail_invalid_allowlist"
+mkdir -p "${proj7}/src"
+printf 'pub struct Item;\n' > "${proj7}/src/item.rs"
+printf '\377' > "${proj7}/.vibeguard-duplicate-types-allowlist"
+assert_output_contains "invalid UTF-8 allowlist fails visibly" "cannot read" \
+  bash "$GUARD" --strict "$proj7"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

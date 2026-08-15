@@ -127,6 +127,22 @@ impl S {
 EOF
 assert_ok "locks split across separate functions passes" bash "$GUARD" --strict "$proj6"
 
+# --- PASS: locks acquired in sequential one-line scopes do not overlap ---
+proj_scoped="${tmpdir}/pass_one_line_scopes"
+mkdir -p "${proj_scoped}/src"
+cat > "${proj_scoped}/src/scoped.rs" <<'EOF'
+use std::sync::Mutex;
+struct Scoped { a: Mutex<i32>, b: Mutex<i32>, c: Mutex<i32> }
+impl Scoped {
+    fn update(&self, ready: bool) {
+        if ready { let _a = self.a.lock(); }
+        if ready { let _b = self.b.lock(); }
+        let _c = self.c.lock();
+    }
+}
+EOF
+assert_ok "sequential one-line lock scopes pass" bash "$GUARD" --strict "$proj_scoped"
+
 # --- Pre-commit mode: VIBEGUARD_STAGED_FILES with no .rs files (pipefail regression) ---
 staged_no_rs=$(mktemp)
 printf 'main.go\nApp.tsx\nstyles.css\n' > "$staged_no_rs"
@@ -166,6 +182,32 @@ else
   red "pre-commit diff temp directory leaked"
   FAIL=$((FAIL+1))
 fi
+
+# --- Pre-commit mode: unrelated edits do not resurface existing lock debt ---
+proj8="${tmpdir}/precommit_existing_lock_debt"
+mkdir -p "${proj8}/src"
+git -C "$proj8" init -q
+git -C "$proj8" config user.email test@example.com
+git -C "$proj8" config user.name Test
+cat > "${proj8}/src/state.rs" <<'EOF'
+use std::sync::Mutex;
+struct State { a: Mutex<i32>, b: Mutex<i32> }
+impl State {
+    fn update(&self) {
+        let _a = self.a.lock();
+        let _b = self.b.lock();
+    }
+}
+EOF
+git -C "$proj8" add src/state.rs
+git -C "$proj8" commit -q -m initial
+printf '\n// unrelated documentation\n' >> "${proj8}/src/state.rs"
+git -C "$proj8" add src/state.rs
+staged_existing=$(mktemp)
+printf '%s\n' "${proj8}/src/state.rs" > "$staged_existing"
+trap 'rm -f "$staged_no_rs" "$staged_excluded" "$staged_cleanup" "$staged_existing"; rm -rf "$tmpdir"' EXIT
+assert_ok "pre-commit unrelated edit ignores existing nested-lock debt" \
+  env VIBEGUARD_STAGED_FILES="$staged_existing" bash "$GUARD" --strict "$proj8"
 
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"

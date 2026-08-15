@@ -138,6 +138,67 @@ fn main() {
 EOF
 assert_ok "consistent env var and db filename across members passes" bash "$GUARD" --strict "$proj_con"
 
+# --- FAIL: Cargo member globs work when wildcard is not the final character ---
+proj_glob="${tmpdir}/fail_member_glob"
+mkdir -p "${proj_glob}/crates/api-service/src" "${proj_glob}/crates/worker-service/src"
+cat > "${proj_glob}/Cargo.toml" <<'EOF'
+[workspace]
+members = ["crates/*-service"]
+EOF
+for member in api-service worker-service; do
+  printf '[package]\nname = "%s"\nversion = "0.1.0"\n' "$member" > "${proj_glob}/crates/${member}/Cargo.toml"
+done
+printf 'fn main() { let _ = std::env::var("API_DB_PATH"); }\n' > "${proj_glob}/crates/api-service/src/main.rs"
+printf 'fn main() { let _ = std::env::var("WORKER_DB_PATH"); }\n' > "${proj_glob}/crates/worker-service/src/main.rs"
+assert_fail "non-suffix Cargo member wildcard is expanded" bash "$GUARD" --strict "$proj_glob"
+
+# --- FAIL: Cargo member ? wildcard is expanded ---
+proj_question="${tmpdir}/fail_member_question_glob"
+mkdir -p "${proj_question}/crates/afoo/src" "${proj_question}/crates/bfoo/src"
+cat > "${proj_question}/Cargo.toml" <<'EOF'
+[workspace]
+members = ["crates/?foo"]
+EOF
+for member in afoo bfoo; do
+  printf '[package]\nname = "%s"\nversion = "0.1.0"\n' "$member" > "${proj_question}/crates/${member}/Cargo.toml"
+done
+printf 'fn main() { let _ = std::env::var("A_DB_PATH"); }\n' > "${proj_question}/crates/afoo/src/main.rs"
+printf 'fn main() { let _ = std::env::var("B_DB_PATH"); }\n' > "${proj_question}/crates/bfoo/src/main.rs"
+assert_fail "question-mark Cargo member wildcard is expanded" bash "$GUARD" --strict "$proj_question"
+
+# --- ERROR: malformed UTF-8 workspace metadata fails visibly ---
+proj_invalid="${tmpdir}/fail_invalid_cargo"
+mkdir -p "${proj_invalid}/src"
+printf '\377' > "${proj_invalid}/Cargo.toml"
+assert_output_contains "invalid UTF-8 Cargo.toml fails visibly" "cannot read" \
+  bash "$GUARD" --strict "$proj_invalid"
+
+# --- PASS: workspace discovery and Rust walking do not follow directory symlinks ---
+proj_symlink="${tmpdir}/pass_symlink_boundary"
+outside_symlink="${tmpdir}/outside_workspace"
+mkdir -p "${proj_symlink}/crates/app/src" "${outside_symlink}/src"
+cat > "${proj_symlink}/Cargo.toml" <<'EOF'
+[workspace]
+members = ["crates/*"]
+EOF
+cat > "${proj_symlink}/crates/app/Cargo.toml" <<'EOF'
+[package]
+name = "app"
+version = "0.1.0"
+EOF
+printf 'fn main() { let _ = std::env::var("APP_DB_PATH"); }\n' > "${proj_symlink}/crates/app/src/main.rs"
+cat > "${outside_symlink}/Cargo.toml" <<'EOF'
+[package]
+name = "outside"
+version = "0.1.0"
+EOF
+printf 'fn escaped() { let _ = std::env::var("ESCAPED_DB_PATH"); }\n' > "${outside_symlink}/src/lib.rs"
+if ln -s "$outside_symlink" "${proj_symlink}/crates/escape" 2>/dev/null \
+    && ln -s "$outside_symlink/src" "${proj_symlink}/crates/app/src/escape" 2>/dev/null \
+    && ln -s "$proj_symlink" "${proj_symlink}/crates/cycle" 2>/dev/null; then
+  assert_ok "workspace symlink escapes and cycles are not scanned" bash "$GUARD" --strict "$proj_symlink"
+fi
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

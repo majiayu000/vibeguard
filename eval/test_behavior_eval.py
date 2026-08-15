@@ -70,6 +70,44 @@ class BehaviorEvalTest(unittest.TestCase):
         self.assertEqual(run_behavior_eval.timeout_stream_text(b"partial\n"), "partial\n")
         self.assertEqual(run_behavior_eval.timeout_stream_text(None), "")
 
+    def test_guard_fixture_runner_materializes_files_and_builds_command(self) -> None:
+        sample = {
+            "id": "guard-sample",
+            "runner": "guard",
+            "script": "guards/rust/check_unwrap_in_prod.sh",
+            "payload": {
+                "files": {"src/main.rs": "fn main() {}\n"},
+                "args": ["--strict"],
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            repo_root = tmp_path / "repo"
+            repo_root.mkdir()
+            fixture_root = run_behavior_eval.materialize_guard_fixture(sample, tmp_path)
+            command = run_behavior_eval.build_command(sample, repo_root, fixture_root)
+
+            self.assertEqual(
+                (fixture_root / "src/main.rs").read_text(encoding="utf-8"),
+                "fn main() {}\n",
+            )
+            self.assertEqual(command[-2:], ["--strict", str(fixture_root)])
+            self.assertEqual(
+                run_behavior_eval.guard_runtime_target(sample),
+                ("rust", "unwrap-in-prod"),
+            )
+
+    def test_guard_fixture_rejects_parent_traversal(self) -> None:
+        sample = {
+            "id": "guard-traversal",
+            "runner": "guard",
+            "payload": {"files": {"../outside.rs": "fn main() {}\n"}},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(run_behavior_eval.BehaviorDatasetError):
+                run_behavior_eval.materialize_guard_fixture(sample, Path(tmp))
+
     def test_missing_required_coverage_reduces_score_and_fails(self) -> None:
         samples = [
             {

@@ -286,7 +286,9 @@ guards/
 └── typescript/         # TypeScript guards (TS-XX rules)
 ```
 
-Bash-based language directories (`rust/`, `go/`, `typescript/`) each contain a `common.sh` with shared utilities. Python guards are standalone scripts.
+Rust, Go, and TypeScript detection lives in `vibeguard-runtime/src/guard_scan/`;
+their Bash files are compatibility entrypoints. Python guards remain standalone
+scripts.
 
 ### Step 1: Define the rule
 
@@ -307,20 +309,17 @@ Canonical rule headings must use the format `## ID: Title (severity)`. Rules fol
 
 The file format differs by language:
 
-**Bash guards (Rust, Go, TypeScript)** — create `guards/<language>/check_<rule_slug>.sh` and start with:
+**Rust, Go, and TypeScript guards** — implement the rule in
+`vibeguard-runtime/src/guard_scan/`, register the `scan <language> <rule>`
+command, then create `guards/<language>/check_<rule_slug>.sh` as a compatibility
+shim:
 
 ```bash
 #!/usr/bin/env bash
-# VibeGuard <Language> Guard: <short description> (<RULE-ID>)
-#
-# Usage:
-#   bash check_<rule_slug>.sh [target_dir]
-#   bash check_<rule_slug>.sh --strict [target_dir]  # exit 1 on violations
-
 set -euo pipefail
 
-source "$(dirname "$0")/common.sh"
-parse_guard_args "$@"
+source "$(dirname "$0")/runtime-shim.sh"
+run_runtime_guard <language> <rule-slug> "$@"
 ```
 
 **Python guards** — create `guards/python/check_<rule_slug>.py` and parse arguments directly from `sys.argv`:
@@ -355,10 +354,12 @@ if __name__ == "__main__":
 Every finding must follow this format because downstream tools consume it:
 
 ```text
-[RS-14] path/to/file.rs:42 description. Fix: remediation hint
+[RS-14] path/to/file.rs:42: description. Fix: remediation hint
 ```
 
-Use `TMPFILE=$(create_tmpfile)` from `common.sh` to buffer output in Bash guards. Print a clear summary and return `1` only when violations are present in `--strict` mode.
+The runtime owns output buffering and exit semantics for Rust, Go, and
+TypeScript guards. Print a clear summary and return `1` only when violations
+are present in `--strict` mode.
 
 #### Exit codes
 
@@ -403,8 +404,8 @@ If the change affects detection quality or scoring, also run `bash tests/run_pre
 ### Guard Quality Checklist
 
 - [ ] Starts with strict error handling (`set -euo pipefail` for Bash)
-- [ ] Uses shared helpers where they already exist (`common.sh`, temp-file helpers, guard-path helpers)
-- [ ] Output follows `[RULE-ID] file:line description. Fix: hint`
+- [ ] Rust/Go/TypeScript shell entrypoints contain no detection or fallback logic
+- [ ] Output follows `[RULE-ID] file:line: description. Fix: hint`
 - [ ] Handles expected exclusions and avoids obvious false positives
 - [ ] Supports `--strict` mode correctly
 - [ ] Has scope-appropriate regression coverage

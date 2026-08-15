@@ -82,7 +82,7 @@ def validate_sample(sample: dict[str, Any], path: Path, line_number: int) -> Non
     missing = sorted(REQUIRED_SAMPLE_FIELDS - set(sample))
     if missing:
         raise BehaviorDatasetError(f"{path}:{line_number}: missing fields: {', '.join(missing)}")
-    if sample["runner"] not in {"claude_hook", "codex_wrapper"}:
+    if sample["runner"] not in {"claude_hook", "codex_wrapper", "guard"}:
         raise BehaviorDatasetError(f"{path}:{line_number}: unsupported runner {sample['runner']!r}")
     if not isinstance(sample["payload"], dict):
         raise BehaviorDatasetError(f"{path}:{line_number}: payload must be an object")
@@ -91,6 +91,21 @@ def validate_sample(sample: dict[str, Any], path: Path, line_number: int) -> Non
         raise BehaviorDatasetError(f"{path}:{line_number}: expect must be an object")
     if "json" in expect and not isinstance(expect["json"], list):
         raise BehaviorDatasetError(f"{path}:{line_number}: expect.json must be a list")
+    if sample["runner"] == "guard":
+        files = sample["payload"].get("files")
+        args = sample["payload"].get("args", [])
+        if not isinstance(files, dict) or not files:
+            raise BehaviorDatasetError(
+                f"{path}:{line_number}: guard payload.files must be a non-empty object"
+            )
+        if not all(isinstance(name, str) and isinstance(content, str) for name, content in files.items()):
+            raise BehaviorDatasetError(
+                f"{path}:{line_number}: guard fixture paths and contents must be strings"
+            )
+        if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+            raise BehaviorDatasetError(
+                f"{path}:{line_number}: guard payload.args must be a string array"
+            )
     for field in ("id", "platform", "hook", "profile", "severity", "rule"):
         if not isinstance(sample[field], str) or not sample[field].strip():
             raise BehaviorDatasetError(f"{path}:{line_number}: {field} must be a non-empty string")
@@ -139,19 +154,43 @@ def evaluate_sample(sample: dict[str, Any], repo_root: Path, timeout_seconds: fl
     with tempfile.TemporaryDirectory(prefix=f"vibeguard-behavior-{sample['id']}-") as tmp:
         tmp_path = Path(tmp)
         env = build_env(sample, repo_root, tmp_path)
-        command = build_command(sample, repo_root)
-        payload = json.dumps(sample["payload"], ensure_ascii=False)
+        fixture_root = materialize_guard_fixture(sample, tmp_path)
+        command = build_command(sample, repo_root, fixture_root)
+        payload = (
+            None
+            if sample["runner"] == "guard"
+            else json.dumps(sample["payload"], ensure_ascii=False)
+        )
         try:
             completed = subprocess.run(
                 command,
                 input=payload,
-                cwd=repo_root,
+                cwd=fixture_root if sample["runner"] == "guard" else repo_root,
                 env=env,
                 text=True,
                 capture_output=True,
                 timeout=timeout_seconds,
                 check=False,
             )
+            direct = None
+            if sample["runner"] == "guard":
+                language, rule = guard_runtime_target(sample)
+                direct = subprocess.run(
+                    [
+                        env["VIBEGUARD_RUNTIME"],
+                        "scan",
+                        language,
+                        rule,
+                        *sample["payload"].get("args", []),
+                        str(fixture_root),
+                    ],
+                    cwd=fixture_root,
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    timeout=timeout_seconds,
+                    check=False,
+                )
         except subprocess.TimeoutExpired as exc:
             return base_result(sample, started) | {
                 "passed": False,
@@ -163,6 +202,21 @@ def evaluate_sample(sample: dict[str, Any], repo_root: Path, timeout_seconds: fl
             }
 
     checks = evaluate_expectations(sample["expect"], completed.returncode, completed.stdout)
+    if direct is not None:
+        checks.extend([
+            {
+                "name": "guard_runtime_exit_parity",
+                "passed": completed.returncode == direct.returncode,
+                "expected": direct.returncode,
+                "actual": completed.returncode,
+            },
+            {
+                "name": "guard_runtime_stdout_parity",
+                "passed": completed.stdout == direct.stdout,
+                "expected": direct.stdout[:500],
+                "actual": completed.stdout[:500],
+            },
+        ])
     passed = all(check["passed"] for check in checks)
     return base_result(sample, started) | {
         "passed": passed,
@@ -174,13 +228,48 @@ def evaluate_sample(sample: dict[str, Any], repo_root: Path, timeout_seconds: fl
     }
 
 
-def build_command(sample: dict[str, Any], repo_root: Path) -> list[str]:
+def build_command(sample: dict[str, Any], repo_root: Path, fixture_root: Path) -> list[str]:
     script_path = repo_root / sample["script"]
     if sample["runner"] == "claude_hook":
         return ["bash", str(script_path)]
     if sample["runner"] == "codex_wrapper":
         return ["bash", str(script_path), sample["hook_name"]]
+    if sample["runner"] == "guard":
+        return [
+            "bash",
+            str(script_path),
+            *sample["payload"].get("args", []),
+            str(fixture_root),
+        ]
     raise BehaviorDatasetError(f"{sample['id']}: unsupported runner {sample['runner']!r}")
+
+
+def materialize_guard_fixture(sample: dict[str, Any], tmp_path: Path) -> Path:
+    fixture_root = tmp_path / "project"
+    fixture_root.mkdir()
+    if sample["runner"] != "guard":
+        return fixture_root
+    for relative_name, content in sample["payload"]["files"].items():
+        relative = Path(relative_name)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise BehaviorDatasetError(
+                f"{sample['id']}: guard fixture path must stay relative: {relative_name!r}"
+            )
+        destination = fixture_root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(content, encoding="utf-8")
+    return fixture_root
+
+
+def guard_runtime_target(sample: dict[str, Any]) -> tuple[str, str]:
+    script = Path(sample["script"])
+    language = script.parent.name
+    stem = script.stem
+    if not stem.startswith("check_") or language not in {"rust", "go", "typescript"}:
+        raise BehaviorDatasetError(
+            f"{sample['id']}: guard script does not map to a runtime target: {script}"
+        )
+    return language, stem.removeprefix("check_").replace("_", "-")
 
 
 def build_env(sample: dict[str, Any], repo_root: Path, tmp_path: Path) -> dict[str, str]:
@@ -198,6 +287,17 @@ def build_env(sample: dict[str, Any], repo_root: Path, tmp_path: Path) -> dict[s
         (repo_marker / "repo-path").write_text(str(repo_root), encoding="utf-8")
         (repo_marker / "execution-mode").write_text("dev-linked-repo\n", encoding="utf-8")
         env["HOME"] = str(home)
+    if sample["runner"] == "guard":
+        candidates = [
+            repo_root / "vibeguard-runtime" / "target" / "debug" / "vibeguard-runtime",
+            repo_root / "vibeguard-runtime" / "target" / "release" / "vibeguard-runtime",
+        ]
+        runtime = next((candidate for candidate in candidates if candidate.is_file()), None)
+        if runtime is None:
+            raise BehaviorDatasetError(
+                "guard behavior eval requires a built vibeguard-runtime binary"
+            )
+        env["VIBEGUARD_RUNTIME"] = str(runtime)
     return env
 
 

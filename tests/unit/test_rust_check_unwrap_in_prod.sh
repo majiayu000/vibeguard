@@ -40,8 +40,8 @@ assert_output_not_contains() {
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
-# Build a minimal PATH that deliberately omits ast-grep so the supported awk
-# fallback is exercised even on developer machines that have ast-grep installed.
+# Build a minimal PATH that deliberately omits ast-grep to prove the Rust
+# scanner does not depend on the legacy shell/ast-grep implementation.
 fallback_bin="${tmpdir}/fallback-bin"
 mkdir -p "$fallback_bin"
 for command_name in awk cat cp dirname find git grep head mktemp rm sed tr wc; do
@@ -178,7 +178,7 @@ fn bench() {
 EOF
 assert_ok "tests.rs/test_helpers/examples/benches are ignored" bash "$GUARD" --strict "$proj5b"
 
-# --- PASS: *_tests.rs is ignored by authoritative runtime and shell fallback ---
+# --- PASS: *_tests.rs is ignored by the authoritative runtime ---
 proj5c="${tmpdir}/pass_tests_suffix"
 mkdir -p "${proj5c}/src/nested"
 cat > "${proj5c}/src/nested/parser_tests.rs" <<'EOF'
@@ -192,7 +192,7 @@ fn mixed_case_fixture() { let _ = Some(42).unwrap(); }
 EOF
 assert_ok "*_tests.rs is ignored by runtime classifier" \
   run_guard_with_runtime "$runtime_wrapper" --strict "$proj5c"
-assert_ok "*_tests.rs is ignored by shell fallback" \
+assert_fail "runtime failure is fail-closed (no shell fallback)" \
   run_guard_with_runtime "$failing_runtime" --strict "$proj5c"
 assert_output_contains "hook runtime stub --test includes lowercase suffix" "src/foo_tests.rs" \
   run_stub_filter --test
@@ -214,9 +214,8 @@ done
 cat > "${proj5d}/src/foo_tests.rs" <<'EOF'
 fn fixture() { let _ = Some(1).unwrap(); }
 EOF
-for runtime in "$runtime_wrapper" "$failing_runtime"; do
+for runtime in "$runtime_wrapper"; do
   label="runtime classifier"
-  [[ "$runtime" == "$failing_runtime" ]] && label="shell fallback"
   assert_fail "similar production names fail with ${label}" \
     run_guard_with_runtime "$runtime" --strict "$proj5d"
   for name in contest latest tests_support; do
@@ -318,8 +317,54 @@ assert_output_not_contains "no RS-03 finding for config.rs test body" "config.rs
   bash "$GUARD" --strict "$proj5f"
 assert_ok "raw string fixture passes without ast-grep" \
   run_guard_without_ast_grep --strict "$proj5f"
-assert_output_not_contains "awk fallback excludes config.rs test body" "config.rs" \
+assert_output_not_contains "Rust scanner excludes config.rs test body without ast-grep" "config.rs" \
   run_guard_without_ast_grep --strict "$proj5f"
+
+# --- PASS: a cfg(test) item may place its opening brace on a later line ---
+proj5f_multiline="${tmpdir}/multiline_test_item"
+mkdir -p "${proj5f_multiline}/src"
+cat > "${proj5f_multiline}/src/lib.rs" <<'EOF'
+#[cfg(test)]
+mod tests
+{
+    #[test]
+    fn value_is_present() {
+        let value = Some(1);
+        assert_eq!(value.unwrap(), 1);
+    }
+}
+EOF
+assert_ok "multiline cfg(test) item keeps its body excluded" \
+  bash "$GUARD" --strict "$proj5f_multiline"
+
+# --- STAGED: removing one of multiple cfg(test) markers re-enables its body ---
+proj5f_multiple="${tmpdir}/multiple_test_scope_transition"
+mkdir -p "${proj5f_multiple}/src"
+git -C "$proj5f_multiple" init -q
+git -C "$proj5f_multiple" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj5f_multiple" config user.name "VibeGuard Tests"
+cat > "${proj5f_multiple}/src/old.rs" <<'EOF'
+#[cfg(test)]
+mod first {
+    fn fixture() { let _ = Some(1).unwrap(); }
+}
+#[cfg(test)]
+mod second {
+    fn fixture() { let _ = Some(2).unwrap(); }
+}
+EOF
+git -C "$proj5f_multiple" add src/old.rs
+git -C "$proj5f_multiple" commit -q -m initial
+git -C "$proj5f_multiple" mv src/old.rs src/new.rs
+sed -i.bak '1d' "${proj5f_multiple}/src/new.rs"
+rm -f "${proj5f_multiple}/src/new.rs.bak"
+git -C "$proj5f_multiple" add src/new.rs
+staged_multiple="${proj5f_multiple}/staged-files"
+printf '%s\n' "${proj5f_multiple}/src/new.rs" > "$staged_multiple"
+assert_fail "removing one of multiple cfg(test) markers reports exposed unwrap" \
+  env VIBEGUARD_STAGED_FILES="$staged_multiple" bash "$GUARD" --strict "$proj5f_multiple"
+assert_output_contains "exposed multi-scope unwrap is attributed to new.rs" "new.rs" \
+  env VIBEGUARD_STAGED_FILES="$staged_multiple" bash "$GUARD" --strict "$proj5f_multiple"
 
 # --- STAGED: same regression through the pre-commit diff path ---
 proj5g="${tmpdir}/staged_raw_string"
@@ -371,11 +416,11 @@ assert_output_contains "block-comment raw prefix does not hide production" \
   "block_comment.rs" bash "$GUARD" --strict "$proj5h"
 assert_output_contains "multiline ordinary string does not hide production" \
   "multiline_string.rs" bash "$GUARD" --strict "$proj5h"
-assert_fail "awk fallback keeps production findings visible" \
+assert_fail "Rust scanner keeps production findings visible without ast-grep" \
   run_guard_without_ast_grep --strict "$proj5h"
-assert_output_contains "awk fallback keeps block-comment production visible" \
+assert_output_contains "scanner keeps block-comment production visible without ast-grep" \
   "block_comment.rs" run_guard_without_ast_grep --strict "$proj5h"
-assert_output_contains "awk fallback keeps multiline-string production visible" \
+assert_output_contains "scanner keeps multiline-string production visible without ast-grep" \
   "multiline_string.rs" run_guard_without_ast_grep --strict "$proj5h"
 
 # --- STAGED: the same lexer-state regressions must not bypass pre-commit ---

@@ -72,26 +72,28 @@ sgconfig_smoke() {
   grep -qF 'rs-14-config-default' <<< "$output"
 }
 
-production_ast_grep_uses_explicit_rules() {
+production_language_guards_use_runtime() {
   python3 - "$REPO_DIR" <<'PY'
 from pathlib import Path
-import re
 import sys
 
 repo = Path(sys.argv[1])
-scans = 0
-for path in sorted((repo / "guards").rglob("*.sh")):
-    lines = path.read_text(encoding="utf-8").splitlines()
-    for index, line in enumerate(lines):
-        stripped = line.lstrip()
-        if not re.match(r"(?:if\s+!?)?ast-grep\s+scan(?:\s|\\)", stripped):
-            continue
-        scans += 1
-        if not any("--rule" in candidate for candidate in lines[index:index + 8]):
-            relative = path.relative_to(repo)
-            raise SystemExit(f"{relative}:{index + 1}: ast-grep scan lacks explicit --rule")
-if scans == 0:
-    raise SystemExit("no production ast-grep scan invocations found")
+guards = []
+for language in ("rust", "go", "typescript"):
+    language_dir = repo / "guards" / language
+    shim = (language_dir / "runtime-shim.sh").read_text(encoding="utf-8")
+    if 'scan "${language}" "${rule}"' not in shim:
+        raise SystemExit(f"guards/{language}/runtime-shim.sh does not dispatch runtime scan")
+    for path in sorted(language_dir.glob("check_*.sh")):
+        guards.append(path)
+        content = path.read_text(encoding="utf-8")
+        relative = path.relative_to(repo)
+        if 'runtime-shim.sh' not in content or "run_runtime_guard " not in content:
+            raise SystemExit(f"{relative}: language guard is not a runtime compatibility shim")
+        if "ast-grep scan" in content:
+            raise SystemExit(f"{relative}: compatibility shim still owns an ast-grep scan")
+if not guards:
+    raise SystemExit("no production language guard compatibility shims found")
 PY
 }
 
@@ -105,7 +107,7 @@ assert_cmd "retired alerting template is absent" test ! -e "$REPO_DIR/templates/
 assert_cmd "retired alerting template has no live references" assert_no_live_reference "templates/alerting-rules.yaml"
 assert_cmd "ast-grep is available for the sgconfig smoke" command -v ast-grep
 assert_cmd "sgconfig discovers the known RS-14 rule" sgconfig_smoke
-assert_cmd "production ast-grep scans retain explicit rule files" production_ast_grep_uses_explicit_rules
+assert_cmd "production language guards delegate to the Rust runtime" production_language_guards_use_runtime
 
 architecture_fixture="${TMP_DIR}/architecture"
 mkdir -p "$architecture_fixture"

@@ -1,0 +1,170 @@
+use regex::Regex;
+
+use crate::hook_checks::js::mask_javascript_non_code;
+
+use super::shared::{Finding, Result, ScanContext, ScanResult};
+
+pub(super) fn error_handling(context: &ScanContext) -> Result<ScanResult> {
+    let discard = Regex::new(r"^\s*_(?:\s*,\s*_)?\s*:?=\s*[^=]")?;
+    let call = Regex::new(
+        r"^\s*_(?:\s*,\s*_)?\s*:?=\s*[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\s*\(",
+    )?;
+    let mut findings = Vec::new();
+    for path in production_files(context) {
+        let content = context.read(&path)?;
+        let masked = mask_javascript_non_code(&content);
+        let current = masked
+            .lines()
+            .enumerate()
+            .filter(|(index, line)| {
+                let line_number = index + 1;
+                context.allows_line(&path, line_number)
+                    && discard.is_match(line)
+                    && call.is_match(line)
+                    && !line.contains("range")
+                    && !Regex::new(r",\s*(ok|found|exists)\s*:?=")
+                        .expect("valid exclusion regex")
+                        .is_match(line)
+            })
+            .map(|(index, _)| Finding {
+                rule: "GO-01",
+                path: path.clone(),
+                line: index + 1,
+                message: "[auto-fix] [this-line] OBSERVATION: error return value is discarded"
+                    .to_string(),
+            })
+            .collect();
+        findings.extend(context.keep_unsuppressed(&content, current));
+    }
+    Ok(ScanResult::new(
+        findings,
+        "No unchecked error returns found.",
+        "Found {count} unchecked error return(s).",
+        &[
+            "SCOPE: this-line only — do not modify function signatures or upstream callers",
+            "ACTION: REVIEW",
+        ],
+    ))
+}
+
+pub(super) fn goroutine_leak(context: &ScanContext) -> Result<ScanResult> {
+    let launch = Regex::new(r"^\s*go\s+(?:func\s*\(|[A-Za-z_])")?;
+    let infinite = Regex::new(r"^\s*for\s*\{")?;
+    let exit = Regex::new(
+        r"ctx\.Done|context\.WithCancel|wg\.(?:Add|Done|Wait)|errgroup|<-done|<-quit|<-stop|time\.After|ticker",
+    )?;
+    let mut findings = Vec::new();
+    for path in production_files(context) {
+        let content = context.read(&path)?;
+        let lines = content.lines().collect::<Vec<_>>();
+        let mut current = Vec::new();
+        for (index, line) in lines.iter().enumerate() {
+            let line_number = index + 1;
+            let changed = context.allows_line(&path, line_number)
+                || context.has_deleted_near(&path, line_number, 20);
+            if !changed {
+                continue;
+            }
+            let body = lines[index..lines.len().min(index + 21)].join("\n");
+            if launch.is_match(line) && !exit.is_match(&body) {
+                current.push(Finding {
+                    rule: "GO-02",
+                    path: path.clone(),
+                    line: line_number,
+                    message: line.trim().to_string(),
+                });
+            }
+            if infinite.is_match(line) {
+                current.push(Finding {
+                    rule: "GO-02/loop",
+                    path: path.clone(),
+                    line: line_number,
+                    message: line.trim().to_string(),
+                });
+            }
+        }
+        findings.extend(context.keep_unsuppressed(&content, current));
+    }
+    Ok(ScanResult::new(
+        findings,
+        "No goroutine leak risks found.",
+        "Found {count} goroutine launch/infinite loop site(s) to review.",
+        &[
+            "Repair method:",
+            "1. Pass in context.Context and exit through <-ctx.Done()",
+            "2. Use errgroup.Group to manage goroutine life cycle",
+            "3. The for {} loop must have select + exit branch",
+            "4. Make sure each go func() has a clear exit path",
+        ],
+    ))
+}
+
+pub(super) fn defer_in_loop(context: &ScanContext) -> Result<ScanResult> {
+    let loop_start = Regex::new(r"^\s*for(?:\s|$)")?;
+    let defer = Regex::new(r"^\s*defer\s")?;
+    let function_literal = Regex::new(r"(?:^|[^A-Za-z0-9_])func\s*\(")?;
+    let mut findings = Vec::new();
+    for path in production_files(context) {
+        let content = context.read(&path)?;
+        let mut total_depth = 0isize;
+        let mut loops: Vec<(isize, usize)> = Vec::new();
+        let mut function_literals: Vec<isize> = Vec::new();
+        let mut current = Vec::new();
+        for (index, raw_line) in content.lines().enumerate() {
+            let line_number = index + 1;
+            let line = raw_line.split("//").next().unwrap_or("");
+            if loop_start.is_match(line) {
+                loops.push((total_depth, line_number));
+            }
+            if !loops.is_empty() && !defer.is_match(line) && function_literal.is_match(line) {
+                function_literals.push(total_depth);
+            }
+            if defer.is_match(line) && !loops.is_empty() && function_literals.is_empty() {
+                let loop_line = loops.last().map(|(_, line)| *line).unwrap_or(line_number);
+                if context.allows_line(&path, line_number) || context.allows_line(&path, loop_line)
+                {
+                    current.push(Finding {
+                        rule: "GO-08",
+                        path: path.clone(),
+                        line: line_number,
+                        message: raw_line.trim().to_string(),
+                    });
+                }
+            }
+            total_depth += line.matches('{').count() as isize - line.matches('}').count() as isize;
+            while function_literals
+                .last()
+                .is_some_and(|base| total_depth <= *base)
+            {
+                function_literals.pop();
+            }
+            while loops.last().is_some_and(|(base, _)| total_depth <= *base) {
+                loops.pop();
+            }
+        }
+        findings.extend(context.keep_unsuppressed(&content, current));
+    }
+    Ok(ScanResult::new(
+        findings,
+        "No defer-in-loop issues found.",
+        "Found {count} defer-in-loop issue(s).",
+        &["Repair method: extract the loop body containing defer into a separate function."],
+    ))
+}
+
+fn production_files(context: &ScanContext) -> Vec<std::path::PathBuf> {
+    context
+        .files_with_extensions(&["go"])
+        .into_iter()
+        .filter(|path| {
+            !path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with("_test.go"))
+                && !path
+                    .to_string_lossy()
+                    .replace('\\', "/")
+                    .contains("/vendor/")
+        })
+        .collect()
+}

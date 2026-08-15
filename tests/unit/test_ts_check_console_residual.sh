@@ -170,7 +170,7 @@ target="${!#}"
 printf '[{"file":"%s","range":{"start":{"line":1}},"message":"stub console residual"}]\n' "$target"
 EOF
 chmod +x "$ast_grep_stub_dir/ast-grep"
-assert_output_contains "staged mode without mapfile uses ast-grep target collection" "stub console residual" \
+assert_output_contains "staged mode without mapfile uses Rust target collection" "[TS-03]" \
   env PATH="$ast_grep_stub_dir:$PATH" BASH_ENV="$disable_mapfile_env" VIBEGUARD_STAGED_FILES="$staged_no_mapfile_list" \
   bash "$GUARD" --strict "$proj_staged_no_mapfile"
 
@@ -185,6 +185,14 @@ export function doWork(): void {
 }
 EOF
 assert_ok "console.log only in comments passes" bash "$GUARD" --strict "$proj_commented"
+
+# --- PASS: referencing a console method without calling it is not residual output ---
+proj_reference="${tmpdir}/pass_console_reference"
+mkdir -p "${proj_reference}/src"
+cat > "${proj_reference}/src/service.ts" <<'EOF'
+export const log = console.log;
+EOF
+assert_ok "console method reference without a call passes" bash "$GUARD" --strict "$proj_reference"
 
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"

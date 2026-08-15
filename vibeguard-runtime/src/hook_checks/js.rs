@@ -159,7 +159,7 @@ fn keyword_allows_regex_after(token: &str) -> bool {
     )
 }
 
-fn mask_javascript_non_code(source: &str) -> String {
+pub(crate) fn mask_javascript_non_code(source: &str) -> String {
     let chars = source.chars().collect::<Vec<_>>();
     let mut masked = String::with_capacity(source.len());
     let mut state = LexState::Code;

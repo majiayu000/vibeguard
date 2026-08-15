@@ -115,6 +115,26 @@ function process(input: string): string {
 EOF
 assert_ok "clean file without any-patterns passes" bash "$GUARD" --strict "$proj_comment"
 
+# --- PASS: an object value named `any` is not a type annotation ---
+proj_object="${tmpdir}/pass_any_object_value"
+mkdir -p "${proj_object}/src"
+cat > "${proj_object}/src/value.ts" <<'EOF'
+declare const any: unknown;
+export const payload = { value: any };
+export function payloadForReturn() { return { value: any }; }
+export function sendPayload(consume: (value: object) => void) { consume({ value: any }); }
+EOF
+assert_ok "object values named any pass in assignments, returns, and arguments" bash "$GUARD" --strict "$proj_object"
+
+# --- FAIL: object type members remain type annotations ---
+proj_object_type="${tmpdir}/fail_any_object_type"
+mkdir -p "${proj_object_type}/src"
+cat > "${proj_object_type}/src/value.ts" <<'EOF'
+export type Payload = { value: any };
+export function read(): { value: any } { throw new Error("not implemented"); }
+EOF
+assert_fail "object type members named any still fail" bash "$GUARD" --strict "$proj_object_type"
+
 # --- PASS: test files are excluded ---
 proj_test_excluded="${tmpdir}/pass_test_excluded"
 mkdir -p "${proj_test_excluded}/src"
@@ -147,9 +167,20 @@ target="${!#}"
 printf '[{"file":"%s","range":{"start":{"line":0}},"message":"stub any usage"}]\n' "$target"
 EOF
 chmod +x "$ast_grep_stub_dir/ast-grep"
-assert_output_contains "staged mode without mapfile uses ast-grep target collection" "stub any usage" \
+assert_output_contains "staged mode without mapfile uses Rust target collection" "[TS-01]" \
   env PATH="$ast_grep_stub_dir:$PATH" BASH_ENV="$disable_mapfile_env" VIBEGUARD_STAGED_FILES="$staged_no_mapfile_list" \
   bash "$GUARD" --strict "$proj_staged_no_mapfile"
+
+# --- PASS: recursive collection does not follow directory symlinks ---
+proj_symlink="${tmpdir}/pass_symlink_boundary"
+outside_symlink="${tmpdir}/outside_ts"
+mkdir -p "${proj_symlink}/src" "$outside_symlink"
+printf 'export const clean: string = "ok";\n' > "${proj_symlink}/src/clean.ts"
+printf 'export const escaped: any = 1;\n' > "${outside_symlink}/escaped.ts"
+if ln -s "$outside_symlink" "${proj_symlink}/escape" 2>/dev/null \
+    && ln -s "$proj_symlink" "${proj_symlink}/cycle" 2>/dev/null; then
+  assert_ok "directory symlink escapes and cycles are not scanned" bash "$GUARD" --strict "$proj_symlink"
+fi
 
 # --- PASS: empty project ---
 proj_empty="${tmpdir}/pass_empty"

@@ -120,6 +120,27 @@ func DeleteFile(path string) error {
 EOF
 assert_ok "error returned up the stack passes" bash "$GUARD" --strict "$proj_return"
 
+# --- PASS: blank identifier assigned a non-call value is not an error-return pattern ---
+proj_value="${tmpdir}/pass_ordinary_value"
+mkdir -p "$proj_value"
+cat > "${proj_value}/value.go" <<'EOF'
+package value
+func Ignore(value int) { _ = value }
+EOF
+assert_ok "ordinary value assigned to blank identifier passes" bash "$GUARD" --strict "$proj_value"
+
+# --- PASS: call-like text in block comments is ignored ---
+proj_comment="${tmpdir}/pass_block_comment"
+mkdir -p "$proj_comment"
+cat > "${proj_comment}/comment.go" <<'EOF'
+package comment
+/*
+_ = os.Remove("old")
+*/
+func Clean() {}
+EOF
+assert_ok "discarded call text inside block comment passes" bash "$GUARD" --strict "$proj_comment"
+
 # --- PASS: test files are excluded ---
 proj_test="${tmpdir}/pass_test_excluded"
 mkdir -p "${proj_test}"
@@ -162,7 +183,7 @@ target="${!#}"
 printf '[{"file":"%s","range":{"start":{"line":5}},"message":"stub discarded error"}]\n' "$target"
 EOF
 chmod +x "$ast_grep_stub_dir/ast-grep"
-assert_output_contains "staged mode without mapfile uses ast-grep target collection" "stub discarded error" \
+assert_output_contains "staged mode without mapfile uses Rust target collection" "[GO-01]" \
   env PATH="$ast_grep_stub_dir:$PATH" BASH_ENV="$disable_mapfile_env" VIBEGUARD_STAGED_FILES="$staged_no_mapfile_list" \
   bash "$GUARD" --strict "$proj_staged_no_mapfile"
 

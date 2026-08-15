@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 # Unit tests for guards/rust/check_declaration_execution_gap.sh (RS-14)
-#
-# NOTE: This guard requires ast-grep. Tests are skipped if ast-grep is unavailable.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -43,16 +41,6 @@ tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 printf '\n=== check_declaration_execution_gap (RS-14) ===\n'
-
-# Skip gracefully if ast-grep is not available
-if ! command -v ast-grep >/dev/null 2>&1; then
-  SKIP=$((SKIP+1))
-  yellow "ast-grep not available — skipping RS-14 tests"
-  echo
-  printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' \
-    "$TOTAL" "$PASS" "$FAIL" "$SKIP"
-  exit 0
-fi
 
 # --- FAIL: Config::default() used in production code ---
 proj_default="${tmpdir}/fail_config_default"
@@ -151,6 +139,24 @@ assert_ok "Non-Config structs using default() pass" \
   bash "$GUARD" --strict "$proj_non_config"
 assert_output_not_contains "No Config violations in output" "AppState::default()" \
   bash "$GUARD" --strict "$proj_non_config"
+
+# --- FAIL: persistence methods on non-Config types must be called at startup ---
+proj_store="${tmpdir}/fail_non_config_persistence"
+mkdir -p "${proj_store}/src"
+cat > "${proj_store}/src/store.rs" <<'EOF'
+pub struct StateStore;
+impl StateStore {
+    pub fn persist(&self) {}
+}
+EOF
+cat > "${proj_store}/src/main.rs" <<'EOF'
+mod store;
+fn main() {}
+EOF
+assert_fail "unused persistence method on non-Config type fails" \
+  bash "$GUARD" --strict "$proj_store"
+assert_output_contains "non-Config persistence finding names the type" "StateStore::persist()" \
+  bash "$GUARD" --strict "$proj_store"
 
 # --- PASS: empty project ---
 proj_empty="${tmpdir}/pass_empty"
