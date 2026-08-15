@@ -9,6 +9,7 @@
 - Treat inspection, analysis, and review as read-only unless the user also asks for changes.
 - Use repository-provided build and test commands; do not invent a global command for every project.
 - Missing or conflicting facts that would materially change the result must be clarified before mutation.
+- For L6 work routing, follow the canonical contract at __VIBEGUARD_DIR__/workflows/references/routing-contract.md.
 
 ## Core contract
 

@@ -78,14 +78,15 @@ assert action == "APPENDED"
 assert original == prose
 assert appended.startswith(prose)
 assert appended.count("<!-- vibeguard-start -->") == 2
-assert "#VibeGuard" in appended
+assert "# VibeGuard shared core" in appended
 assert claude_md.count_managed_blocks(prose) == 0
 assert claude_md.count_managed_blocks(appended) == 1
-assert claude_md.managed_span_lines(prose) == (0, 0, 0)
-count, start_line, end_line = claude_md.managed_span_lines(appended)
-assert count == 1
-assert start_line > 1
-assert end_line > start_line
+inline_heading_prose = (
+    "Prose <!-- vibeguard-start -->\n"
+    "# VibeGuard shared core\n"
+    "more prose <!-- vibeguard-end -->\n"
+)
+assert claude_md.count_managed_blocks(inline_heading_prose) == 0
 PY
 assert_cmd "setup shell rule counter counts canonical non-numeric rule ids" bash -c "
   set -euo pipefail

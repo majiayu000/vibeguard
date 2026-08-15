@@ -424,9 +424,32 @@ check_codex_agents_hygiene() {
   fi
 
   local span_out valid_count start_line end_line
-  if ! span_out=$(python3 "${CLAUDE_MD_HELPER}" managed-span "${agents_md}" 2>/dev/null); then
-    red "[BROKEN] ~/.codex/AGENTS.md marker mismatch (managed-span failed; rerun setup)"
-    return 0
+  if ! span_out=$(setup_runtime setup-md-managed-span "${agents_md}" 2>/dev/null); then
+    span_out=$(awk '
+      $0 == "<!-- vibeguard-start -->" {
+        in_block = 1
+        candidate_start = NR
+        has_heading = 0
+        next
+      }
+      $0 == "<!-- vibeguard-end -->" {
+        if (in_block && has_heading) {
+          count++
+          if (count == 1) {
+            first_start = candidate_start
+            first_end = NR
+          }
+        }
+        in_block = 0
+        has_heading = 0
+        next
+      }
+      in_block && $0 == "# VibeGuard shared core" { has_heading = 1 }
+      END { print count + 0, first_start + 0, first_end + 0 }
+    ' "${agents_md}") || {
+      red "[BROKEN] ~/.codex/AGENTS.md marker mismatch (managed-span failed; rerun setup)"
+      return 0
+    }
   fi
   read -r valid_count start_line end_line <<< "${span_out}"
   if [[ -z "${valid_count}" || "${valid_count}" -eq 0 ]]; then

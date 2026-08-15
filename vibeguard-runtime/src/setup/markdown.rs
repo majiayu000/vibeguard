@@ -10,7 +10,7 @@ mod hook_identity;
 
 const START: &str = "<!-- vibeguard-start -->";
 const END: &str = "<!-- vibeguard-end -->";
-const MANAGED_ANCHOR: &str = "#VibeGuard";
+const MANAGED_HEADING: &str = "# VibeGuard shared core";
 const RULE_COUNT_PLACEHOLDER: &str = "__VIBEGUARD_RULE_COUNT__";
 
 pub fn diff_inject(args: &[String]) -> SetupResult<()> {
@@ -73,6 +73,22 @@ pub fn remove(args: &[String]) -> SetupResult<()> {
     Ok(())
 }
 
+pub fn managed_span(args: &[String]) -> SetupResult<()> {
+    if args.len() != 1 {
+        return Err("Usage: vibeguard-runtime setup-md-managed-span <target-file>".into());
+    }
+    let content = std::fs::read_to_string(Path::new(&args[0]))?;
+    let blocks = managed_blocks(&content);
+    if let Some((start, end_after)) = blocks.first().copied() {
+        let start_line = content[..start].matches('\n').count() + 1;
+        let end_line = content[..end_after].matches('\n').count() + 1;
+        println!("{} {start_line} {end_line}", blocks.len());
+    } else {
+        println!("0 0 0");
+    }
+    Ok(())
+}
+
 fn render_injected(
     target_file: &Path,
     rules_file: &Path,
@@ -92,7 +108,10 @@ fn render_injected(
     })?;
     let rules = rules_source
         .replace("__VIBEGUARD_DIR__", repo_dir)
-        .replace("`workflows/references/routing-contract.md`", &routing_contract)
+        .replace(
+            "`workflows/references/routing-contract.md`",
+            &routing_contract,
+        )
         .replace(RULE_COUNT_PLACEHOLDER, rule_count);
     let original = std::fs::read_to_string(target_file).unwrap_or_default();
 
@@ -152,33 +171,41 @@ fn marker_range(text: &str) -> Option<(usize, usize)> {
 }
 
 fn managed_blocks(text: &str) -> Vec<(usize, usize)> {
+    let starts = standalone_line_ranges(text, START);
+    let ends = standalone_line_ranges(text, END);
+    let headings = standalone_line_ranges(text, MANAGED_HEADING);
     let mut blocks = Vec::new();
-    let mut pos = 0;
-    while let Some(rel) = text.get(pos..).and_then(|rest| rest.find(START)) {
-        let start = pos + rel;
-        let after_start = start + START.len();
-        let next_start = text
-            .get(after_start..)
-            .and_then(|rest| rest.find(START))
-            .map(|rel| after_start + rel);
-        let Some(end) = text
-            .get(after_start..)
-            .and_then(|rest| rest.find(END))
-            .map(|rel| after_start + rel)
+    for (index, (start, start_after)) in starts.iter().copied().enumerate() {
+        let next_start = starts.get(index + 1).map(|(next, _)| *next);
+        let Some((end, end_after)) = ends.iter().copied().find(|(end, _)| *end >= start_after)
         else {
-            break;
+            continue;
         };
         if next_start.is_some_and(|next| next < end) {
-            pos = after_start;
             continue;
         }
-        let end_after = end + END.len();
-        if text[start..end_after].contains(MANAGED_ANCHOR) {
+        if headings
+            .iter()
+            .any(|(heading, _)| *heading >= start_after && *heading < end)
+        {
             blocks.push((start, end_after));
         }
-        pos = end_after;
     }
     blocks
+}
+
+fn standalone_line_ranges(text: &str, expected: &str) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let mut offset = 0;
+    for segment in text.split_inclusive('\n') {
+        let without_lf = segment.strip_suffix('\n').unwrap_or(segment);
+        let line = without_lf.strip_suffix('\r').unwrap_or(without_lf);
+        if line == expected {
+            ranges.push((offset, offset + line.len()));
+        }
+        offset += segment.len();
+    }
+    ranges
 }
 
 #[derive(Clone, Debug)]

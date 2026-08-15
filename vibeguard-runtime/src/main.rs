@@ -399,6 +399,11 @@ static COMMANDS: &[Command] = &[
         handler: setup::markdown::remove,
     },
     Command {
+        name: "setup-md-managed-span",
+        usage: "<target-file>  — report managed Markdown block count and line span",
+        handler: setup::markdown::managed_span,
+    },
+    Command {
         name: "setup-settings-check",
         usage: "<repo-dir> <settings-file> <pre-hooks|post-hooks|full-hooks|profile-hooks:<profile>>  — check Claude settings",
         handler: setup::markdown::settings_check,

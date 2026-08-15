@@ -8,7 +8,7 @@ from typing import Optional
 
 START = "<!-- vibeguard-start -->"
 END = "<!-- vibeguard-end -->"
-MANAGED_ANCHOR = "#VibeGuard"
+MANAGED_HEADING = "# VibeGuard shared core"
 ROUTING_CONTRACT_REF = "`workflows/references/routing-contract.md`"
 RULE_COUNT_PLACEHOLDER = "__VIBEGUARD_RULE_COUNT__"
 RULE_HEADING_RE = re.compile(
@@ -35,24 +35,29 @@ def resolve_rule_count(vibeguard_dir: str, rule_count: Optional[int]) -> int:
     return count_rule_headings(Path(vibeguard_dir) / "rules" / "claude-rules")
 
 
+def standalone_line_ranges(content: str, expected: str):
+    offset = 0
+    for segment in content.splitlines(keepends=True):
+        line = segment.rstrip("\r\n")
+        if line == expected:
+            yield offset, offset + len(line)
+        offset += len(segment)
+
+
 def iter_managed_blocks(content: str):
-    pos = 0
-    while True:
-        start = content.find(START, pos)
-        if start < 0:
-            return
-        after_start = start + len(START)
-        next_start = content.find(START, after_start)
-        end = content.find(END, after_start)
-        if end < 0:
-            return
-        if 0 <= next_start < end:
-            pos = after_start
+    starts = list(standalone_line_ranges(content, START))
+    ends = list(standalone_line_ranges(content, END))
+    headings = list(standalone_line_ranges(content, MANAGED_HEADING))
+    for index, (start, start_after) in enumerate(starts):
+        next_start = starts[index + 1][0] if index + 1 < len(starts) else None
+        end_range = next((item for item in ends if item[0] >= start_after), None)
+        if end_range is None:
             continue
-        end_after = end + len(END)
-        if MANAGED_ANCHOR in content[start:end_after]:
+        end, end_after = end_range
+        if next_start is not None and next_start < end:
+            continue
+        if any(start_after <= heading < end for heading, _ in headings):
             yield start, end_after
-        pos = end_after
 
 
 def first_managed_block_range(content: str) -> Optional[tuple[int, int]]:
@@ -63,16 +68,6 @@ def first_managed_block_range(content: str) -> Optional[tuple[int, int]]:
 
 def count_managed_blocks(content: str) -> int:
     return sum(1 for _ in iter_managed_blocks(content))
-
-
-def managed_span_lines(content: str) -> tuple[int, int, int]:
-    blocks = list(iter_managed_blocks(content))
-    if not blocks:
-        return 0, 0, 0
-    start, end_after = blocks[0]
-    start_line = content[:start].count("\n") + 1
-    end_line = content[: end_after - 1].count("\n") + 1
-    return len(blocks), start_line, end_line
 
 
 def render_injected(
@@ -178,9 +173,6 @@ if __name__ == "__main__":
         print(diff_inject(sys.argv[2], sys.argv[3], sys.argv[4], rule_count))
     elif action == "remove":
         print(remove(sys.argv[2]))
-    elif action == "managed-span":
-        count, start_line, end_line = managed_span_lines(Path(sys.argv[2]).read_text())
-        print(f"{count} {start_line} {end_line}")
     else:
         print(f"Unknown action: {action}", file=sys.stderr)
         sys.exit(1)

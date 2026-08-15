@@ -615,7 +615,7 @@ vibeguard_managed_rule_banner_count() {
   awk '
     /<!-- vibeguard-start -->/ { in_block = 1; valid = 0; next }
     /<!-- vibeguard-end -->/ { in_block = 0; valid = 0; next }
-    in_block && index($0, "#VibeGuard") { valid = 1 }
+    in_block && $0 == "# VibeGuard shared core" { valid = 1 }
     in_block && valid && match($0, /[0-9][0-9]* rules/) {
       text = substr($0, RSTART, RLENGTH)
       sub(/ rules$/, "", text)

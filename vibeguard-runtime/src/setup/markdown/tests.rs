@@ -11,10 +11,10 @@ mod setup_markdown_tests {
 
     #[test]
     fn replaces_marker_block() {
-        let original = "a\n\n<!-- vibeguard-start -->\n#VibeGuard\nold\n<!-- vibeguard-end -->\n\nb\n";
+        let original = "a\n\n<!-- vibeguard-start -->\n# VibeGuard shared core\nold\n<!-- vibeguard-end -->\n\nb\n";
         let next = replace_managed_block(
             original,
-            "<!-- vibeguard-start -->\n#VibeGuard\nnew\n<!-- vibeguard-end -->",
+            "<!-- vibeguard-start -->\n# VibeGuard shared core\nnew\n<!-- vibeguard-end -->",
         );
         assert!(next.contains("new"));
         assert!(!next.contains("old"));
@@ -66,10 +66,21 @@ mod setup_markdown_tests {
         );
         let next = replace_managed_block(
             original,
-            "<!-- vibeguard-start -->\n#VibeGuard\nnew\n<!-- vibeguard-end -->",
+            "<!-- vibeguard-start -->\n# VibeGuard shared core\nnew\n<!-- vibeguard-end -->",
         );
         assert_eq!(next, original);
         assert!(marker_range(original).is_none());
+    }
+
+    #[test]
+    fn ignores_inline_markers_even_with_a_managed_heading_between_them() {
+        let original = concat!(
+            "Prose <!-- vibeguard-start -->\n",
+            "# VibeGuard shared core\n",
+            "more prose <!-- vibeguard-end -->\n",
+        );
+        assert!(marker_range(original).is_none());
+        assert!(managed_blocks(original).is_empty());
     }
 
     #[test]
