@@ -36,10 +36,11 @@ mod setup_markdown_tests {
         std::fs::write(&target, original)?;
 
         for invalid in [
-            "outside\n<!-- vibeguard-start -->\nrules\n<!-- vibeguard-end -->\n",
+            "outside\n<!-- vibeguard-start -->\n# VibeGuard shared core\nrules\n<!-- vibeguard-end -->\n",
             "<!-- vibeguard-start --> rules <!-- vibeguard-end -->\n",
-            "<!-- vibeguard-start -->\nrules\n",
-            "<!-- vibeguard-start -->\nrules\n<!-- vibeguard-end -->\n<!-- vibeguard-end -->\n",
+            "<!-- vibeguard-start -->\n# VibeGuard shared core\nrules\n",
+            "<!-- vibeguard-start -->\n# VibeGuard shared core\nrules\n<!-- vibeguard-end -->\n<!-- vibeguard-end -->\n",
+            "<!-- vibeguard-start -->\nrules\n<!-- vibeguard-end -->\n",
         ] {
             std::fs::write(&source, invalid)?;
             assert!(
@@ -56,6 +57,28 @@ mod setup_markdown_tests {
 
         std::fs::remove_dir_all(dir)?;
         Ok(())
+    }
+
+    #[test]
+    fn recognizes_and_replaces_released_legacy_heading() {
+        let original = concat!(
+            "user content\n\n",
+            "<!-- vibeguard-start -->\n",
+            "#VibeGuard — AI anti-hallucination rules\n",
+            "old\n",
+            "<!-- vibeguard-end -->\n",
+        );
+        let rules = concat!(
+            "<!-- vibeguard-start -->\n",
+            "# VibeGuard shared core\n",
+            "new\n",
+            "<!-- vibeguard-end -->",
+        );
+        assert!(marker_range(original).is_some());
+        let next = replace_managed_block(original, rules);
+        assert_eq!(next.matches(managed_block::START).count(), 1);
+        assert!(next.contains(managed_block::MANAGED_HEADING));
+        assert!(!next.contains(managed_block::LEGACY_MANAGED_HEADING));
     }
 
     #[test]

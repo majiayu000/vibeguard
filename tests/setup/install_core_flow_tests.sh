@@ -660,6 +660,9 @@ assert_contains "${install_out}" "vibeguard-runtime downloaded and verified" "de
 assert_contains "${install_out}" "Scheduled GC not installed by default" "default setup reports scheduled GC opt-in"
 assert_cmd "default setup does not install scheduled GC" assert_scheduled_gc_absent
 assert_cmd "default setup writes installed snapshot execution mode" grep -q '^installed-snapshot$' "${HOME}/.vibeguard/execution-mode"
+assert_cmd "default Claude rules point to durable installed routing contract" grep -qF "${HOME}/.vibeguard/installed/workflows/references/routing-contract.md" "${HOME}/.claude/CLAUDE.md"
+assert_cmd "default Codex rules point to durable installed routing contract" grep -qF "${HOME}/.vibeguard/installed/workflows/references/routing-contract.md" "${HOME}/.codex/AGENTS.md"
+assert_cmd "default host rules do not point to source checkout" bash -c "! grep -qF '${REPO_DIR}/workflows/references/routing-contract.md' '${HOME}/.claude/CLAUDE.md' '${HOME}/.codex/AGENTS.md'"
 assert_contains "${install_out}" "Removed retired VibeGuard skill link" "setup install removes tracked retired skill links"
 assert_cmd "setup install removes tracked retired Claude skill" test ! -L "${HOME}/.claude/skills/old-retired"
 assert_cmd "setup install removes tracked retired Codex skill" test ! -L "${HOME}/.codex/skills/old-flow"
@@ -733,6 +736,7 @@ assert_contains "${dev_linked_out}" "Mode: dev-linked repo (execution uses live 
 assert_cmd "--dev-linked writes explicit execution mode" grep -q '^dev-linked-repo$' "${dev_linked_home}/.vibeguard/execution-mode"
 assert_cmd "--dev-linked Claude skill targets repo" bash -c "[[ \"\$(readlink '${dev_linked_home}/.claude/skills/vibeguard')\" == '${REPO_DIR}/skills/vibeguard' ]]"
 assert_cmd "--dev-linked native rule targets repo" bash -c "[[ \"\$(readlink '${dev_linked_home}/.claude/rules/vibeguard/common/security.md')\" == '${REPO_DIR}/rules/claude-rules/common/security.md' ]]"
+assert_cmd "--dev-linked host rules point to live routing contract" grep -qF "${REPO_DIR}/workflows/references/routing-contract.md" "${dev_linked_home}/.claude/CLAUDE.md" "${dev_linked_home}/.codex/AGENTS.md"
 dev_linked_check_out="$(HOME="${dev_linked_home}" bash "${REPO_DIR}/setup.sh" --check)"
 assert_contains "${dev_linked_check_out}" "[INFO] Execution mode: dev-linked repo (explicit opt-in)" "--check visibly marks dev-linked mode"
 assert_contains "${dev_linked_check_out}" "Hook wrapper execution source: dev-linked repo" "--check reports dev-linked hook source"

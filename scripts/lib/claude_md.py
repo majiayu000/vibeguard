@@ -9,6 +9,7 @@ from typing import Optional
 START = "<!-- vibeguard-start -->"
 END = "<!-- vibeguard-end -->"
 MANAGED_HEADING = "# VibeGuard shared core"
+LEGACY_MANAGED_HEADING = "#VibeGuard — AI anti-hallucination rules"
 ROUTING_CONTRACT_REF = "`workflows/references/routing-contract.md`"
 ROUTING_CONTRACT_PLACEHOLDER = "__VIBEGUARD_DIR__/workflows/references/routing-contract.md"
 RULE_COUNT_PLACEHOLDER = "__VIBEGUARD_RULE_COUNT__"
@@ -58,7 +59,11 @@ def standalone_line_ranges(content: str, expected: str):
 def iter_managed_blocks(content: str):
     starts = list(standalone_line_ranges(content, START))
     ends = list(standalone_line_ranges(content, END))
-    headings = list(standalone_line_ranges(content, MANAGED_HEADING))
+    headings = [
+        item
+        for heading in (MANAGED_HEADING, LEGACY_MANAGED_HEADING)
+        for item in standalone_line_ranges(content, heading)
+    ]
     for index, (start, start_after) in enumerate(starts):
         next_start = starts[index + 1][0] if index + 1 < len(starts) else None
         end_range = next((item for item in ends if item[0] >= start_after), None)

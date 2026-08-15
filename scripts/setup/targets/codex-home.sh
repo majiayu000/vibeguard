@@ -16,13 +16,16 @@ _codex_execution_mode() {
   esac
 }
 
-_codex_source_path() {
-  local source_path="$1"
+_codex_execution_root() {
   if [[ "$(_codex_execution_mode)" == "dev-linked-repo" ]]; then
-    printf '%s\n' "${REPO_DIR}/${source_path}"
+    printf '%s\n' "${REPO_DIR}"
   else
-    printf '%s\n' "${HOME}/.vibeguard/installed/${source_path}"
+    printf '%s\n' "${HOME}/.vibeguard/installed"
   fi
+}
+
+_codex_source_path() {
+  printf '%s/%s\n' "$(_codex_execution_root)" "$1"
 }
 
 _install_codex_manifest_skill() {
@@ -155,7 +158,8 @@ inject_codex_home_rules() {
     "${agents_md}" \
     "~/.codex/AGENTS.md" \
     "generated/AGENTS.md" \
-    "${REPO_DIR}/claude-md/vibeguard-codex-rules.md"
+    "${REPO_DIR}/claude-md/vibeguard-codex-rules.md" \
+    "$(_codex_execution_root)"
 }
 
 check_codex_home_installation() {
@@ -505,7 +509,8 @@ check_codex_agents_hygiene() {
     if vibeguard_managed_rules_block_matches_source \
       "${agents_md}" \
       "${actual_rule_count}" \
-      "${REPO_DIR}/claude-md/vibeguard-codex-rules.md"; then
+      "${REPO_DIR}/claude-md/vibeguard-codex-rules.md" \
+      "$(_codex_execution_root)"; then
       green "[OK] ~/.codex/AGENTS.md managed VibeGuard block matches current rules"
     else
       block_check_rc=$?

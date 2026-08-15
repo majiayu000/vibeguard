@@ -631,22 +631,22 @@ vibeguard_managed_rule_banner_count() {
 source "${REPO_DIR}/scripts/setup/markdown-compat.sh"
 
 vibeguard_managed_rules_block_matches_source() {
-  local target_file="$1" rule_count="$2" rules_file="$3"
+  local target_file="$1" rule_count="$2" rules_file="$3" render_dir="${4:-${REPO_DIR}}"
   local diff_output
   [[ -f "${target_file}" ]] || return 2
-  if ! diff_output=$(setup_md_diff_inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>/dev/null); then
+  if ! diff_output=$(setup_md_diff_inject "${target_file}" "${rules_file}" "${render_dir}" "${rule_count}" 2>/dev/null); then
     return 2
   fi
   [[ "${diff_output}" == "SKIP" ]]
 }
 
 inject_vibeguard_rules() {
-  local target_file="$1" display_label="$2" state_source="$3" rules_file="$4"
+  local target_file="$1" display_label="$2" state_source="$3" rules_file="$4" render_dir="${5:-${REPO_DIR}}"
   local rules_diff rule_count result
 
   rule_count=$(claude_rule_count_for_banner)
   mkdir -p "$(dirname "${target_file}")"
-  if ! rules_diff=$(setup_md_diff_inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
+  if ! rules_diff=$(setup_md_diff_inject "${target_file}" "${rules_file}" "${render_dir}" "${rule_count}" 2>&1); then
     red "  Failed to compute ${display_label} diff"
     return 1
   fi
@@ -665,7 +665,7 @@ inject_vibeguard_rules() {
     echo
     return 0
   fi
-  if result=$(setup_md_inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
+  if result=$(setup_md_inject "${target_file}" "${rules_file}" "${render_dir}" "${rule_count}" 2>&1); then
     if [[ -f "${target_file}" ]]; then
       state_record_file "${target_file}" "${state_source}" "copy"
     fi

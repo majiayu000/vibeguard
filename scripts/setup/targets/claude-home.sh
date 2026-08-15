@@ -20,13 +20,16 @@ _claude_execution_mode() {
   esac
 }
 
-_claude_source_path() {
-  local source_path="$1"
+_claude_execution_root() {
   if [[ "$(_claude_execution_mode)" == "dev-linked-repo" ]]; then
-    printf '%s\n' "${REPO_DIR}/${source_path}"
+    printf '%s\n' "${REPO_DIR}"
   else
-    printf '%s\n' "${HOME}/.vibeguard/installed/${source_path}"
+    printf '%s\n' "${HOME}/.vibeguard/installed"
   fi
+}
+
+_claude_source_path() {
+  printf '%s/%s\n' "$(_claude_execution_root)" "$1"
 }
 
 _protect_rule_file_overwrite() {
@@ -422,7 +425,8 @@ inject_claude_home_rules() {
     "${CLAUDE_DIR}/CLAUDE.md" \
     "~/.claude/CLAUDE.md" \
     "generated/CLAUDE.md" \
-    "${REPO_DIR}/claude-md/vibeguard-claude-rules.md"
+    "${REPO_DIR}/claude-md/vibeguard-claude-rules.md" \
+    "$(_claude_execution_root)"
 }
 
 check_claude_home_installation() {
@@ -539,7 +543,8 @@ check_claude_home_installation() {
       if vibeguard_managed_rules_block_matches_source \
         "${claude_md}" \
         "${actual_rule_count}" \
-        "${REPO_DIR}/claude-md/vibeguard-claude-rules.md"; then
+        "${REPO_DIR}/claude-md/vibeguard-claude-rules.md" \
+        "$(_claude_execution_root)"; then
         green "[OK] CLAUDE.md managed VibeGuard block matches current rules"
       else
         block_check_rc=$?
