@@ -232,6 +232,19 @@ EOF
 assert_fail "nested generic Config impl still protects default()" \
   bash "$GUARD" --strict "$proj_nested_generic"
 
+# --- FAIL: type names containing 'where' retain their full identity ---
+proj_somewhere="${tmpdir}/fail_where_in_config_name"
+mkdir -p "${proj_somewhere}/src"
+cat > "${proj_somewhere}/src/main.rs" <<'EOF'
+pub struct SomewhereConfig;
+impl SomewhereConfig {
+    pub fn load() -> Self { Self }
+}
+fn main() { let _config = SomewhereConfig::default(); }
+EOF
+assert_fail "where substring in Config name still resolves load()" \
+  bash "$GUARD" --strict "$proj_somewhere"
+
 # --- STAGED: unchanged Config impls participate in the method index ---
 proj_staged="${tmpdir}/fail_staged_unchanged_impl"
 mkdir -p "${proj_staged}/src"

@@ -135,6 +135,17 @@ export const payload = { nested: { item: any } };
 EOF
 assert_ok "nested object values named any pass" bash "$GUARD" --strict "$proj_nested_object"
 
+# --- PASS: any used as a ternary value is not a type annotation ---
+proj_ternary="${tmpdir}/pass_ternary_any_value"
+mkdir -p "${proj_ternary}/src"
+cat > "${proj_ternary}/src/value.ts" <<'EOF'
+declare const any: unknown;
+declare const condition: boolean;
+declare const specific: string;
+export const value = condition ? specific : any;
+EOF
+assert_ok "ternary value named any passes" bash "$GUARD" --strict "$proj_ternary"
+
 # --- FAIL: multiline type annotations and casts preserve syntax-level coverage ---
 proj_multiline_any="${tmpdir}/fail_multiline_any"
 mkdir -p "${proj_multiline_any}/src"

@@ -113,7 +113,7 @@ Executable consumer evidence is intentionally limited to syntax-aware `.py`, `.j
 | Asset | Owner and use | Focused verification |
 |-------|---------------|----------------------|
 | `deny.toml` | Cargo dependency-policy configuration consumed by CI and available to maintainers through `cargo deny --manifest-path vibeguard-runtime/Cargo.toml --locked check -c deny.toml licenses bans sources`. | Run the documented `cargo deny` command on Linux. |
-| `sgconfig.yml` | Maintainer-only repository-wide ast-grep configuration. Production guards continue to pass explicit `--rule` files. Run it manually with `ast-grep scan --config sgconfig.yml`. | Scan a Rust `Config::default()` fixture and confirm the `rs-14-config-default` rule is reported. |
+| `sgconfig.yml` | Maintainer-only repository-wide ast-grep configuration. Production guards use `vibeguard-runtime` and do not invoke ast-grep. Run it manually with `ast-grep scan --config sgconfig.yml`. | Scan a Rust `Config::default()` fixture and confirm the `rs-14-config-default` rule is reported. |
 | `rust-toolchain.toml` | Canonical Rust toolchain selected implicitly by rustup and Cargo for repository commands. | `rustup show active-toolchain` |
 | `templates/AGENTS.md` | Canonical project instruction template consumed by `scripts/ci/validate-prompt-contract.sh`. | `bash scripts/ci/validate-prompt-contract.sh --strict` |
 | `templates/product_spec.md`, `templates/tech_spec.md`, `templates/zh-CN/product_spec.md`, `templates/zh-CN/tech_spec.md` | Optional maintainer-copyable starting points for major architecture or explicitly requested specs; they are not an automatic work queue. | Confirm the paired spec stays near 300 lines and run the documentation validators. |

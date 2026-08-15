@@ -70,6 +70,18 @@ fn unrelated() -> Result<(), String> { Ok(()) }
 EOF
 assert_ok "bodyless trait action declaration does not consume later body" bash "$GUARD" --strict "$proj_trait"
 
+# --- FAIL: semicolons inside signature types do not make functions bodyless ---
+proj_signature_semicolon="${tmpdir}/fail_signature_semicolon"
+mkdir -p "${proj_signature_semicolon}/src/task"
+cat > "${proj_signature_semicolon}/src/task/action.rs" <<'EOF'
+pub fn update_item(id: [u8; 32]) -> Result<[u8; 32], String>
+{
+    Ok(id)
+}
+EOF
+assert_fail "array-type semicolon does not hide result-only action body" \
+  bash "$GUARD" --strict "$proj_signature_semicolon"
+
 # --- PASS: mark_done with state mutation (insert/push) ---
 proj_with_effect="${tmpdir}/pass_with_effect"
 mkdir -p "${proj_with_effect}/src/task"

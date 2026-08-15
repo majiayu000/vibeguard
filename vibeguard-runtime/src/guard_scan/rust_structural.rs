@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::rust::mask_rust_non_code;
+use super::rust::{mask_rust_non_code, strip_rust_comments};
 use super::shared::{
     Finding, Result, ScanContext, ScanResult, is_rust_test_path, resolve_rust_type_path,
     rust_file_module,
@@ -126,8 +126,8 @@ pub(super) fn workspace_consistency(context: &ScanContext) -> Result<ScanResult>
                     semantic_vars.entry(group).or_default().insert(name);
                 }
             }
-            for line in content.lines() {
-                let code = line.split("//").next().unwrap_or("");
+            let comment_free = strip_rust_comments(&content);
+            for code in comment_free.lines() {
                 if named_constant.is_match(code) {
                     continue;
                 }
@@ -272,7 +272,10 @@ pub(super) fn semantic_effect(context: &ScanContext) -> Result<ScanResult> {
                 let delta = lines[index].matches('{').count() as isize
                     - lines[index].matches('}').count() as isize;
                 entered |= lines[index].contains('{');
-                if !entered && lines[index].contains(';') {
+                if !entered
+                    && lines[index].trim_end().ends_with(';')
+                    && body.matches('[').count() == body.matches(']').count()
+                {
                     bodyless = true;
                 }
                 depth += delta;
@@ -502,7 +505,7 @@ fn impl_target(header: &str) -> Option<&str> {
     } else {
         header
     };
-    let header = header.split("where").next().unwrap_or(header).trim();
+    let header = header.trim();
     let target = top_level_for(header).map_or(header, |index| &header[index + 3..]);
     let target = target.trim_start();
     let end = target

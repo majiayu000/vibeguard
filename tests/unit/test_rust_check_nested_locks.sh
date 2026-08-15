@@ -194,6 +194,43 @@ impl ExplicitDrop {
 EOF
 assert_ok "explicitly dropped lock guards pass" bash "$GUARD" --strict "$proj_drop"
 
+# --- STAGED: deleting drop() makes unchanged lock acquisitions overlap ---
+proj_deleted_drop="${tmpdir}/fail_deleted_lock_release"
+mkdir -p "${proj_deleted_drop}/src"
+git -C "$proj_deleted_drop" init -q
+git -C "$proj_deleted_drop" config user.email test@example.com
+git -C "$proj_deleted_drop" config user.name Test
+cat > "${proj_deleted_drop}/src/state.rs" <<'EOF'
+use std::sync::Mutex;
+struct State { a: Mutex<i32>, b: Mutex<i32> }
+impl State {
+    fn inspect(&self) {
+        let first = self.a.lock();
+        drop(first);
+        let second = self.b.lock();
+        drop(second);
+    }
+}
+EOF
+git -C "$proj_deleted_drop" add src/state.rs
+git -C "$proj_deleted_drop" commit -q -m initial
+cat > "${proj_deleted_drop}/src/state.rs" <<'EOF'
+use std::sync::Mutex;
+struct State { a: Mutex<i32>, b: Mutex<i32> }
+impl State {
+    fn inspect(&self) {
+        let first = self.a.lock();
+        let second = self.b.lock();
+        drop(second);
+    }
+}
+EOF
+git -C "$proj_deleted_drop" add src/state.rs
+deleted_drop_files="${proj_deleted_drop}/staged-files"
+printf '%s\n' "${proj_deleted_drop}/src/state.rs" > "$deleted_drop_files"
+assert_fail "deleting drop() reports newly overlapping locks" \
+  env VIBEGUARD_STAGED_FILES="$deleted_drop_files" bash "$GUARD" --strict "$proj_deleted_drop"
+
 # --- Pre-commit mode: VIBEGUARD_STAGED_FILES with no .rs files (pipefail regression) ---
 staged_no_rs=$(mktemp)
 printf 'main.go\nApp.tsx\nstyles.css\n' > "$staged_no_rs"

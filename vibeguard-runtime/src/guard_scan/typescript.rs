@@ -447,7 +447,9 @@ fn any_type_lines(masked: &str) -> BTreeSet<usize> {
 fn any_is_type(tokens: &[TypeToken], index: usize, object_colons: &BTreeSet<usize>) -> bool {
     for cursor in (0..index).rev() {
         match tokens[cursor].text.as_str() {
-            ":" => return !object_colons.contains(&cursor),
+            ":" => {
+                return !object_colons.contains(&cursor) && !is_value_ternary_colon(tokens, cursor);
+            }
             "as" => return true,
             "," if !inside_type_container(tokens, cursor) => return false,
             "=" => return statement_is_type_alias(tokens, cursor),
@@ -456,6 +458,28 @@ fn any_is_type(tokens: &[TypeToken], index: usize, object_colons: &BTreeSet<usiz
         }
     }
     false
+}
+
+fn is_value_ternary_colon(tokens: &[TypeToken], colon: usize) -> bool {
+    let start = tokens[..colon]
+        .iter()
+        .rposition(|token| matches!(token.text.as_str(), ";" | "{" | "}"))
+        .map_or(0, |position| position + 1);
+    let Some(question) = tokens[start..colon]
+        .iter()
+        .rposition(|token| token.text == "?")
+        .map(|position| start + position)
+    else {
+        return false;
+    };
+    if question + 1 == colon {
+        return false;
+    }
+    let prefix = &tokens[start..question];
+    !prefix.iter().any(|token| token.text == "extends")
+        && !prefix.iter().enumerate().any(|(offset, token)| {
+            token.text == "=" && statement_is_type_alias(tokens, start + offset)
+        })
 }
 
 fn inside_type_container(tokens: &[TypeToken], index: usize) -> bool {

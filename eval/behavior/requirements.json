@@ -109,5 +109,35 @@
     "platform": "runtime",
     "hook": "guard-scan",
     "rule": "DUP-CONST"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "TASTE-ANSI"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "TASTE-ASYNC-UNWRAP"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "GO-02/loop"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "TS-02"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "DUP-TYPE"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "DUP-FUNC"
   }
 ]

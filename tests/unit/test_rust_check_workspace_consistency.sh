@@ -105,6 +105,25 @@ const DB_FILE: &str = "data.db";
 EOF
 assert_ok "different named database constants are excluded" bash "$GUARD" --strict "$proj_dbnames"
 
+# --- FAIL: URL schemes inside database literals are not treated as comments ---
+proj_db_urls="${tmpdir}/fail_database_urls"
+mkdir -p "${proj_db_urls}/api/src" "${proj_db_urls}/worker/src"
+cat > "${proj_db_urls}/Cargo.toml" <<'EOF'
+[workspace]
+members = ["api", "worker"]
+EOF
+for member in api worker; do
+  printf '[package]\nname = "%s"\nversion = "0.1.0"\n' "$member" > "${proj_db_urls}/${member}/Cargo.toml"
+done
+cat > "${proj_db_urls}/api/src/main.rs" <<'EOF'
+fn main() { let database = "sqlite://server/a.db"; println!("{database}"); }
+EOF
+cat > "${proj_db_urls}/worker/src/main.rs" <<'EOF'
+fn main() { let database = "sqlite://server/b.db"; println!("{database}"); }
+EOF
+assert_fail "different URL-like database literals fail --strict" \
+  bash "$GUARD" --strict "$proj_db_urls"
+
 # --- PASS: workspace with consistent (same) env var and same db filename across members ---
 # NOTE: Both members include the same "app.db" literal so the DB_FILE_MEMBERS associative
 # array is non-empty; bash 5.3 treats empty declare -A arrays as unbound under set -u.

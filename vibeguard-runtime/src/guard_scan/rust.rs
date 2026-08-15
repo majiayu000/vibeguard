@@ -74,6 +74,7 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
         r"\.(?:read|write|lock)\s*\([^)]*\)\.(?:clone|to_owned|to_string|len|is_empty|contains)\(",
     )?;
     let drop_call = Regex::new(r"\bdrop\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)")?;
+    let release = Regex::new(r"(?:\bdrop\s*\(|})")?;
     let mut findings = Vec::new();
     for path in context
         .files_with_extensions(&["rs"])
@@ -162,7 +163,9 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
                             .get(candidate.saturating_sub(1))
                             .is_some_and(|candidate_line| lock.is_match(candidate_line))
                 });
-                if max_active > 1 && changed_lock {
+                let deleted_release =
+                    context.has_deleted_between(&path, function_line, line_number, &release);
+                if max_active > 1 && (changed_lock || deleted_release) {
                     current.push(Finding {
                         rule: "RS-01",
                         path: path.clone(),
@@ -265,6 +268,14 @@ struct RustLexer {
 }
 
 pub(super) fn mask_rust_non_code(source: &str) -> String {
+    lex_rust(source, false)
+}
+
+pub(super) fn strip_rust_comments(source: &str) -> String {
+    lex_rust(source, true)
+}
+
+fn lex_rust(source: &str, preserve_literals: bool) -> String {
     let bytes = source.as_bytes();
     let mut output = Vec::with_capacity(bytes.len());
     let mut lexer = RustLexer::default();
@@ -272,25 +283,41 @@ pub(super) fn mask_rust_non_code(source: &str) -> String {
     while index < bytes.len() {
         if let Some(end) = lexer.raw_end.as_deref() {
             if bytes[index..].starts_with(end.as_bytes()) {
-                output.extend(std::iter::repeat_n(b' ', end.len()));
+                if preserve_literals {
+                    output.extend_from_slice(&bytes[index..index + end.len()]);
+                } else {
+                    output.extend(std::iter::repeat_n(b' ', end.len()));
+                }
                 index += end.len();
                 lexer.raw_end = None;
             } else {
-                output.push(if bytes[index] == b'\n' { b'\n' } else { b' ' });
+                output.push(if preserve_literals || bytes[index] == b'\n' {
+                    bytes[index]
+                } else {
+                    b' '
+                });
                 index += 1;
             }
             continue;
         }
         if lexer.in_string {
             if bytes[index] == b'\\' && index + 1 < bytes.len() {
-                output.extend_from_slice(b"  ");
+                if preserve_literals {
+                    output.extend_from_slice(&bytes[index..index + 2]);
+                } else {
+                    output.extend_from_slice(b"  ");
+                }
                 index += 2;
             } else if bytes[index] == b'"' {
-                output.push(b' ');
+                output.push(if preserve_literals { b'"' } else { b' ' });
                 index += 1;
                 lexer.in_string = false;
             } else {
-                output.push(if bytes[index] == b'\n' { b'\n' } else { b' ' });
+                output.push(if preserve_literals || bytes[index] == b'\n' {
+                    bytes[index]
+                } else {
+                    b' '
+                });
                 index += 1;
             }
             continue;
@@ -324,13 +351,17 @@ pub(super) fn mask_rust_non_code(source: &str) -> String {
             continue;
         }
         if let Some((length, end)) = raw_string_start(&bytes[index..]) {
-            output.extend(std::iter::repeat_n(b' ', length));
+            if preserve_literals {
+                output.extend_from_slice(&bytes[index..index + length]);
+            } else {
+                output.extend(std::iter::repeat_n(b' ', length));
+            }
             index += length;
             lexer.raw_end = Some(end);
             continue;
         }
         if bytes[index] == b'"' {
-            output.push(b' ');
+            output.push(if preserve_literals { b'"' } else { b' ' });
             index += 1;
             lexer.in_string = true;
             continue;
@@ -338,7 +369,11 @@ pub(super) fn mask_rust_non_code(source: &str) -> String {
         if bytes[index] == b'\''
             && let Some(length) = char_literal_length(&bytes[index..])
         {
-            output.extend(std::iter::repeat_n(b' ', length));
+            if preserve_literals {
+                output.extend_from_slice(&bytes[index..index + length]);
+            } else {
+                output.extend(std::iter::repeat_n(b' ', length));
+            }
             index += length;
             continue;
         }
