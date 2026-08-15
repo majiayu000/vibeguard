@@ -159,7 +159,7 @@ git -C "$repo4" add files.go
 staged4=$(staged_list "$repo4" files.go)
 
 TOTAL=$((TOTAL+1))
-if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repo4}/files.go" 2>/dev/null; then
+if awk '/^[[:space:]]*for([[:space:]]|$)/ { found=1 } END { exit !found }' "${repo4}/files.go" 2>/dev/null; then
   out4=$(VIBEGUARD_STAGED_FILES="$staged4" bash "${REPO_DIR}/guards/go/check_defer_in_loop.sh" --strict "$repo4" 2>&1 || true)
   if echo "$out4" | grep -q '\[GO-08\]'; then
     red "pre-commit mode should NOT report pre-existing defer-in-loop (got: $out4)"
@@ -169,7 +169,7 @@ if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repo4}/files.go" 2>/dev/
     PASS=$((PASS+1))
   fi
 else
-  yellow "awk lacks \\s support — skipping defer-in-loop pre-commit test"
+  yellow "awk did not recognize fixture loop — skipping defer-in-loop pre-commit test"
   SKIP=$((SKIP+1))
 fi
 rm -f "$staged4"
@@ -344,7 +344,7 @@ git -C "$repo8" add files.go
 staged8=$(staged_list "$repo8" files.go)
 
 TOTAL=$((TOTAL+1))
-if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repo8}/files.go" 2>/dev/null; then
+if awk '/^[[:space:]]*for([[:space:]]|$)/ { found=1 } END { exit !found }' "${repo8}/files.go" 2>/dev/null; then
   out8=$(VIBEGUARD_STAGED_FILES="$staged8" bash "${REPO_DIR}/guards/go/check_defer_in_loop.sh" --strict "$repo8" 2>&1 || true)
   if echo "$out8" | grep -q '\[GO-08\]'; then
     red "deletion-only commit should NOT report pre-existing defer-in-loop via full scan (got: $out8)"
@@ -354,7 +354,7 @@ if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repo8}/files.go" 2>/dev/
     PASS=$((PASS+1))
   fi
 else
-  yellow "awk lacks \\s support — skipping defer-in-loop deletion-only test"
+  yellow "awk did not recognize fixture loop — skipping defer-in-loop deletion-only test"
   SKIP=$((SKIP+1))
 fi
 rm -f "$staged8"
@@ -456,7 +456,7 @@ git -C "$repoB" add files.go
 stagedB=$(staged_list "$repoB" files.go)
 
 TOTAL=$((TOTAL+1))
-if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repoB}/files.go" 2>/dev/null; then
+if awk '/^[[:space:]]*for([[:space:]]|$)/ { found=1 } END { exit !found }' "${repoB}/files.go" 2>/dev/null; then
   outB=$(VIBEGUARD_STAGED_FILES="$stagedB" bash "${REPO_DIR}/guards/go/check_defer_in_loop.sh" "$repoB" 2>&1 || true)
   if echo "$outB" | grep -q '\[GO-08\]'; then
     green "for loop added wrapping existing defer IS reported (Issue 2 fix)"
@@ -466,12 +466,12 @@ if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repoB}/files.go" 2>/dev/
     FAIL=$((FAIL+1))
   fi
 else
-  yellow "awk lacks \\s support — skipping wrapped-defer test"
+  yellow "awk did not recognize fixture loop — skipping wrapped-defer test"
   SKIP=$((SKIP+1))
 fi
 rm -f "$stagedB"
 
-# ---- Test C: output format filepath:linenum is correct with tab-based parsing (Issue 3) ----
+# ---- Test C: output format filepath:linenum: content is correct (Issue 3) ----
 repoC="${tmpdir}/go08_tab_parsing"
 init_repo "$repoC"
 
@@ -491,18 +491,19 @@ git -C "$repoC" add resource.go
 git -C "$repoC" commit -q -m "initial"
 
 TOTAL=$((TOTAL+1))
-if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repoC}/resource.go" 2>/dev/null; then
+if awk '/^[[:space:]]*for([[:space:]]|$)/ { found=1 } END { exit !found }' "${repoC}/resource.go" 2>/dev/null; then
   outC=$(bash "${REPO_DIR}/guards/go/check_defer_in_loop.sh" "$repoC" 2>&1 || true)
-  # Verify output format is [GO-08] filepath:linenum content (not broken by tab parsing)
-  if echo "$outC" | grep -qE '\[GO-08\] .+:[0-9]+ '; then
-    green "tab-based parsing produces correct filepath:linenum output format (Issue 3 fix)"
+  # The Rust scanner emits a diagnostic followed by a summary. Match the
+  # diagnostic's canonical filepath:linenum: content form anywhere in output.
+  if echo "$outC" | grep -qE '\[GO-08\] .+:[0-9]+: .+'; then
+    green "scanner produces correct filepath:linenum: content output format (Issue 3 fix)"
     PASS=$((PASS+1))
   else
-    red "output format should be [GO-08] filepath:linenum content (got: $outC)"
+    red "output format should be [GO-08] filepath:linenum: content (got: $outC)"
     FAIL=$((FAIL+1))
   fi
 else
-  yellow "awk lacks \\s support — skipping tab-parsing format test"
+  yellow "awk did not recognize fixture loop — skipping tab-parsing format test"
   SKIP=$((SKIP+1))
 fi
 
