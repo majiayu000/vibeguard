@@ -26,7 +26,12 @@ pub(super) fn rust_file_module(path: &Path, target: &Path) -> Option<String> {
 }
 
 pub(super) fn resolve_rust_type_path(value: &str, path: &Path, target: &Path) -> String {
-    let value = value.trim();
+    let normalized = value
+        .split("::")
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("::");
+    let value = normalized.as_str();
     if let Some(value) = value.strip_prefix("crate::") {
         return value.to_string();
     }
@@ -104,12 +109,12 @@ impl ScanArgs {
             return Err(format!("target is not a directory: {}", target.display()).into());
         }
         if let Some(commit) = baseline.as_deref() {
-            let status = Command::new("git")
+            let output = Command::new("git")
                 .args(["-C"])
                 .arg(&target)
                 .args(["rev-parse", "--verify", commit])
-                .status()?;
-            if !status.success() {
+                .output()?;
+            if !output.status.success() {
                 return Err(format!(
                     "Error: --baseline '{commit}' is not a valid commit in '{}'",
                     target.display()
@@ -654,6 +659,9 @@ pub(super) fn is_rust_test_path(path: &Path) -> bool {
     ]
     .iter()
     .any(|part| normalized.contains(part))
+        || normalized
+            .split('/')
+            .any(|segment| segment.starts_with("test_"))
         || basename.starts_with("test_")
         || basename.ends_with("_test.rs")
         || basename.ends_with("_tests.rs")

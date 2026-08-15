@@ -217,6 +217,15 @@ export const log = console.log;
 EOF
 assert_ok "console method reference without a call passes" bash "$GUARD" --strict "$proj_reference"
 
+# --- FAIL: JSX closing tags do not hide later console calls ---
+proj_tsx="${tmpdir}/fail_tsx_after_closing_tag"
+mkdir -p "${proj_tsx}/src"
+cat > "${proj_tsx}/src/component.tsx" <<'EOF'
+export const view = <div>ready</div>;
+console.log(view);
+EOF
+assert_fail "console call after JSX closing tag fails --strict" bash "$GUARD" --strict "$proj_tsx"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

@@ -281,7 +281,13 @@ pub(super) fn semantic_effect(context: &ScanContext) -> Result<ScanResult> {
                     break;
                 }
             }
-            if !bodyless && !effect.is_match(&body) && result.is_match(&body) {
+            let changed = (start + 1..=index).any(|line| context.allows_line(&path, line));
+            let deleted_effect = context.has_deleted_between(&path, start + 1, index, &effect);
+            if !bodyless
+                && !effect.is_match(&body)
+                && result.is_match(&body)
+                && (changed || deleted_effect)
+            {
                 current.push(Finding {
                     rule: "RS-13",
                     path: path.clone(),
@@ -304,7 +310,7 @@ pub(super) fn semantic_effect(context: &ScanContext) -> Result<ScanResult> {
 
 pub(super) fn declaration_execution_gap(context: &ScanContext) -> Result<ScanResult> {
     let default_call = Regex::new(
-        r"((?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z_][A-Za-z0-9_]*Config))(?:::\s*<[^;\n]+>)?::default\(\)",
+        r"(?s)((?:[A-Za-z_][A-Za-z0-9_]*\s*::\s*)*[A-Za-z_][A-Za-z0-9_]*Config)(?:\s*::\s*<[^;{}]+>)?\s*::\s*default\s*\(",
     )?;
     let method = Regex::new(r"\bfn\s+(load|save|persist|restore)\s*\(")?;
     let mut type_methods: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -339,19 +345,26 @@ pub(super) fn declaration_execution_gap(context: &ScanContext) -> Result<ScanRes
     let mut findings = Vec::new();
     for (path, content, masked) in &sources {
         let mut current = Vec::new();
-        for (index, line) in masked.lines().enumerate() {
-            for captures in default_call.captures_iter(line) {
-                let full = resolve_rust_type_path(&captures[1], path, &context.target);
-                if context.allows_line(path, index + 1)
-                    && resolves_to_load(&type_methods, path, &context.target, &full)
-                {
-                    current.push(Finding {
-                        rule: "RS-14",
-                        path: path.clone(),
-                        line: index + 1,
-                        message: format!("Config::default() bypasses load() ({})", &captures[0]),
-                    });
-                }
+        for captures in default_call.captures_iter(masked) {
+            let Some(found) = captures.get(0) else {
+                continue;
+            };
+            let line = masked.as_bytes()[..found.start()]
+                .iter()
+                .filter(|byte| **byte == b'\n')
+                .count()
+                + 1;
+            let end_line = line + found.as_str().matches('\n').count();
+            let full = resolve_rust_type_path(&captures[1], path, &context.target);
+            if (line..=end_line).any(|candidate| context.allows_line(path, candidate))
+                && resolves_to_load(&type_methods, path, &context.target, &full)
+            {
+                current.push(Finding {
+                    rule: "RS-14",
+                    path: path.clone(),
+                    line,
+                    message: format!("Config::default() bypasses load() ({})", &captures[0]),
+                });
             }
         }
         findings.extend(context.keep_unsuppressed(content, current));

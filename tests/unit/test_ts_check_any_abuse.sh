@@ -147,6 +147,15 @@ export const cast = input as
 EOF
 assert_fail "multiline any annotation and cast fail --strict" bash "$GUARD" --strict "$proj_multiline_any"
 
+# --- FAIL: JSX closing tags do not hide later TypeScript syntax ---
+proj_tsx="${tmpdir}/fail_tsx_after_closing_tag"
+mkdir -p "${proj_tsx}/src"
+cat > "${proj_tsx}/src/component.tsx" <<'EOF'
+export const view = <div>ready</div>;
+export const payload: any = view;
+EOF
+assert_fail "any after JSX closing tag fails --strict" bash "$GUARD" --strict "$proj_tsx"
+
 # --- FAIL: any nested inside generic type annotations is still a type node ---
 proj_nested_type="${tmpdir}/fail_nested_any_type"
 mkdir -p "${proj_nested_type}/src"

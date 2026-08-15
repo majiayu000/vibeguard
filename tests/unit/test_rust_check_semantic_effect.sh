@@ -106,6 +106,51 @@ pub fn format_result(val: f64) -> String {
 EOF
 assert_ok "non-action functions are ignored" bash "$GUARD" --strict "$proj_no_action"
 
+# --- BASELINE: unchanged historical result-only actions stay out of scope ---
+proj_baseline_unchanged="${tmpdir}/pass_baseline_unchanged_action"
+mkdir -p "${proj_baseline_unchanged}/src/task"
+git -C "$proj_baseline_unchanged" init -q
+git -C "$proj_baseline_unchanged" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_baseline_unchanged" config user.name "VibeGuard Tests"
+cat > "${proj_baseline_unchanged}/src/task/action.rs" <<'EOF'
+pub fn mark_done(id: u64) -> Result<u64, String> { Ok(id) }
+EOF
+git -C "$proj_baseline_unchanged" add src/task/action.rs
+git -C "$proj_baseline_unchanged" commit -q -m initial
+unchanged_baseline="$(git -C "$proj_baseline_unchanged" rev-parse HEAD)"
+cat > "${proj_baseline_unchanged}/README.md" <<'EOF'
+Unrelated documentation change.
+EOF
+git -C "$proj_baseline_unchanged" add README.md
+git -C "$proj_baseline_unchanged" commit -q -m docs
+assert_ok "baseline ignores unchanged historical result-only action" \
+  bash "$GUARD" --strict --baseline "$unchanged_baseline" "$proj_baseline_unchanged"
+
+# --- BASELINE: deleting the semantic effect rechecks the action body ---
+proj_baseline_deleted="${tmpdir}/fail_baseline_deleted_effect"
+mkdir -p "${proj_baseline_deleted}/src/task"
+git -C "$proj_baseline_deleted" init -q
+git -C "$proj_baseline_deleted" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_baseline_deleted" config user.name "VibeGuard Tests"
+cat > "${proj_baseline_deleted}/src/task/action.rs" <<'EOF'
+pub fn mark_done(id: u64, state: &mut Vec<u64>) -> Result<u64, String> {
+    state.push(id);
+    Ok(id)
+}
+EOF
+git -C "$proj_baseline_deleted" add src/task/action.rs
+git -C "$proj_baseline_deleted" commit -q -m initial
+deleted_effect_baseline="$(git -C "$proj_baseline_deleted" rev-parse HEAD)"
+cat > "${proj_baseline_deleted}/src/task/action.rs" <<'EOF'
+pub fn mark_done(id: u64, _state: &mut Vec<u64>) -> Result<u64, String> {
+    Ok(id)
+}
+EOF
+git -C "$proj_baseline_deleted" add src/task/action.rs
+git -C "$proj_baseline_deleted" commit -q -m remove-effect
+assert_fail "baseline reports action whose semantic effect was deleted" \
+  bash "$GUARD" --strict --baseline "$deleted_effect_baseline" "$proj_baseline_deleted"
+
 # --- PASS: empty project ---
 proj_empty="${tmpdir}/pass_empty"
 mkdir -p "${proj_empty}/src"

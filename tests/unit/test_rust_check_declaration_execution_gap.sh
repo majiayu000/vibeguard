@@ -77,6 +77,23 @@ assert_output_contains "output contains RS-14 tag" "[RS-14]" \
 assert_output_contains "output contains AppConfig::default()" "AppConfig::default()" \
   bash "$GUARD" --strict "$proj_default"
 
+# --- FAIL: whitespace and line breaks cannot hide Config::default() ---
+proj_multiline_default="${tmpdir}/fail_multiline_config_default"
+mkdir -p "${proj_multiline_default}/src"
+cat > "${proj_multiline_default}/src/main.rs" <<'EOF'
+pub struct AppConfig;
+impl AppConfig {
+    pub fn load() -> Self { Self }
+}
+fn main() {
+    let _cfg = AppConfig
+        :: default
+        ();
+}
+EOF
+assert_output_contains "multiline Config default call bypasses load" "bypasses load" \
+  bash "$GUARD" --strict "$proj_multiline_default"
+
 # --- PASS: ServerConfig::default() without load() method is not flagged ---
 proj_server="${tmpdir}/pass_server_no_load"
 mkdir -p "${proj_server}/src"

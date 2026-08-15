@@ -212,6 +212,15 @@ else
   PASS=$((PASS+1))
 fi
 
+TOTAL=$((TOTAL+1))
+if echo "$out5" | grep -qF "$baseline5"; then
+  red "--baseline validation must not print the resolved commit SHA (got: $out5)"
+  FAIL=$((FAIL+1))
+else
+  green "--baseline validation keeps the resolved commit SHA silent"
+  PASS=$((PASS+1))
+fi
+
 # ---- Test 6: --baseline DOES report new goroutine leak added after baseline ----
 repo6="${tmpdir}/go02_baseline_new"
 init_repo "$repo6"

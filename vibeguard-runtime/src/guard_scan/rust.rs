@@ -16,12 +16,14 @@ pub(super) fn unwrap(context: &ScanContext) -> Result<ScanResult> {
             Some(previous) => {
                 let previous_masked = mask_rust_non_code(&previous);
                 let previous_test_lines = test_scope_lines(&previous_masked);
-                let mut scopes = std::collections::BTreeMap::<String, Vec<bool>>::new();
+                let mut scopes = std::collections::BTreeMap::<String, (usize, usize)>::new();
                 for site in unwrap_call_sites(&previous_masked, &unwrap_call) {
-                    scopes
-                        .entry(site.key)
-                        .or_default()
-                        .push(previous_test_lines.contains(&site.line));
+                    let (test_count, production_count) = scopes.entry(site.key).or_default();
+                    if previous_test_lines.contains(&site.line) {
+                        *test_count += 1;
+                    } else {
+                        *production_count += 1;
+                    }
                 }
                 scopes
             }
@@ -30,16 +32,18 @@ pub(super) fn unwrap(context: &ScanContext) -> Result<ScanResult> {
         let mut current = Vec::new();
         let mut current_occurrences = std::collections::BTreeMap::<String, usize>::new();
         for site in unwrap_call_sites(&masked, &unwrap_call) {
+            if test_lines.contains(&site.line) {
+                continue;
+            }
             let occurrence = current_occurrences.entry(site.key.clone()).or_default();
-            let was_test_scoped = previous_call_scopes
-                .get(&site.key)
-                .and_then(|scopes| scopes.get(*occurrence))
-                .copied()
-                .unwrap_or(false);
+            let was_test_scoped = previous_call_scopes.get(&site.key).is_some_and(
+                |(test_count, production_count)| {
+                    *occurrence >= *production_count
+                        && *occurrence < *production_count + *test_count
+                },
+            );
             *occurrence += 1;
-            if test_lines.contains(&site.line)
-                || (!was_test_scoped && !context.allows_line(&path, site.line))
-            {
+            if !was_test_scoped && !context.allows_line(&path, site.line) {
                 continue;
             }
             current.push(Finding {

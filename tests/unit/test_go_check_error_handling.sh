@@ -152,6 +152,21 @@ func Cleanup() {
 EOF
 assert_fail "multiline discarded call fails --strict" bash "$GUARD" --strict "$proj_multiline"
 
+# --- FAIL: parenthesized callees still discard returned errors ---
+proj_parenthesized="${tmpdir}/fail_parenthesized_callee"
+mkdir -p "$proj_parenthesized"
+cat > "${proj_parenthesized}/discard.go" <<'EOF'
+package discard
+type Client struct{}
+func (*Client) Close() error { return nil }
+func Cleanup(client *Client, cleanup func() error) {
+    _ = (*client).Close()
+    _ = (cleanup)()
+}
+EOF
+assert_fail "parenthesized discarded calls fail --strict" \
+  bash "$GUARD" --strict "$proj_parenthesized"
+
 # --- PASS: Go raw strings never become executable scanner input ---
 proj_raw_string="${tmpdir}/pass_raw_string"
 mkdir -p "$proj_raw_string"

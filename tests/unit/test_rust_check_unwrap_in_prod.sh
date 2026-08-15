@@ -481,6 +481,39 @@ printf '%s\n' "${proj_identity}/src/lib.rs" > "$staged_identity"
 assert_ok "deleted identical test call does not resurface unchanged production call" \
   env VIBEGUARD_STAGED_FILES="$staged_identity" bash "$GUARD" --strict "$proj_identity"
 
+# --- PASS: any Rust directory prefixed with test_ is excluded ---
+proj_test_prefix="${tmpdir}/pass_test_prefix_directory"
+mkdir -p "${proj_test_prefix}/src/test_support"
+cat > "${proj_test_prefix}/src/test_support/helper.rs" <<'EOF'
+pub fn fixture(input: Option<i32>) -> i32 { input.unwrap() }
+EOF
+assert_ok "unwrap inside test_-prefixed Rust directory is excluded" \
+  bash "$GUARD" --strict "$proj_test_prefix"
+
+# --- STAGED: test-module calls do not share identity with production calls ---
+proj_module_identity="${tmpdir}/staged_module_unwrap_identity"
+mkdir -p "${proj_module_identity}/src"
+git -C "$proj_module_identity" init -q
+git -C "$proj_module_identity" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_module_identity" config user.name "VibeGuard Tests"
+cat > "${proj_module_identity}/src/lib.rs" <<'EOF'
+#[cfg(test)]
+mod tests {
+    fn parse(input: Option<i32>) -> i32 { input.unwrap() }
+}
+fn parse(input: Option<i32>) -> i32 { input.unwrap() }
+EOF
+git -C "$proj_module_identity" add src/lib.rs
+git -C "$proj_module_identity" commit -q -m initial
+cat > "${proj_module_identity}/src/lib.rs" <<'EOF'
+fn parse(input: Option<i32>) -> i32 { input.unwrap() }
+EOF
+git -C "$proj_module_identity" add src/lib.rs
+module_identity_files="${proj_module_identity}/staged-files"
+printf '%s\n' "${proj_module_identity}/src/lib.rs" > "$module_identity_files"
+assert_ok "deleted test-module call does not shift production identity" \
+  env VIBEGUARD_STAGED_FILES="$module_identity_files" bash "$GUARD" --strict "$proj_module_identity"
+
 # --- PASS: empty project (no .rs files) ---
 proj6="${tmpdir}/pass_empty"
 mkdir -p "${proj6}/src"

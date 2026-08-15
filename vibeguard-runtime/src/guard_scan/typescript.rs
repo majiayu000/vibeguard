@@ -6,11 +6,22 @@ use crate::hook_checks::js::mask_javascript_non_code;
 
 use super::shared::{Finding, Result, ScanContext, ScanResult, is_typescript_test_path};
 
+fn mask_typescript_non_code(source: &str, path: &Path) -> String {
+    if matches!(
+        path.extension().and_then(|value| value.to_str()),
+        Some("tsx" | "jsx")
+    ) {
+        mask_javascript_non_code(&source.replace("</", "< "))
+    } else {
+        mask_javascript_non_code(source)
+    }
+}
+
 pub(super) fn any_abuse(context: &ScanContext) -> Result<ScanResult> {
     let mut findings = Vec::new();
     for path in production_files(context) {
         let content = context.read(&path)?;
-        let masked = mask_javascript_non_code(&content);
+        let masked = mask_typescript_non_code(&content, &path);
         let raw_lines = content.lines().collect::<Vec<_>>();
         let mut current = Vec::new();
         for line_number in any_type_lines(&masked) {
@@ -97,7 +108,7 @@ pub(super) fn console_residual(context: &ScanContext) -> Result<ScanResult> {
                 .iter()
                 .any(|marker| previous.contains(marker))
         });
-        let masked = mask_javascript_non_code(&content);
+        let masked = mask_typescript_non_code(&content, &path);
         let current = console
             .find_iter(&masked)
             .filter_map(|found| {
@@ -150,7 +161,7 @@ pub(super) fn duplicate_constants(context: &ScanContext) -> Result<ScanResult> {
             continue;
         }
         let content = context.read(&path)?;
-        let masked = mask_javascript_non_code(&content);
+        let masked = mask_typescript_non_code(&content, &path);
         collect_names(&constant, &masked, &path, &mut constants);
         collect_names(&type_definition, &masked, &path, &mut types);
         collect_names(&function, &masked, &path, &mut functions);
