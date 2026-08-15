@@ -110,7 +110,7 @@ fn help_lists_all_commands() {
     }
     assert!(
         stderr.contains(
-            "setup-state-init  <state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot]"
+            "setup-state-init  <state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot] [codex-skills-dir]"
         ),
         "setup-state-init help must advertise snapshot carry capability: {stderr}"
     );
@@ -129,7 +129,7 @@ fn help_lists_all_commands() {
 fn setup_state_capability_contract_is_exact_and_side_effect_free() {
     let output = bin().arg("setup-state-capabilities").output().unwrap();
     assert_eq!(output.status.code(), Some(0));
-    assert_eq!(output.stdout, b"complete-snapshot-v1\n");
+    assert_eq!(output.stdout, b"complete-snapshot-v2\n");
     assert!(output.stderr.is_empty());
 
     let extra = bin()

@@ -99,6 +99,19 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 assert_cmd "current distribution inventory is fully owned" python3 "$VALIDATOR" "$REPO_DIR"
+while IFS= read -r retired_skill; do
+  assert_cmd "retired bundled skill is absent: ${retired_skill}" \
+    test ! -e "$REPO_DIR/${retired_skill}/SKILL.md"
+done <<'EOF'
+skills/vibeguard
+skills/agentsmd-audit
+skills/trajectory-review
+workflows/plan-flow
+workflows/fixflow
+workflows/optflow
+workflows/plan-mode
+workflows/auto-optimize
+EOF
 assert_cmd "retired awk skill is absent" test ! -e "$REPO_DIR/skills/awk-posix-compat/SKILL.md"
 assert_cmd "retired awk skill has no live references" assert_no_live_reference "skills/awk-posix-compat"
 assert_cmd "retired alerting template is absent" test ! -e "$REPO_DIR/templates/alerting-rules.yaml"

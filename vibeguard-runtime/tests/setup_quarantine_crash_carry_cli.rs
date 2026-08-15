@@ -102,10 +102,10 @@ fn released_crash_drift_checks_the_new_public_inventory() {
 }
 
 #[test]
-fn retired_manifest_skill_carries_an_orphan_intent_from_complete_inventory() {
+fn retired_manifest_skill_carries_an_orphan_intent_from_custom_codex_home() {
     let root = unique_temp_dir("quarantine-orphan-intent-carry");
     let home = root.join("home");
-    let skills = home.join(".codex/skills");
+    let skills = root.join("custom-codex/skills");
     let dest = skills.join("retired");
     let quarantine = skills.join(".retired.vibeguard-quarantine.crash");
     let transaction = skills.join(".retired.vibeguard-transaction.crash.json");
@@ -148,6 +148,8 @@ fn retired_manifest_skill_carries_an_orphan_intent_from_complete_inventory() {
             "6",
             "",
             &path_text(&previous),
+            "",
+            &path_text(&skills),
         ])
         .env("HOME", &home)
         .output()

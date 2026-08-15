@@ -97,7 +97,7 @@ VibeGuard has two layers:
 | Surface | Scope | Canonical Source |
 |---------|-------|------------------|
 | **VibeGuard Core** | Rules, hooks, static guards, install/runtime contract, observability | `rules/claude-rules/`, `schemas/install-modules.json`, `hooks/`, `guards/` |
-| **VibeGuard Workflows** | Slash commands, agent prompts, planning/execution presets | `skills/`, `workflows/`, `agents/` |
+| **VibeGuard Workflows** | Slash commands, agent prompts, and shared command references | `.claude/commands/`, `workflows/references/`, `agents/` |
 
 If these surfaces disagree, treat the Core contract as authoritative first, then update workflow/docs surfaces to match it.
 

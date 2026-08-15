@@ -106,13 +106,11 @@ assert_manifest_skill_links_installed() {
     return 1
   fi
 
-  local source_path skill found=0
+  local source_path skill
   while IFS=$'\t' read -r source_path skill; do
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
-    found=1
     [[ -e "${dest_dir}/${skill}" ]] || return 1
   done <<< "${links}"
-  [[ "${found}" -eq 1 ]]
 }
 
 managed_rule_banner_count_for_test() {

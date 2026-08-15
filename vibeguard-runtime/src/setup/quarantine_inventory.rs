@@ -158,6 +158,7 @@ pub(crate) fn carry_incomplete_inventory(
     target: &mut Value,
     generation: u64,
     disabled_skills: &[&str],
+    codex_skills_dir: Option<&Path>,
 ) -> SetupResult<()> {
     validate_state_metadata(existing)?;
     // Resuming an interrupted generation additionally re-carries the tracked
@@ -173,7 +174,7 @@ pub(crate) fn carry_incomplete_inventory(
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    for (public, record) in orphan_intent_records(existing)? {
+    for (public, record) in orphan_intent_records(existing, codex_skills_dir)? {
         if records
             .insert(public, record.clone())
             .is_some_and(|previous| previous != record)

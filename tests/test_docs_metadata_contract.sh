@@ -81,10 +81,6 @@ assert_cmd "site uses patch-stable v1 series wording" \
 assert_cmd "historical 110-rule references carry snapshot context" \
   bash -c 'test "$(grep -c "110 rules.*2026-03-23 design snapshot\|2026-03-23 design snapshot.*110 rules" "$1")" -eq 2' _ \
   "$REPO_DIR/docs/internal/benchmarks/benchmark-design.md"
-assert_cmd "plan-mode exposes one activation heading" \
-  bash -c 'test "$(grep -c "^## When to Activate$" "$1")" -eq 1' _ \
-  "$REPO_DIR/workflows/plan-mode/SKILL.md"
-
 echo
 echo "=============================="
 printf "Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n" "$TOTAL" "$PASS" "$FAIL"

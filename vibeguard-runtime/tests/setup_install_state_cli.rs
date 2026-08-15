@@ -22,7 +22,7 @@ fn setup_state_commands_reject_invalid_arity_with_exact_usage() {
     let cases = [
         (
             "setup-state-init",
-            "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot]",
+            "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot] [codex-skills-dir]",
         ),
         (
             "setup-state-generation",
@@ -776,6 +776,25 @@ fn managed_tree_lookup_fails_on_bad_state_and_verifies_exact_ownership() {
         ],
     );
     assert_output(&modified, 0, "UNOWNED:checksum_mismatch\n", "");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+
+        fs::write(&managed_file, "managed\n").expect("managed file should be restored");
+        symlink(&managed_file, skill.join("user-link")).expect("user symlink should be created");
+        let special_entry = run(
+            &root,
+            &[
+                "setup-state-verify-managed-tree",
+                &path_text(&state),
+                &path_text(&skill),
+                "skills/plan-flow",
+            ],
+        );
+        assert_output(&special_entry, 0, "UNOWNED:unsupported_path_type\n", "");
+        fs::remove_file(skill.join("user-link")).expect("user symlink should be removed");
+    }
 
     write_json(
         &state,

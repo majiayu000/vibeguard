@@ -272,7 +272,7 @@ See `workflows/plan-flow/references/plan-template.md`
 
 ### 4.3 Review report template
 
-See `skills/vibeguard/references/review-template.md`
+The former bundled review template was retired in GH-763.
 
 ### 4.4 CI configuration recommendations
 

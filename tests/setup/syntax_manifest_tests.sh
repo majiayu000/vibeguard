@@ -406,6 +406,7 @@ mkdir -p \
   "${retired_home}/.codex/skills" \
   "${retired_home}/.vibeguard"
 ln -s "${REPO_DIR}/skills/vibeguard" "${retired_home}/.claude/skills/vibeguard"
+ln -s "${REPO_DIR}/skills/eval-harness" "${retired_home}/.claude/skills/eval-harness"
 ln -s "${REPO_DIR}/skills/old-retired" "${retired_home}/.claude/skills/old-retired"
 ln -s "${REPO_DIR}/skills/user-skill" "${retired_home}/.claude/skills/user-skill"
 mkdir -p "${retired_home}/.claude/skills/old-dir"
@@ -420,6 +421,7 @@ state = {
     "version": 1,
     "files": {
         str(home / ".claude/skills/vibeguard"): {"source": "skills/vibeguard", "type": "symlink"},
+        str(home / ".claude/skills/eval-harness"): {"source": "skills/eval-harness", "type": "symlink"},
         str(home / ".claude/skills/old-retired"): {"source": "skills/old-retired", "type": "symlink"},
         str(home / ".claude/skills/old-dir"): {"source": "skills/old-dir", "type": "symlink"},
         str(home / ".codex/skills/old-flow"): {"source": "workflows/old-flow", "type": "symlink"},
@@ -437,7 +439,8 @@ retired_cleanup_out="$(
   " 2>&1
 )"
 assert_contains "${retired_cleanup_out}" "Removed retired VibeGuard skill link" "retired skill cleanup reports removed managed links"
-assert_cmd "retired cleanup keeps active manifest Claude skill" test -L "${retired_home}/.claude/skills/vibeguard"
+assert_cmd "retired cleanup removes retired Claude vibeguard skill" test ! -L "${retired_home}/.claude/skills/vibeguard"
+assert_cmd "retired cleanup keeps active manifest Claude skill" test -L "${retired_home}/.claude/skills/eval-harness"
 assert_cmd "retired cleanup removes tracked retired Claude skill" test ! -L "${retired_home}/.claude/skills/old-retired"
 assert_cmd "retired cleanup removes tracked retired Codex skill" test ! -L "${retired_home}/.codex/skills/old-flow"
 assert_cmd "retired cleanup preserves untracked user skill" test -L "${retired_home}/.claude/skills/user-skill"

@@ -150,46 +150,12 @@
     {
       "id": "skills-core",
       "kind": "skills",
-      "description": "Claude core skills (vibeguard, auto-optimize, eval-harness, iterative-retrieval, agentsmd-audit, trajectory-review)",
+      "description": "Claude evaluation and retrieval skills (eval-harness, iterative-retrieval)",
       "paths": [
-        "skills/vibeguard/",
-        "workflows/auto-optimize/",
         "skills/eval-harness/",
-        "skills/iterative-retrieval/",
-        "skills/agentsmd-audit/",
-        "skills/trajectory-review/"
+        "skills/iterative-retrieval/"
       ],
       "target": "~/.claude/skills/",
-      "defaultInstall": true,
-      "cost": "light",
-      "stability": "stable"
-    },
-    {
-      "id": "skills-codex-core",
-      "kind": "skills",
-      "description": "Codex core skills (vibeguard, agentsmd-audit, trajectory-review)",
-      "paths": [
-        "skills/vibeguard/",
-        "skills/agentsmd-audit/",
-        "skills/trajectory-review/"
-      ],
-      "target": "~/.codex/skills/",
-      "defaultInstall": true,
-      "cost": "light",
-      "stability": "stable"
-    },
-    {
-      "id": "workflows",
-      "kind": "skills",
-      "description": "Workflow skills (plan-flow, fixflow, optflow, auto-optimize)",
-      "paths": [
-        "workflows/plan-flow/",
-        "workflows/fixflow/",
-        "workflows/optflow/",
-        "workflows/plan-mode/",
-        "workflows/auto-optimize/"
-      ],
-      "target": "~/.codex/skills/",
       "defaultInstall": true,
       "cost": "light",
       "stability": "stable"
@@ -286,7 +252,7 @@
       "modules": [
         "rules-common", "rules-rust", "rules-python", "rules-typescript", "rules-golang",
         "hooks-pre", "hooks-post",
-        "agents-core", "skills-core", "skills-codex-core", "workflows", "commands",
+        "agents-core", "skills-core", "commands",
         "guards-universal", "guards-rust", "guards-python", "guards-typescript", "guards-go",
         "context-profiles"
       ]

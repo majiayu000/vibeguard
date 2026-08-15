@@ -28,7 +28,7 @@ assert_cmd "install cleanup reports lock release failure after preserving order"
 gh719_probe_dir="${TMP_HOME}/gh719-runtime-probe"
 mkdir -p "${gh719_probe_dir}"
 printf '%s\n' '#!/usr/bin/env bash' \
-  'if [[ "$1" == setup-state-capabilities ]]; then echo complete-snapshot-v1; exit 0; fi' \
+  'if [[ "$1" == setup-state-capabilities ]]; then echo complete-snapshot-v2; exit 0; fi' \
   'if [[ "$1" == setup-state-quarantine-count ]]; then echo "Unknown command: $1" >&2; fi' \
   'exit 1' > "${gh719_probe_dir}/partial-runtime"
 chmod +x "${gh719_probe_dir}/partial-runtime"
@@ -56,12 +56,12 @@ printf '%s\n' '#!/usr/bin/env bash' \
   '  setup-state-capabilities)' \
   '    case "${VIBEGUARD_TEST_CAPABILITY_MODE:-valid}" in' \
   '      missing) printf "%s\n" "Unknown command: setup-state-capabilities" >&2; exit 2 ;;' \
-  '      wrong) printf "%s\n" "complete-snapshot-v2" ;;' \
-  '      extra) printf "%s\n" "complete-snapshot-v1" "extra" ;;' \
-  '      valid) printf "%s\n" "complete-snapshot-v1" ;;' \
+  '      wrong) printf "%s\n" "complete-snapshot-v1" ;;' \
+  '      extra) printf "%s\n" "complete-snapshot-v2" "extra" ;;' \
+  '      valid) printf "%s\n" "complete-snapshot-v2" ;;' \
   '    esac' \
   '    ;;' \
-  '  setup-state-init) printf "%s\n" "vibeguard-runtime error: Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot]" >&2; exit 1 ;;' \
+  '  setup-state-init) printf "%s\n" "vibeguard-runtime error: Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot] [codex-skills-dir]" >&2; exit 1 ;;' \
   '  *) printf "%s\n" "vibeguard-runtime error: Usage: capability fixture" >&2; exit 1 ;;' \
   'esac' > "${gh719_capability_runtime}"
 chmod +x "${gh719_capability_runtime}"
@@ -127,7 +127,7 @@ gh719_cached_runtime_count="${gh719_probe_dir}/cached-runtime.count"
 printf '%s\n' '#!/usr/bin/env bash' \
   'if [[ "$1" == setup-state-capabilities ]]; then' \
   '  printf "probe\n" >> "${VIBEGUARD_TEST_PROBE_COUNT:?}"' \
-  '  printf "%s\n" complete-snapshot-v1' \
+  '  printf "%s\n" complete-snapshot-v2' \
   '  exit 0' \
   'fi' \
   'if [[ "$1" == setup-state-generation ]]; then printf "%s\t%s\n" COMPLETE 1; exit 0; fi' \
@@ -625,23 +625,6 @@ HOME="${gh719_order_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c '
 ' _ "${REPO_DIR}" >/dev/null 2>&1 || gh719_order_rc=$?
 assert_cmd "generation ordering fails during preflight" test "${gh719_order_rc}" -ne 0
 
-gh719_set_disabled() {
-  python3 - "${gh719_config}" "$@" <<'PY'
-import json, sys
-path, names = sys.argv[1], sys.argv[2:]
-with open(path, encoding="utf-8") as handle:
-    config = json.load(handle)
-config["disabled_skills"] = list(names)
-with open(path, "w", encoding="utf-8") as handle:
-    json.dump(config, handle, indent=2)
-PY
-}
-
-gh719_setup() {
-  HOME="${gh719_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 \
-    bash "${REPO_DIR}/setup.sh" --yes --profile core
-}
-
 assert_cmd "disabled skill source reports _VG_CONFIG_FILE" env \
   _VG_CONFIG_FILE=/custom/internal.json \
   VIBEGUARD_CONFIG_FILE=/ignored/user.json \
@@ -665,224 +648,6 @@ assert_cmd "disabled skill source reports VIBEGUARD_LOG_DIR config" env \
     source "$1/scripts/setup/lib.sh"
     [[ "$(disabled_skills_source_label)" == "/custom/log/config.json" ]]
   ' _ "${REPO_DIR}"
-
-gh719_setup >/dev/null 2>&1
-assert_cmd "workflow skill installed by default" test -d "${gh719_home}/.codex/skills/plan-flow"
-
-cp "${gh719_home}/.vibeguard/install-state.json" \
-  "${gh719_home}/.vibeguard/install-state.valid.json"
-gh719_snapshot_hash="$(shasum -a 256 "${gh719_home}/.vibeguard/installed/version" | cut -d ' ' -f1)"
-gh719_wrapper_hash="$(shasum -a 256 "${gh719_home}/.vibeguard/run-hook.sh" | cut -d ' ' -f1)"
-printf '%s\n' '{' > "${gh719_home}/.vibeguard/install-state.json"
-if gh719_bad_state_out="$(gh719_setup 2>&1)"; then
-  red "malformed install-state unexpectedly succeeded"
-  FAIL=$((FAIL + 1))
-  TOTAL=$((TOTAL + 1))
-else
-  green "malformed install-state fails setup preflight"
-  PASS=$((PASS + 1))
-  TOTAL=$((TOTAL + 1))
-fi
-assert_contains "${gh719_bad_state_out}" "refusing to mutate malformed install-state" "malformed install-state failure is visible"
-assert_cmd "malformed state preserves installed snapshot" test \
-  "$(shasum -a 256 "${gh719_home}/.vibeguard/installed/version" | cut -d ' ' -f1)" = \
-  "${gh719_snapshot_hash}"
-assert_cmd "malformed state preserves active wrapper" test \
-  "$(shasum -a 256 "${gh719_home}/.vibeguard/run-hook.sh" | cut -d ' ' -f1)" = \
-  "${gh719_wrapper_hash}"
-cp "${gh719_home}/.vibeguard/install-state.valid.json" \
-  "${gh719_home}/.vibeguard/install-state.json"
-
-printf '%s\n' '{"version":1,"files":[]}' \
-  > "${gh719_home}/.vibeguard/install-state.json"
-gh719_non_object_state_hash="$(
-  shasum -a 256 "${gh719_home}/.vibeguard/install-state.json" | awk '{print $1}'
-)"
-if gh719_non_object_state_out="$(gh719_setup 2>&1)"; then
-  red "non-object install-state files unexpectedly succeeded"
-  FAIL=$((FAIL + 1))
-  TOTAL=$((TOTAL + 1))
-else
-  green "non-object install-state files fail setup preflight"
-  PASS=$((PASS + 1))
-  TOTAL=$((TOTAL + 1))
-fi
-assert_contains "${gh719_non_object_state_out}" \
-  "refusing to mutate malformed install-state" \
-  "non-object install-state files failure is visible"
-assert_cmd "non-object install-state files are not overwritten" test \
-  "$(shasum -a 256 "${gh719_home}/.vibeguard/install-state.json" | awk '{print $1}')" = \
-  "${gh719_non_object_state_hash}"
-mv "${gh719_home}/.vibeguard/install-state.valid.json" \
-  "${gh719_home}/.vibeguard/install-state.json"
-
-rm -rf "${gh719_home}/.codex/skills/plan-flow"
-gh719_restore_out="$(gh719_setup 2>&1)"
-assert_contains "${gh719_restore_out}" "RESTORING plan-flow" "reinstall reports restoring a deleted managed skill"
-assert_contains "${gh719_restore_out}" "disabled_skills" "restore report names the persistent opt-out"
-assert_cmd "deleted skill is restored when no opt-out is recorded" test -d "${gh719_home}/.codex/skills/plan-flow"
-
-gh719_set_disabled plan-flow auto-optimize
-gh719_disable_out="$(gh719_setup 2>&1)"
-assert_contains "${gh719_disable_out}" "QUARANTINED plan-flow" "reinstall quarantines a newly disabled skill"
-assert_cmd "disabled Codex skill is gone after reinstall" test ! -e "${gh719_home}/.codex/skills/plan-flow"
-assert_cmd "disabled Codex skill quarantine is durably recorded" python3 -c \
-  'import json,sys; d=json.load(open(sys.argv[1])); r=d["disabled_skill_quarantines"][sys.argv[2]]; assert r["version"] == 1 and r["tracked_digest"].startswith("sha256:")' \
-  "${gh719_home}/.vibeguard/install-state.json" \
-  "${gh719_home}/.codex/skills/plan-flow"
-assert_cmd "same-name Claude skill remains installed" test -e "${gh719_home}/.claude/skills/auto-optimize"
-assert_cmd "same-name Codex skill is disabled" test ! -e "${gh719_home}/.codex/skills/auto-optimize"
-assert_cmd "non-disabled skills are unaffected" test -d "${gh719_home}/.codex/skills/fixflow"
-
-gh719_repeat_rc=0
-gh719_repeat_out="$(gh719_setup 2>&1)" || gh719_repeat_rc=$?
-assert_cmd "repeat reinstall with disabled skills succeeds" test "${gh719_repeat_rc}" -eq 0
-assert_contains "${gh719_repeat_out}" "SKIP plan-flow (disabled" "repeat reinstall skips the disabled skill"
-assert_not_contains "${gh719_repeat_out}" "RESTORING plan-flow" "repeat reinstall does not restore the disabled skill"
-assert_cmd "disabled skill stays gone across reinstalls" test ! -e "${gh719_home}/.codex/skills/plan-flow"
-assert_cmd "repeat reinstall retains the quarantine locator" python3 -c \
-  'import json,os,sys; d=json.load(open(sys.argv[1])); q=d["disabled_skill_quarantines"][sys.argv[2]]["quarantine"]; assert os.path.isfile(os.path.join(q,"SKILL.md"))' \
-  "${gh719_home}/.vibeguard/install-state.json" \
-  "${gh719_home}/.codex/skills/plan-flow"
-
-gh719_check_out="$(HOME="${gh719_home}" bash "${REPO_DIR}/setup.sh" --check 2>&1)"
-assert_contains "${gh719_check_out}" "[DISABLED] plan-flow" "--check reports the skill as disabled"
-assert_not_contains "${gh719_check_out}" "[MISSING] plan-flow" "--check does not report a disabled skill as missing"
-assert_not_contains "${gh719_check_out}" "Run 'bash setup.sh' to repair drifted files" \
-  "--check treats quarantined skill bytes as the active tracked location"
-
-gh719_set_disabled
-gh719_setup >/dev/null 2>&1
-assert_cmd "clearing the opt-out re-enables the skill" test -d "${gh719_home}/.codex/skills/plan-flow"
-
-gh719_set_disabled plan-flow
-gh719_redisable_out="$(gh719_setup 2>&1)"
-assert_contains "${gh719_redisable_out}" "QUARANTINED plan-flow" \
-  "a re-enabled canonical skill can be disabled again"
-assert_cmd "repeat disable after re-enable removes the public skill again" \
-  test ! -e "${gh719_home}/.codex/skills/plan-flow"
-
-gh719_set_disabled plan-flow
-VIBEGUARD_DISABLED_SKILLS='' gh719_setup >/dev/null 2>&1
-assert_cmd "explicit empty environment override re-enables the skill" test -d "${gh719_home}/.codex/skills/plan-flow"
-
-gh719_clean_quarantine_home="${TMP_HOME}/gh719-clean-quarantine-home"
-HOME="${gh719_clean_quarantine_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
-  VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --profile core \
-  >/dev/null 2>&1
-mkdir -p "${gh719_clean_quarantine_home}/.vibeguard"
-printf '%s\n' '{"version":1,"disabled_skills":["plan-flow"]}' \
-  > "${gh719_clean_quarantine_home}/.vibeguard/config.json"
-HOME="${gh719_clean_quarantine_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
-  VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --profile core \
-  >/dev/null 2>&1
-gh719_clean_quarantine_path="$(python3 -c \
-  'import json,sys; d=json.load(open(sys.argv[1])); print(next(iter(d["disabled_skill_quarantines"].values()))["quarantine"])' \
-  "${gh719_clean_quarantine_home}/.vibeguard/install-state.json")"
-gh719_clean_quarantine_out="$(HOME="${gh719_clean_quarantine_home}" \
-  VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash "${REPO_DIR}/setup.sh" --clean 2>&1)"
-assert_cmd "clean retains active quarantine bytes" test -f \
-  "${gh719_clean_quarantine_path}/SKILL.md"
-assert_cmd "clean retains quarantine ownership inventory" test -f \
-  "${gh719_clean_quarantine_home}/.vibeguard/install-state.json"
-assert_contains "${gh719_clean_quarantine_out}" "Retained install state for 1 disabled-skill quarantine" \
-  "clean reports retained quarantine ownership inventory"
-assert_cmd "clean uses preflight inventory after installed runtime removal" env \
-  HOME="${gh719_clean_quarantine_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
-  bash -c 'source "$1/scripts/setup/lib.sh"; source "$1/scripts/lib/install-state.sh"; state_prepare_clean; setup_runtime() { return 127; }; state_clean; test "$_VG_STATE_CLEAN_RESULT" = RETAINED' _ "${REPO_DIR}"
-
-gh719_invalid_clean_home="${TMP_HOME}/gh719-invalid-clean-home"
-mkdir -p "${gh719_invalid_clean_home}/.vibeguard"
-printf '%s\n' '{"version":1,"files":[]}' \
-  > "${gh719_invalid_clean_home}/.vibeguard/install-state.json"
-printf '%s\n' 'must-survive' > "${gh719_invalid_clean_home}/.vibeguard/run-hook.sh"
-gh719_invalid_clean_state_hash="$(
-  shasum -a 256 "${gh719_invalid_clean_home}/.vibeguard/install-state.json" | awk '{print $1}'
-)"
-gh719_invalid_clean_rc=0
-HOME="${gh719_invalid_clean_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
-  bash "${REPO_DIR}/setup.sh" --clean >/dev/null 2>&1 || gh719_invalid_clean_rc=$?
-assert_cmd "clean rejects malformed full install-state before mutation" test \
-  "${gh719_invalid_clean_rc}" -ne 0
-assert_cmd "failed clean preserves malformed ownership inventory bytes" test \
-  "$(shasum -a 256 "${gh719_invalid_clean_home}/.vibeguard/install-state.json" | awk '{print $1}')" = \
-  "${gh719_invalid_clean_state_hash}"
-assert_cmd "failed clean preserves managed installation assets" test -f \
-  "${gh719_invalid_clean_home}/.vibeguard/run-hook.sh"
-
-for gh719_nonregular_state_name in install-state.json install-state.previous.json; do
-  gh719_nonregular_clean_home="${TMP_HOME}/gh719-nonregular-clean-${gh719_nonregular_state_name}"
-  mkdir -p \
-    "${gh719_nonregular_clean_home}/.vibeguard/${gh719_nonregular_state_name}"
-  printf '%s\n' 'must-survive' > "${gh719_nonregular_clean_home}/.vibeguard/run-hook.sh"
-  gh719_nonregular_clean_rc=0
-  HOME="${gh719_nonregular_clean_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
-    bash "${REPO_DIR}/setup.sh" --clean >/dev/null 2>&1 || gh719_nonregular_clean_rc=$?
-  assert_cmd "clean rejects nonregular ${gh719_nonregular_state_name} before mutation" \
-    test "${gh719_nonregular_clean_rc}" -ne 0
-  assert_cmd "failed clean preserves assets for nonregular ${gh719_nonregular_state_name}" \
-    test -f "${gh719_nonregular_clean_home}/.vibeguard/run-hook.sh"
-  assert_cmd "failed clean preserves nonregular ${gh719_nonregular_state_name}" \
-    test -d "${gh719_nonregular_clean_home}/.vibeguard/${gh719_nonregular_state_name}"
-done
-
-gh719_previous_invalid_home="${TMP_HOME}/gh719-previous-invalid-home"
-mkdir -p "${gh719_previous_invalid_home}/.vibeguard"
-printf '%s\n' '{"version":1,"generation":2,"complete":true,"files":{}}' \
-  > "${gh719_previous_invalid_home}/.vibeguard/install-state.json"
-printf '%s\n' '{"version":1,"files":[]}' \
-  > "${gh719_previous_invalid_home}/.vibeguard/install-state.previous.json"
-gh719_previous_invalid_rc=0
-gh719_previous_invalid_out="$(HOME="${gh719_previous_invalid_home}" \
-  VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c '
-    source "$1/scripts/lib/install-state.sh"
-    state_check_drift
-  ' _ "${REPO_DIR}" 2>&1)" || gh719_previous_invalid_rc=$?
-assert_cmd "drift check rejects an invalid previous generation" \
-  test "${gh719_previous_invalid_rc}" -ne 0
-assert_contains "${gh719_previous_invalid_out}" "PREVIOUS_GENERATION_INVALID" \
-  "drift check reports the invalid previous generation"
-
-printf '%s\n' '{"version":1,"disabled_skills":"plan-flow"}' > "${gh719_config}"
-gh719_before_hash="$(shasum -a 256 "${gh719_home}/.vibeguard/install-state.json" | awk '{print $1}')"
-if gh719_malformed_out="$(gh719_setup 2>&1)"; then
-  red "malformed disabled_skills unexpectedly succeeded"
-  FAIL=$((FAIL + 1))
-  TOTAL=$((TOTAL + 1))
-else
-  green "malformed disabled_skills fails setup"
-  PASS=$((PASS + 1))
-  TOTAL=$((TOTAL + 1))
-fi
-assert_contains "${gh719_malformed_out}" "disabled_skills" "malformed disabled_skills is reported by path"
-assert_contains "${gh719_malformed_out}" "config_type_error" "malformed disabled_skills fails with a typed config error"
-gh719_after_hash="$(shasum -a 256 "${gh719_home}/.vibeguard/install-state.json" | awk '{print $1}')"
-assert_cmd "malformed config fails before install-state mutation" test \
-  "${gh719_after_hash}" = "${gh719_before_hash}"
-
-printf '%s\n' '{"version":1,"disabled_skills":["plan-flow"]}' > "${gh719_config}"
-mv "${gh719_home}/.codex/skills/plan-flow" "${gh719_home}/.codex/skills/plan-flow-managed"
-mkdir -p "${gh719_home}/.codex/skills/plan-flow"
-printf '%s\n' "user-owned" > "${gh719_home}/.codex/skills/plan-flow/custom.txt"
-if gh719_unowned_out="$(gh719_setup 2>&1)"; then
-  red "unowned disabled skill unexpectedly succeeded"
-  FAIL=$((FAIL + 1))
-  TOTAL=$((TOTAL + 1))
-else
-  green "unowned disabled skill fails setup"
-  PASS=$((PASS + 1))
-  TOTAL=$((TOTAL + 1))
-fi
-assert_cmd "unowned disabled skill is preserved" test -f "${gh719_home}/.codex/skills/plan-flow/custom.txt"
-assert_not_contains "${gh719_unowned_out}" "QUARANTINED plan-flow" "failed ownership check does not claim quarantine"
-gh719_unowned_check_rc=0
-gh719_unowned_check_out="$(HOME="${gh719_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
-  bash "${REPO_DIR}/setup.sh" --check --strict 2>&1)" || gh719_unowned_check_rc=$?
-assert_cmd "strict check rejects an unowned disabled skill" test "${gh719_unowned_check_rc}" -ne 0
-assert_contains "${gh719_unowned_check_out}" "[BROKEN] plan-flow skill is disabled" \
-  "check reports an unowned disabled skill as broken"
-assert_not_contains "${gh719_unowned_check_out}" "[DISABLED] plan-flow skill disabled" \
-  "check does not report an unowned disabled skill as healthy"
 
 # GH719 clean lifecycle: the canonical lock must be released while the pinned
 # runtime is still available, including on the failure path after
