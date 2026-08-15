@@ -98,7 +98,9 @@ setup_md_legacy_prepare_target() {
 setup_md_legacy_call() {
   local command="$1" target_file="$2"
   shift 2
-  local target_parent compat_parent compat_dir compat_file restored_file start_token end_token output rc=0
+  local target_parent compat_parent compat_dir compat_file restored_file staged_rules_file
+  local start_token end_token routing_contract escaped_routing_contract output rc=0
+  local -a runtime_args=("$@")
   target_parent="$(dirname "${target_file}")"
   if [[ "${command}" == "setup-md-diff-inject" ]]; then
     compat_parent="${TMPDIR:-/tmp}"
@@ -108,6 +110,7 @@ setup_md_legacy_call() {
   compat_dir=$(mktemp -d "${compat_parent%/}/vibeguard-md-compat.XXXXXX") || return 1
   compat_file="${compat_dir}/target.md"
   restored_file="${compat_dir}/restored.md"
+  staged_rules_file="${compat_dir}/rules.md"
   start_token="VIBEGUARD_PROSE_START_$$_${RANDOM}"
   end_token="VIBEGUARD_PROSE_END_$$_${RANDOM}"
   while [[ -f "${target_file}" ]] \
@@ -121,7 +124,21 @@ setup_md_legacy_call() {
     rm -rf "${compat_dir}"
     return 1
   fi
-  output=$(setup_runtime "${command}" "${compat_file}" "$@" 2>&1) || rc=$?
+  if [[ "${command}" == "setup-md-diff-inject" || "${command}" == "setup-md-inject" ]]; then
+    routing_contract="\`${runtime_args[1]}/workflows/references/routing-contract.md\`"
+    escaped_routing_contract="${routing_contract//\\/\\\\}"
+    escaped_routing_contract="${escaped_routing_contract//&/\\&}"
+    escaped_routing_contract="${escaped_routing_contract//|/\\|}"
+    if ! sed \
+      -e "s|__VIBEGUARD_DIR__/workflows/references/routing-contract.md|${escaped_routing_contract}|g" \
+      "${runtime_args[0]}" > "${staged_rules_file}"; then
+      rm -rf "${compat_dir}"
+      printf 'Failed to prepare managed Markdown rules: %s\n' "${runtime_args[0]}" >&2
+      return 1
+    fi
+    runtime_args[0]="${staged_rules_file}"
+  fi
+  output=$(setup_runtime "${command}" "${compat_file}" "${runtime_args[@]}" 2>&1) || rc=$?
   if [[ "${rc}" -ne 0 ]]; then
     rm -rf "${compat_dir}"
     printf '%s\n' "${output}" >&2
