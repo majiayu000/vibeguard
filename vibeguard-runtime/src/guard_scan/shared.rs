@@ -158,7 +158,7 @@ impl ScanResult {
 #[derive(Default)]
 struct DiffMap {
     added: BTreeMap<PathBuf, BTreeSet<usize>>,
-    deleted_near: BTreeMap<PathBuf, BTreeSet<usize>>,
+    deleted: BTreeMap<PathBuf, BTreeSet<usize>>,
     renames: BTreeMap<PathBuf, PathBuf>,
 }
 
@@ -272,12 +272,12 @@ impl ScanContext {
             .is_some_and(|lines| lines.contains(&line))
     }
 
-    pub(super) fn has_deleted_near(&self, path: &Path, line: usize, radius: usize) -> bool {
+    pub(super) fn has_deleted_between(&self, path: &Path, start: usize, end: usize) -> bool {
         self.diff.as_ref().is_some_and(|diff| {
-            diff.deleted_near.get(path).is_some_and(|lines| {
-                lines.iter().any(|deleted| {
-                    *deleted >= line.saturating_sub(radius) && *deleted <= line + radius
-                })
+            diff.deleted.get(path).is_some_and(|lines| {
+                lines
+                    .iter()
+                    .any(|deleted| *deleted >= start && *deleted <= end)
             })
         })
     }
@@ -476,7 +476,7 @@ fn parse_diff(root: &Path, text: &str) -> DiffMap {
             new_line += 1;
         } else if line.starts_with('-') && !line.starts_with("---") {
             if go_exit.is_match(line.trim_start_matches('-')) {
-                map.deleted_near
+                map.deleted
                     .entry(current.clone())
                     .or_default()
                     .insert(new_line.max(1));

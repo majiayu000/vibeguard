@@ -414,21 +414,52 @@ fn any_type_lines(masked: &str) -> BTreeSet<usize> {
             ":" if is_object_property_colon(&tokens, index, &stack) => {
                 object_colons.insert(index);
             }
-            "any" => {
-                let previous = index.checked_sub(1).and_then(|value| tokens.get(value));
-                if previous.is_some_and(|value| value.text == "as")
-                    || previous.is_some_and(|value| value.text == ":")
-                        && !index
-                            .checked_sub(1)
-                            .is_some_and(|value| object_colons.contains(&value))
-                {
-                    findings.insert(token.line);
-                }
+            "any" if any_is_type(&tokens, index, &object_colons) => {
+                findings.insert(token.line);
             }
             _ => {}
         }
     }
     findings
+}
+
+fn any_is_type(tokens: &[TypeToken], index: usize, object_colons: &BTreeSet<usize>) -> bool {
+    for cursor in (0..index).rev() {
+        match tokens[cursor].text.as_str() {
+            ":" => return !object_colons.contains(&cursor),
+            "as" => return true,
+            "," if !inside_angle(tokens, cursor) => return false,
+            "=" => return statement_is_type_alias(tokens, cursor),
+            ";" | "{" | "}" => return false,
+            _ => {}
+        }
+    }
+    false
+}
+
+fn inside_angle(tokens: &[TypeToken], index: usize) -> bool {
+    tokens[..index].iter().fold(0usize, |depth, token| {
+        if token.text == "<" {
+            depth + 1
+        } else if token.text == ">" {
+            depth.saturating_sub(1)
+        } else {
+            depth
+        }
+    }) > 0
+}
+
+fn statement_is_type_alias(tokens: &[TypeToken], index: usize) -> bool {
+    let start = tokens[..index]
+        .iter()
+        .rposition(|token| matches!(token.text.as_str(), ";" | "{" | "}"))
+        .map_or(0, |position| position + 1);
+    let statement = &tokens[start..index];
+    statement.first().is_some_and(|token| token.text == "type")
+        || statement.get(1).is_some_and(|token| token.text == "type")
+            && statement
+                .first()
+                .is_some_and(|token| matches!(token.text.as_str(), "export" | "declare"))
 }
 
 fn type_tokens(masked: &str) -> Vec<TypeToken> {

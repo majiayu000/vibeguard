@@ -54,7 +54,7 @@ assert_output_contains "message indicates not a workspace" "Cargo workspace" bas
 proj_incon="${tmpdir}/fail_inconsistent"
 mkdir -p "${proj_incon}/server/src" "${proj_incon}/desktop/src"
 cat > "${proj_incon}/Cargo.toml" <<'EOF'
-[workspace]
+[workspace] # inline comments are valid TOML
 members = ["server", "desktop"]
 EOF
 cat > "${proj_incon}/server/Cargo.toml" <<'EOF'

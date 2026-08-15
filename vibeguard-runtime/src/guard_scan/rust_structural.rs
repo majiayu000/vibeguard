@@ -77,7 +77,9 @@ pub(super) fn workspace_consistency(context: &ScanContext) -> Result<ScanResult>
             return Err(format!("cannot read {}: {error}", cargo_path.display()).into());
         }
     };
-    if !cargo.lines().any(|line| line.trim() == "[workspace]")
+    if !cargo
+        .lines()
+        .any(|line| line.split('#').next().unwrap_or("").trim() == "[workspace]")
         && !cargo.contains("workspace.members")
     {
         return Ok(ScanResult::new(
@@ -358,14 +360,25 @@ pub(super) fn declaration_execution_gap(context: &ScanContext) -> Result<ScanRes
             regex::escape(&method_name)
         ))?;
         if context.allows_line(&path, line) && !call.is_match(&startup) {
-            findings.push(Finding {
+            let finding = Finding {
                 rule: "RS-14",
-                path,
+                path: path.clone(),
                 line,
                 message: format!(
                     "Persistence method '{type_name}::{method_name}()' is declared but not called at startup"
                 ),
-            });
+            };
+            let content = sources
+                .iter()
+                .find(|(source, _, _)| source == &path)
+                .map(|(_, content, _)| content.as_str())
+                .ok_or_else(|| {
+                    format!(
+                        "persistence declaration source is not indexed: {}",
+                        path.display()
+                    )
+                })?;
+            findings.extend(context.keep_unsuppressed(content, vec![finding]));
         }
     }
     Ok(ScanResult::new(
@@ -754,6 +767,7 @@ fn action_name(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     lower == "done"
         || lower == "mark_done"
+        || lower.ends_with("_done")
         || ["update_", "delete_", "remove_", "add_", "create_", "set_"]
             .iter()
             .any(|prefix| lower.starts_with(prefix))

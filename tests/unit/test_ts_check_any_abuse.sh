@@ -147,6 +147,17 @@ export const cast = input as
 EOF
 assert_fail "multiline any annotation and cast fail --strict" bash "$GUARD" --strict "$proj_multiline_any"
 
+# --- FAIL: any nested inside generic type annotations is still a type node ---
+proj_nested_type="${tmpdir}/fail_nested_any_type"
+mkdir -p "${proj_nested_type}/src"
+cat > "${proj_nested_type}/src/value.ts" <<'EOF'
+declare const input: unknown;
+export const values: Array<any> = [];
+export const result: Promise<Result<string, any>> = Promise.resolve(input as any);
+EOF
+assert_fail "any nested inside generic type annotations fails --strict" \
+  bash "$GUARD" --strict "$proj_nested_type"
+
 # --- FAIL: object type members remain type annotations ---
 proj_object_type="${tmpdir}/fail_any_object_type"
 mkdir -p "${proj_object_type}/src"

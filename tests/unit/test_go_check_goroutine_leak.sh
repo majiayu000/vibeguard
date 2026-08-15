@@ -124,6 +124,38 @@ func process() {}
 EOF
 assert_ok "goroutine without --strict exits 0" bash "$GUARD" "$proj_nonstrict"
 
+# --- BASELINE: deleting an exit before a launch does not affect the later goroutine ---
+proj_direction="${tmpdir}/pass_deleted_exit_direction"
+mkdir -p "$proj_direction"
+git -C "$proj_direction" init -q
+git -C "$proj_direction" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_direction" config user.name "VibeGuard Tests"
+cat > "${proj_direction}/worker.go" <<'EOF'
+package worker
+func previous(ctx Context) { ctx.Done() }
+func historical() {
+    go processQueue()
+}
+func processQueue() {}
+type Context interface { Done() }
+EOF
+git -C "$proj_direction" add worker.go
+git -C "$proj_direction" commit -q -m initial
+direction_baseline="$(git -C "$proj_direction" rev-parse HEAD)"
+cat > "${proj_direction}/worker.go" <<'EOF'
+package worker
+func previous(ctx Context) {}
+func historical() {
+    go processQueue()
+}
+func processQueue() {}
+type Context interface { Done() }
+EOF
+git -C "$proj_direction" add worker.go
+git -C "$proj_direction" commit -q -m remove-preceding-exit
+assert_ok "deleted exits before a launch do not resurface historical goroutines" \
+  bash "$GUARD" --strict --baseline "$direction_baseline" "$proj_direction"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

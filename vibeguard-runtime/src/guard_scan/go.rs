@@ -3,32 +3,34 @@ use regex::Regex;
 use super::shared::{Finding, Result, ScanContext, ScanResult};
 
 pub(super) fn error_handling(context: &ScanContext) -> Result<ScanResult> {
-    let discard = Regex::new(r"(?:^|[;{}])\s*_(?:\s*,\s*_)?\s*:?=\s*[^=]")?;
     let call = Regex::new(
-        r"(?:^|[;{}])\s*_(?:\s*,\s*_)?\s*:?=\s*[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\[[^\n()]+\])?\s*\(",
+        r"(?m)(?:^|[;{}])[ \t]*_(?:[ \t]*,[ \t]*_)?[ \t]*:?=[ \t\r\n]*[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\[[^\n()]+\])?[ \t\r\n]*\(",
     )?;
-    let comma_ok = Regex::new(r",\s*(ok|found|exists)\s*:?=")?;
     let mut findings = Vec::new();
     for path in production_files(context) {
         let content = context.read(&path)?;
         let masked = mask_go_non_code(&content);
-        let current = masked
-            .lines()
-            .enumerate()
-            .filter(|(index, line)| {
-                let line_number = index + 1;
-                context.allows_line(&path, line_number)
-                    && discard.is_match(line)
-                    && call.is_match(line)
-                    && !line.contains("range")
-                    && !comma_ok.is_match(line)
-            })
-            .map(|(index, _)| Finding {
-                rule: "GO-01",
-                path: path.clone(),
-                line: index + 1,
-                message: "[auto-fix] [this-line] OBSERVATION: error return value is discarded"
-                    .to_string(),
+        let current = call
+            .find_iter(&masked)
+            .filter_map(|found| {
+                let matched = found.as_str();
+                let assignment = found.start() + matched.find('_').unwrap_or(0);
+                let line = masked.as_bytes()[..assignment]
+                    .iter()
+                    .filter(|byte| **byte == b'\n')
+                    .count()
+                    + 1;
+                let end_line = line + matched.matches('\n').count();
+                (line..=end_line)
+                    .any(|candidate| context.allows_line(&path, candidate))
+                    .then(|| Finding {
+                        rule: "GO-01",
+                        path: path.clone(),
+                        line,
+                        message:
+                            "[auto-fix] [this-line] OBSERVATION: error return value is discarded"
+                                .to_string(),
+                    })
             })
             .collect();
         findings.extend(context.keep_unsuppressed(&content, current));
@@ -115,7 +117,7 @@ pub(super) fn goroutine_leak(context: &ScanContext) -> Result<ScanResult> {
         for (index, line) in lines.iter().enumerate() {
             let line_number = index + 1;
             let changed = context.allows_line(&path, line_number)
-                || context.has_deleted_near(&path, line_number, 20);
+                || context.has_deleted_between(&path, line_number, line_number.saturating_add(20));
             if !changed {
                 continue;
             }

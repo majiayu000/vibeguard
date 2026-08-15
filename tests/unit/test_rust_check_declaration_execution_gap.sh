@@ -229,6 +229,18 @@ printf '%s\n' "${proj_staged}/src/main.rs" > "$staged_list"
 assert_fail "staged default() sees unchanged load() implementation" \
   env VIBEGUARD_STAGED_FILES="$staged_list" bash "$GUARD" --strict "$proj_staged"
 
+# --- PASS: persistence declarations honor the documented suppression directive ---
+proj_suppressed="${tmpdir}/pass_suppressed_persistence_declaration"
+mkdir -p "${proj_suppressed}/src"
+cat > "${proj_suppressed}/src/config.rs" <<'EOF'
+pub struct AppConfig;
+impl AppConfig {
+    // vibeguard-disable-next-line RS-14 -- intentionally invoked outside startup
+    pub fn save(&self) {}
+}
+EOF
+assert_ok "suppressed persistence declaration passes" bash "$GUARD" --strict "$proj_suppressed"
+
 # --- PASS: empty project ---
 proj_empty="${tmpdir}/pass_empty"
 mkdir -p "${proj_empty}/src"

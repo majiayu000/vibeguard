@@ -48,6 +48,17 @@ pub fn update_status(id: u64) -> Result<String, String> {
 EOF
 assert_fail "update_ fn without writes in task/ path fails --strict" bash "$GUARD" --strict "$proj_update"
 
+# --- FAIL: every action name ending in _done remains protected ---
+proj_suffix_done="${tmpdir}/fail_suffix_done"
+mkdir -p "${proj_suffix_done}/src/task"
+cat > "${proj_suffix_done}/src/task/archive.rs" <<'EOF'
+pub fn archive_done(id: u64) -> Result<String, String> {
+    Ok(format!("archived-{id}"))
+}
+EOF
+assert_fail "action fn ending in _done without effects fails --strict" \
+  bash "$GUARD" --strict "$proj_suffix_done"
+
 # --- PASS: bodyless action-named trait declarations are not implementations ---
 proj_trait="${tmpdir}/pass_bodyless_trait_action"
 mkdir -p "${proj_trait}/src/task"

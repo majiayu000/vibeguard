@@ -139,6 +139,19 @@ func Cleanup(stale bool) { if stale { _ = load[map[string]int]() } }
 EOF
 assert_fail "inline generic discarded call fails --strict" bash "$GUARD" --strict "$proj_inline_generic"
 
+# --- FAIL: gofmt preserves a line break between assignment and call ---
+proj_multiline="${tmpdir}/fail_multiline_discard"
+mkdir -p "$proj_multiline"
+cat > "${proj_multiline}/discard.go" <<'EOF'
+package discard
+func cleanup() error { return nil }
+func Cleanup() {
+    _ =
+        cleanup()
+}
+EOF
+assert_fail "multiline discarded call fails --strict" bash "$GUARD" --strict "$proj_multiline"
+
 # --- PASS: Go raw strings never become executable scanner input ---
 proj_raw_string="${tmpdir}/pass_raw_string"
 mkdir -p "$proj_raw_string"
