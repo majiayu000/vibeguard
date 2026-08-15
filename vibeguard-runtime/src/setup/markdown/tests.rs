@@ -84,6 +84,35 @@ mod setup_markdown_tests {
     }
 
     #[test]
+    fn crlf_managed_boundaries_do_not_add_blank_lines() {
+        let original = concat!(
+            "Before\r\n\r\n",
+            "<!-- vibeguard-start -->\r\n",
+            "# VibeGuard shared core\r\n",
+            "old\r\n",
+            "<!-- vibeguard-end -->\r\n\r\n",
+            "After\r\n",
+        );
+        let rules = concat!(
+            "<!-- vibeguard-start -->\n",
+            "# VibeGuard shared core\n",
+            "new\n",
+            "<!-- vibeguard-end -->",
+        );
+        assert_eq!(
+            replace_managed_block(original, rules),
+            concat!(
+                "Before\n\n",
+                "<!-- vibeguard-start -->\n",
+                "# VibeGuard shared core\n",
+                "new\n",
+                "<!-- vibeguard-end -->\n\n",
+                "After\r\n",
+            )
+        );
+    }
+
+    #[test]
     fn profile_settings_reject_out_of_profile_managed_hooks() -> SetupResult<()> {
         let repo_dir = repo_dir()?;
         let core_specs = claude_specs(repo_dir, Some("core"))?;

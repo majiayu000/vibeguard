@@ -600,7 +600,7 @@ clean_claude_home_installation() {
 
   if [[ -f "${CLAUDE_DIR}/CLAUDE.md" ]]; then
     md_cleanup_result="$(
-      setup_runtime setup-md-remove "${CLAUDE_DIR}/CLAUDE.md" 2>/dev/null
+      setup_md_remove "${CLAUDE_DIR}/CLAUDE.md" 2>/dev/null
     )" || md_cleanup_result="ERROR"
     case "${md_cleanup_result}" in
       REMOVED) yellow "Removed VibeGuard rules from ~/.claude/CLAUDE.md" ;;

@@ -613,11 +613,12 @@ vibeguard_managed_rule_banner_count() {
   local file="$1"
   [[ -f "${file}" ]] || return 1
   awk '
-    /<!-- vibeguard-start -->/ { in_block = 1; valid = 0; next }
-    /<!-- vibeguard-end -->/ { in_block = 0; valid = 0; next }
-    in_block && $0 == "# VibeGuard shared core" { valid = 1 }
-    in_block && valid && match($0, /[0-9][0-9]* rules/) {
-      text = substr($0, RSTART, RLENGTH)
+    { line = $0; sub(/\r$/, "", line) }
+    line == "<!-- vibeguard-start -->" { in_block = 1; valid = 0; next }
+    line == "<!-- vibeguard-end -->" { in_block = 0; valid = 0; next }
+    in_block && line == "# VibeGuard shared core" { valid = 1 }
+    in_block && valid && match(line, /[0-9][0-9]* rules/) {
+      text = substr(line, RSTART, RLENGTH)
       sub(/ rules$/, "", text)
       print text
       found = 1
@@ -627,11 +628,129 @@ vibeguard_managed_rule_banner_count() {
   ' "${file}"
 }
 
+setup_md_runtime_has_safe_blocks() {
+  setup_runtime setup-md-managed-span /dev/null >/dev/null 2>&1
+}
+
+setup_md_legacy_prepare_target() {
+  local target_file="$1" compat_file="$2" start_token="$3" end_token="$4"
+  local managed_span start_line end_line carriage_return=$'\r'
+  if [[ ! -f "${target_file}" ]]; then
+    touch "${compat_file}"
+    return 0
+  fi
+
+  managed_span=$(awk '
+    {
+      line = $0
+      sub(/\r$/, "", line)
+    }
+    line == "<!-- vibeguard-start -->" {
+      in_block = 1
+      candidate_start = NR
+      has_heading = 0
+      next
+    }
+    line == "<!-- vibeguard-end -->" {
+      if (in_block && has_heading) {
+        print candidate_start, NR
+        exit
+      }
+      in_block = 0
+      has_heading = 0
+      next
+    }
+    in_block && line == "# VibeGuard shared core" { has_heading = 1 }
+  ' "${target_file}") || return 1
+  read -r start_line end_line <<< "${managed_span}"
+
+  local -a transforms=(
+    -e "s/${carriage_return}$//"
+    -e "s|<!-- vibeguard-start -->|${start_token}|g"
+    -e "s|<!-- vibeguard-end -->|${end_token}|g"
+  )
+  if [[ -n "${start_line:-}" && -n "${end_line:-}" ]]; then
+    transforms+=(
+      -e "${start_line}s|^${start_token}$|<!-- vibeguard-start -->|"
+      -e "${end_line}s|^${end_token}$|<!-- vibeguard-end -->|"
+    )
+  fi
+  sed "${transforms[@]}" "${target_file}" > "${compat_file}"
+}
+
+setup_md_legacy_call() {
+  local command="$1" target_file="$2"
+  shift 2
+  local target_parent compat_dir compat_file restored_file start_token end_token output rc=0
+  target_parent="$(dirname "${target_file}")"
+  compat_dir=$(mktemp -d "${target_parent}/.vibeguard-md-compat.XXXXXX") || return 1
+  compat_file="${compat_dir}/target.md"
+  restored_file="${compat_dir}/restored.md"
+  start_token="VIBEGUARD_PROSE_START_$$_${RANDOM}"
+  end_token="VIBEGUARD_PROSE_END_$$_${RANDOM}"
+  while [[ -f "${target_file}" ]] \
+    && { grep -qF "${start_token}" "${target_file}" || grep -qF "${end_token}" "${target_file}"; }; do
+    start_token="${start_token}_x"
+    end_token="${end_token}_x"
+  done
+
+  if ! setup_md_legacy_prepare_target \
+    "${target_file}" "${compat_file}" "${start_token}" "${end_token}"; then
+    rm -rf "${compat_dir}"
+    return 1
+  fi
+  output=$(setup_runtime "${command}" "${compat_file}" "$@" 2>&1) || rc=$?
+  if [[ "${rc}" -ne 0 ]]; then
+    rm -rf "${compat_dir}"
+    printf '%s\n' "${output}" >&2
+    return "${rc}"
+  fi
+
+  output="${output//${compat_file}/${target_file}}"
+  output="${output//${start_token}/<!-- vibeguard-start -->}"
+  output="${output//${end_token}/<!-- vibeguard-end -->}"
+  case "${command}:${output##*$'\n'}" in
+    setup-md-inject:APPENDED|setup-md-inject:UPDATED|setup-md-remove:REMOVED)
+      sed \
+        -e "s|${start_token}|<!-- vibeguard-start -->|g" \
+        -e "s|${end_token}|<!-- vibeguard-end -->|g" \
+        "${compat_file}" > "${restored_file}"
+      mv "${restored_file}" "${target_file}"
+      ;;
+  esac
+  rm -rf "${compat_dir}"
+  printf '%s\n' "${output}"
+}
+
+setup_md_diff_inject() {
+  if setup_md_runtime_has_safe_blocks; then
+    setup_runtime setup-md-diff-inject "$@"
+  else
+    setup_md_legacy_call setup-md-diff-inject "$@"
+  fi
+}
+
+setup_md_inject() {
+  if setup_md_runtime_has_safe_blocks; then
+    setup_runtime setup-md-inject "$@"
+  else
+    setup_md_legacy_call setup-md-inject "$@"
+  fi
+}
+
+setup_md_remove() {
+  if setup_md_runtime_has_safe_blocks; then
+    setup_runtime setup-md-remove "$@"
+  else
+    setup_md_legacy_call setup-md-remove "$@"
+  fi
+}
+
 vibeguard_managed_rules_block_matches_source() {
   local target_file="$1" rule_count="$2" rules_file="$3"
   local diff_output
   [[ -f "${target_file}" ]] || return 2
-  if ! diff_output=$(setup_runtime setup-md-diff-inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>/dev/null); then
+  if ! diff_output=$(setup_md_diff_inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>/dev/null); then
     return 2
   fi
   [[ "${diff_output}" == "SKIP" ]]
@@ -643,7 +762,7 @@ inject_vibeguard_rules() {
 
   rule_count=$(claude_rule_count_for_banner)
   mkdir -p "$(dirname "${target_file}")"
-  if ! rules_diff=$(setup_runtime setup-md-diff-inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
+  if ! rules_diff=$(setup_md_diff_inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
     red "  Failed to compute ${display_label} diff"
     return 1
   fi
@@ -662,7 +781,7 @@ inject_vibeguard_rules() {
     echo
     return 0
   fi
-  if result=$(setup_runtime setup-md-inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
+  if result=$(setup_md_inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
     if [[ -f "${target_file}" ]]; then
       state_record_file "${target_file}" "${state_source}" "copy"
     fi

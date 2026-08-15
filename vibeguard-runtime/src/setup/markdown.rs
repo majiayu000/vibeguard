@@ -55,7 +55,7 @@ pub fn remove(args: &[String]) -> SetupResult<()> {
     let original = std::fs::read_to_string(path)?;
     if let Some((start, end_after)) = marker_range(&original) {
         let before = original[..start].trim_end();
-        let after = original[end_after..].trim_start_matches('\n');
+        let after = original[end_after..].trim_start_matches(['\r', '\n']);
         let mut content = before.to_string();
         if !after.is_empty() {
             if !content.is_empty() {
@@ -81,7 +81,8 @@ pub fn managed_span(args: &[String]) -> SetupResult<()> {
     let blocks = managed_blocks(&content);
     if let Some((start, end_after)) = blocks.first().copied() {
         let start_line = content[..start].matches('\n').count() + 1;
-        let end_line = content[..end_after].matches('\n').count() + 1;
+        let end_line = content[..end_after].matches('\n').count()
+            + usize::from(!content[..end_after].ends_with('\n'));
         println!("{} {start_line} {end_line}", blocks.len());
     } else {
         println!("0 0 0");
@@ -151,7 +152,7 @@ fn replace_managed_block(original: &str, rules: &str) -> String {
         return original.to_string();
     };
     let before = original[..start].trim_end();
-    let after = original[end_after..].trim_start_matches('\n');
+    let after = original[end_after..].trim_start_matches(['\r', '\n']);
     let mut content = String::new();
     if !before.is_empty() {
         content.push_str(before);
@@ -201,7 +202,7 @@ fn standalone_line_ranges(text: &str, expected: &str) -> Vec<(usize, usize)> {
         let without_lf = segment.strip_suffix('\n').unwrap_or(segment);
         let line = without_lf.strip_suffix('\r').unwrap_or(without_lf);
         if line == expected {
-            ranges.push((offset, offset + line.len()));
+            ranges.push((offset, offset + segment.len()));
         }
         offset += segment.len();
     }

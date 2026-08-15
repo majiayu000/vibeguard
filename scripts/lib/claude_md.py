@@ -40,7 +40,7 @@ def standalone_line_ranges(content: str, expected: str):
     for segment in content.splitlines(keepends=True):
         line = segment.rstrip("\r\n")
         if line == expected:
-            yield offset, offset + len(line)
+            yield offset, offset + len(segment)
         offset += len(segment)
 
 
@@ -91,7 +91,7 @@ def render_injected(
     if managed is not None:
         start_idx, end_after = managed
         before = original[:start_idx].rstrip()
-        after = original[end_after:].lstrip("\n")
+        after = original[end_after:].lstrip("\r\n")
         content = before + "\n\n" + rules.strip() + "\n"
         if after:
             content += "\n" + after
@@ -138,7 +138,7 @@ def remove(claude_md_path: str) -> str:
     if managed is not None:
         start_idx, end_after = managed
         before = content[:start_idx].rstrip()
-        after = content[end_after:].lstrip("\n")
+        after = content[end_after:].lstrip("\r\n")
         content = before
         if after:
             content += "\n\n" + after

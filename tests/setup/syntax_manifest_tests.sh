@@ -87,6 +87,25 @@ inline_heading_prose = (
     "more prose <!-- vibeguard-end -->\n"
 )
 assert claude_md.count_managed_blocks(inline_heading_prose) == 0
+crlf = (
+    "Before\r\n\r\n"
+    "<!-- vibeguard-start -->\r\n"
+    "# VibeGuard shared core\r\n"
+    "old\r\n"
+    "<!-- vibeguard-end -->\r\n\r\n"
+    "After\r\n"
+)
+crlf_target = Path("/tmp/vibeguard-crlf-markers.md")
+crlf_target.write_bytes(crlf.encode())
+action, _, crlf_updated = claude_md.render_injected(
+    str(crlf_target),
+    str(repo_dir / "claude-md/vibeguard-rules.md"),
+    str(repo_dir),
+    127,
+)
+assert action == "UPDATED"
+assert crlf_updated.startswith("Before\n\n<!-- vibeguard-start -->\n")
+assert crlf_updated.endswith("<!-- vibeguard-end -->\n\nAfter\r\n")
 PY
 assert_cmd "setup shell rule counter counts canonical non-numeric rule ids" bash -c "
   set -euo pipefail

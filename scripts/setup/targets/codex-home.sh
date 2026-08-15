@@ -426,13 +426,14 @@ check_codex_agents_hygiene() {
   local span_out valid_count start_line end_line
   if ! span_out=$(setup_runtime setup-md-managed-span "${agents_md}" 2>/dev/null); then
     span_out=$(awk '
-      $0 == "<!-- vibeguard-start -->" {
+      { line = $0; sub(/\r$/, "", line) }
+      line == "<!-- vibeguard-start -->" {
         in_block = 1
         candidate_start = NR
         has_heading = 0
         next
       }
-      $0 == "<!-- vibeguard-end -->" {
+      line == "<!-- vibeguard-end -->" {
         if (in_block && has_heading) {
           count++
           if (count == 1) {
@@ -444,7 +445,7 @@ check_codex_agents_hygiene() {
         has_heading = 0
         next
       }
-      in_block && $0 == "# VibeGuard shared core" { has_heading = 1 }
+      in_block && line == "# VibeGuard shared core" { has_heading = 1 }
       END { print count + 0, first_start + 0, first_end + 0 }
     ' "${agents_md}") || {
       red "[BROKEN] ~/.codex/AGENTS.md marker mismatch (managed-span failed; rerun setup)"
@@ -544,7 +545,7 @@ clean_codex_home_installation() {
 
   if [[ -f "${CODEX_DIR}/AGENTS.md" ]]; then
     agents_md_result="$(
-      setup_runtime setup-md-remove "${CODEX_DIR}/AGENTS.md" 2>/dev/null
+      setup_md_remove "${CODEX_DIR}/AGENTS.md" 2>/dev/null
     )" || agents_md_result="ERROR"
     case "${agents_md_result}" in
       REMOVED) yellow "Removed VibeGuard rules from ~/.codex/AGENTS.md" ;;

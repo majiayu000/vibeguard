@@ -613,6 +613,38 @@ python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
+path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+PY
+crlf_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_not_contains "${crlf_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md marker mismatch" "--check accepts a CRLF Codex managed block"
+assert_not_contains "${crlf_agents_check_out}" "missing VibeGuard rule count banner" "--check reads the rule banner from a CRLF managed block"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+prefix = (
+    "Codex-only note with <!-- vibeguard-start -->\n"
+    "# VibeGuard shared core\n"
+    "and an inline <!-- vibeguard-end --> marker.\n\n"
+)
+path.write_text(prefix + text, encoding="utf-8")
+PY
+prose_markers_setup_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
+assert_contains "${prose_markers_setup_out}" "~/.codex/AGENTS.md already up to date" "setup finds the real managed block after marker-like Codex prose"
+assert_cmd "setup preserves Codex prose containing inline markers and a managed heading" python3 -c '
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+expected = "Codex-only note with <!-- vibeguard-start -->\n# VibeGuard shared core\nand an inline <!-- vibeguard-end --> marker.\n\n"
+raise SystemExit(0 if text.startswith(expected) else 1)
+' "${HOME}/.codex/AGENTS.md"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
 path.write_text(text.replace("| SEC-13 |", "| SEC-X |", 1), encoding="utf-8")
 PY
