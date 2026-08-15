@@ -10,11 +10,22 @@ START = "<!-- vibeguard-start -->"
 END = "<!-- vibeguard-end -->"
 MANAGED_HEADING = "# VibeGuard shared core"
 ROUTING_CONTRACT_REF = "`workflows/references/routing-contract.md`"
+ROUTING_CONTRACT_PLACEHOLDER = "__VIBEGUARD_DIR__/workflows/references/routing-contract.md"
 RULE_COUNT_PLACEHOLDER = "__VIBEGUARD_RULE_COUNT__"
 RULE_HEADING_RE = re.compile(
     r"^##\s+(?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+(?:\s|:|$)",
     re.MULTILINE,
 )
+
+
+def read_text_exact(path: Path) -> str:
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
+def write_text_exact(path: Path, content: str) -> None:
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        handle.write(content)
 
 
 def count_rule_headings(root: Path) -> int:
@@ -78,6 +89,10 @@ def render_injected(
 ) -> tuple[str, str, str]:
     claude_md = Path(claude_md_path)
     rules = Path(rules_path).read_text()
+    rules = rules.replace(
+        ROUTING_CONTRACT_PLACEHOLDER,
+        f"`{vibeguard_dir}/workflows/references/routing-contract.md`",
+    )
     rules = rules.replace("__VIBEGUARD_DIR__", vibeguard_dir)
     rules = rules.replace(
         ROUTING_CONTRACT_REF,
@@ -85,7 +100,7 @@ def render_injected(
     )
     rules = rules.replace(RULE_COUNT_PLACEHOLDER, str(resolve_rule_count(vibeguard_dir, rule_count)))
 
-    original = claude_md.read_text() if claude_md.exists() else ""
+    original = read_text_exact(claude_md) if claude_md.exists() else ""
     managed = first_managed_block_range(original)
 
     if managed is not None:
@@ -108,7 +123,7 @@ def render_injected(
 def inject(claude_md_path: str, rules_path: str, vibeguard_dir: str, rule_count: Optional[int] = None) -> str:
     action, _original, content = render_injected(claude_md_path, rules_path, vibeguard_dir, rule_count)
     claude_md = Path(claude_md_path)
-    claude_md.write_text(content)
+    write_text_exact(claude_md, content)
     return action
 
 
@@ -132,7 +147,7 @@ def remove(claude_md_path: str) -> str:
     if not claude_md.exists():
         return "NOT_FOUND"
 
-    content = claude_md.read_text()
+    content = read_text_exact(claude_md)
     managed = first_managed_block_range(content)
 
     if managed is not None:
@@ -143,7 +158,7 @@ def remove(claude_md_path: str) -> str:
         if after:
             content += "\n\n" + after
         content = content.rstrip() + "\n"
-        claude_md.write_text(content)
+        write_text_exact(claude_md, content)
         return "REMOVED"
 
     return "NOT_FOUND"

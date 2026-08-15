@@ -71,7 +71,7 @@ require(
     "settings diff computation before write",
 )
 require(
-    "scripts/setup/lib.sh",
+    "scripts/setup/markdown-compat.sh",
     "diff-inject",
     "CLAUDE.md diff computation before write",
 )
