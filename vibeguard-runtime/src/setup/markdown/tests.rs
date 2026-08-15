@@ -60,6 +60,31 @@ mod setup_markdown_tests {
     }
 
     #[test]
+    fn production_routing_placeholder_is_quoted_before_generic_replacement() -> SetupResult<()> {
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "vibeguard-routing-placeholder-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir)?;
+        let target = dir.join("AGENTS.md");
+        let rules = repo_dir()?.join("claude-md/vibeguard-codex-rules.md");
+        let execution_root = "/tmp/Vibe Guard snapshot";
+
+        let (_, _, content) = render_injected(&target, &rules, execution_root, "127")?;
+        assert!(
+            content.contains("`/tmp/Vibe Guard snapshot/workflows/references/routing-contract.md`")
+        );
+        assert!(
+            !content
+                .contains("at /tmp/Vibe Guard snapshot/workflows/references/routing-contract.md")
+        );
+
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[test]
     fn recognizes_and_replaces_released_legacy_heading() {
         let original = concat!(
             "user content\n\n",

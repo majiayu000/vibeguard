@@ -5,6 +5,14 @@ setup_md_runtime_has_safe_blocks() {
   setup_runtime setup-md-managed-span /dev/null >/dev/null 2>&1
 }
 
+setup_md_managed_span() {
+  if setup_md_runtime_has_safe_blocks; then
+    setup_runtime setup-md-managed-span "$1"
+  else
+    setup_md_legacy_managed_span "$1"
+  fi
+}
+
 setup_md_legacy_managed_span() {
   awk '
     {
@@ -90,9 +98,14 @@ setup_md_legacy_prepare_target() {
 setup_md_legacy_call() {
   local command="$1" target_file="$2"
   shift 2
-  local target_parent compat_dir compat_file restored_file start_token end_token output rc=0
+  local target_parent compat_parent compat_dir compat_file restored_file start_token end_token output rc=0
   target_parent="$(dirname "${target_file}")"
-  compat_dir=$(mktemp -d "${target_parent}/.vibeguard-md-compat.XXXXXX") || return 1
+  if [[ "${command}" == "setup-md-diff-inject" ]]; then
+    compat_parent="${TMPDIR:-/tmp}"
+  else
+    compat_parent="${target_parent}"
+  fi
+  compat_dir=$(mktemp -d "${compat_parent%/}/vibeguard-md-compat.XXXXXX") || return 1
   compat_file="${compat_dir}/target.md"
   restored_file="${compat_dir}/restored.md"
   start_token="VIBEGUARD_PROSE_START_$$_${RANDOM}"
@@ -120,11 +133,15 @@ setup_md_legacy_call() {
   output="${output//${end_token}/<!-- vibeguard-end -->}"
   case "${command}:${output##*$'\n'}" in
     setup-md-inject:APPENDED|setup-md-inject:UPDATED|setup-md-remove:REMOVED)
-      sed \
+      if ! sed \
         -e "s|${start_token}|<!-- vibeguard-start -->|g" \
         -e "s|${end_token}|<!-- vibeguard-end -->|g" \
-        "${compat_file}" > "${restored_file}"
-      mv "${restored_file}" "${target_file}"
+        "${compat_file}" > "${restored_file}" \
+        || ! mv "${restored_file}" "${target_file}"; then
+        rm -rf "${compat_dir}"
+        printf 'Failed to restore managed Markdown target: %s\n' "${target_file}" >&2
+        return 1
+      fi
       ;;
   esac
   rm -rf "${compat_dir}"

@@ -611,8 +611,13 @@ vibeguard_rule_id_count() {
 
 vibeguard_managed_rule_banner_count() {
   local file="$1"
+  local span_out valid_count start_line end_line
   [[ -f "${file}" ]] || return 1
-  awk '
+  span_out=$(setup_md_managed_span "${file}" 2>/dev/null) || return 1
+  read -r valid_count start_line end_line <<< "${span_out}"
+  [[ "${valid_count:-}" == "1" ]] || return 1
+  [[ "${start_line:-}" =~ ^[1-9][0-9]*$ && "${end_line:-}" =~ ^[1-9][0-9]*$ ]] || return 1
+  sed -n "${start_line},${end_line}p" "${file}" | awk '
     { line = $0; sub(/\r$/, "", line) }
     line == "<!-- vibeguard-start -->" { in_block = 1; valid = 0; next }
     line == "<!-- vibeguard-end -->" { in_block = 0; valid = 0; next }
@@ -625,7 +630,7 @@ vibeguard_managed_rule_banner_count() {
       exit
     }
     END { if (!found) exit 1 }
-  ' "${file}"
+  '
 }
 
 source "${REPO_DIR}/scripts/setup/markdown-compat.sh"

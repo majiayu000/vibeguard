@@ -12,6 +12,8 @@ mod managed_block;
 use managed_block::{managed_blocks, marker_range, replace_managed_block, validate_managed_source};
 
 const RULE_COUNT_PLACEHOLDER: &str = "__VIBEGUARD_RULE_COUNT__";
+const ROUTING_CONTRACT_PLACEHOLDER: &str =
+    "__VIBEGUARD_DIR__/workflows/references/routing-contract.md";
 
 pub fn diff_inject(args: &[String]) -> SetupResult<()> {
     if args.len() != 4 {
@@ -108,6 +110,7 @@ fn render_injected(
         )
     })?;
     let rules = rules_source
+        .replace(ROUTING_CONTRACT_PLACEHOLDER, &routing_contract)
         .replace("__VIBEGUARD_DIR__", repo_dir)
         .replace(
             "`workflows/references/routing-contract.md`",

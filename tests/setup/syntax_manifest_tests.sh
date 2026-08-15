@@ -147,6 +147,39 @@ assert_cmd "legacy compatibility preserves CRLF outside managed markers" bash -c
   printf "Before\r\n<!-- vibeguard-start -->\r\n# VibeGuard shared core\r\nold\r\n<!-- vibeguard-end -->\r\nAfter\r\n" > "$4"
   cmp "$3" "$4"
 ' _ "${REPO_DIR}" "${TMP_HOME}/legacy-crlf.md" "${TMP_HOME}/legacy-crlf-compat.md" "${TMP_HOME}/legacy-crlf-expected.md"
+assert_cmd "managed rule banner ignores fenced examples before the detected block" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  printf "%s\n" "\`\`\`markdown" "<!-- vibeguard-start -->" "# VibeGuard shared core" "999 rules total" "<!-- vibeguard-end -->" "\`\`\`" "<!-- vibeguard-start -->" "# VibeGuard shared core" "127 rules total" "<!-- vibeguard-end -->" > "$2"
+  test "$(vibeguard_managed_rule_banner_count "$2")" = 127
+' _ "${REPO_DIR}" "${TMP_HOME}/managed-banner-fenced.md"
+assert_cmd "legacy read-only diff stages outside an unwritable target directory" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  mkdir -p "$2"
+  printf "%s\n" "user content" > "$2/AGENTS.md"
+  chmod 555 "$2"
+  trap '\''chmod 755 "$2"'\'' EXIT
+  setup_runtime() { printf "SKIP\n"; }
+  TMPDIR="$3" setup_md_legacy_call setup-md-diff-inject "$2/AGENTS.md" unused-rules unused-root 127 >/dev/null
+' _ "${REPO_DIR}" "${TMP_HOME}/legacy-read-only" "${TMP_HOME}"
+assert_cmd "legacy restoration failure is fail-visible and preserves the target" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  printf "%s\n" "user content" > "$2"
+  cp "$2" "$3"
+  sed_calls=0
+  sed() {
+    sed_calls=$((sed_calls + 1))
+    if [[ "${sed_calls}" -eq 2 ]]; then
+      return 1
+    fi
+    command sed "$@"
+  }
+  setup_runtime() {
+    printf "%s\n" "<!-- vibeguard-start -->" "# VibeGuard shared core" "127 rules total" "<!-- vibeguard-end -->" >> "$2"
+    printf "UPDATED\n"
+  }
+  ! setup_md_legacy_call setup-md-inject "$2" unused-rules unused-root 127 >/dev/null 2>&1
+  cmp "$2" "$3"
+' _ "${REPO_DIR}" "${TMP_HOME}/legacy-restore-failure.md" "${TMP_HOME}/legacy-restore-original.md"
 assert_cmd "setup shell rule counter counts canonical non-numeric rule ids" bash -c "
   set -euo pipefail
   source '${REPO_DIR}/scripts/setup/lib.sh'
