@@ -209,8 +209,11 @@ pub(super) fn component_duplication(context: &ScanContext) -> Result<ScanResult>
         if sort_state.is_match(&content) && table.is_match(&content) {
             sortable_tables.push(path.clone());
         }
-        let normalized = path.to_string_lossy().replace('\\', "/");
-        if (normalized.contains("/hooks/")
+        let lower_path = path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .to_ascii_lowercase();
+        if (lower_path.contains("/hooks/")
             || path
                 .file_name()
                 .and_then(|value| value.to_str())

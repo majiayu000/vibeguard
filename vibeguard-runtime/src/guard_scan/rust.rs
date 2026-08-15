@@ -89,6 +89,7 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
         let mut lock_depths: Vec<(isize, Option<String>)> = Vec::new();
         let mut max_active = 0usize;
         let mut total = 0usize;
+        let mut statement_prefix = String::new();
         let mut current = Vec::new();
         let masked_lines = masked.lines().collect::<Vec<_>>();
         for (index, line) in masked_lines.iter().enumerate() {
@@ -122,7 +123,7 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
             for (position, character) in line.char_indices() {
                 while track_locks && lock_positions.get(next_lock) == Some(&position) {
                     total += 1;
-                    lock_depths.push((depth, lock_binding_name(line, position)));
+                    lock_depths.push((depth, lock_binding_name(&statement_prefix, line, position)));
                     max_active = max_active.max(lock_depths.len());
                     next_lock += 1;
                 }
@@ -143,6 +144,13 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
                     ';' => lock_depths.retain(|(_, binding)| binding.is_some()),
                     _ => {}
                 }
+            }
+            if let Some(position) = line.rfind([';', '{', '}']) {
+                statement_prefix.clear();
+                statement_prefix.push_str(&line[position + 1..]);
+            } else {
+                statement_prefix.push_str(line);
+                statement_prefix.push('\n');
             }
             if let Some(name) = function_name.as_deref()
                 && depth <= function_depth
@@ -531,8 +539,8 @@ fn is_rust_ident(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
-fn lock_binding_name(line: &str, lock_position: usize) -> Option<String> {
-    let prefix = &line[..lock_position];
+fn lock_binding_name(statement_prefix: &str, line: &str, lock_position: usize) -> Option<String> {
+    let prefix = format!("{statement_prefix}{}", &line[..lock_position]);
     let statement_start = prefix
         .rfind([';', '{', '}'])
         .map_or(0, |position| position + 1);

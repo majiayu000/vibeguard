@@ -105,6 +105,25 @@ impl Two {
 EOF
 assert_fail "two lock acquisitions in same function fails --strict" bash "$GUARD" --strict "$proj4"
 
+# --- FAIL: multiline assignments still bind guards across statements ---
+proj_multiline_binding="${tmpdir}/fail_multiline_lock_bindings"
+mkdir -p "${proj_multiline_binding}/src"
+cat > "${proj_multiline_binding}/src/state.rs" <<'EOF'
+use std::sync::Mutex;
+struct State { a: Mutex<i32>, b: Mutex<i32> }
+impl State {
+    fn update(&self) {
+        let first =
+            self.a.lock();
+        let second =
+            self.b.lock();
+        println!("{first:?} {second:?}");
+    }
+}
+EOF
+assert_fail "multiline lock bindings remain concurrent" \
+  bash "$GUARD" --strict "$proj_multiline_binding"
+
 # --- PASS: no lock calls at all ---
 proj5="${tmpdir}/pass_no_locks"
 mkdir -p "${proj5}/src"
