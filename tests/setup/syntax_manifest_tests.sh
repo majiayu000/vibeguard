@@ -140,6 +140,13 @@ assert_cmd "legacy compatibility prepares unmanaged fenced examples without sed 
   grep -qF TEST_START "$3"
   grep -qF TEST_END "$3"
 ' _ "${REPO_DIR}" "${TMP_HOME}/legacy-fenced-example.md" "${TMP_HOME}/legacy-fenced-compat.md"
+assert_cmd "legacy compatibility preserves CRLF outside managed markers" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  printf "Before\r\n<!-- vibeguard-start -->\r\n# VibeGuard shared core\r\nold\r\n<!-- vibeguard-end -->\r\nAfter\r\n" > "$2"
+  setup_md_legacy_prepare_target "$2" "$3" TEST_START TEST_END
+  printf "Before\r\n<!-- vibeguard-start -->\r\n# VibeGuard shared core\r\nold\r\n<!-- vibeguard-end -->\r\nAfter\r\n" > "$4"
+  cmp "$3" "$4"
+' _ "${REPO_DIR}" "${TMP_HOME}/legacy-crlf.md" "${TMP_HOME}/legacy-crlf-compat.md" "${TMP_HOME}/legacy-crlf-expected.md"
 assert_cmd "setup shell rule counter counts canonical non-numeric rule ids" bash -c "
   set -euo pipefail
   source '${REPO_DIR}/scripts/setup/lib.sh'

@@ -73,13 +73,14 @@ setup_md_legacy_prepare_target() {
   read -r start_line end_line <<< "${managed_span}"
 
   local -a transforms=(
-    -e "s/${carriage_return}$//"
     -e "s|<!-- vibeguard-start -->|${start_token}|g"
     -e "s|<!-- vibeguard-end -->|${end_token}|g"
   )
   if [[ "${start_line:-}" =~ ^[1-9][0-9]*$ && "${end_line:-}" =~ ^[1-9][0-9]*$ ]]; then
     transforms+=(
+      -e "${start_line}s|^${start_token}${carriage_return}$|<!-- vibeguard-start -->${carriage_return}|"
       -e "${start_line}s|^${start_token}$|<!-- vibeguard-start -->|"
+      -e "${end_line}s|^${end_token}${carriage_return}$|<!-- vibeguard-end -->${carriage_return}|"
       -e "${end_line}s|^${end_token}$|<!-- vibeguard-end -->|"
     )
   fi
