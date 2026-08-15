@@ -156,6 +156,27 @@ console.info(any);
 EOF
 assert_ok "import and export aliases named any pass" bash "$GUARD" --strict "$proj_alias"
 
+# --- PASS: object binding aliases named any are values, not type annotations ---
+proj_binding_alias="${tmpdir}/pass_any_binding_alias"
+mkdir -p "${proj_binding_alias}/src"
+cat > "${proj_binding_alias}/src/value.ts" <<'EOF'
+declare const source: { value: unknown };
+const { value: any } = source;
+console.info(any);
+EOF
+assert_ok "destructuring aliases named any pass" bash "$GUARD" --strict "$proj_binding_alias"
+
+# --- FAIL: semicolon-free imports do not suppress later assertions ---
+proj_semicolon_free="${tmpdir}/fail_any_after_semicolon_free_import"
+mkdir -p "${proj_semicolon_free}/src"
+cat > "${proj_semicolon_free}/src/value.ts" <<'EOF'
+import { value } from "./module"
+declare const input: unknown
+export const escaped = input as any
+EOF
+assert_fail "as-any after a semicolon-free import remains visible" \
+  bash "$GUARD" --strict "$proj_semicolon_free"
+
 # --- FAIL: multiline type annotations and casts preserve syntax-level coverage ---
 proj_multiline_any="${tmpdir}/fail_multiline_any"
 mkdir -p "${proj_multiline_any}/src"
@@ -188,6 +209,18 @@ export const payload: any = ratio;
 EOF
 assert_fail "any after postfix-operator division remains visible" \
   bash "$GUARD" --strict "$proj_postfix_division"
+
+# --- FAIL: division after a postfix non-null assertion must not mask later source ---
+proj_nonnull_division="${tmpdir}/fail_any_after_nonnull_division"
+mkdir -p "${proj_nonnull_division}/src"
+cat > "${proj_nonnull_division}/src/value.ts" <<'EOF'
+declare const value: number | undefined;
+declare const total: number;
+export const ratio = value! / total;
+export const payload: any = ratio;
+EOF
+assert_fail "any after postfix non-null division remains visible" \
+  bash "$GUARD" --strict "$proj_nonnull_division"
 
 # --- FAIL: any nested inside generic type annotations is still a type node ---
 proj_nested_type="${tmpdir}/fail_nested_any_type"
@@ -262,8 +295,21 @@ printf 'export const clean: string = "ok";\n' > "${proj_symlink}/src/clean.ts"
 printf 'export const escaped: any = 1;\n' > "${outside_symlink}/escaped.ts"
 if ln -s "$outside_symlink" "${proj_symlink}/escape" 2>/dev/null \
     && ln -s "$proj_symlink" "${proj_symlink}/cycle" 2>/dev/null; then
-  assert_ok "directory symlink escapes and cycles are not scanned" bash "$GUARD" --strict "$proj_symlink"
+assert_ok "directory symlink escapes and cycles are not scanned" bash "$GUARD" --strict "$proj_symlink"
 fi
+
+# --- FAIL: standalone scans include untracked source files in Git worktrees ---
+proj_untracked="${tmpdir}/fail_untracked_source"
+mkdir -p "${proj_untracked}/src"
+git -C "$proj_untracked" init -q
+git -C "$proj_untracked" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_untracked" config user.name "VibeGuard Tests"
+printf 'export const tracked: string = "ok";\n' > "${proj_untracked}/src/tracked.ts"
+git -C "$proj_untracked" add src/tracked.ts
+git -C "$proj_untracked" commit -q -m initial
+printf 'export const untracked: any = 1;\n' > "${proj_untracked}/src/untracked.ts"
+assert_fail "standalone scan reports an untracked source violation" \
+  bash "$GUARD" --strict "$proj_untracked"
 
 # --- PASS: empty project ---
 proj_empty="${tmpdir}/pass_empty"

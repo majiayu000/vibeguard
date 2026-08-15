@@ -517,17 +517,27 @@ fn any_is_type(tokens: &[TypeToken], index: usize, object_colons: &BTreeSet<usiz
 }
 
 fn as_starts_type(tokens: &[TypeToken], index: usize) -> bool {
-    let start = tokens[..index]
-        .iter()
-        .rposition(|token| token.text == ";")
-        .map_or(0, |position| position + 1);
-    let prefix = &tokens[start..index];
-    if prefix.iter().any(|token| token.text == "import") {
-        return false;
+    let mut depth = 0usize;
+    for cursor in (0..index).rev() {
+        match tokens[cursor].text.as_str() {
+            "}" => depth += 1,
+            "{" if depth == 0 => {
+                let start = tokens[..cursor]
+                    .iter()
+                    .rposition(|token| matches!(token.text.as_str(), ";" | "}"))
+                    .map_or(0, |position| position + 1);
+                return !tokens[start..cursor]
+                    .iter()
+                    .any(|token| matches!(token.text.as_str(), "import" | "export"));
+            }
+            "{" => depth -= 1,
+            ";" if depth == 0 => break,
+            _ => {}
+        }
     }
-    !(prefix.first().is_some_and(|token| token.text == "export")
-        && prefix.iter().any(|token| token.text == "{")
-        && !prefix.iter().any(|token| token.text == "="))
+    tokens
+        .get(index.wrapping_sub(1))
+        .is_none_or(|token| token.text != "*")
 }
 
 fn is_value_ternary_colon(tokens: &[TypeToken], colon: usize) -> bool {
@@ -644,8 +654,13 @@ fn classify_brace(
         || statement.first().is_some_and(|token| token.text == "type")
     {
         BraceKind::Type
-    } else if previous
-        .is_some_and(|token| matches!(token.text.as_str(), "=" | "(" | "[" | "," | "return"))
+    } else if (statement
+        .iter()
+        .take(2)
+        .any(|token| matches!(token.text.as_str(), "const" | "let" | "var"))
+        && !statement.iter().any(|token| token.text == "="))
+        || previous
+            .is_some_and(|token| matches!(token.text.as_str(), "=" | "(" | "[" | "," | "return"))
     {
         BraceKind::Object
     } else {

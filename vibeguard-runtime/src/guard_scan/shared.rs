@@ -244,8 +244,12 @@ impl ScanContext {
             .filter(|path| path.is_file());
         let staged = staged_file.is_some();
         let git_root = git_root(&args.target);
-        let all_files = if let Some(root) = git_root.as_deref() {
-            tracked_files(root, &args.target)?
+        let all_files = if staged || args.baseline.is_some() {
+            if let Some(root) = git_root.as_deref() {
+                tracked_files(root, &args.target)?
+            } else {
+                walked_files(&args.target)?
+            }
         } else {
             walked_files(&args.target)?
         };
@@ -431,6 +435,13 @@ impl ScanContext {
             .as_ref()
             .and_then(|diff| diff.renames.get(path))
             .map_or(path, PathBuf::as_path)
+    }
+
+    pub(super) fn previous_allowlist(&self, path: &Path) -> Result<BTreeSet<String>> {
+        Ok(self
+            .previous_content(path)?
+            .map(|content| parse_allowlist(&content))
+            .unwrap_or_default())
     }
 
     pub(super) fn keep_unsuppressed(&self, content: &str, findings: Vec<Finding>) -> Vec<Finding> {
@@ -670,7 +681,8 @@ fn path_enforcement_class(language: &str, rule: &str, target: &Path, path: &Path
                 Some("ts" | "tsx" | "js" | "jsx")
             ),
             is_typescript_test_path(relative)
-                || (rule == "console-residual" && is_console_exempt_path(relative)),
+                || (rule == "console-residual" && is_console_exempt_path(relative))
+                || (rule == "duplicate-constants" && !normalized.starts_with("src/")),
         ),
         _ => (true, false),
     }

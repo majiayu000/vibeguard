@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use super::rust::{mask_rust_non_code, strip_rust_comments};
 use super::shared::{
-    Finding, Result, ScanContext, ScanResult, is_rust_test_path, parse_allowlist, read_allowlist,
+    Finding, Result, ScanContext, ScanResult, is_rust_test_path, read_allowlist,
     resolve_rust_type_path, rust_file_module,
 };
 
@@ -13,10 +13,7 @@ pub(super) fn duplicate_types(context: &ScanContext) -> Result<ScanResult> {
     let definition = Regex::new(r"^\s*pub\s+(?:struct|enum)\s+([A-Za-z_][A-Za-z0-9_]*)")?;
     let allowlist_path = context.target.join(".vibeguard-duplicate-types-allowlist");
     let allowlist = read_allowlist(&allowlist_path)?;
-    let previous_allowlist = context
-        .previous_content(&allowlist_path)?
-        .map(|content| parse_allowlist(&content))
-        .unwrap_or_default();
+    let previous_allowlist = context.previous_allowlist(&allowlist_path)?;
     let mut definitions: BTreeMap<String, Vec<(PathBuf, usize)>> = BTreeMap::new();
     for path in all_rust_files(context) {
         let content = context.read(&path)?;
@@ -261,7 +258,9 @@ pub(super) fn single_source_of_truth(context: &ScanContext) -> Result<ScanResult
 }
 
 pub(super) fn semantic_effect(context: &ScanContext) -> Result<ScanResult> {
-    let allowlist = read_allowlist(&context.target.join(".vibeguard-semantic-effect-allowlist"))?;
+    let allowlist_path = context.target.join(".vibeguard-semantic-effect-allowlist");
+    let allowlist = read_allowlist(&allowlist_path)?;
+    let previous_allowlist = context.previous_allowlist(&allowlist_path)?;
     let function = Regex::new(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")?;
     let effect = Regex::new(
         r"\.(?:insert|push|remove|retain|update|replace|set)\s*\(|::(?:insert|push|remove|update|set|replace|write)\s*\(|\b(?:write|save|commit|emit|publish|dispatch|send|persist)\b",
@@ -319,7 +318,7 @@ pub(super) fn semantic_effect(context: &ScanContext) -> Result<ScanResult> {
             if !bodyless
                 && !effect.is_match(&body)
                 && result.is_match(&body)
-                && (changed || deleted_effect)
+                && (changed || deleted_effect || previous_allowlist.contains(&name))
             {
                 current.push(Finding {
                     rule: "RS-13",

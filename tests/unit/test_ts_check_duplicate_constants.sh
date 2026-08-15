@@ -140,6 +140,22 @@ printf '%s\n' "${proj_staged}/src/unrelated.ts" > "$staged_list"
 assert_ok "staged unrelated edit ignores pre-existing duplicate debt" \
   env VIBEGUARD_STAGED_FILES="$staged_list" bash "$GUARD" --strict "$proj_staged"
 
+# --- BASELINE: moving a definition into src/ changes enforcement eligibility ---
+proj_src_rename="${tmpdir}/fail_src_rename"
+mkdir -p "${proj_src_rename}/src" "${proj_src_rename}/legacy"
+git -C "$proj_src_rename" init -q
+git -C "$proj_src_rename" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_src_rename" config user.name "VibeGuard Tests"
+printf 'export const API_URL = "/v1";\n' > "${proj_src_rename}/src/existing.ts"
+printf 'export const API_URL = "/v2";\n' > "${proj_src_rename}/legacy/moved.ts"
+git -C "$proj_src_rename" add .
+git -C "$proj_src_rename" commit -q -m baseline
+src_rename_baseline="$(git -C "$proj_src_rename" rev-parse HEAD)"
+git -C "$proj_src_rename" mv legacy/moved.ts src/moved.ts
+git -C "$proj_src_rename" commit -q -m move-into-src
+assert_fail "baseline reports a duplicate definition renamed into src" \
+  bash "$GUARD" --strict --baseline "$src_rename_baseline" "$proj_src_rename"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

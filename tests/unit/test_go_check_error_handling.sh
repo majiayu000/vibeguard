@@ -167,6 +167,21 @@ EOF
 assert_fail "discarded call with a line break after selector dot fails --strict" \
   bash "$GUARD" --strict "$proj_selector_break"
 
+# --- FAIL: labels and case clauses can precede blank assignments ---
+proj_labeled="${tmpdir}/fail_labeled_discard"
+mkdir -p "$proj_labeled"
+cat > "${proj_labeled}/discard.go" <<'EOF'
+package discard
+func cleanup() error { return nil }
+func Cleanup(value int) {
+    switch value { case 1: _ = cleanup() }
+retry: _ = cleanup()
+    if value > 1 { goto retry }
+}
+EOF
+assert_fail "discarded calls after case clauses and labels fail --strict" \
+  bash "$GUARD" --strict "$proj_labeled"
+
 # --- FAIL: parenthesized callees still discard returned errors ---
 proj_parenthesized="${tmpdir}/fail_parenthesized_callee"
 mkdir -p "$proj_parenthesized"

@@ -163,6 +163,24 @@ git -C "$proj_baseline_deleted" commit -q -m remove-effect
 assert_fail "baseline reports action whose semantic effect was deleted" \
   bash "$GUARD" --strict --baseline "$deleted_effect_baseline" "$proj_baseline_deleted"
 
+# --- BASELINE: removing an allowlist entry rechecks the unchanged action ---
+proj_allowlist_removed="${tmpdir}/fail_allowlist_removed"
+mkdir -p "${proj_allowlist_removed}/src/task"
+git -C "$proj_allowlist_removed" init -q
+git -C "$proj_allowlist_removed" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_allowlist_removed" config user.name "VibeGuard Tests"
+printf 'pub fn mark_done(id: u64) -> Result<u64, String> { Ok(id) }\n' \
+  > "${proj_allowlist_removed}/src/task/action.rs"
+printf 'mark_done\n' > "${proj_allowlist_removed}/.vibeguard-semantic-effect-allowlist"
+git -C "$proj_allowlist_removed" add .
+git -C "$proj_allowlist_removed" commit -q -m allowlisted
+allowlist_baseline="$(git -C "$proj_allowlist_removed" rev-parse HEAD)"
+: > "${proj_allowlist_removed}/.vibeguard-semantic-effect-allowlist"
+git -C "$proj_allowlist_removed" add .vibeguard-semantic-effect-allowlist
+git -C "$proj_allowlist_removed" commit -q -m enforce-action
+assert_fail "baseline reports a result-only action after allowlist removal" \
+  bash "$GUARD" --strict --baseline "$allowlist_baseline" "$proj_allowlist_removed"
+
 # --- PASS: empty project ---
 proj_empty="${tmpdir}/pass_empty"
 mkdir -p "${proj_empty}/src"

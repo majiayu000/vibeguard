@@ -234,6 +234,10 @@ pub(crate) fn mask_javascript_non_code(source: &str) -> String {
                 masked.push(current);
                 index += 2;
             }
+            LexState::Code if current == '!' && next != Some('=') && !regex_can_start => {
+                masked.push(current);
+                index += 1;
+            }
             LexState::Code => {
                 masked.push(current);
                 if !current.is_whitespace() {

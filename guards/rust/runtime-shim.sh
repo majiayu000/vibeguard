@@ -8,8 +8,18 @@ run_runtime_guard() {
   local script_dir repo_dir candidate
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   repo_dir="$(cd "${script_dir}/../.." && pwd)"
+  if [[ -n "${VIBEGUARD_RUNTIME:-}" ]]; then
+    candidate="${VIBEGUARD_RUNTIME}"
+    if [[ "${candidate}" != */* ]]; then
+      candidate="$(command -v "${candidate}" 2>/dev/null || true)"
+    fi
+    if [[ -z "${candidate}" || ! -f "${candidate}" || ! -x "${candidate}" ]]; then
+      printf 'VIBEGUARD_RUNTIME is not executable or not found: %s\n' "${VIBEGUARD_RUNTIME}" >&2
+      exit 2
+    fi
+    exec "${candidate}" scan "${language}" "${rule}" "$@"
+  fi
   for candidate in \
-    "${VIBEGUARD_RUNTIME:-}" \
     "${repo_dir}/vibeguard-runtime/target/release/vibeguard-runtime" \
     "${repo_dir}/vibeguard-runtime/target/debug/vibeguard-runtime" \
     "${HOME:-}/.vibeguard/installed/bin/vibeguard-runtime"; do

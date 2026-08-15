@@ -86,6 +86,8 @@ for language in ("rust", "go", "typescript"):
         raise SystemExit(f"guards/{language}/runtime-shim.sh does not dispatch runtime scan")
     if shim.index("target/release/vibeguard-runtime") > shim.index("target/debug/vibeguard-runtime"):
         raise SystemExit(f"guards/{language}/runtime-shim.sh lets debug shadow release")
+    if "VIBEGUARD_RUNTIME is not executable or not found" not in shim:
+        raise SystemExit(f"guards/{language}/runtime-shim.sh ignores invalid explicit runtime overrides")
     for path in sorted(language_dir.glob("check_*.sh")):
         guards.append(path)
         content = path.read_text(encoding="utf-8")
@@ -115,6 +117,10 @@ assert_cmd "retired alerting template has no live references" assert_no_live_ref
 assert_cmd "ast-grep is available for the sgconfig smoke" command -v ast-grep
 assert_cmd "sgconfig discovers the known RS-14 rule" sgconfig_smoke
 assert_cmd "production language guards delegate to the Rust runtime" production_language_guards_use_runtime
+assert_fails_with "invalid explicit guard runtime fails visibly" \
+  "VIBEGUARD_RUNTIME is not executable or not found" \
+  env VIBEGUARD_RUNTIME="$TMP_DIR/missing-runtime" \
+  bash "$REPO_DIR/guards/go/check_error_handling.sh" "$TMP_DIR"
 
 architecture_fixture="${TMP_DIR}/architecture"
 mkdir -p "$architecture_fixture"
