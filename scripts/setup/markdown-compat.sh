@@ -5,6 +5,61 @@ setup_md_runtime_has_safe_blocks() {
   setup_runtime setup-md-managed-span /dev/null >/dev/null 2>&1
 }
 
+setup_md_legacy_managed_span() {
+  awk '
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      probe = line
+      indent = 0
+      while (indent < 3 && substr(probe, 1, 1) == " ") {
+        probe = substr(probe, 2)
+        indent++
+      }
+      marker = substr(probe, 1, 1)
+      run = 0
+      if (marker == "`" || marker == "~") {
+        while (substr(probe, run + 1, 1) == marker) run++
+      }
+      tail = substr(probe, run + 1)
+      if (fence_marker != "") {
+        if (marker == fence_marker && run >= fence_length && tail ~ /^[[:space:]]*$/) {
+          fence_marker = ""
+          fence_length = 0
+        }
+        next
+      }
+      if (indent <= 3 && run >= 3 && (marker != "`" || index(tail, "`") == 0)) {
+        fence_marker = marker
+        fence_length = run
+        next
+      }
+      if (line == "<!-- vibeguard-start -->") {
+        in_block = 1
+        candidate_start = NR
+        has_heading = 0
+        next
+      }
+      if (line == "<!-- vibeguard-end -->") {
+        if (in_block && has_heading) {
+          count++
+          if (count == 1) {
+            first_start = candidate_start
+            first_end = NR
+          }
+        }
+        in_block = 0
+        has_heading = 0
+        next
+      }
+      if (in_block && (line == "# VibeGuard shared core" || line == "#VibeGuard — AI anti-hallucination rules")) {
+        has_heading = 1
+      }
+    }
+    END { print count + 0, first_start + 0, first_end + 0 }
+  ' "$1"
+}
+
 setup_md_legacy_prepare_target() {
   local target_file="$1" compat_file="$2" start_token="$3" end_token="$4"
   local managed_span start_line end_line carriage_return=$'\r'
@@ -13,28 +68,8 @@ setup_md_legacy_prepare_target() {
     return 0
   fi
 
-  managed_span=$(awk '
-    {
-      line = $0
-      sub(/\r$/, "", line)
-    }
-    line == "<!-- vibeguard-start -->" {
-      in_block = 1
-      candidate_start = NR
-      has_heading = 0
-      next
-    }
-    line == "<!-- vibeguard-end -->" {
-      if (in_block && has_heading) {
-        print candidate_start, NR
-        exit
-      }
-      in_block = 0
-      has_heading = 0
-      next
-    }
-    in_block && line == "# VibeGuard shared core" { has_heading = 1 }
-  ' "${target_file}") || return 1
+  managed_span=$(setup_md_legacy_managed_span "${target_file}") || return 1
+  managed_span="${managed_span#* }"
   read -r start_line end_line <<< "${managed_span}"
 
   local -a transforms=(

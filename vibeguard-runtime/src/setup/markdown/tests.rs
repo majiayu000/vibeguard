@@ -107,6 +107,31 @@ mod setup_markdown_tests {
     }
 
     #[test]
+    fn ignores_managed_marker_examples_inside_code_fences() {
+        for original in [
+            concat!(
+                "```markdown\n",
+                "<!-- vibeguard-start -->\n",
+                "# VibeGuard shared core\n",
+                "example\n",
+                "<!-- vibeguard-end -->\n",
+                "```\n",
+            ),
+            concat!(
+                "  ~~~~markdown\n",
+                "<!-- vibeguard-start -->\n",
+                "#VibeGuard — AI anti-hallucination rules\n",
+                "example\n",
+                "<!-- vibeguard-end -->\n",
+                "  ~~~~\n",
+            ),
+        ] {
+            assert!(marker_range(original).is_none());
+            assert!(managed_blocks(original).is_empty());
+        }
+    }
+
+    #[test]
     fn crlf_managed_boundaries_do_not_add_blank_lines() {
         let original = concat!(
             "Before\r\n\r\n",

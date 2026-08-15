@@ -80,13 +80,42 @@ pub(super) fn managed_blocks(text: &str) -> Vec<(usize, usize)> {
 fn standalone_line_ranges(text: &str, expected: &str) -> Vec<(usize, usize)> {
     let mut ranges = Vec::new();
     let mut offset = 0;
+    let mut fence = None;
     for segment in text.split_inclusive('\n') {
         let without_lf = segment.strip_suffix('\n').unwrap_or(segment);
         let line = without_lf.strip_suffix('\r').unwrap_or(without_lf);
-        if line == expected {
+        if let Some((marker, minimum)) = fence {
+            if fence_run(line).is_some_and(|(candidate, length, tail)| {
+                candidate == marker && length >= minimum && tail.trim().is_empty()
+            }) {
+                fence = None;
+            }
+        } else if let Some((marker, length, tail)) = fence_run(line) {
+            if marker != b'`' || !tail.contains('`') {
+                fence = Some((marker, length));
+            }
+        } else if line == expected {
             ranges.push((offset, offset + segment.len()));
         }
         offset += segment.len();
     }
     ranges
+}
+
+fn fence_run(line: &str) -> Option<(u8, usize, &str)> {
+    let bytes = line.as_bytes();
+    let mut start = 0;
+    while start < bytes.len() && start < 3 && bytes[start] == b' ' {
+        start += 1;
+    }
+    let marker = *bytes.get(start)?;
+    if marker != b'`' && marker != b'~' {
+        return None;
+    }
+    let mut end = start;
+    while bytes.get(end) == Some(&marker) {
+        end += 1;
+    }
+    let length = end - start;
+    (length >= 3).then_some((marker, length, &line[end..]))
 }

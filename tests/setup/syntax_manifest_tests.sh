@@ -88,6 +88,15 @@ inline_heading_prose = (
     "more prose <!-- vibeguard-end -->\n"
 )
 assert claude_md.count_managed_blocks(inline_heading_prose) == 0
+fenced_example = (
+    "```markdown\n"
+    "<!-- vibeguard-start -->\n"
+    "# VibeGuard shared core\n"
+    "example\n"
+    "<!-- vibeguard-end -->\n"
+    "```\n"
+)
+assert claude_md.count_managed_blocks(fenced_example) == 0
 crlf = (
     "Before\r\n\r\n"
     "<!-- vibeguard-start -->\r\n"
@@ -108,6 +117,23 @@ assert action == "UPDATED"
 assert crlf_updated.startswith("Before\n\n<!-- vibeguard-start -->\n")
 assert crlf_updated.endswith("<!-- vibeguard-end -->\n\nAfter\r\n")
 PY
+mode_preview_home="${TMP_HOME}/mode-preview-home"
+mkdir -p "${mode_preview_home}/.vibeguard"
+printf '%s\n' dev-linked-repo > "${mode_preview_home}/.vibeguard/execution-mode"
+assert_cmd "requested default mode overrides persisted dev-linked mode for host rule previews" env \
+  HOME="${mode_preview_home}" VIBEGUARD_SETUP_DEV_LINKED=0 bash -c '
+    source "$1/scripts/setup/lib.sh"
+    source "$1/scripts/setup/targets/claude-home.sh"
+    source "$1/scripts/setup/targets/codex-home.sh"
+    test "$(_claude_execution_root)" = "$HOME/.vibeguard/installed"
+    test "$(_codex_execution_root)" = "$HOME/.vibeguard/installed"
+  ' _ "${REPO_DIR}"
+assert_cmd "legacy managed-span ignores fenced marker examples" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  fenced="$2"
+  printf "%s\n" "\`\`\`markdown" "<!-- vibeguard-start -->" "# VibeGuard shared core" "example" "<!-- vibeguard-end -->" "\`\`\`" > "$fenced"
+  test "$(setup_md_legacy_managed_span "$fenced")" = "0 0 0"
+' _ "${REPO_DIR}" "${TMP_HOME}/legacy-fenced-example.md"
 assert_cmd "setup shell rule counter counts canonical non-numeric rule ids" bash -c "
   set -euo pipefail
   source '${REPO_DIR}/scripts/setup/lib.sh'

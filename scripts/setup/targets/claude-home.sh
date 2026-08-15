@@ -6,8 +6,12 @@ _force_overwrite_enabled() {
 
 _claude_execution_mode() {
   local mode="${VIBEGUARD_EXECUTION_MODE:-}"
-  if [[ -z "${mode}" && "${VIBEGUARD_SETUP_DEV_LINKED:-0}" == "1" ]]; then
-    mode="dev-linked-repo"
+  if [[ -z "${mode}" && -n "${VIBEGUARD_SETUP_DEV_LINKED+x}" ]]; then
+    if [[ "${VIBEGUARD_SETUP_DEV_LINKED}" == "1" ]]; then
+      mode="dev-linked-repo"
+    else
+      mode="installed-snapshot"
+    fi
   fi
   if [[ -z "${mode}" && -f "${HOME}/.vibeguard/execution-mode" ]]; then
     mode="$(tr -d '[:space:]' < "${HOME}/.vibeguard/execution-mode")"

@@ -49,9 +49,20 @@ def resolve_rule_count(vibeguard_dir: str, rule_count: Optional[int]) -> int:
 
 def standalone_line_ranges(content: str, expected: str):
     offset = 0
+    fence = None
     for segment in content.splitlines(keepends=True):
         line = segment.rstrip("\r\n")
-        if line == expected:
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        marker = stripped[:1]
+        run = len(stripped) - len(stripped.lstrip(marker)) if marker in ("`", "~") else 0
+        tail = stripped[run:]
+        if fence is not None:
+            if indent <= 3 and marker == fence[0] and run >= fence[1] and not tail.strip():
+                fence = None
+        elif indent <= 3 and run >= 3 and (marker != "`" or "`" not in tail):
+            fence = (marker, run)
+        elif line == expected:
             yield offset, offset + len(segment)
         offset += len(segment)
 

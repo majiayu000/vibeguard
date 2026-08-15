@@ -2,8 +2,12 @@
 
 _codex_execution_mode() {
   local mode="${VIBEGUARD_EXECUTION_MODE:-}"
-  if [[ -z "${mode}" && "${VIBEGUARD_SETUP_DEV_LINKED:-0}" == "1" ]]; then
-    mode="dev-linked-repo"
+  if [[ -z "${mode}" && -n "${VIBEGUARD_SETUP_DEV_LINKED+x}" ]]; then
+    if [[ "${VIBEGUARD_SETUP_DEV_LINKED}" == "1" ]]; then
+      mode="dev-linked-repo"
+    else
+      mode="installed-snapshot"
+    fi
   fi
   if [[ -z "${mode}" && -f "${HOME}/.vibeguard/execution-mode" ]]; then
     mode="$(tr -d '[:space:]' < "${HOME}/.vibeguard/execution-mode")"
@@ -428,31 +432,14 @@ check_codex_agents_hygiene() {
   fi
 
   local span_out valid_count start_line end_line
-  if ! span_out=$(setup_runtime setup-md-managed-span "${agents_md}" 2>/dev/null); then
-    span_out=$(awk '
-      { line = $0; sub(/\r$/, "", line) }
-      line == "<!-- vibeguard-start -->" {
-        in_block = 1
-        candidate_start = NR
-        has_heading = 0
-        next
-      }
-      line == "<!-- vibeguard-end -->" {
-        if (in_block && has_heading) {
-          count++
-          if (count == 1) {
-            first_start = candidate_start
-            first_end = NR
-          }
-        }
-        in_block = 0
-        has_heading = 0
-        next
-      }
-      in_block && line == "# VibeGuard shared core" { has_heading = 1 }
-      END { print count + 0, first_start + 0, first_end + 0 }
-    ' "${agents_md}") || {
+  if setup_md_runtime_has_safe_blocks; then
+    if ! span_out=$(setup_runtime setup-md-managed-span "${agents_md}" 2>/dev/null); then
       red "[BROKEN] ~/.codex/AGENTS.md marker mismatch (managed-span failed; rerun setup)"
+      return 0
+    fi
+  else
+    span_out=$(setup_md_legacy_managed_span "${agents_md}") || {
+      red "[BROKEN] ~/.codex/AGENTS.md marker mismatch (legacy managed-span failed; rerun setup)"
       return 0
     }
   fi

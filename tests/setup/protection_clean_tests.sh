@@ -584,6 +584,15 @@ cp "${HOME}/.codex/AGENTS.md" "${_VALID_CODEX_AGENTS}"
 zero_byte_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
 assert_contains "${zero_byte_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md is 0 bytes" "--check reports 0-byte ~/.codex/AGENTS.md"
+python3 - <<'PY' "${HOME}/.codex/AGENTS.md" "${_VALID_CODEX_AGENTS}"
+from pathlib import Path
+import sys
+target, valid = map(Path, sys.argv[1:])
+target.write_bytes(valid.read_bytes() + b"\xff")
+PY
+invalid_utf8_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+assert_contains "${invalid_utf8_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md marker mismatch (managed-span failed; rerun setup)" "--check fails closed when supported managed-span cannot read AGENTS.md"
 python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
 from pathlib import Path
 import sys
@@ -640,6 +649,30 @@ text = Path(sys.argv[1]).read_text(encoding="utf-8")
 expected = "Codex-only note with <!-- vibeguard-start -->\n# VibeGuard shared core\nand an inline <!-- vibeguard-end --> marker.\n\n"
 raise SystemExit(0 if text.startswith(expected) else 1)
 ' "${HOME}/.codex/AGENTS.md"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+cat > "${HOME}/.codex/AGENTS.md" <<'EOF'
+Personal fenced example:
+
+```markdown
+<!-- vibeguard-start -->
+# VibeGuard shared core
+example only
+<!-- vibeguard-end -->
+```
+EOF
+fenced_markers_setup_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
+assert_contains "${fenced_markers_setup_out}" "VibeGuard rules synced to ~/.codex/AGENTS.md (APPENDED)" "setup appends beside fenced managed-marker examples"
+assert_cmd "setup preserves fenced managed-marker examples byte-for-byte" python3 -c '
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+example = "```markdown\n<!-- vibeguard-start -->\n# VibeGuard shared core\nexample only\n<!-- vibeguard-end -->\n```\n"
+raise SystemExit(0 if text.startswith("Personal fenced example:\n\n" + example) and text.count("<!-- vibeguard-start -->") == 2 else 1)
+' "${HOME}/.codex/AGENTS.md"
+assert_cmd "runtime reports only the appended block as managed" bash -c '
+  test "$("$1" setup-md-managed-span "$2")" != "0 0 0"
+  test "$("$1" setup-md-managed-span "$2" | cut -d" " -f1)" = "1"
+' _ "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" "${HOME}/.codex/AGENTS.md"
 cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
 python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
 from pathlib import Path
