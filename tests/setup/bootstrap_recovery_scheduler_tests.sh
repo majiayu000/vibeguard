@@ -474,6 +474,8 @@ cp "${REPO_DIR}/scripts/setup/clean.sh" \
   "${scheduler_payload_root}/scripts/setup/clean.sh"
 cp "${REPO_DIR}/scripts/setup/lib.sh" \
   "${scheduler_payload_root}/scripts/setup/lib.sh"
+cp "${REPO_DIR}/scripts/setup/markdown-compat.sh" \
+  "${scheduler_payload_root}/scripts/setup/markdown-compat.sh"
 cp "${REPO_DIR}/scripts/lib/install-state.sh" \
   "${scheduler_payload_root}/scripts/lib/install-state.sh"
 cp "${REPO_DIR}/scripts/install-systemd.sh" \

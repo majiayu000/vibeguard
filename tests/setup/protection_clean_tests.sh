@@ -584,6 +584,15 @@ cp "${HOME}/.codex/AGENTS.md" "${_VALID_CODEX_AGENTS}"
 zero_byte_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
 assert_contains "${zero_byte_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md is 0 bytes" "--check reports 0-byte ~/.codex/AGENTS.md"
+python3 - <<'PY' "${HOME}/.codex/AGENTS.md" "${_VALID_CODEX_AGENTS}"
+from pathlib import Path
+import sys
+target, valid = map(Path, sys.argv[1:])
+target.write_bytes(valid.read_bytes() + b"\xff")
+PY
+invalid_utf8_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+assert_contains "${invalid_utf8_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md marker mismatch (managed-span failed; rerun setup)" "--check fails closed when supported managed-span cannot read AGENTS.md"
 python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
 from pathlib import Path
 import sys
@@ -597,7 +606,74 @@ assert_contains "${missing_end_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md m
 printf '<!-- vibeguard-start -->\n' >> "${HOME}/.codex/AGENTS.md"
 duplicate_start_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
-assert_contains "${duplicate_start_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md marker mismatch" "--check reports duplicate Codex AGENTS start marker"
+assert_not_contains "${duplicate_start_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md marker mismatch" "--check does not treat an unmanaged extra start marker as a managed-block mismatch"
+assert_contains "${duplicate_start_agents_check_out}" "[WARN] ~/.codex/AGENTS.md has" "--check warns about unmanaged extra start marker outside the valid block"
+python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+path.write_text(text + "\n" + text, encoding="utf-8")
+PY
+duplicate_valid_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+assert_contains "${duplicate_valid_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md marker mismatch" "--check reports duplicate valid Codex AGENTS managed blocks"
+python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+PY
+crlf_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_not_contains "${crlf_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md marker mismatch" "--check accepts a CRLF Codex managed block"
+assert_not_contains "${crlf_agents_check_out}" "missing VibeGuard rule count banner" "--check reads the rule banner from a CRLF managed block"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+prefix = (
+    "Codex-only note with <!-- vibeguard-start -->\n"
+    "# VibeGuard shared core\n"
+    "and an inline <!-- vibeguard-end --> marker.\n\n"
+)
+path.write_text(prefix + text, encoding="utf-8")
+PY
+prose_markers_setup_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
+assert_contains "${prose_markers_setup_out}" "~/.codex/AGENTS.md already up to date" "setup finds the real managed block after marker-like Codex prose"
+assert_cmd "setup preserves Codex prose containing inline markers and a managed heading" python3 -c '
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+expected = "Codex-only note with <!-- vibeguard-start -->\n# VibeGuard shared core\nand an inline <!-- vibeguard-end --> marker.\n\n"
+raise SystemExit(0 if text.startswith(expected) else 1)
+' "${HOME}/.codex/AGENTS.md"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+cat > "${HOME}/.codex/AGENTS.md" <<'EOF'
+Personal fenced example:
+
+```markdown
+<!-- vibeguard-start -->
+# VibeGuard shared core
+example only
+<!-- vibeguard-end -->
+```
+EOF
+fenced_markers_setup_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
+assert_contains "${fenced_markers_setup_out}" "VibeGuard rules synced to ~/.codex/AGENTS.md (APPENDED)" "setup appends beside fenced managed-marker examples"
+assert_cmd "setup preserves fenced managed-marker examples byte-for-byte" python3 -c '
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+example = "```markdown\n<!-- vibeguard-start -->\n# VibeGuard shared core\nexample only\n<!-- vibeguard-end -->\n```\n"
+raise SystemExit(0 if text.startswith("Personal fenced example:\n\n" + example) and text.count("<!-- vibeguard-start -->") == 2 else 1)
+' "${HOME}/.codex/AGENTS.md"
+assert_cmd "runtime reports only the appended block as managed" bash -c '
+  test "$("$1" setup-md-managed-span "$2")" != "0 0 0"
+  test "$("$1" setup-md-managed-span "$2" | cut -d" " -f1)" = "1"
+' _ "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" "${HOME}/.codex/AGENTS.md"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
 python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
 from pathlib import Path
 import sys

@@ -82,8 +82,10 @@ fn assert_visible_failure(output: &Output, stable_message: Option<&str>) {
 
 const RULES: &str = concat!(
     "<!-- vibeguard-start -->\n",
+    "# VibeGuard shared core\n",
     "Repo: __VIBEGUARD_DIR__\n",
     "Rules: __VIBEGUARD_RULE_COUNT__\n",
+    "L6: Follow `workflows/references/routing-contract.md`\n",
     "<!-- vibeguard-end -->\n"
 );
 
@@ -91,7 +93,12 @@ const RULES: &str = concat!(
 fn markdown_argument_and_missing_rules_errors_are_visible() {
     let fixture = Fixture::new("errors");
 
-    for command in ["setup-md-diff-inject", "setup-md-inject", "setup-md-remove"] {
+    for command in [
+        "setup-md-diff-inject",
+        "setup-md-inject",
+        "setup-md-remove",
+        "setup-md-managed-span",
+    ] {
         let output = bin()
             .arg(command)
             .current_dir(&fixture.root)
@@ -142,6 +149,10 @@ fn invalid_managed_source_fails_before_mutating_the_target() {
             "duplicate-end.md",
             "<!-- vibeguard-start -->\nrules\n<!-- vibeguard-end -->\n<!-- vibeguard-end -->\n",
         ),
+        (
+            "fenced-heading.md",
+            "<!-- vibeguard-start -->\n```markdown\n# VibeGuard shared core\n```\n<!-- vibeguard-end -->\n",
+        ),
     ] {
         let rules = fixture.write(name, invalid);
         let output = run(
@@ -164,8 +175,10 @@ fn diff_is_non_mutating_and_inject_is_exact_and_idempotent() {
     let rules = fixture.write("rules.md", RULES);
     let rendered_rules = concat!(
         "<!-- vibeguard-start -->\n",
+        "# VibeGuard shared core\n",
         "Repo: /workspace/repo\n",
         "Rules: 126\n",
+        "L6: Follow `/workspace/repo/workflows/references/routing-contract.md`\n",
         "<!-- vibeguard-end -->"
     );
     let managed_only = format!("{rendered_rules}\n");
@@ -202,7 +215,7 @@ fn diff_is_non_mutating_and_inject_is_exact_and_idempotent() {
         &["/workspace/repo", "126"],
     );
     let expected_diff = format!(
-        "--- {0}\n+++ {0}\n@@\n-Intro\n+Intro\n+\n+<!-- vibeguard-start -->\n+Repo: /workspace/repo\n+Rules: 126\n+<!-- vibeguard-end -->\nAPPENDED\n",
+        "--- {0}\n+++ {0}\n@@\n-Intro\n+Intro\n+\n+<!-- vibeguard-start -->\n+# VibeGuard shared core\n+Repo: /workspace/repo\n+Rules: 126\n+L6: Follow `/workspace/repo/workflows/references/routing-contract.md`\n+<!-- vibeguard-end -->\nAPPENDED\n",
         target.display()
     );
     assert_success(&diff, &expected_diff);
@@ -243,7 +256,7 @@ fn inject_updates_only_the_managed_block() {
         "CLAUDE.md",
         concat!(
             "Before\n\n",
-            "<!-- vibeguard-start -->\nold\n<!-- vibeguard-end -->\n\n",
+            "<!-- vibeguard-start -->\n# VibeGuard shared core\nold\n<!-- vibeguard-end -->\n\n",
             "After\n"
         ),
     );
@@ -261,8 +274,10 @@ fn inject_updates_only_the_managed_block() {
         concat!(
             "Before\n\n",
             "<!-- vibeguard-start -->\n",
+            "# VibeGuard shared core\n",
             "Repo: /new/repo\n",
             "Rules: 80\n",
+            "L6: Follow `/new/repo/workflows/references/routing-contract.md`\n",
             "<!-- vibeguard-end -->\n\n",
             "After\n"
         )
@@ -288,7 +303,7 @@ fn remove_distinguishes_missing_plain_managed_and_mixed_files() {
 
     let managed = fixture.write(
         "managed.md",
-        "<!-- vibeguard-start -->\nmanaged\n<!-- vibeguard-end -->\n",
+        "<!-- vibeguard-start -->\n# VibeGuard shared core\nmanaged\n<!-- vibeguard-end -->\n",
     );
     assert_success(
         &run(&fixture, "setup-md-remove", &[&managed], &[]),
@@ -298,13 +313,95 @@ fn remove_distinguishes_missing_plain_managed_and_mixed_files() {
 
     let mixed = fixture.write(
         "mixed.md",
-        "Before\n\n<!-- vibeguard-start -->\nmanaged\n<!-- vibeguard-end -->\n\nAfter\n",
+        "Before\n\n<!-- vibeguard-start -->\n# VibeGuard shared core\nmanaged\n<!-- vibeguard-end -->\n\nAfter\n",
     );
     assert_success(
         &run(&fixture, "setup-md-remove", &[&mixed], &[]),
         "REMOVED\n",
     );
     assert_eq!(fs::read_to_string(&mixed).unwrap(), "Before\n\nAfter\n");
+    fixture.cleanup();
+}
+
+#[test]
+fn inject_appends_when_prose_mentions_markers() {
+    let fixture = Fixture::new("prose-markers");
+    let target = fixture.write(
+        "AGENTS.md",
+        concat!(
+            "Codex-only Computer Use notes.\n",
+            "Do not paste raw <!-- vibeguard-start --> or <!-- vibeguard-end --> here.\n",
+        ),
+    );
+    let rules = fixture.write("rules.md", RULES);
+
+    let output = run(
+        &fixture,
+        "setup-md-inject",
+        &[&target, &rules],
+        &["/workspace/repo", "126"],
+    );
+    assert_success(&output, "APPENDED\n");
+    let content = fs::read_to_string(&target).unwrap();
+    assert!(content.starts_with("Codex-only Computer Use notes.\n"));
+    assert!(
+        content.contains(
+            "Do not paste raw <!-- vibeguard-start --> or <!-- vibeguard-end --> here.\n"
+        )
+    );
+    assert!(content.contains("# VibeGuard shared core\n"));
+    assert!(content.ends_with("<!-- vibeguard-end -->\n"));
+    fixture.cleanup();
+}
+
+#[test]
+fn managed_span_requires_standalone_markers_and_heading() {
+    let fixture = Fixture::new("managed-span");
+    let target = fixture.write(
+        "AGENTS.md",
+        concat!(
+            "Prose <!-- vibeguard-start -->\n",
+            "# VibeGuard shared core\n",
+            "prose <!-- vibeguard-end -->\n\n",
+            "<!-- vibeguard-start -->\n",
+            "# VibeGuard shared core\n",
+            "managed\n",
+            "<!-- vibeguard-end -->\n",
+        ),
+    );
+    assert_success(
+        &run(&fixture, "setup-md-managed-span", &[&target], &[]),
+        "1 5 8\n",
+    );
+    fixture.cleanup();
+}
+
+#[test]
+fn production_rule_sources_render_an_absolute_l6_contract_path() {
+    let fixture = Fixture::new("production-routing");
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("runtime crate should be inside the repository");
+    let repo_text = repo.to_string_lossy();
+    let expected = format!("{repo_text}/workflows/references/routing-contract.md");
+
+    for source_name in ["vibeguard-rules.md", "vibeguard-codex-rules.md"] {
+        let target = fixture.path(&format!("{source_name}.target"));
+        let source = repo.join("claude-md").join(source_name);
+        let output = run(
+            &fixture,
+            "setup-md-inject",
+            &[&target, &source],
+            &[repo_text.as_ref(), "127"],
+        );
+        assert_success(&output, "APPENDED\n");
+        let content = fs::read_to_string(&target).expect("target should be readable");
+        assert!(content.contains(&expected), "source={source_name}");
+        assert!(
+            !content.contains("`workflows/references/routing-contract.md`"),
+            "source={source_name}"
+        );
+    }
     fixture.cleanup();
 }
 

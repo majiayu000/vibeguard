@@ -2,8 +2,12 @@
 
 _codex_execution_mode() {
   local mode="${VIBEGUARD_EXECUTION_MODE:-}"
-  if [[ -z "${mode}" && "${VIBEGUARD_SETUP_DEV_LINKED:-0}" == "1" ]]; then
-    mode="dev-linked-repo"
+  if [[ -z "${mode}" && -n "${VIBEGUARD_SETUP_DEV_LINKED+x}" ]]; then
+    if [[ "${VIBEGUARD_SETUP_DEV_LINKED}" == "1" ]]; then
+      mode="dev-linked-repo"
+    else
+      mode="installed-snapshot"
+    fi
   fi
   if [[ -z "${mode}" && -f "${HOME}/.vibeguard/execution-mode" ]]; then
     mode="$(tr -d '[:space:]' < "${HOME}/.vibeguard/execution-mode")"
@@ -16,13 +20,16 @@ _codex_execution_mode() {
   esac
 }
 
-_codex_source_path() {
-  local source_path="$1"
+_codex_execution_root() {
   if [[ "$(_codex_execution_mode)" == "dev-linked-repo" ]]; then
-    printf '%s\n' "${REPO_DIR}/${source_path}"
+    printf '%s\n' "${REPO_DIR}"
   else
-    printf '%s\n' "${HOME}/.vibeguard/installed/${source_path}"
+    printf '%s\n' "${HOME}/.vibeguard/installed"
   fi
+}
+
+_codex_source_path() {
+  printf '%s/%s\n' "$(_codex_execution_root)" "$1"
 }
 
 _install_codex_manifest_skill() {
@@ -155,7 +162,8 @@ inject_codex_home_rules() {
     "${agents_md}" \
     "~/.codex/AGENTS.md" \
     "generated/AGENTS.md" \
-    "${REPO_DIR}/claude-md/vibeguard-codex-rules.md"
+    "${REPO_DIR}/claude-md/vibeguard-codex-rules.md" \
+    "$(_codex_execution_root)"
 }
 
 check_codex_home_installation() {
@@ -423,19 +431,27 @@ check_codex_agents_hygiene() {
     return 0
   fi
 
-  local start_marker="<!-- vibeguard-start -->"
-  local end_marker="<!-- vibeguard-end -->"
-  local start_count end_count
-  start_count=$(grep -cF "${start_marker}" "${agents_md}" 2>/dev/null || true)
-  end_count=$(grep -cF "${end_marker}" "${agents_md}" 2>/dev/null || true)
-  if [[ "${start_count}" -ne 1 || "${end_count}" -ne 1 ]]; then
-    red "[BROKEN] ~/.codex/AGENTS.md marker mismatch (start=${start_count}, end=${end_count}; rerun setup)"
+  local span_out valid_count start_line end_line
+  if setup_md_runtime_has_safe_blocks; then
+    if ! span_out=$(setup_runtime setup-md-managed-span "${agents_md}" 2>/dev/null); then
+      red "[BROKEN] ~/.codex/AGENTS.md marker mismatch (managed-span failed; rerun setup)"
+      return 0
+    fi
+  else
+    span_out=$(setup_md_legacy_managed_span "${agents_md}") || {
+      red "[BROKEN] ~/.codex/AGENTS.md marker mismatch (legacy managed-span failed; rerun setup)"
+      return 0
+    }
+  fi
+  read -r valid_count start_line end_line <<< "${span_out}"
+  if [[ -z "${valid_count}" || "${valid_count}" -eq 0 ]]; then
+    red "[BROKEN] ~/.codex/AGENTS.md marker mismatch (valid_blocks=${valid_count:-0}; rerun setup)"
     return 0
   fi
-
-  local start_line end_line
-  start_line=$(grep -nF "${start_marker}" "${agents_md}" | head -1 | cut -d: -f1)
-  end_line=$(grep -nF "${end_marker}" "${agents_md}" | head -1 | cut -d: -f1)
+  if [[ "${valid_count}" -gt 1 ]]; then
+    red "[BROKEN] ~/.codex/AGENTS.md marker mismatch (valid_blocks=${valid_count}; rerun setup)"
+    return 0
+  fi
   if [[ "${start_line}" -ge "${end_line}" ]]; then
     red "[BROKEN] ~/.codex/AGENTS.md marker order is invalid (rerun setup)"
     return 0
@@ -480,7 +496,8 @@ check_codex_agents_hygiene() {
     if vibeguard_managed_rules_block_matches_source \
       "${agents_md}" \
       "${actual_rule_count}" \
-      "${REPO_DIR}/claude-md/vibeguard-codex-rules.md"; then
+      "${REPO_DIR}/claude-md/vibeguard-codex-rules.md" \
+      "$(_codex_execution_root)"; then
       green "[OK] ~/.codex/AGENTS.md managed VibeGuard block matches current rules"
     else
       block_check_rc=$?
@@ -520,7 +537,7 @@ clean_codex_home_installation() {
 
   if [[ -f "${CODEX_DIR}/AGENTS.md" ]]; then
     agents_md_result="$(
-      setup_runtime setup-md-remove "${CODEX_DIR}/AGENTS.md" 2>/dev/null
+      setup_md_remove "${CODEX_DIR}/AGENTS.md" 2>/dev/null
     )" || agents_md_result="ERROR"
     case "${agents_md_result}" in
       REMOVED) yellow "Removed VibeGuard rules from ~/.codex/AGENTS.md" ;;

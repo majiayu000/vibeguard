@@ -20,6 +20,7 @@ assert_cmd "scripts/setup/install.sh syntax is correct" bash -n "${REPO_DIR}/scr
 assert_cmd "source runtime build does not call cargo metadata" assert_prepare_runtime_from_source_no_cargo_metadata
 assert_cmd "scripts/setup/check.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/check.sh"
 assert_cmd "scripts/setup/clean.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/clean.sh"
+assert_cmd "scripts/setup/markdown-compat.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/markdown-compat.sh"
 assert_cmd "scripts/setup/runtime-clean-pin.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/runtime-clean-pin.sh"
 assert_cmd "scripts/setup/codex-status.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/codex-status.sh"
 assert_cmd "scripts/codex-contract-check.sh syntax is correct" bash -n "${REPO_DIR}/scripts/codex-contract-check.sh"
@@ -53,7 +54,141 @@ canonical = subprocess.check_output(
 ).splitlines()
 assert "TASTE-ANSI" in canonical
 assert claude_md.count_rule_headings(repo_dir / "rules/claude-rules") == len(canonical)
+_, _, injected = claude_md.render_injected(
+    "/tmp/vibeguard-missing-target.md",
+    str(repo_dir / "claude-md/vibeguard-rules.md"),
+    str(repo_dir),
+    127,
+)
+assert f"`{repo_dir}/workflows/references/routing-contract.md`" in injected
+assert "`workflows/references/routing-contract.md`" not in injected.split("<!-- vibeguard-start -->", 1)[-1]
+
+prose = (
+    "Codex-only Computer Use notes.\n"
+    "Do not paste raw <!-- vibeguard-start --> or <!-- vibeguard-end --> here.\n"
+)
+prose_target = Path("/tmp/vibeguard-prose-markers.md")
+prose_target.write_text(prose)
+action, original, appended = claude_md.render_injected(
+    str(prose_target),
+    str(repo_dir / "claude-md/vibeguard-rules.md"),
+    str(repo_dir),
+    127,
+)
+assert action == "APPENDED"
+assert original == prose
+assert appended.startswith(prose)
+assert appended.count("<!-- vibeguard-start -->") == 2
+assert "# VibeGuard shared core" in appended
+assert claude_md.count_managed_blocks(prose) == 0
+assert claude_md.count_managed_blocks(appended) == 1
+inline_heading_prose = (
+    "Prose <!-- vibeguard-start -->\n"
+    "# VibeGuard shared core\n"
+    "more prose <!-- vibeguard-end -->\n"
+)
+assert claude_md.count_managed_blocks(inline_heading_prose) == 0
+fenced_example = (
+    "```markdown\n"
+    "<!-- vibeguard-start -->\n"
+    "# VibeGuard shared core\n"
+    "example\n"
+    "<!-- vibeguard-end -->\n"
+    "```\n"
+)
+assert claude_md.count_managed_blocks(fenced_example) == 0
+crlf = (
+    "Before\r\n\r\n"
+    "<!-- vibeguard-start -->\r\n"
+    "# VibeGuard shared core\r\n"
+    "old\r\n"
+    "<!-- vibeguard-end -->\r\n\r\n"
+    "After\r\n"
+)
+crlf_target = Path("/tmp/vibeguard-crlf-markers.md")
+crlf_target.write_bytes(crlf.encode())
+action, _, crlf_updated = claude_md.render_injected(
+    str(crlf_target),
+    str(repo_dir / "claude-md/vibeguard-rules.md"),
+    str(repo_dir),
+    127,
+)
+assert action == "UPDATED"
+assert crlf_updated.startswith("Before\n\n<!-- vibeguard-start -->\n")
+assert crlf_updated.endswith("<!-- vibeguard-end -->\n\nAfter\r\n")
 PY
+mode_preview_home="${TMP_HOME}/mode-preview-home"
+mkdir -p "${mode_preview_home}/.vibeguard"
+printf '%s\n' dev-linked-repo > "${mode_preview_home}/.vibeguard/execution-mode"
+assert_cmd "requested default mode overrides persisted dev-linked mode for host rule previews" env \
+  HOME="${mode_preview_home}" VIBEGUARD_SETUP_DEV_LINKED=0 bash -c '
+    source "$1/scripts/setup/lib.sh"
+    source "$1/scripts/setup/targets/claude-home.sh"
+    source "$1/scripts/setup/targets/codex-home.sh"
+    test "$(_claude_execution_root)" = "$HOME/.vibeguard/installed"
+    test "$(_codex_execution_root)" = "$HOME/.vibeguard/installed"
+  ' _ "${REPO_DIR}"
+assert_cmd "legacy managed-span ignores fenced marker examples" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  fenced="$2"
+  printf "%s\n" "\`\`\`markdown" "<!-- vibeguard-start -->" "# VibeGuard shared core" "example" "<!-- vibeguard-end -->" "\`\`\`" > "$fenced"
+  test "$(setup_md_legacy_managed_span "$fenced")" = "0 0 0"
+' _ "${REPO_DIR}" "${TMP_HOME}/legacy-fenced-example.md"
+assert_cmd "legacy compatibility prepares unmanaged fenced examples without sed address zero" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  setup_md_legacy_prepare_target "$2" "$3" TEST_START TEST_END
+  grep -qF TEST_START "$3"
+  grep -qF TEST_END "$3"
+' _ "${REPO_DIR}" "${TMP_HOME}/legacy-fenced-example.md" "${TMP_HOME}/legacy-fenced-compat.md"
+assert_cmd "legacy compatibility preserves CRLF outside managed markers" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  printf "Before\r\n<!-- vibeguard-start -->\r\n# VibeGuard shared core\r\nold\r\n<!-- vibeguard-end -->\r\nAfter\r\n" > "$2"
+  setup_md_legacy_prepare_target "$2" "$3" TEST_START TEST_END
+  printf "Before\r\n<!-- vibeguard-start -->\r\n# VibeGuard shared core\r\nold\r\n<!-- vibeguard-end -->\r\nAfter\r\n" > "$4"
+  cmp "$3" "$4"
+' _ "${REPO_DIR}" "${TMP_HOME}/legacy-crlf.md" "${TMP_HOME}/legacy-crlf-compat.md" "${TMP_HOME}/legacy-crlf-expected.md"
+assert_cmd "managed rule banner ignores fenced examples before the detected block" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  printf "%s\n" "\`\`\`markdown" "<!-- vibeguard-start -->" "# VibeGuard shared core" "999 rules total" "<!-- vibeguard-end -->" "\`\`\`" "<!-- vibeguard-start -->" "# VibeGuard shared core" "127 rules total" "<!-- vibeguard-end -->" > "$2"
+  test "$(vibeguard_managed_rule_banner_count "$2")" = 127
+' _ "${REPO_DIR}" "${TMP_HOME}/managed-banner-fenced.md"
+assert_cmd "legacy read-only diff stages outside an unwritable target directory" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  mkdir -p "$2"
+  printf "%s\n" "user content" > "$2/AGENTS.md"
+  chmod 555 "$2"
+  trap '\''chmod 755 "$2"'\'' EXIT
+  setup_runtime() { printf "SKIP\n"; }
+  TMPDIR="$3" setup_md_legacy_call setup-md-diff-inject "$2/AGENTS.md" "$1/claude-md/vibeguard-codex-rules.md" unused-root 127 >/dev/null
+' _ "${REPO_DIR}" "${TMP_HOME}/legacy-read-only" "${TMP_HOME}"
+assert_cmd "legacy rendering prequotes production routing paths with spaces" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  printf "%s\n" "user content" > "$2"
+  setup_runtime() {
+    grep -qF "\`/tmp/Vibe Guard snapshot/workflows/references/routing-contract.md\`" "$3" || return 1
+    printf "SKIP\n"
+  }
+  TMPDIR="$3" setup_md_legacy_call setup-md-diff-inject "$2" "$1/claude-md/vibeguard-codex-rules.md" "/tmp/Vibe Guard snapshot" 127 >/dev/null
+' _ "${REPO_DIR}" "${TMP_HOME}/legacy-routing.md" "${TMP_HOME}"
+assert_cmd "legacy restoration failure is fail-visible and preserves the target" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  printf "%s\n" "user content" > "$2"
+  cp "$2" "$3"
+  sed_calls=0
+  sed() {
+    sed_calls=$((sed_calls + 1))
+    if [[ "${sed_calls}" -eq 3 ]]; then
+      return 1
+    fi
+    command sed "$@"
+  }
+  setup_runtime() {
+    printf "%s\n" "<!-- vibeguard-start -->" "# VibeGuard shared core" "127 rules total" "<!-- vibeguard-end -->" >> "$2"
+    printf "UPDATED\n"
+  }
+  ! setup_md_legacy_call setup-md-inject "$2" "$1/claude-md/vibeguard-codex-rules.md" unused-root 127 >/dev/null 2>&1
+  cmp "$2" "$3"
+' _ "${REPO_DIR}" "${TMP_HOME}/legacy-restore-failure.md" "${TMP_HOME}/legacy-restore-original.md"
 assert_cmd "setup shell rule counter counts canonical non-numeric rule ids" bash -c "
   set -euo pipefail
   source '${REPO_DIR}/scripts/setup/lib.sh'

@@ -11,10 +11,10 @@ mod setup_markdown_tests {
 
     #[test]
     fn replaces_marker_block() {
-        let original = "a\n\n<!-- vibeguard-start -->\nold\n<!-- vibeguard-end -->\n\nb\n";
+        let original = "a\n\n<!-- vibeguard-start -->\n# VibeGuard shared core\nold\n<!-- vibeguard-end -->\n\nb\n";
         let next = replace_managed_block(
             original,
-            "<!-- vibeguard-start -->\nnew\n<!-- vibeguard-end -->",
+            "<!-- vibeguard-start -->\n# VibeGuard shared core\nnew\n<!-- vibeguard-end -->",
         );
         assert!(next.contains("new"));
         assert!(!next.contains("old"));
@@ -36,10 +36,11 @@ mod setup_markdown_tests {
         std::fs::write(&target, original)?;
 
         for invalid in [
-            "outside\n<!-- vibeguard-start -->\nrules\n<!-- vibeguard-end -->\n",
+            "outside\n<!-- vibeguard-start -->\n# VibeGuard shared core\nrules\n<!-- vibeguard-end -->\n",
             "<!-- vibeguard-start --> rules <!-- vibeguard-end -->\n",
-            "<!-- vibeguard-start -->\nrules\n",
-            "<!-- vibeguard-start -->\nrules\n<!-- vibeguard-end -->\n<!-- vibeguard-end -->\n",
+            "<!-- vibeguard-start -->\n# VibeGuard shared core\nrules\n",
+            "<!-- vibeguard-start -->\n# VibeGuard shared core\nrules\n<!-- vibeguard-end -->\n<!-- vibeguard-end -->\n",
+            "<!-- vibeguard-start -->\nrules\n<!-- vibeguard-end -->\n",
         ] {
             std::fs::write(&source, invalid)?;
             assert!(
@@ -56,6 +57,132 @@ mod setup_markdown_tests {
 
         std::fs::remove_dir_all(dir)?;
         Ok(())
+    }
+
+    #[test]
+    fn production_routing_placeholder_is_quoted_before_generic_replacement() -> SetupResult<()> {
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "vibeguard-routing-placeholder-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir)?;
+        let target = dir.join("AGENTS.md");
+        let rules = repo_dir()?.join("claude-md/vibeguard-codex-rules.md");
+        let execution_root = "/tmp/Vibe Guard snapshot";
+
+        let (_, _, content) = render_injected(&target, &rules, execution_root, "127")?;
+        assert!(
+            content.contains("`/tmp/Vibe Guard snapshot/workflows/references/routing-contract.md`")
+        );
+        assert!(
+            !content
+                .contains("at /tmp/Vibe Guard snapshot/workflows/references/routing-contract.md")
+        );
+
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn recognizes_and_replaces_released_legacy_heading() {
+        let original = concat!(
+            "user content\n\n",
+            "<!-- vibeguard-start -->\n",
+            "#VibeGuard — AI anti-hallucination rules\n",
+            "old\n",
+            "<!-- vibeguard-end -->\n",
+        );
+        let rules = concat!(
+            "<!-- vibeguard-start -->\n",
+            "# VibeGuard shared core\n",
+            "new\n",
+            "<!-- vibeguard-end -->",
+        );
+        assert!(marker_range(original).is_some());
+        let next = replace_managed_block(original, rules);
+        assert_eq!(next.matches(managed_block::START).count(), 1);
+        assert!(next.contains(managed_block::MANAGED_HEADING));
+        assert!(!next.contains(managed_block::LEGACY_MANAGED_HEADING));
+    }
+
+    #[test]
+    fn ignores_prose_marker_pairs_without_anchor() {
+        let original = concat!(
+            "Do not paste <!-- vibeguard-start --> or <!-- vibeguard-end --> here.\n",
+            "Keep this Codex-only section.\n",
+        );
+        let next = replace_managed_block(
+            original,
+            "<!-- vibeguard-start -->\n# VibeGuard shared core\nnew\n<!-- vibeguard-end -->",
+        );
+        assert_eq!(next, original);
+        assert!(marker_range(original).is_none());
+    }
+
+    #[test]
+    fn ignores_inline_markers_even_with_a_managed_heading_between_them() {
+        let original = concat!(
+            "Prose <!-- vibeguard-start -->\n",
+            "# VibeGuard shared core\n",
+            "more prose <!-- vibeguard-end -->\n",
+        );
+        assert!(marker_range(original).is_none());
+        assert!(managed_blocks(original).is_empty());
+    }
+
+    #[test]
+    fn ignores_managed_marker_examples_inside_code_fences() {
+        for original in [
+            concat!(
+                "```markdown\n",
+                "<!-- vibeguard-start -->\n",
+                "# VibeGuard shared core\n",
+                "example\n",
+                "<!-- vibeguard-end -->\n",
+                "```\n",
+            ),
+            concat!(
+                "  ~~~~markdown\n",
+                "<!-- vibeguard-start -->\n",
+                "#VibeGuard — AI anti-hallucination rules\n",
+                "example\n",
+                "<!-- vibeguard-end -->\n",
+                "  ~~~~\n",
+            ),
+        ] {
+            assert!(marker_range(original).is_none());
+            assert!(managed_blocks(original).is_empty());
+        }
+    }
+
+    #[test]
+    fn crlf_managed_boundaries_do_not_add_blank_lines() {
+        let original = concat!(
+            "Before\r\n\r\n",
+            "<!-- vibeguard-start -->\r\n",
+            "# VibeGuard shared core\r\n",
+            "old\r\n",
+            "<!-- vibeguard-end -->\r\n\r\n",
+            "After\r\n",
+        );
+        let rules = concat!(
+            "<!-- vibeguard-start -->\n",
+            "# VibeGuard shared core\n",
+            "new\n",
+            "<!-- vibeguard-end -->",
+        );
+        assert_eq!(
+            replace_managed_block(original, rules),
+            concat!(
+                "Before\n\n",
+                "<!-- vibeguard-start -->\n",
+                "# VibeGuard shared core\n",
+                "new\n",
+                "<!-- vibeguard-end -->\n\n",
+                "After\r\n",
+            )
+        );
     }
 
     #[test]

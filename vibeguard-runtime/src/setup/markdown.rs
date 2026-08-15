@@ -7,10 +7,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 mod hook_identity;
+mod managed_block;
 
-const START: &str = "<!-- vibeguard-start -->";
-const END: &str = "<!-- vibeguard-end -->";
+use managed_block::{managed_blocks, marker_range, replace_managed_block, validate_managed_source};
+
 const RULE_COUNT_PLACEHOLDER: &str = "__VIBEGUARD_RULE_COUNT__";
+const ROUTING_CONTRACT_PLACEHOLDER: &str =
+    "__VIBEGUARD_DIR__/workflows/references/routing-contract.md";
 
 pub fn diff_inject(args: &[String]) -> SetupResult<()> {
     if args.len() != 4 {
@@ -54,7 +57,7 @@ pub fn remove(args: &[String]) -> SetupResult<()> {
     let original = std::fs::read_to_string(path)?;
     if let Some((start, end_after)) = marker_range(&original) {
         let before = original[..start].trim_end();
-        let after = original[end_after..].trim_start_matches('\n');
+        let after = original[end_after..].trim_start_matches(['\r', '\n']);
         let mut content = before.to_string();
         if !after.is_empty() {
             if !content.is_empty() {
@@ -72,6 +75,23 @@ pub fn remove(args: &[String]) -> SetupResult<()> {
     Ok(())
 }
 
+pub fn managed_span(args: &[String]) -> SetupResult<()> {
+    if args.len() != 1 {
+        return Err("Usage: vibeguard-runtime setup-md-managed-span <target-file>".into());
+    }
+    let content = std::fs::read_to_string(Path::new(&args[0]))?;
+    let blocks = managed_blocks(&content);
+    if let Some((start, end_after)) = blocks.first().copied() {
+        let start_line = content[..start].matches('\n').count() + 1;
+        let end_line = content[..end_after].matches('\n').count()
+            + usize::from(!content[..end_after].ends_with('\n'));
+        println!("{} {start_line} {end_line}", blocks.len());
+    } else {
+        println!("0 0 0");
+    }
+    Ok(())
+}
+
 fn render_injected(
     target_file: &Path,
     rules_file: &Path,
@@ -81,6 +101,7 @@ fn render_injected(
     if rule_count.parse::<u64>().is_err() {
         return Err(format!("Invalid rule count: {rule_count}").into());
     }
+    let routing_contract = format!("`{repo_dir}/workflows/references/routing-contract.md`");
     let rules_source = std::fs::read_to_string(rules_file)?;
     validate_managed_source(&rules_source).map_err(|error| {
         format!(
@@ -89,7 +110,12 @@ fn render_injected(
         )
     })?;
     let rules = rules_source
+        .replace(ROUTING_CONTRACT_PLACEHOLDER, &routing_contract)
         .replace("__VIBEGUARD_DIR__", repo_dir)
+        .replace(
+            "`workflows/references/routing-contract.md`",
+            &routing_contract,
+        )
         .replace(RULE_COUNT_PLACEHOLDER, rule_count);
     let original = std::fs::read_to_string(target_file).unwrap_or_default();
 
@@ -104,50 +130,6 @@ fn render_injected(
         format!("{base}\n\n{}\n", rules.trim())
     };
     Ok(("APPENDED".to_string(), original, content))
-}
-
-fn validate_managed_source(text: &str) -> SetupResult<()> {
-    if text.matches(START).count() != 1 || text.matches(END).count() != 1 {
-        return Err("managed source must contain exactly one VibeGuard marker pair".into());
-    }
-    if !text.lines().any(|line| line == START) || !text.lines().any(|line| line == END) {
-        return Err("managed source markers must appear on standalone lines".into());
-    }
-    let start = text.find(START).expect("validated start marker count");
-    let end = text[start + START.len()..]
-        .find(END)
-        .map(|offset| start + START.len() + offset)
-        .ok_or("managed source end marker must follow its start marker")?;
-    if !text[..start].trim().is_empty() || !text[end + END.len()..].trim().is_empty() {
-        return Err("managed source must not contain content outside its marker pair".into());
-    }
-    Ok(())
-}
-
-fn replace_managed_block(original: &str, rules: &str) -> String {
-    let Some((start, end_after)) = marker_range(original) else {
-        return original.to_string();
-    };
-    let before = original[..start].trim_end();
-    let after = original[end_after..].trim_start_matches('\n');
-    let mut content = String::new();
-    if !before.is_empty() {
-        content.push_str(before);
-        content.push_str("\n\n");
-    }
-    content.push_str(rules.trim());
-    content.push('\n');
-    if !after.is_empty() {
-        content.push('\n');
-        content.push_str(after);
-    }
-    content
-}
-
-fn marker_range(text: &str) -> Option<(usize, usize)> {
-    let start = text.find(START)?;
-    let end = text[start..].find(END)? + start;
-    Some((start, end + END.len()))
 }
 
 #[derive(Clone, Debug)]
