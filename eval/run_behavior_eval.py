@@ -292,7 +292,14 @@ def build_env(sample: dict[str, Any], repo_root: Path, tmp_path: Path) -> dict[s
             repo_root / "vibeguard-runtime" / "target" / "release" / "vibeguard-runtime",
             repo_root / "vibeguard-runtime" / "target" / "debug" / "vibeguard-runtime",
         ]
-        runtime = next((candidate for candidate in candidates if candidate.is_file()), None)
+        runtime = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.is_file() and os.access(candidate, os.X_OK)
+            ),
+            None,
+        )
         if runtime is None:
             raise BehaviorDatasetError(
                 "guard behavior eval requires a built vibeguard-runtime binary"

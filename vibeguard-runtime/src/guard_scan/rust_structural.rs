@@ -93,53 +93,63 @@ pub(super) fn workspace_consistency(context: &ScanContext) -> Result<ScanResult>
         ));
     }
     let members = workspace_members(&context.target, &cargo)?;
+    let workspace_changed = cargo
+        .lines()
+        .enumerate()
+        .any(|(index, _)| context.allows_line(&cargo_path, index + 1));
     let env_regex = Regex::new(r#"(?:env::var|env::var_os|option_env!)\s*\(\s*"([^"]+)""#)?;
     let db_regex = Regex::new(r#""([^"]*\.(?:db|sqlite))""#)?;
     let named_constant = Regex::new(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const|static)\b")?;
     let mut semantic_vars: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+    let mut semantic_changed = BTreeSet::new();
     let mut db_files = BTreeSet::new();
+    let mut db_changed = false;
     for member in members {
         let src = context.target.join(member).join("src");
         for path in walk_rust(&src)? {
             let content = fs::read_to_string(&path)?;
-            for captures in env_regex.captures_iter(&content) {
-                let name = captures[1].to_string();
-                let lower = name.to_ascii_lowercase();
-                let group = if lower.contains("db")
-                    || lower.contains("database")
-                    || lower.contains("sqlite")
-                    || lower.contains("storage")
-                {
-                    Some("database")
-                } else if lower.contains("port") || lower.contains("listen") {
-                    Some("port")
-                } else if lower.contains("host")
-                    || lower.contains("addr")
-                    || lower.contains("bind")
-                    || lower.contains("url")
-                {
-                    Some("host")
-                } else {
-                    None
-                };
-                if let Some(group) = group {
-                    semantic_vars.entry(group).or_default().insert(name);
-                }
-            }
             let comment_free = strip_rust_comments(&content);
-            for code in comment_free.lines() {
+            for (index, code) in comment_free.lines().enumerate() {
+                for captures in env_regex.captures_iter(code) {
+                    let name = captures[1].to_string();
+                    let lower = name.to_ascii_lowercase();
+                    let group = if lower.contains("db")
+                        || lower.contains("database")
+                        || lower.contains("sqlite")
+                        || lower.contains("storage")
+                    {
+                        Some("database")
+                    } else if lower.contains("port") || lower.contains("listen") {
+                        Some("port")
+                    } else if lower.contains("host")
+                        || lower.contains("addr")
+                        || lower.contains("bind")
+                        || lower.contains("url")
+                    {
+                        Some("host")
+                    } else {
+                        None
+                    };
+                    if let Some(group) = group {
+                        semantic_vars.entry(group).or_default().insert(name);
+                        if context.allows_line(&path, index + 1) {
+                            semantic_changed.insert(group);
+                        }
+                    }
+                }
                 if named_constant.is_match(code) {
                     continue;
                 }
                 for captures in db_regex.captures_iter(code) {
                     db_files.insert(captures[1].to_string());
+                    db_changed |= context.allows_line(&path, index + 1);
                 }
             }
         }
     }
     let mut findings = Vec::new();
     for (group, values) in semantic_vars {
-        if values.len() > 1 {
+        if values.len() > 1 && (workspace_changed || semantic_changed.contains(group)) {
             findings.push(Finding {
                 rule: "RS-06",
                 path: cargo_path.clone(),
@@ -151,7 +161,7 @@ pub(super) fn workspace_consistency(context: &ScanContext) -> Result<ScanResult>
             });
         }
     }
-    if db_files.len() > 1 {
+    if db_files.len() > 1 && (workspace_changed || db_changed) {
         findings.push(Finding {
             rule: "RS-06",
             path: cargo_path,
@@ -181,13 +191,21 @@ pub(super) fn single_source_of_truth(context: &ScanContext) -> Result<ScanResult
     )?;
     let mut has_todo = false;
     let mut has_task = false;
+    let mut family_changed = false;
     let mut stores = BTreeSet::new();
     for path in rust_files(context) {
         let content = context.read(&path)?;
         let masked = mask_rust_non_code(&content);
-        has_todo |= todo.is_match(&masked);
-        has_task |= task.is_match(&masked);
         for (index, line) in masked.lines().enumerate() {
+            let line_changed = context.allows_line(&path, index + 1);
+            if todo.is_match(line) {
+                has_todo = true;
+                family_changed |= line_changed;
+            }
+            if task.is_match(line) {
+                has_task = true;
+                family_changed |= line_changed;
+            }
             let lower = line.to_ascii_lowercase();
             if !lower.contains("task") && !lower.contains("todo") {
                 continue;
@@ -200,14 +218,18 @@ pub(super) fn single_source_of_truth(context: &ScanContext) -> Result<ScanResult
         }
     }
     let mut findings = Vec::new();
-    if has_todo && has_task {
+    if has_todo && has_task && family_changed {
         findings.push(structural(
             context,
             "RS-12",
             "Potential dual task systems detected (Todo* + TaskManagement*).",
         ));
     }
-    if stores.len() > 1 {
+    if stores.len() > 1
+        && stores
+            .iter()
+            .any(|(path, line, _)| context.allows_line(path, *line))
+    {
         findings.push(structural(
             context,
             "RS-12",

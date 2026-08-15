@@ -152,6 +152,21 @@ func Cleanup() {
 EOF
 assert_fail "multiline discarded call fails --strict" bash "$GUARD" --strict "$proj_multiline"
 
+# --- FAIL: selector dots may be followed by a physical line break ---
+proj_selector_break="${tmpdir}/fail_selector_break"
+mkdir -p "$proj_selector_break"
+cat > "${proj_selector_break}/discard.go" <<'EOF'
+package discard
+type Client struct{}
+func (*Client) Close() error { return nil }
+func Cleanup(client *Client) {
+    _ = client.
+        Close()
+}
+EOF
+assert_fail "discarded call with a line break after selector dot fails --strict" \
+  bash "$GUARD" --strict "$proj_selector_break"
+
 # --- FAIL: parenthesized callees still discard returned errors ---
 proj_parenthesized="${tmpdir}/fail_parenthesized_callee"
 mkdir -p "$proj_parenthesized"

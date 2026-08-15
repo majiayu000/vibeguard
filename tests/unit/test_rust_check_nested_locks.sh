@@ -297,6 +297,23 @@ trap 'rm -f "$staged_no_rs" "$staged_excluded" "$staged_cleanup" "$staged_existi
 assert_ok "pre-commit unrelated edit ignores existing nested-lock debt" \
   env VIBEGUARD_STAGED_FILES="$staged_existing" bash "$GUARD" --strict "$proj8"
 
+# --- FAIL: destructuring patterns keep acquired guards alive ---
+proj_pattern="${tmpdir}/fail_destructured_lock_guard"
+mkdir -p "${proj_pattern}/src"
+cat > "${proj_pattern}/src/state.rs" <<'EOF'
+use std::sync::Mutex;
+struct State { a: Mutex<i32>, b: Mutex<i32> }
+impl State {
+    fn update(&self) {
+        let (first, _) = (self.a.lock(), ());
+        let second = self.b.lock();
+        drop((first, second));
+    }
+}
+EOF
+assert_fail "destructured lock guards remain active until scope exit" \
+  bash "$GUARD" --strict "$proj_pattern"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

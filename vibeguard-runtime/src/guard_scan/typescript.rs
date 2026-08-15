@@ -78,6 +78,7 @@ pub(super) fn console_residual(context: &ScanContext) -> Result<ScanResult> {
             &[],
         ));
     }
+    let cli_exemption_removed = previous_cli_project(context)?;
     let console = Regex::new(
         r"\bconsole[ \t\r\n]*\.[ \t\r\n]*[A-Za-z_$][A-Za-z0-9_$]*[ \t\r\n]*(?:\?\.)?[ \t\r\n]*\(",
     )?;
@@ -103,7 +104,7 @@ pub(super) fn console_residual(context: &ScanContext) -> Result<ScanResult> {
         {
             continue;
         }
-        let mcp_exemption_removed = context.previous_content(&path).is_some_and(|previous| {
+        let mcp_exemption_removed = context.previous_content(&path)?.is_some_and(|previous| {
             ["StdioServerTransport", "new Server(", "McpServer"]
                 .iter()
                 .any(|marker| previous.contains(marker))
@@ -118,7 +119,8 @@ pub(super) fn console_residual(context: &ScanContext) -> Result<ScanResult> {
                     .count()
                     + 1;
                 let end_line = line + found.as_str().matches('\n').count();
-                (mcp_exemption_removed
+                (cli_exemption_removed
+                    || mcp_exemption_removed
                     || (line..=end_line).any(|candidate| context.allows_line(&path, candidate)))
                 .then(|| Finding {
                     rule: "TS-03",
@@ -195,76 +197,83 @@ pub(super) fn component_duplication(context: &ScanContext) -> Result<ScanResult>
     let table = Regex::new(r"<table|<Table|<th|<thead")?;
     let query = Regex::new(r"useQuery|useSWR|useInfiniteQuery")?;
     let query_state = Regex::new(r"isLoading|loading.*error|refetch|data.*error")?;
-    let mut styles: BTreeMap<String, BTreeSet<std::path::PathBuf>> = BTreeMap::new();
+    let mut styles: BTreeMap<String, BTreeSet<(std::path::PathBuf, usize)>> = BTreeMap::new();
     for path in production_files(context) {
         let content = context.read(&path)?;
-        if content.contains("<label")
-            && (content.contains("{children}") || content.contains("{props.children}"))
-            && (content.contains("isRequired")
-                || required.is_match(&content)
-                || content.contains("props.required"))
-        {
-            form_fields.push(path.clone());
+        let previous = context.previous_content(&path)?;
+        if form_field_like(&content, &required) {
+            form_fields.push((
+                path.clone(),
+                previous
+                    .as_deref()
+                    .is_none_or(|value| !form_field_like(value, &required)),
+            ));
         }
-        if sort_state.is_match(&content) && table.is_match(&content) {
-            sortable_tables.push(path.clone());
+        if sortable_table_like(&content, &sort_state, &table) {
+            sortable_tables.push((
+                path.clone(),
+                previous
+                    .as_deref()
+                    .is_none_or(|value| !sortable_table_like(value, &sort_state, &table)),
+            ));
         }
-        let lower_path = path
-            .to_string_lossy()
-            .replace('\\', "/")
-            .to_ascii_lowercase();
-        if (lower_path.contains("/hooks/")
-            || path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .is_some_and(|name| name.starts_with("use")))
-            && query.is_match(&content)
-            && query_state.is_match(&content)
-        {
-            query_hooks.push(path.clone());
+        if query_hook_like(&path, &content, &query, &query_state) {
+            query_hooks.push((
+                path.clone(),
+                previous
+                    .as_deref()
+                    .is_none_or(|value| !query_hook_like(&path, value, &query, &query_state)),
+            ));
         }
         for captures in style.captures_iter(&content) {
+            let line = content.as_bytes()[..captures.get(0).map_or(0, |value| value.start())]
+                .iter()
+                .filter(|byte| **byte == b'\n')
+                .count()
+                + 1;
             styles
                 .entry(captures[1].to_string())
                 .or_default()
-                .insert(path.clone());
+                .insert((path.clone(), line));
         }
     }
     let mut findings = Vec::new();
     if form_fields.len() >= 3 {
-        findings.push(group_finding(
-            context,
+        findings.extend(group_finding(
             "TS-13",
             "FormField-like pattern",
             &form_fields,
         ));
     }
     if sortable_tables.len() >= 2 {
-        findings.push(group_finding(
-            context,
+        findings.extend(group_finding(
             "TS-13",
             "Sortable table pattern",
             &sortable_tables,
         ));
     }
     if query_hooks.len() >= 4 {
-        findings.push(group_finding(
-            context,
+        findings.extend(group_finding(
             "TS-13",
             "Query hook template pattern",
             &query_hooks,
         ));
     }
     for (value, paths) in styles {
-        if paths.len() >= 2 {
+        if paths
+            .iter()
+            .map(|(path, _)| path)
+            .collect::<BTreeSet<_>>()
+            .len()
+            >= 2
+            && let Some((changed_path, changed_line)) = paths
+                .iter()
+                .find(|(path, line)| context.allows_line(path, *line))
+        {
             findings.push(Finding {
                 rule: "TS-13",
-                path: paths
-                    .iter()
-                    .next()
-                    .cloned()
-                    .unwrap_or_else(|| context.target.clone()),
-                line: 1,
+                path: changed_path.clone(),
+                line: *changed_line,
                 message: format!(
                     "Style string duplicated {} times: {}...",
                     paths.len(),
@@ -340,28 +349,51 @@ fn duplicate_name_findings(
 }
 
 fn group_finding(
-    context: &ScanContext,
     rule: &'static str,
     label: &str,
-    paths: &[std::path::PathBuf],
-) -> Finding {
-    Finding {
+    paths: &[(std::path::PathBuf, bool)],
+) -> Option<Finding> {
+    let changed = paths.iter().find(|(_, changed)| *changed)?;
+    Some(Finding {
         rule,
-        path: paths
-            .first()
-            .cloned()
-            .unwrap_or_else(|| context.target.clone()),
+        path: changed.0.clone(),
         line: 1,
         message: format!(
             "{label} found in {} files: {}",
             paths.len(),
             paths
                 .iter()
-                .map(|path| path.display().to_string())
+                .map(|(path, _)| path.display().to_string())
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-    }
+    })
+}
+
+fn form_field_like(content: &str, required: &Regex) -> bool {
+    content.contains("<label")
+        && (content.contains("{children}") || content.contains("{props.children}"))
+        && (content.contains("isRequired")
+            || required.is_match(content)
+            || content.contains("props.required"))
+}
+
+fn sortable_table_like(content: &str, sort_state: &Regex, table: &Regex) -> bool {
+    sort_state.is_match(content) && table.is_match(content)
+}
+
+fn query_hook_like(path: &Path, content: &str, query: &Regex, state: &Regex) -> bool {
+    let normalized = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    (normalized.contains("/hooks/")
+        || path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|name| name.starts_with("use")))
+        && query.is_match(content)
+        && state.is_match(content)
 }
 
 fn production_files(context: &ScanContext) -> Vec<std::path::PathBuf> {
@@ -383,10 +415,7 @@ fn all_production_files(context: &ScanContext) -> Vec<std::path::PathBuf> {
 fn is_cli_project(target: &Path) -> bool {
     let package = target.join("package.json");
     if let Ok(content) = std::fs::read_to_string(package)
-        && (content.contains("\"bin\"")
-            || Regex::new(r#""[^"]+"\s*:\s*"[^"]*cli[^"]*""#)
-                .expect("valid CLI regex")
-                .is_match(&content))
+        && is_cli_manifest(&content)
     {
         return true;
     }
@@ -394,6 +423,33 @@ fn is_cli_project(target: &Path) -> bool {
         target.join(format!("src/cli.{extension}")).exists()
             || target.join(format!("cli.{extension}")).exists()
     })
+}
+
+fn previous_cli_project(context: &ScanContext) -> Result<bool> {
+    if context
+        .previous_content(&context.target.join("package.json"))?
+        .is_some_and(|content| is_cli_manifest(&content))
+    {
+        return Ok(true);
+    }
+    for extension in ["ts", "tsx", "js", "jsx"] {
+        for relative in [format!("src/cli.{extension}"), format!("cli.{extension}")] {
+            if context
+                .previous_content(&context.target.join(relative))?
+                .is_some()
+            {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn is_cli_manifest(content: &str) -> bool {
+    content.contains("\"bin\"")
+        || Regex::new(r#""[^"]+"\s*:\s*"[^"]*cli[^"]*""#)
+            .expect("valid CLI regex")
+            .is_match(content)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

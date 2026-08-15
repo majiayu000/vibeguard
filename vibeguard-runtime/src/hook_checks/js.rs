@@ -255,7 +255,7 @@ pub(crate) fn mask_javascript_non_code(source: &str) -> String {
                 index += 1;
             }
             LexState::Quoted(_) if current == '\\' && next.is_some() => {
-                masked.push_str("  ");
+                push_masked_escape(&mut masked, next);
                 index += 2;
             }
             LexState::Quoted(quote) if current == quote => {
@@ -302,7 +302,7 @@ pub(crate) fn mask_javascript_non_code(source: &str) -> String {
                 index += 1;
             }
             LexState::Template if current == '\\' && next.is_some() => {
-                masked.push_str("  ");
+                push_masked_escape(&mut masked, next);
                 index += 2;
             }
             LexState::Template if current == '$' && next == Some('{') => {
@@ -325,6 +325,11 @@ pub(crate) fn mask_javascript_non_code(source: &str) -> String {
         }
     }
     masked
+}
+
+fn push_masked_escape(masked: &mut String, next: Option<char>) {
+    masked.push(' ');
+    masked.push(if next == Some('\n') { '\n' } else { ' ' });
 }
 
 #[cfg(test)]

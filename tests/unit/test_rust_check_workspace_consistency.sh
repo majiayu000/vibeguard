@@ -218,6 +218,33 @@ if ln -s "$outside_symlink" "${proj_symlink}/crates/escape" 2>/dev/null \
   assert_ok "workspace symlink escapes and cycles are not scanned" bash "$GUARD" --strict "$proj_symlink"
 fi
 
+# --- BASELINE: aggregate drift requires a changed contributing input ---
+proj_baseline="${tmpdir}/baseline_scope"
+mkdir -p "${proj_baseline}/api/src" "${proj_baseline}/worker/src"
+git -C "$proj_baseline" init -q
+git -C "$proj_baseline" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_baseline" config user.name "VibeGuard Tests"
+printf '[workspace]\nmembers = ["api", "worker"]\n' > "${proj_baseline}/Cargo.toml"
+for member in api worker; do
+  printf '[package]\nname = "%s"\nversion = "0.1.0"\n' "$member" > "${proj_baseline}/${member}/Cargo.toml"
+done
+printf 'fn main() { let _ = std::env::var("API_DB_PATH"); }\n' > "${proj_baseline}/api/src/main.rs"
+printf 'fn main() { let _ = std::env::var("WORKER_DB_PATH"); }\n' > "${proj_baseline}/worker/src/main.rs"
+git -C "$proj_baseline" add .
+git -C "$proj_baseline" commit -q -m baseline
+baseline="$(git -C "$proj_baseline" rev-parse HEAD)"
+printf '\npub fn unrelated() {}\n' >> "${proj_baseline}/api/src/main.rs"
+git -C "$proj_baseline" add api/src/main.rs
+git -C "$proj_baseline" commit -q -m unrelated
+assert_ok "baseline ignores pre-existing RS-06 aggregate debt" \
+  bash "$GUARD" --strict --baseline "$baseline" "$proj_baseline"
+sed -i.bak 's/WORKER_DB_PATH/WORKER_DATABASE_PATH/' "${proj_baseline}/worker/src/main.rs"
+rm -f "${proj_baseline}/worker/src/main.rs.bak"
+git -C "$proj_baseline" add worker/src/main.rs
+git -C "$proj_baseline" commit -q -m contributor
+assert_fail "baseline reports a changed database configuration contributor" \
+  bash "$GUARD" --strict --baseline "$baseline" "$proj_baseline"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

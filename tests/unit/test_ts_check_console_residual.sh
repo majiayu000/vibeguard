@@ -226,6 +226,42 @@ console.log(view);
 EOF
 assert_fail "console call after JSX closing tag fails --strict" bash "$GUARD" --strict "$proj_tsx"
 
+# --- BASELINE: removing the CLI exemption rechecks unchanged console calls ---
+proj_cli_removed="${tmpdir}/baseline_cli_removed"
+mkdir -p "${proj_cli_removed}/src"
+git -C "$proj_cli_removed" init -q
+git -C "$proj_cli_removed" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_cli_removed" config user.name "VibeGuard Tests"
+printf '%s\n' '{"bin":{"tool":"src/index.ts"}}' > "${proj_cli_removed}/package.json"
+printf 'console.log("cli output");\n' > "${proj_cli_removed}/src/index.ts"
+git -C "$proj_cli_removed" add .
+git -C "$proj_cli_removed" commit -q -m baseline
+cli_baseline="$(git -C "$proj_cli_removed" rev-parse HEAD)"
+printf '%s\n' '{"name":"app"}' > "${proj_cli_removed}/package.json"
+git -C "$proj_cli_removed" add package.json
+git -C "$proj_cli_removed" commit -q -m remove-cli
+assert_fail "baseline rechecks console calls when package bin is removed" \
+  bash "$GUARD" --strict --baseline "$cli_baseline" "$proj_cli_removed"
+
+# --- BASELINE: escaped string continuations preserve physical line numbers ---
+proj_string_lines="${tmpdir}/baseline_string_lines"
+mkdir -p "${proj_string_lines}/src"
+git -C "$proj_string_lines" init -q
+git -C "$proj_string_lines" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_string_lines" config user.name "VibeGuard Tests"
+cat > "${proj_string_lines}/src/app.ts" <<'EOF'
+const banner = "hello\
+world";
+EOF
+git -C "$proj_string_lines" add .
+git -C "$proj_string_lines" commit -q -m baseline
+string_baseline="$(git -C "$proj_string_lines" rev-parse HEAD)"
+printf 'console.log(banner);\n' >> "${proj_string_lines}/src/app.ts"
+git -C "$proj_string_lines" add src/app.ts
+git -C "$proj_string_lines" commit -q -m add-console
+assert_fail "baseline keeps console line after escaped string continuation" \
+  bash "$GUARD" --strict --baseline "$string_baseline" "$proj_string_lines"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

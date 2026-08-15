@@ -92,6 +92,32 @@ proj_empty="${tmpdir}/pass_empty"
 mkdir -p "${proj_empty}/src"
 assert_ok "empty project passes" bash "$GUARD" --strict "$proj_empty"
 
+# --- BASELINE: aggregate findings require a changed contributing reference ---
+proj_baseline="${tmpdir}/baseline_scope"
+mkdir -p "${proj_baseline}/src"
+git -C "$proj_baseline" init -q
+git -C "$proj_baseline" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_baseline" config user.name "VibeGuard Tests"
+cat > "${proj_baseline}/src/tools.rs" <<'EOF'
+pub struct TodoWrite;
+pub struct TaskDone;
+static TODO_STATE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+static TASK_STATE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+EOF
+git -C "$proj_baseline" add .
+git -C "$proj_baseline" commit -q -m baseline
+baseline="$(git -C "$proj_baseline" rev-parse HEAD)"
+printf 'pub fn unrelated() {}\n' > "${proj_baseline}/src/unrelated.rs"
+git -C "$proj_baseline" add src/unrelated.rs
+git -C "$proj_baseline" commit -q -m unrelated
+assert_ok "baseline ignores pre-existing RS-12 aggregate debt" \
+  bash "$GUARD" --strict --baseline "$baseline" "$proj_baseline"
+printf 'pub struct TaskList;\n' > "${proj_baseline}/src/unrelated.rs"
+git -C "$proj_baseline" add src/unrelated.rs
+git -C "$proj_baseline" commit -q -m contributor
+assert_fail "baseline reports a changed task-family contributor" \
+  bash "$GUARD" --strict --baseline "$baseline" "$proj_baseline"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

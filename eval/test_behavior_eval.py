@@ -108,6 +108,20 @@ class BehaviorEvalTest(unittest.TestCase):
             with self.assertRaises(run_behavior_eval.BehaviorDatasetError):
                 run_behavior_eval.materialize_guard_fixture(sample, Path(tmp))
 
+    def test_guard_env_skips_non_executable_release_runtime(self) -> None:
+        sample = {"id": "guard-runtime", "runner": "guard"}
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp) / "repo"
+            release = repo_root / "vibeguard-runtime/target/release/vibeguard-runtime"
+            debug = repo_root / "vibeguard-runtime/target/debug/vibeguard-runtime"
+            release.parent.mkdir(parents=True)
+            debug.parent.mkdir(parents=True)
+            release.write_text("release", encoding="utf-8")
+            debug.write_text("debug", encoding="utf-8")
+            with patch("run_behavior_eval.os.access", side_effect=lambda path, _: path == debug):
+                env = run_behavior_eval.build_env(sample, repo_root, Path(tmp))
+            self.assertEqual(env["VIBEGUARD_RUNTIME"], str(debug))
+
     def test_missing_required_coverage_reduces_score_and_fails(self) -> None:
         samples = [
             {

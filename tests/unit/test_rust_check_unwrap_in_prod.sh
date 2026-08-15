@@ -527,6 +527,41 @@ fn main() { let x = Some(1).unwrap(); }
 EOF
 assert_ok "unwrap() without --strict exits 0" bash "$GUARD" "$proj7"
 
+# --- BASELINE: escaped string continuations preserve physical line numbers ---
+proj_string_lines="${tmpdir}/baseline_string_lines"
+mkdir -p "${proj_string_lines}/src"
+git -C "$proj_string_lines" init -q
+git -C "$proj_string_lines" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_string_lines" config user.name "VibeGuard Tests"
+cat > "${proj_string_lines}/src/lib.rs" <<'EOF'
+const BANNER: &str = "hello\
+world";
+EOF
+git -C "$proj_string_lines" add .
+git -C "$proj_string_lines" commit -q -m baseline
+string_baseline="$(git -C "$proj_string_lines" rev-parse HEAD)"
+printf 'pub fn load(value: Option<i32>) -> i32 { value.unwrap() }\n' >> "${proj_string_lines}/src/lib.rs"
+git -C "$proj_string_lines" add src/lib.rs
+git -C "$proj_string_lines" commit -q -m add-unwrap
+assert_fail "baseline keeps unwrap line after escaped string continuation" \
+  bash "$GUARD" --strict --baseline "$string_baseline" "$proj_string_lines"
+
+# --- ERROR: malformed prior source is not treated as a new file ---
+proj_prior_utf8="${tmpdir}/baseline_prior_utf8"
+mkdir -p "${proj_prior_utf8}/src"
+git -C "$proj_prior_utf8" init -q
+git -C "$proj_prior_utf8" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_prior_utf8" config user.name "VibeGuard Tests"
+printf '\377' > "${proj_prior_utf8}/src/lib.rs"
+git -C "$proj_prior_utf8" add .
+git -C "$proj_prior_utf8" commit -q -m baseline
+utf8_baseline="$(git -C "$proj_prior_utf8" rev-parse HEAD)"
+printf 'pub fn clean() {}\n' > "${proj_prior_utf8}/src/lib.rs"
+git -C "$proj_prior_utf8" add src/lib.rs
+git -C "$proj_prior_utf8" commit -q -m repair-source
+assert_output_contains "non-UTF-8 prior source fails visibly" "prior source is not UTF-8" \
+  bash "$GUARD" --strict --baseline "$utf8_baseline" "$proj_prior_utf8"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

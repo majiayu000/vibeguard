@@ -12,7 +12,7 @@ pub(super) fn unwrap(context: &ScanContext) -> Result<ScanResult> {
         let content = context.read(&path)?;
         let masked = mask_rust_non_code(&content);
         let test_lines = test_scope_lines(&masked);
-        let previous_call_scopes = match context.previous_content(&path) {
+        let previous_call_scopes = match context.previous_content(&path)? {
             Some(previous) => {
                 let previous_masked = mask_rust_non_code(&previous);
                 let previous_test_lines = test_scope_lines(&previous_masked);
@@ -304,6 +304,8 @@ fn lex_rust(source: &str, preserve_literals: bool) -> String {
             if bytes[index] == b'\\' && index + 1 < bytes.len() {
                 if preserve_literals {
                     output.extend_from_slice(&bytes[index..index + 2]);
+                } else if bytes[index + 1] == b'\n' {
+                    output.extend_from_slice(b" \n");
                 } else {
                     output.extend_from_slice(b"  ");
                 }
@@ -586,7 +588,13 @@ fn lock_binding_name(statement_prefix: &str, line: &str, lock_position: usize) -
         .next()?
         .split_whitespace()
         .next_back()?;
-    name.bytes().all(is_rust_ident).then(|| name.to_string())
+    if name.bytes().all(is_rust_ident) {
+        Some(name.to_string())
+    } else if statement.trim_start().starts_with("let ") {
+        Some("$pattern".to_string())
+    } else {
+        None
+    }
 }
 
 fn assignment_position(text: &str) -> Option<usize> {

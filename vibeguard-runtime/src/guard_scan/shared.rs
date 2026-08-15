@@ -341,19 +341,58 @@ impl ScanContext {
         })
     }
 
-    pub(super) fn previous_content(&self, path: &Path) -> Option<String> {
-        let root = self.git_root.as_deref()?;
+    pub(super) fn previous_content(&self, path: &Path) -> Result<Option<String>> {
+        let Some(root) = self.git_root.as_deref() else {
+            return Ok(None);
+        };
         let old_path = self
             .diff
             .as_ref()
             .and_then(|diff| diff.renames.get(path))
             .map_or(path, PathBuf::as_path);
-        let relative = old_path.strip_prefix(root).ok()?;
+        let relative = old_path.strip_prefix(root).map_err(|error| {
+            format!(
+                "cannot resolve prior source path {} from {}: {error}",
+                old_path.display(),
+                root.display()
+            )
+        })?;
         let revision = if self.staged {
             "HEAD"
         } else {
-            self.baseline.as_deref()?
+            let Some(revision) = self.baseline.as_deref() else {
+                return Ok(None);
+            };
+            revision
         };
+        if self.staged {
+            let head = Command::new("git")
+                .args(["-C"])
+                .arg(root)
+                .args(["rev-parse", "--verify", "--quiet", "HEAD"])
+                .output()?;
+            if head.status.code() == Some(1) {
+                return Ok(None);
+            }
+            if !head.status.success() {
+                return Err("git rev-parse failed while locating the staged baseline".into());
+            }
+        }
+        let tree = Command::new("git")
+            .args(["-C"])
+            .arg(root)
+            .args(["ls-tree", "-z", "--name-only", revision, "--"])
+            .arg(relative)
+            .output()?;
+        if !tree.status.success() {
+            return Err(format!(
+                "git ls-tree failed while locating prior source at revision {revision}"
+            )
+            .into());
+        }
+        if tree.stdout.is_empty() {
+            return Ok(None);
+        }
         let output = Command::new("git")
             .args(["-C"])
             .arg(root)
@@ -361,13 +400,16 @@ impl ScanContext {
                 "show",
                 &format!("{revision}:{}", relative.to_string_lossy()),
             ])
-            .output()
-            .ok()?;
-        output
-            .status
-            .success()
-            .then(|| String::from_utf8(output.stdout).ok())
-            .flatten()
+            .output()?;
+        if !output.status.success() {
+            return Err(format!(
+                "git show failed while reading prior source at revision {revision}"
+            )
+            .into());
+        }
+        String::from_utf8(output.stdout)
+            .map(Some)
+            .map_err(|error| format!("prior source is not UTF-8: {error}").into())
     }
 
     pub(super) fn keep_unsuppressed(&self, content: &str, findings: Vec<Finding>) -> Vec<Finding> {
