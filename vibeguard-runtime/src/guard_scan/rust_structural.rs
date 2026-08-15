@@ -93,10 +93,8 @@ pub(super) fn workspace_consistency(context: &ScanContext) -> Result<ScanResult>
         ));
     }
     let members = workspace_members(&context.target, &cargo)?;
-    let workspace_changed = cargo
-        .lines()
-        .enumerate()
-        .any(|(index, _)| context.allows_line(&cargo_path, index + 1));
+    let workspace_changed =
+        (1..=cargo.lines().count()).any(|line| context.allows_line(&cargo_path, line));
     let env_regex = Regex::new(r#"(?:env::var|env::var_os|option_env!)\s*\(\s*"([^"]+)""#)?;
     let db_regex = Regex::new(r#""([^"]*\.(?:db|sqlite))""#)?;
     let named_constant = Regex::new(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const|static)\b")?;
