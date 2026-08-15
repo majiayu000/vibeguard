@@ -146,6 +146,16 @@ export const value = condition ? specific : any;
 EOF
 assert_ok "ternary value named any passes" bash "$GUARD" --strict "$proj_ternary"
 
+# --- PASS: import/export aliases named any are values, not type assertions ---
+proj_alias="${tmpdir}/pass_any_import_alias"
+mkdir -p "${proj_alias}/src"
+cat > "${proj_alias}/src/value.ts" <<'EOF'
+import { value as any } from "./module";
+export { value as any } from "./module";
+console.info(any);
+EOF
+assert_ok "import and export aliases named any pass" bash "$GUARD" --strict "$proj_alias"
+
 # --- FAIL: multiline type annotations and casts preserve syntax-level coverage ---
 proj_multiline_any="${tmpdir}/fail_multiline_any"
 mkdir -p "${proj_multiline_any}/src"
@@ -166,6 +176,18 @@ export const view = <div>ready</div>;
 export const payload: any = view;
 EOF
 assert_fail "any after JSX closing tag fails --strict" bash "$GUARD" --strict "$proj_tsx"
+
+# --- FAIL: division after a postfix operator must not mask later source ---
+proj_postfix_division="${tmpdir}/fail_any_after_postfix_division"
+mkdir -p "${proj_postfix_division}/src"
+cat > "${proj_postfix_division}/src/value.ts" <<'EOF'
+declare let index: number;
+declare const total: number;
+export const ratio = index++ / total;
+export const payload: any = ratio;
+EOF
+assert_fail "any after postfix-operator division remains visible" \
+  bash "$GUARD" --strict "$proj_postfix_division"
 
 # --- FAIL: any nested inside generic type annotations is still a type node ---
 proj_nested_type="${tmpdir}/fail_nested_any_type"

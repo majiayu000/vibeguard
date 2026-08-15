@@ -139,6 +139,24 @@ git -C "$proj8" commit -q -m new-duplicate
 assert_fail "baseline reports a newly added duplicate definition" \
   bash "$GUARD" --strict --baseline "$baseline8" "$proj8"
 
+# --- BASELINE: removing an allowlist entry re-enables unchanged duplicate checks ---
+proj9="${tmpdir}/baseline_allowlist_removal"
+mkdir -p "${proj9}/src/a" "${proj9}/src/b"
+git -C "$proj9" init -q
+git -C "$proj9" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj9" config user.name "VibeGuard Tests"
+printf 'pub struct AllowedDuplicate;\n' > "${proj9}/src/a/types.rs"
+printf 'pub struct AllowedDuplicate;\n' > "${proj9}/src/b/types.rs"
+printf 'AllowedDuplicate\n' > "${proj9}/.vibeguard-duplicate-types-allowlist"
+git -C "$proj9" add .
+git -C "$proj9" commit -q -m allowlisted
+baseline9="$(git -C "$proj9" rev-parse HEAD)"
+: > "${proj9}/.vibeguard-duplicate-types-allowlist"
+git -C "$proj9" add .vibeguard-duplicate-types-allowlist
+git -C "$proj9" commit -q -m enforce-duplicate
+assert_fail "baseline reports duplicates when their allowlist entry is removed" \
+  bash "$GUARD" --strict --baseline "$baseline9" "$proj9"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

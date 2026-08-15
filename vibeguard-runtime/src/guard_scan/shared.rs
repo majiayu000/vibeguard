@@ -7,6 +7,24 @@ use std::process::Command;
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+pub(super) fn read_allowlist(path: &Path) -> Result<BTreeSet<String>> {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("cannot read {}: {error}", path.display()).into()),
+    };
+    Ok(parse_allowlist(&content))
+}
+
+pub(super) fn parse_allowlist(content: &str) -> BTreeSet<String> {
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_string)
+        .collect()
+}
+
 pub(super) fn rust_file_module(path: &Path, target: &Path) -> Option<String> {
     let relative = path.strip_prefix(target).unwrap_or(path);
     let components = relative
@@ -345,11 +363,7 @@ impl ScanContext {
         let Some(root) = self.git_root.as_deref() else {
             return Ok(None);
         };
-        let old_path = self
-            .diff
-            .as_ref()
-            .and_then(|diff| diff.renames.get(path))
-            .map_or(path, PathBuf::as_path);
+        let old_path = self.previous_path(path);
         let relative = old_path.strip_prefix(root).map_err(|error| {
             format!(
                 "cannot resolve prior source path {} from {}: {error}",
@@ -410,6 +424,13 @@ impl ScanContext {
         String::from_utf8(output.stdout)
             .map(Some)
             .map_err(|error| format!("prior source is not UTF-8: {error}").into())
+    }
+
+    pub(super) fn previous_path<'a>(&'a self, path: &'a Path) -> &'a Path {
+        self.diff
+            .as_ref()
+            .and_then(|diff| diff.renames.get(path))
+            .map_or(path, PathBuf::as_path)
     }
 
     pub(super) fn keep_unsuppressed(&self, content: &str, findings: Vec<Finding>) -> Vec<Finding> {

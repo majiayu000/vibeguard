@@ -314,6 +314,25 @@ EOF
 assert_fail "destructured lock guards remain active until scope exit" \
   bash "$GUARD" --strict "$proj_pattern"
 
+# --- FAIL: bodyless trait declarations do not absorb the next default method ---
+proj_trait="${tmpdir}/fail_trait_default_method_locks"
+mkdir -p "${proj_trait}/src"
+cat > "${proj_trait}/src/state.rs" <<'EOF'
+use std::sync::Mutex;
+trait Worker {
+    fn status(&self);
+    fn update(&self, first: &Mutex<i32>, second: &Mutex<i32>) {
+        let first_guard = first.lock();
+        let second_guard = second.lock();
+        drop((first_guard, second_guard));
+    }
+}
+EOF
+assert_fail "default trait method locks are evaluated after a bodyless declaration" \
+  bash "$GUARD" --strict "$proj_trait"
+assert_output_contains "nested-lock finding names the default trait method" "fn update" \
+  bash "$GUARD" --strict "$proj_trait"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

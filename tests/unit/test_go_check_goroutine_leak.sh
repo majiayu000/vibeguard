@@ -156,6 +156,39 @@ git -C "$proj_direction" commit -q -m remove-preceding-exit
 assert_ok "deleted exits before a launch do not resurface historical goroutines" \
   bash "$GUARD" --strict --baseline "$direction_baseline" "$proj_direction"
 
+# --- BASELINE: deleting an ordinary body exit rechecks the goroutine ---
+proj_deleted_return="${tmpdir}/fail_deleted_body_return"
+mkdir -p "$proj_deleted_return"
+git -C "$proj_deleted_return" init -q
+git -C "$proj_deleted_return" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_deleted_return" config user.name "VibeGuard Tests"
+cat > "${proj_deleted_return}/worker.go" <<'EOF'
+package worker
+func start(done bool) {
+    go func() {
+        if done { return }
+        processQueue()
+    }()
+}
+func processQueue() {}
+EOF
+git -C "$proj_deleted_return" add worker.go
+git -C "$proj_deleted_return" commit -q -m initial
+return_baseline="$(git -C "$proj_deleted_return" rev-parse HEAD)"
+cat > "${proj_deleted_return}/worker.go" <<'EOF'
+package worker
+func start(done bool) {
+    go func() {
+        processQueue()
+    }()
+}
+func processQueue() {}
+EOF
+git -C "$proj_deleted_return" add worker.go
+git -C "$proj_deleted_return" commit -q -m remove-return
+assert_fail "deleting a goroutine body return triggers re-evaluation" \
+  bash "$GUARD" --strict --baseline "$return_baseline" "$proj_deleted_return"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

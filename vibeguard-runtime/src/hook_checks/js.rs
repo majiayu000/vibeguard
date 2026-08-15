@@ -229,6 +229,11 @@ pub(crate) fn mask_javascript_non_code(source: &str) -> String {
                 masked.push_str(&token);
                 regex_can_start = keyword_allows_regex_after(&token);
             }
+            LexState::Code if matches!(current, '+' | '-') && next == Some(current) => {
+                masked.push(current);
+                masked.push(current);
+                index += 2;
+            }
             LexState::Code => {
                 masked.push(current);
                 if !current.is_whitespace() {

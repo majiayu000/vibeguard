@@ -220,9 +220,9 @@ pub(super) fn component_duplication(context: &ScanContext) -> Result<ScanResult>
         if query_hook_like(&path, &content, &query, &query_state) {
             query_hooks.push((
                 path.clone(),
-                previous
-                    .as_deref()
-                    .is_none_or(|value| !query_hook_like(&path, value, &query, &query_state)),
+                previous.as_deref().is_none_or(|value| {
+                    !query_hook_like(context.previous_path(&path), value, &query, &query_state)
+                }),
             ));
         }
         for captures in style.captures_iter(&content) {
@@ -506,7 +506,7 @@ fn any_is_type(tokens: &[TypeToken], index: usize, object_colons: &BTreeSet<usiz
             ":" => {
                 return !object_colons.contains(&cursor) && !is_value_ternary_colon(tokens, cursor);
             }
-            "as" => return true,
+            "as" => return as_starts_type(tokens, cursor),
             "," if !inside_type_container(tokens, cursor) => return false,
             "=" => return statement_is_type_alias(tokens, cursor),
             ";" | "{" | "}" => return false,
@@ -514,6 +514,20 @@ fn any_is_type(tokens: &[TypeToken], index: usize, object_colons: &BTreeSet<usiz
         }
     }
     false
+}
+
+fn as_starts_type(tokens: &[TypeToken], index: usize) -> bool {
+    let start = tokens[..index]
+        .iter()
+        .rposition(|token| token.text == ";")
+        .map_or(0, |position| position + 1);
+    let prefix = &tokens[start..index];
+    if prefix.iter().any(|token| token.text == "import") {
+        return false;
+    }
+    !(prefix.first().is_some_and(|token| token.text == "export")
+        && prefix.iter().any(|token| token.text == "{")
+        && !prefix.iter().any(|token| token.text == "="))
 }
 
 fn is_value_ternary_colon(tokens: &[TypeToken], colon: usize) -> bool {

@@ -5,13 +5,18 @@ use std::path::{Path, PathBuf};
 
 use super::rust::{mask_rust_non_code, strip_rust_comments};
 use super::shared::{
-    Finding, Result, ScanContext, ScanResult, is_rust_test_path, resolve_rust_type_path,
-    rust_file_module,
+    Finding, Result, ScanContext, ScanResult, is_rust_test_path, parse_allowlist, read_allowlist,
+    resolve_rust_type_path, rust_file_module,
 };
 
 pub(super) fn duplicate_types(context: &ScanContext) -> Result<ScanResult> {
     let definition = Regex::new(r"^\s*pub\s+(?:struct|enum)\s+([A-Za-z_][A-Za-z0-9_]*)")?;
-    let allowlist = read_allowlist(&context.target.join(".vibeguard-duplicate-types-allowlist"))?;
+    let allowlist_path = context.target.join(".vibeguard-duplicate-types-allowlist");
+    let allowlist = read_allowlist(&allowlist_path)?;
+    let previous_allowlist = context
+        .previous_content(&allowlist_path)?
+        .map(|content| parse_allowlist(&content))
+        .unwrap_or_default();
     let mut definitions: BTreeMap<String, Vec<(PathBuf, usize)>> = BTreeMap::new();
     for path in all_rust_files(context) {
         let content = context.read(&path)?;
@@ -40,10 +45,15 @@ pub(super) fn duplicate_types(context: &ScanContext) -> Result<ScanResult> {
             }
             let changed = locations
                 .iter()
-                .find(|(path, line)| context.allows_line(path, *line))?;
+                .find(|(path, line)| context.allows_line(path, *line))
+                .map(|(path, line)| (path.clone(), *line))
+                .or_else(|| {
+                    (previous_allowlist.contains(&name) && !allowlist.contains(&name))
+                        .then(|| (allowlist_path.clone(), 1))
+                })?;
             Some(Finding {
                 rule: "RS-05",
-                path: changed.0.clone(),
+                path: changed.0,
                 line: changed.1,
                 message: format!(
                     "Duplicate type: {name}; locations: {}",
@@ -593,20 +603,6 @@ fn resolves_to_load(
         })
         .count();
     matches == 1
-}
-
-fn read_allowlist(path: &Path) -> Result<BTreeSet<String>> {
-    let content = match fs::read_to_string(path) {
-        Ok(content) => content,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(format!("cannot read {}: {error}", path.display()).into()),
-    };
-    Ok(content
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .map(str::to_string)
-        .collect())
 }
 
 fn workspace_members(root: &Path, cargo: &str) -> Result<Vec<PathBuf>> {

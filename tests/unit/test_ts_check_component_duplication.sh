@@ -76,6 +76,27 @@ git -C "$proj_baseline" commit -q -m contributor
 assert_fail "baseline reports a newly contributing query-hook occurrence" \
   bash "$GUARD" --strict --baseline "$baseline" "$proj_baseline"
 
+# --- BASELINE: renaming a query template into hooks changes its eligibility ---
+proj_rename="${tmpdir}/baseline_hook_rename"
+mkdir -p "${proj_rename}/src/hooks" "${proj_rename}/src/utils"
+git -C "$proj_rename" init -q
+git -C "$proj_rename" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_rename" config user.name "VibeGuard Tests"
+for name in account profile team; do
+  printf '%s\n' 'const result = useQuery({});' 'const { data, isLoading, error, refetch } = result;' \
+    > "${proj_rename}/src/hooks/use_${name}.ts"
+done
+printf '%s\n' 'const result = useQuery({});' 'const { data, isLoading, error, refetch } = result;' \
+  > "${proj_rename}/src/utils/project.ts"
+git -C "$proj_rename" add .
+git -C "$proj_rename" commit -q -m baseline
+rename_baseline="$(git -C "$proj_rename" rev-parse HEAD)"
+mkdir -p "${proj_rename}/src/Hooks"
+git -C "$proj_rename" mv src/utils/project.ts src/Hooks/project.ts
+git -C "$proj_rename" commit -q -m promote-to-hook
+assert_fail "baseline reports a query template renamed into a hooks directory" \
+  bash "$GUARD" --strict --baseline "$rename_baseline" "$proj_rename"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

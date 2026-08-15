@@ -103,32 +103,34 @@ pub(super) fn goroutine_leak(context: &ScanContext) -> Result<ScanResult> {
     let launch = Regex::new(r"^\s*go\s+(?:func\s*\(|[A-Za-z_])")?;
     let infinite = Regex::new(r"^\s*for\s*\{")?;
     let exit = Regex::new(
-        r"ctx\.Done|context\.WithCancel|wg\.(?:Add|Done|Wait)|errgroup|<-done|<-quit|<-stop|time\.After|ticker",
+        r"ctx\.Done|context\.WithCancel|wg\.(?:Add|Done|Wait)|errgroup|<-done|<-quit|<-stop|time\.After|ticker|\b(?:return|break)\b",
     )?;
     let mut findings = Vec::new();
     for path in production_files(context) {
         let content = context.read(&path)?;
         let lines = content.lines().collect::<Vec<_>>();
+        let masked = mask_go_non_code(&content);
+        let code_lines = masked.lines().collect::<Vec<_>>();
         let mut current = Vec::new();
-        for (index, line) in lines.iter().enumerate() {
+        for (index, line) in code_lines.iter().enumerate() {
             let line_number = index + 1;
+            let body_end = if launch.is_match(line) {
+                brace_block_end(&code_lines, index)
+            } else {
+                index
+            };
             let changed = context.allows_line(&path, line_number)
-                || context.has_deleted_between(
-                    &path,
-                    line_number,
-                    line_number.saturating_add(20),
-                    &exit,
-                );
+                || context.has_deleted_between(&path, line_number, body_end + 1, &exit);
             if !changed {
                 continue;
             }
-            let body = lines[index..lines.len().min(index + 21)].join("\n");
+            let body = code_lines[index..=body_end].join("\n");
             if launch.is_match(line) && !exit.is_match(&body) {
                 current.push(Finding {
                     rule: "GO-02",
                     path: path.clone(),
                     line: line_number,
-                    message: line.trim().to_string(),
+                    message: lines[index].trim().to_string(),
                 });
             }
             if infinite.is_match(line) {
@@ -154,6 +156,29 @@ pub(super) fn goroutine_leak(context: &ScanContext) -> Result<ScanResult> {
             "4. Make sure each go func() has a clear exit path",
         ],
     ))
+}
+
+fn brace_block_end(lines: &[&str], start: usize) -> usize {
+    let mut depth = 0isize;
+    let mut entered = false;
+    for (index, line) in lines.iter().enumerate().skip(start) {
+        for character in line.chars() {
+            match character {
+                '{' => {
+                    entered = true;
+                    depth += 1;
+                }
+                '}' if entered => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return index;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    lines.len().saturating_sub(1).min(start.saturating_add(20))
 }
 
 pub(super) fn defer_in_loop(context: &ScanContext) -> Result<ScanResult> {

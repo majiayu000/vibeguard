@@ -86,6 +86,7 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
         let mut function_name = None;
         let mut function_line = 0;
         let mut function_depth = 0isize;
+        let mut function_has_body = false;
         let mut depth = 0isize;
         let mut lock_depths: Vec<(isize, Option<String>)> = Vec::new();
         let mut max_active = 0usize;
@@ -101,6 +102,7 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
                 function_name = Some(captures[1].to_string());
                 function_line = line_number;
                 function_depth = depth;
+                function_has_body = false;
                 lock_depths.clear();
                 max_active = 0;
                 total = 0;
@@ -137,7 +139,10 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
                     next_drop += 1;
                 }
                 match character {
-                    '{' => depth += 1,
+                    '{' => {
+                        function_has_body |= function_name.is_some() && depth == function_depth;
+                        depth += 1;
+                    }
                     '}' => {
                         lock_depths.retain(|(lock_depth, _)| *lock_depth < depth);
                         depth = depth.saturating_sub(1);
@@ -175,6 +180,9 @@ pub(super) fn nested_locks(context: &ScanContext) -> Result<ScanResult> {
                         ),
                     });
                 }
+                function_name = None;
+            }
+            if function_name.is_some() && !function_has_body && line.contains(';') {
                 function_name = None;
             }
         }
