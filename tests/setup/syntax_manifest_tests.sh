@@ -134,6 +134,12 @@ assert_cmd "legacy managed-span ignores fenced marker examples" bash -c '
   printf "%s\n" "\`\`\`markdown" "<!-- vibeguard-start -->" "# VibeGuard shared core" "example" "<!-- vibeguard-end -->" "\`\`\`" > "$fenced"
   test "$(setup_md_legacy_managed_span "$fenced")" = "0 0 0"
 ' _ "${REPO_DIR}" "${TMP_HOME}/legacy-fenced-example.md"
+assert_cmd "legacy compatibility prepares unmanaged fenced examples without sed address zero" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  setup_md_legacy_prepare_target "$2" "$3" TEST_START TEST_END
+  grep -qF TEST_START "$3"
+  grep -qF TEST_END "$3"
+' _ "${REPO_DIR}" "${TMP_HOME}/legacy-fenced-example.md" "${TMP_HOME}/legacy-fenced-compat.md"
 assert_cmd "setup shell rule counter counts canonical non-numeric rule ids" bash -c "
   set -euo pipefail
   source '${REPO_DIR}/scripts/setup/lib.sh'

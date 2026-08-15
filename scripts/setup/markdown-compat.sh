@@ -77,7 +77,7 @@ setup_md_legacy_prepare_target() {
     -e "s|<!-- vibeguard-start -->|${start_token}|g"
     -e "s|<!-- vibeguard-end -->|${end_token}|g"
   )
-  if [[ -n "${start_line:-}" && -n "${end_line:-}" ]]; then
+  if [[ "${start_line:-}" =~ ^[1-9][0-9]*$ && "${end_line:-}" =~ ^[1-9][0-9]*$ ]]; then
     transforms+=(
       -e "${start_line}s|^${start_token}$|<!-- vibeguard-start -->|"
       -e "${end_line}s|^${end_token}$|<!-- vibeguard-end -->|"
