@@ -110,6 +110,12 @@ EOF
 assert_fail "console optional-object call fails --strict" \
   bash "$GUARD" --strict "$proj_optional_object"
 
+cat > "${proj_optional_object}/src/service.ts" <<'EOF'
+console.\u006cog("escaped method");
+EOF
+assert_fail "escaped console method identifier fails --strict" \
+  bash "$GUARD" --strict "$proj_optional_object"
+
 # --- PASS: no console calls ---
 proj_clean="${tmpdir}/pass_clean"
 mkdir -p "${proj_clean}/src"

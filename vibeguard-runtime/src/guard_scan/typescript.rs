@@ -81,7 +81,7 @@ pub(super) fn console_residual(context: &ScanContext) -> Result<ScanResult> {
     }
     let cli_exemption_removed = previous_cli_project(context)?;
     let console = Regex::new(
-        r"\bconsole[ \t\r\n]*(?:\.|\?\.)[ \t\r\n]*[A-Za-z_$][A-Za-z0-9_$]*[ \t\r\n]*(?:\?\.)?[ \t\r\n]*\(",
+        r"\bconsole[ \t\r\n]*(?:\.|\?\.)[ \t\r\n]*(?:[A-Za-z_$]|\\u(?:[0-9A-Fa-f]{4}|\{[0-9A-Fa-f]+\}))(?:[A-Za-z0-9_$]|\\u(?:[0-9A-Fa-f]{4}|\{[0-9A-Fa-f]+\}))*[ \t\r\n]*(?:\?\.)?[ \t\r\n]*\(",
     )?;
     let mut findings = Vec::new();
     for path in production_files(context) {

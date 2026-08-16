@@ -3,6 +3,7 @@ use std::path::PathBuf;
 mod go;
 mod jsx;
 mod rust;
+mod rust_paths;
 mod rust_structural;
 mod shared;
 mod typescript;

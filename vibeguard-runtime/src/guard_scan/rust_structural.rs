@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::rust::{mask_rust_non_code, strip_rust_comments};
+use super::rust_paths::resolve_workspace_type_path;
 use super::shared::{
     Finding, Result, ScanContext, ScanResult, is_rust_test_path, resolve_rust_type_path,
     rust_file_module,
@@ -342,7 +343,7 @@ pub(super) fn semantic_effect(context: &ScanContext) -> Result<ScanResult> {
 
 pub(super) fn declaration_execution_gap(context: &ScanContext) -> Result<ScanResult> {
     let default_call = Regex::new(
-        r"(?s)((?:[A-Za-z_][A-Za-z0-9_]*\s*::\s*)*[A-Za-z_][A-Za-z0-9_]*Config)(?:\s*::\s*<[^;{}]+>)?\s*::\s*default\s*\(",
+        r"(?s)((?:[\p{XID_Start}_]\p{XID_Continue}*\s*::\s*)*[\p{XID_Start}_]\p{XID_Continue}*Config)(?:\s*::\s*<[^;{}]+>)?\s*::\s*default\s*\(",
     )?;
     let method = Regex::new(r"\bfn\s+(load|save|persist|restore)\s*\(")?;
     let mut type_methods: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -387,7 +388,7 @@ pub(super) fn declaration_execution_gap(context: &ScanContext) -> Result<ScanRes
                 .count()
                 + 1;
             let end_line = line + found.as_str().matches('\n').count();
-            let full = resolve_rust_type_path(&captures[1], path, &context.target);
+            let full = resolve_workspace_type_path(&captures[1], path, &context.target);
             if (line..=end_line).any(|candidate| context.allows_line(path, candidate))
                 && resolves_to_load(&type_methods, path, &context.target, &full)
             {
@@ -539,9 +540,7 @@ fn impl_target(header: &str) -> Option<&str> {
     let target = target.trim_start();
     let end = target
         .char_indices()
-        .take_while(|(_, character)| {
-            character.is_ascii_alphanumeric() || matches!(character, '_' | ':')
-        })
+        .take_while(|(_, character)| character.is_alphanumeric() || matches!(character, '_' | ':'))
         .map(|(index, character)| index + character.len_utf8())
         .last()?;
     Some(&target[..end])

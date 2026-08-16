@@ -245,6 +245,25 @@ EOF
 assert_fail "workspace crate-qualified Config detects load bypass" \
   bash "$GUARD" --strict "$proj_workspace_crate"
 
+mkdir -p "${proj_workspace_crate}/crates/crate_a/src/config"
+cat > "${proj_workspace_crate}/crates/crate_a/src/config/mod.rs" <<'EOF'
+pub struct NestedConfig;
+impl NestedConfig { pub fn load() -> Self { Self } }
+pub fn defaults() { let _config = crate::config::NestedConfig::default(); }
+EOF
+assert_fail "workspace crate:: Config path retains its crate prefix" \
+  bash "$GUARD" --strict "$proj_workspace_crate"
+
+# --- FAIL: Rust identifiers may use Unicode XID characters ---
+proj_unicode_config="${tmpdir}/fail_unicode_config"
+mkdir -p "${proj_unicode_config}/src"
+cat > "${proj_unicode_config}/src/main.rs" <<'EOF'
+pub struct 配置Config;
+impl 配置Config { pub fn load() -> Self { Self } }
+fn main() { let _config = 配置Config::default(); }
+EOF
+assert_fail "Unicode Config type detects load bypass" bash "$GUARD" --strict "$proj_unicode_config"
+
 # --- FAIL: type names containing 'where' retain their full identity ---
 proj_somewhere="${tmpdir}/fail_where_in_config_name"
 mkdir -p "${proj_somewhere}/src"
