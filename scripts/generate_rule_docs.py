@@ -569,11 +569,15 @@ the effective value and source layer.
 | `disabled_skills` | `VIBEGUARD_DISABLED_SKILLS` | `[]` |
 
 The supported location selectors are `VIBEGUARD_CONFIG_FILE`,
-`VIBEGUARD_PROJECT_CONFIG`, and `VIBEGUARD_LOG_DIR`. `VIBEGUARD_PROFILE`,
-`VIBEGUARD_W14_SKIP_TEMP`, `VIBEGUARD_CODEX_GUARD_MODE`, the documented
-`VIBEGUARD_GC_*` project thresholds, and setup command variables remain
-supported by their existing project/setup contracts; they are not
-runtime-value aliases for the table above.
+`VIBEGUARD_PROJECT_CONFIG`, and `VIBEGUARD_LOG_DIR`. The supported env-only
+controls are `VIBEGUARD_PROFILE`, `VIBEGUARD_W14_SKIP_TEMP`,
+`VIBEGUARD_CODEX_GUARD_MODE`, `VIBEGUARD_SUPPRESS_PARALYSIS`,
+`VIBEGUARD_SUPPRESS_W15`, `VIBEGUARD_W15_SKIP_DOCS`, and
+`VIBEGUARD_SUPPRESS_STOP_VERIFY`. The documented execution-source selectors
+`VIBEGUARD_DIR` and `VIBEGUARD_REPO_DIR`, performance bound
+`VG_SCAN_MAX_DEFS`, `VIBEGUARD_GC_*` project thresholds, and setup command
+variables also remain supported by their existing project/setup contracts;
+they are not runtime-value aliases for the table above.
 
 All other `VIBEGUARD_*` / `VG_*` names are internal transport, test, or
 compatibility details rather than user configuration. New internal variables
