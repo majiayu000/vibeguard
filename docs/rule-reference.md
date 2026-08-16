@@ -47,7 +47,9 @@ The supported location selectors are `VIBEGUARD_CONFIG_FILE`,
 controls are `VIBEGUARD_PROFILE`, `VIBEGUARD_W14_SKIP_TEMP`,
 `VIBEGUARD_CODEX_GUARD_MODE`, `VIBEGUARD_SUPPRESS_PARALYSIS`,
 `VIBEGUARD_SUPPRESS_W15`, `VIBEGUARD_W15_SKIP_DOCS`, and
-`VIBEGUARD_SUPPRESS_STOP_VERIFY`. The documented execution-source selectors
+`VIBEGUARD_SUPPRESS_STOP_VERIFY`. The supported pre-commit controls are
+`VIBEGUARD_SKIP_PRECOMMIT`, `VIBEGUARD_PRECOMMIT_TIMEOUT`, and
+`VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR`. The documented execution-source selectors
 `VIBEGUARD_DIR` and `VIBEGUARD_REPO_DIR`, performance bound
 `VG_SCAN_MAX_DEFS`, `VIBEGUARD_GC_*` project thresholds, and setup command
 variables also remain supported by their existing project/setup contracts;

@@ -685,6 +685,26 @@ assert_cmd "disabled skill source reports project overlay" env \
     source "$1/scripts/setup/lib.sh"
     [[ "$(disabled_skills_source_label)" == "$2" ]]
   ' _ "${REPO_DIR}" "${gh719_project_config}"
+gh719_invalid_project_config="${gh719_order_home}/invalid-project-vibeguard.json"
+printf '%s\n' '{' > "${gh719_invalid_project_config}"
+gh719_invalid_project_out=""
+if gh719_invalid_project_out="$(HOME="${gh719_order_home}" \
+  VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  VIBEGUARD_PROJECT_CONFIG="${gh719_invalid_project_config}" bash -c '
+    source "$1/scripts/setup/lib.sh"
+    disabled_skills
+  ' _ "${REPO_DIR}" 2>&1)"; then
+  red "invalid project disabled_skills config unexpectedly succeeded"
+  FAIL=$((FAIL + 1))
+  TOTAL=$((TOTAL + 1))
+else
+  green "invalid project disabled_skills config fails visibly"
+  PASS=$((PASS + 1))
+  TOTAL=$((TOTAL + 1))
+fi
+assert_contains "${gh719_invalid_project_out}" \
+  "cannot read disabled_skills from ${gh719_invalid_project_config}" \
+  "invalid project disabled_skills diagnostic preserves project path"
 assert_cmd "disabled skill source reports VIBEGUARD_CONFIG_FILE" env \
   VIBEGUARD_CONFIG_FILE=/custom/user.json bash -c '
     source "$1/scripts/setup/lib.sh"

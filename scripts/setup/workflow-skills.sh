@@ -105,10 +105,32 @@ disabled_skills_project_source_label() {
   printf '%s\n' "${detail%%#\$.*}"
 }
 
+disabled_skills_project_config_path() {
+  local cwd git_root candidate
+  cwd="${REPO_DIR:-${PWD}}"
+  if [[ -n "${VIBEGUARD_PROJECT_CONFIG:-}" && -f "${VIBEGUARD_PROJECT_CONFIG}" ]]; then
+    printf '%s\n' "${VIBEGUARD_PROJECT_CONFIG}"
+    return 0
+  fi
+  if git_root="$(git -C "${cwd}" rev-parse --show-toplevel 2>/dev/null)"; then
+    candidate="${git_root}/.vibeguard.json"
+    if [[ -f "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  fi
+  candidate="${cwd%/}/.vibeguard.json"
+  [[ -f "${candidate}" ]] || return 1
+  printf '%s\n' "${candidate}"
+}
+
 disabled_skills_source_label() {
-  local project_source
+  local diagnostic="${1:-}" project_source
   if [[ -n "${VIBEGUARD_DISABLED_SKILLS+x}" ]]; then
     printf '%s\n' "temporary VIBEGUARD_DISABLED_SKILLS override"
+  elif [[ "${diagnostic}" == *"VibeGuard project config invalid"* ]] &&
+    project_source="$(disabled_skills_project_config_path)"; then
+    printf '%s\n' "${project_source}"
   elif project_source="$(disabled_skills_project_source_label)"; then
     printf '%s\n' "${project_source}"
   elif [[ -n "${VG_INTERNAL_CONFIG_FILE:-}" ]]; then
@@ -132,7 +154,7 @@ disabled_skills() {
   local output
   if ! output="$(cd "${REPO_DIR}" && setup_runtime runtime-config-get-list \
     VIBEGUARD_DISABLED_SKILLS disabled_skills 2>&1)"; then
-    red "  ERROR: cannot read disabled_skills from $(disabled_skills_source_label)" >&2
+    red "  ERROR: cannot read disabled_skills from $(disabled_skills_source_label "${output}")" >&2
     while IFS= read -r line; do
       [[ -n "${line}" ]] && red "  ${line}" >&2
     done <<< "${output}"
