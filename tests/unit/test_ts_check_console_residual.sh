@@ -251,6 +251,16 @@ EOF
 assert_fail "console call inside a JSX expression remains visible" \
   bash "$GUARD" --strict "$proj_jsx_text"
 
+# --- FAIL: TSX generic arrows do not hide later executable statements ---
+proj_tsx_generic_arrow="${tmpdir}/fail_tsx_generic_arrow_console"
+mkdir -p "${proj_tsx_generic_arrow}/src"
+cat > "${proj_tsx_generic_arrow}/src/value.tsx" <<'EOF'
+export const identity = <T,>(value: T) => value;
+console.log(identity("value"));
+EOF
+assert_fail "console after a TSX generic arrow remains visible" \
+  bash "$GUARD" --strict "$proj_tsx_generic_arrow"
+
 # --- BASELINE: removing the CLI exemption rechecks unchanged console calls ---
 proj_cli_removed="${tmpdir}/baseline_cli_removed"
 mkdir -p "${proj_cli_removed}/src"

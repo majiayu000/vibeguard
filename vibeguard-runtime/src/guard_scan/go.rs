@@ -4,7 +4,7 @@ use super::shared::{Finding, Result, ScanContext, ScanResult};
 
 pub(super) fn error_handling(context: &ScanContext) -> Result<ScanResult> {
     let call = Regex::new(
-        r"(?m)(?:^|[;{}:])[ \t]*(?:_(?:[ \t]*,[ \t\r\n]*_)?|[A-Za-z_][A-Za-z0-9_]*(?:[ \t\r\n]*\.[ \t\r\n]*[A-Za-z_][A-Za-z0-9_]*)*[ \t]*,[ \t\r\n]*_)[ \t]*:?=[ \t\r\n]*(?:[A-Za-z_][A-Za-z0-9_]*(?:[ \t\r\n]*\.[ \t\r\n]*(?:[A-Za-z_][A-Za-z0-9_]*|\([^()\n]+\)))*(?:\[[^\n()]+\])?|\([^\n()]+\)(?:[ \t\r\n]*\.[ \t\r\n]*[A-Za-z_][A-Za-z0-9_]*)?)[ \t\r\n]*\(",
+        r"(?m)(?:^|[;{}:]|\b(?:if|for|switch)[ \t]+)[ \t]*(?:_(?:[ \t]*,[ \t\r\n]*_)?|[\p{L}_][\p{L}\p{Nd}_]*(?:[ \t\r\n]*\.[ \t\r\n]*[\p{L}_][\p{L}\p{Nd}_]*)*[ \t]*,[ \t\r\n]*_)[ \t]*:?=[ \t\r\n]*(?:[\p{L}_][\p{L}\p{Nd}_]*(?:[ \t\r\n]*\.[ \t\r\n]*(?:[\p{L}_][\p{L}\p{Nd}_]*|\([^()\n]+\)))*(?:\[[^\n()]+\])?|\([^\n()]+\)(?:[ \t\r\n]*\.[ \t\r\n]*[\p{L}_][\p{L}\p{Nd}_]*)?)[ \t\r\n]*\(",
     )?;
     let mut findings = Vec::new();
     for path in production_files(context) {
@@ -14,7 +14,11 @@ pub(super) fn error_handling(context: &ScanContext) -> Result<ScanResult> {
             .find_iter(&masked)
             .filter_map(|found| {
                 let matched = found.as_str();
-                let assignment = found.start() + matched.find('_').unwrap_or(0);
+                let operator = matched
+                    .find(":=")
+                    .or_else(|| matched.find('='))
+                    .unwrap_or(matched.len());
+                let assignment = found.start() + matched[..operator].rfind('_').unwrap_or(0);
                 let line = masked.as_bytes()[..assignment]
                     .iter()
                     .filter(|byte| **byte == b'\n')

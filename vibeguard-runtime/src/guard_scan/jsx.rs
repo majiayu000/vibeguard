@@ -61,6 +61,9 @@ fn looks_like_tag(chars: &[char], index: usize, in_text: bool) -> bool {
     if in_text {
         return true;
     }
+    if looks_like_generic_arrow(chars, index) {
+        return false;
+    }
     let previous = chars[..index]
         .iter()
         .rposition(|character| !character.is_whitespace())
@@ -76,6 +79,63 @@ fn looks_like_tag(chars: &[char], index: usize, in_text: bool) -> bool {
         .split_whitespace()
         .next_back()
         == Some("return")
+}
+
+fn looks_like_generic_arrow(chars: &[char], start: usize) -> bool {
+    let Some(tag_end) = tag_end(chars, start) else {
+        return false;
+    };
+    let mut index = skip_whitespace(chars, tag_end + 1);
+    if chars.get(index) != Some(&'(') {
+        return false;
+    }
+    let Some(parameters_end) = matching_parenthesis_end(chars, index) else {
+        return false;
+    };
+    index = skip_whitespace(chars, parameters_end + 1);
+    chars.get(index) == Some(&'=') && chars.get(index + 1) == Some(&'>')
+}
+
+fn skip_whitespace(chars: &[char], mut index: usize) -> usize {
+    while chars
+        .get(index)
+        .is_some_and(|character| character.is_whitespace())
+    {
+        index += 1;
+    }
+    index
+}
+
+fn matching_parenthesis_end(chars: &[char], start: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut quote = None;
+    let mut index = start;
+    while index < chars.len() {
+        let current = chars[index];
+        if let Some(mark) = quote {
+            if current == '\\' {
+                index += 2;
+                continue;
+            }
+            if current == mark {
+                quote = None;
+            }
+        } else {
+            match current {
+                '\'' | '"' | '`' => quote = Some(current),
+                '(' => depth += 1,
+                ')' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return Some(index);
+                    }
+                }
+                _ => {}
+            }
+        }
+        index += 1;
+    }
+    None
 }
 
 fn tag_end(chars: &[char], start: usize) -> Option<usize> {

@@ -748,7 +748,7 @@ fn walk_rust(root: &Path) -> Result<Vec<PathBuf>> {
             let file_type = entry.file_type()?;
             if file_type.is_dir() {
                 visit(&path, output)?;
-            } else if file_type.is_file()
+            } else if (file_type.is_file() || (file_type.is_symlink() && path.is_file()))
                 && path.extension().and_then(|value| value.to_str()) == Some("rs")
             {
                 output.push(path);

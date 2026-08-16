@@ -251,6 +251,16 @@ EOF
 assert_fail "as-any inside a JSX expression remains visible" \
   bash "$GUARD" --strict "$proj_jsx_text"
 
+# --- FAIL: TSX generic arrows are expressions, not opening JSX tags ---
+proj_tsx_generic_arrow="${tmpdir}/fail_tsx_generic_arrow_any"
+mkdir -p "${proj_tsx_generic_arrow}/src"
+cat > "${proj_tsx_generic_arrow}/src/value.tsx" <<'EOF'
+export const identity = <T,>(value: T) => value;
+export const payload: any = identity("value");
+EOF
+assert_fail "any after a TSX generic arrow remains visible" \
+  bash "$GUARD" --strict "$proj_tsx_generic_arrow"
+
 # --- FAIL: division after a postfix operator must not mask later source ---
 proj_postfix_division="${tmpdir}/fail_any_after_postfix_division"
 mkdir -p "${proj_postfix_division}/src"
@@ -360,6 +370,16 @@ printf 'export const escaped: any = 1;\n' > "${outside_symlink}/escaped.ts"
 if ln -s "$outside_symlink" "${proj_symlink}/escape" 2>/dev/null \
     && ln -s "$proj_symlink" "${proj_symlink}/cycle" 2>/dev/null; then
 assert_ok "directory symlink escapes and cycles are not scanned" bash "$GUARD" --strict "$proj_symlink"
+fi
+
+# --- FAIL: standalone scans include source-file symlinks without following directories ---
+proj_file_symlink="${tmpdir}/fail_file_symlink"
+outside_file_symlink="${tmpdir}/outside_file_symlink.ts"
+mkdir -p "${proj_file_symlink}/src"
+printf 'export const linked: any = 1;\n' > "$outside_file_symlink"
+if ln -s "$outside_file_symlink" "${proj_file_symlink}/src/linked.ts" 2>/dev/null; then
+  assert_fail "standalone scan includes a source-file symlink" \
+    bash "$GUARD" --strict "$proj_file_symlink"
 fi
 
 # --- FAIL: standalone scans include untracked source files in Git worktrees ---

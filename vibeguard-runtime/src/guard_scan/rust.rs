@@ -2,7 +2,7 @@ use super::shared::{Finding, Result, ScanContext, ScanResult, is_rust_test_path}
 use regex::Regex;
 
 pub(super) fn unwrap(context: &ScanContext) -> Result<ScanResult> {
-    let unwrap_call = Regex::new(r"\.(?:unwrap|expect)\s*\(")?;
+    let unwrap_call = Regex::new(r"\.\s*(?:unwrap|expect)\s*\(")?;
     let mut findings = Vec::new();
     for path in context
         .files_with_extensions(&["rs"])
@@ -200,7 +200,7 @@ pub(super) fn taste_invariants(context: &ScanContext) -> Result<ScanResult> {
     let ansi = Regex::new(r"\\(?:x1b|033|e)\[")?;
     let panic = Regex::new(r#"panic!\s*\(\s*(?:""\s*)?\)"#)?;
     let function = Regex::new(r"\basync\s+fn\s+")?;
-    let unwrap_call = Regex::new(r"\.(?:unwrap|expect)\s*\(")?;
+    let unwrap_call = Regex::new(r"\.\s*(?:unwrap|expect)\s*\(")?;
     let mut findings = Vec::new();
     for path in context
         .files_with_extensions(&["rs"])
@@ -503,7 +503,12 @@ fn unwrap_call_sites(masked: &str, pattern: &Regex) -> Vec<UnwrapCallSite> {
     pattern
         .find_iter(masked)
         .map(|found| {
-            let line = masked.as_bytes()[..found.start()]
+            let method_offset = found
+                .as_str()
+                .find("unwrap")
+                .or_else(|| found.as_str().find("expect"))
+                .unwrap_or(0);
+            let line = masked.as_bytes()[..found.start() + method_offset]
                 .iter()
                 .filter(|byte| **byte == b'\n')
                 .count()

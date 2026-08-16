@@ -78,6 +78,31 @@ EOF
 assert_fail "value, _ := CALL discards the error fails --strict" \
   bash "$GUARD" --strict "$proj_mixed_assign"
 
+# --- FAIL: Go identifiers may contain Unicode letters ---
+proj_unicode_call="${tmpdir}/fail_unicode_call"
+mkdir -p "$proj_unicode_call"
+cat > "${proj_unicode_call}/discard.go" <<'EOF'
+package worker
+func 关闭() error { return nil }
+func run() { _ = 关闭() }
+EOF
+assert_fail "discarded call with a Unicode identifier fails --strict" \
+  bash "$GUARD" --strict "$proj_unicode_call"
+
+# --- FAIL: blank assignments in control initializers remain statements ---
+proj_control_initializer="${tmpdir}/fail_control_initializer"
+mkdir -p "$proj_control_initializer"
+cat > "${proj_control_initializer}/discard.go" <<'EOF'
+package worker
+func cleanup() error { return nil }
+func ready() bool { return true }
+func run() {
+    if _ = cleanup(); ready() {}
+}
+EOF
+assert_fail "discarded call in an if initializer fails --strict" \
+  bash "$GUARD" --strict "$proj_control_initializer"
+
 # --- FAIL: multiple return values both discarded (mixed _ := and _ =) ---
 proj_multi="${tmpdir}/fail_multi_discard"
 mkdir -p "${proj_multi}"

@@ -575,7 +575,7 @@ fn walked_files(target: &Path) -> Result<Vec<PathBuf>> {
                     continue;
                 }
                 visit(&path, files)?;
-            } else if file_type.is_file() {
+            } else if file_type.is_file() || (file_type.is_symlink() && path.is_file()) {
                 files.push(path);
             }
         }

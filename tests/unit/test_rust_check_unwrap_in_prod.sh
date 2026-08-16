@@ -88,6 +88,26 @@ run_guard_with_runtime() {
 
 printf '\n=== check_unwrap_in_prod (RS-03) ===\n'
 
+# --- FAIL: Rust permits comments and newlines after a member-access dot ---
+proj_dot_comment="${tmpdir}/fail_dot_comment"
+mkdir -p "${proj_dot_comment}/src"
+cat > "${proj_dot_comment}/src/lib.rs" <<'EOF'
+pub fn value(input: Option<i32>) -> i32 {
+    input./* reason */unwrap()
+}
+EOF
+assert_fail "unwrap after a dot comment fails --strict" bash "$GUARD" --strict "$proj_dot_comment"
+
+proj_dot_newline="${tmpdir}/fail_dot_newline"
+mkdir -p "${proj_dot_newline}/src"
+cat > "${proj_dot_newline}/src/lib.rs" <<'EOF'
+pub fn value(input: Option<i32>) -> i32 {
+    input.
+        expect("required")
+}
+EOF
+assert_fail "expect after a dot newline fails --strict" bash "$GUARD" --strict "$proj_dot_newline"
+
 # --- FAIL: .unwrap() in production code ---
 proj="${tmpdir}/fail_unwrap"
 mkdir -p "${proj}/src"
