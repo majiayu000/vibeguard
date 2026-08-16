@@ -19,6 +19,9 @@ assert_cmd "setup.sh syntax is correct" bash -n "${REPO_DIR}/setup.sh"
 assert_cmd "scripts/setup/install.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/install.sh"
 assert_cmd "source runtime build does not call cargo metadata" assert_prepare_runtime_from_source_no_cargo_metadata
 assert_cmd "scripts/setup/check.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/check.sh"
+assert_not_contains "$(cat "${REPO_DIR}/scripts/setup/check.sh")" \
+  "TS/Rust AST guards will SKIP" \
+  "setup health check has no obsolete ast-grep requirement"
 assert_cmd "scripts/setup/clean.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/clean.sh"
 assert_cmd "scripts/setup/markdown-compat.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/markdown-compat.sh"
 assert_cmd "scripts/setup/runtime-clean-pin.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/runtime-clean-pin.sh"

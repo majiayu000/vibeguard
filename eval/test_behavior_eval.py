@@ -70,6 +70,64 @@ class BehaviorEvalTest(unittest.TestCase):
         self.assertEqual(run_behavior_eval.timeout_stream_text(b"partial\n"), "partial\n")
         self.assertEqual(run_behavior_eval.timeout_stream_text(None), "")
 
+    def test_guard_fixture_runner_materializes_files_and_builds_command(self) -> None:
+        sample = {
+            "id": "guard-sample",
+            "runner": "guard",
+            "script": "guards/rust/check_unwrap_in_prod.sh",
+            "payload": {
+                "files": {"src/main.rs": "fn main() {}\n"},
+                "args": ["--strict"],
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            repo_root = tmp_path / "repo"
+            repo_root.mkdir()
+            fixture_root = run_behavior_eval.materialize_guard_fixture(sample, tmp_path)
+            command = run_behavior_eval.build_command(sample, repo_root, fixture_root)
+
+            self.assertEqual(
+                (fixture_root / "src/main.rs").read_text(encoding="utf-8"),
+                "fn main() {}\n",
+            )
+            self.assertEqual(command[-2:], ["--strict", str(fixture_root)])
+            self.assertEqual(
+                run_behavior_eval.guard_runtime_target(sample),
+                ("rust", "unwrap-in-prod"),
+            )
+
+    def test_guard_fixture_rejects_parent_traversal(self) -> None:
+        sample = {
+            "id": "guard-traversal",
+            "runner": "guard",
+            "payload": {"files": {"../outside.rs": "fn main() {}\n"}},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(run_behavior_eval.BehaviorDatasetError):
+                run_behavior_eval.materialize_guard_fixture(sample, Path(tmp))
+
+    def test_guard_env_skips_release_runtime_without_scan_support(self) -> None:
+        sample = {"id": "guard-runtime", "runner": "guard"}
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp) / "repo"
+            release = repo_root / "vibeguard-runtime/target/release/vibeguard-runtime"
+            debug = repo_root / "vibeguard-runtime/target/debug/vibeguard-runtime"
+            release.parent.mkdir(parents=True)
+            debug.parent.mkdir(parents=True)
+            release.write_text("release", encoding="utf-8")
+            debug.write_text("debug", encoding="utf-8")
+            def probe(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                usage = "  scan  <language> <rule>\n" if Path(command[0]) == debug else "old runtime\n"
+                return subprocess.CompletedProcess(command, 1, "", usage)
+
+            with patch("run_behavior_eval.os.access", return_value=True), patch(
+                "run_behavior_eval.subprocess.run", side_effect=probe
+            ):
+                env = run_behavior_eval.build_env(sample, repo_root, Path(tmp))
+            self.assertEqual(env["VIBEGUARD_RUNTIME"], str(debug))
+
     def test_missing_required_coverage_reduces_score_and_fails(self) -> None:
         samples = [
             {

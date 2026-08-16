@@ -34,5 +34,110 @@
     "hook": "pre-write-guard",
     "profile": "default",
     "severity": "medium"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "RS-03"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "RS-01"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "RS-05"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "RS-06"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "RS-12"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "RS-13"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "TASTE-PANIC-MSG"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "RS-14"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "GO-01"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "GO-02"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "GO-08"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "TS-01"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "TS-03"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "TS-13"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "DUP-CONST"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "TASTE-ANSI"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "TASTE-ASYNC-UNWRAP"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "GO-02/loop"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "TS-02"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "DUP-TYPE"
+  },
+  {
+    "platform": "runtime",
+    "hook": "guard-scan",
+    "rule": "DUP-FUNC"
   }
 ]

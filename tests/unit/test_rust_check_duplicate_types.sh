@@ -107,6 +107,75 @@ pub enum Priority { Low, Medium, High }
 EOF
 assert_ok "single definition passes" bash "$GUARD" --strict "$proj6"
 
+# --- ERROR: unreadable/invalid allowlist data must not disable detection silently ---
+proj7="${tmpdir}/fail_invalid_allowlist"
+mkdir -p "${proj7}/src"
+printf 'pub struct Item;\n' > "${proj7}/src/item.rs"
+printf '\377' > "${proj7}/.vibeguard-duplicate-types-allowlist"
+assert_output_contains "invalid UTF-8 allowlist fails visibly" "cannot read" \
+  bash "$GUARD" --strict "$proj7"
+
+# --- BASELINE: historical duplicate debt is quiet until a definition changes ---
+proj8="${tmpdir}/baseline_duplicate_debt"
+mkdir -p "${proj8}/src/a" "${proj8}/src/b"
+git -C "$proj8" init -q
+git -C "$proj8" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj8" config user.name "VibeGuard Tests"
+printf 'pub struct ExistingDuplicate;\n' > "${proj8}/src/a/types.rs"
+printf 'pub struct ExistingDuplicate;\n' > "${proj8}/src/b/types.rs"
+git -C "$proj8" add src/a/types.rs src/b/types.rs
+git -C "$proj8" commit -q -m initial
+baseline8="$(git -C "$proj8" rev-parse HEAD)"
+printf 'pub struct Unrelated;\n' > "${proj8}/src/unrelated.rs"
+git -C "$proj8" add src/unrelated.rs
+git -C "$proj8" commit -q -m unrelated
+assert_ok "baseline ignores pre-existing duplicate types" \
+  bash "$GUARD" --strict --baseline "$baseline8" "$proj8"
+
+mkdir -p "${proj8}/src/c"
+printf 'pub struct ExistingDuplicate;\n' > "${proj8}/src/c/types.rs"
+git -C "$proj8" add src/c/types.rs
+git -C "$proj8" commit -q -m new-duplicate
+assert_fail "baseline reports a newly added duplicate definition" \
+  bash "$GUARD" --strict --baseline "$baseline8" "$proj8"
+
+# --- BASELINE: removing an allowlist entry re-enables unchanged duplicate checks ---
+proj9="${tmpdir}/baseline_allowlist_removal"
+mkdir -p "${proj9}/src/a" "${proj9}/src/b"
+git -C "$proj9" init -q
+git -C "$proj9" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj9" config user.name "VibeGuard Tests"
+printf 'pub struct AllowedDuplicate;\n' > "${proj9}/src/a/types.rs"
+printf 'pub struct AllowedDuplicate;\n' > "${proj9}/src/b/types.rs"
+printf 'AllowedDuplicate\n' > "${proj9}/.vibeguard-duplicate-types-allowlist"
+git -C "$proj9" add .
+git -C "$proj9" commit -q -m allowlisted
+baseline9="$(git -C "$proj9" rev-parse HEAD)"
+: > "${proj9}/.vibeguard-duplicate-types-allowlist"
+git -C "$proj9" add .vibeguard-duplicate-types-allowlist
+git -C "$proj9" commit -q -m enforce-duplicate
+assert_fail "baseline reports duplicates when their allowlist entry is removed" \
+  bash "$GUARD" --strict --baseline "$baseline9" "$proj9"
+
+# --- STAGED: current allowlist is read from the index ---
+proj10="${tmpdir}/staged_allowlist_removal"
+mkdir -p "${proj10}/src/a" "${proj10}/src/b"
+git -C "$proj10" init -q
+git -C "$proj10" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj10" config user.name "VibeGuard Tests"
+printf 'pub struct StagedDuplicate;\n' > "${proj10}/src/a/types.rs"
+printf 'pub struct StagedDuplicate;\n' > "${proj10}/src/b/types.rs"
+printf 'StagedDuplicate\n' > "${proj10}/.vibeguard-duplicate-types-allowlist"
+git -C "$proj10" add .
+git -C "$proj10" commit -q -m allowlisted
+: > "${proj10}/.vibeguard-duplicate-types-allowlist"
+git -C "$proj10" add .vibeguard-duplicate-types-allowlist
+printf 'StagedDuplicate\n' > "${proj10}/.vibeguard-duplicate-types-allowlist"
+staged10="${tmpdir}/staged_allowlist_files.txt"
+printf '%s\n' "${proj10}/.vibeguard-duplicate-types-allowlist" > "$staged10"
+assert_fail "staged allowlist removal is not hidden by unstaged content" \
+  env VIBEGUARD_STAGED_FILES="$staged10" bash "$GUARD" --strict "$proj10"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

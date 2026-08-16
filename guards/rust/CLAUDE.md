@@ -1,6 +1,8 @@
 # guards/rust/ directory
 
-Rust language guard script to perform static pattern detection on Rust projects.
+Rust language guard compatibility scripts. Detection is implemented by
+`vibeguard-runtime scan rust <rule> <path>`; each `check_*.sh` file is a thin
+exec shim for existing callers.
 
 ## Script list
 
@@ -13,18 +15,18 @@ Rust language guard script to perform static pattern detection on Rust projects.
 | `check_single_source_of_truth.sh` | RS-12 | Task system dual-track coexistence/multi-state source splitting |
 | `check_semantic_effect.sh` | RS-13 | Action semantics and side effects are inconsistent |
 | `check_taste_invariants.sh` | TASTE-* | Harness style code taste constraints (ANSI hardcoded, async unwrap, panic no message) |
+| `check_declaration_execution_gap.sh` | RS-14 | Config persistence declared but bypassed at startup |
 
-## common.sh usage
+## Runtime shim
 
-All scripts introduce shared functions through `source common.sh`:
-- `list_rs_files <dir>` — List .rs files (prefer git ls-files)
-- `parse_guard_args "$@"` — parses --strict and target_dir
-- `create_tmpfile` — Create an automatically cleaned temporary file
+All scripts source `runtime-shim.sh` and call `run_runtime_guard`. Do not add
+detection logic, diff parsing, or a fallback scanner to shell. `common.sh`
+exists only as a deprecated compatibility entrypoint.
 
 ## Output format
 
 ```
-[RS-XX] file:line problem description. Repair: specific repair methods
+[RS-XX] file:line: problem description. Repair: specific repair methods
 ```
 
 ## RS-03 Test Code Exclusion Strategy

@@ -72,27 +72,65 @@ sgconfig_smoke() {
   grep -qF 'rs-14-config-default' <<< "$output"
 }
 
-production_ast_grep_uses_explicit_rules() {
+production_language_guards_use_runtime() {
   python3 - "$REPO_DIR" <<'PY'
 from pathlib import Path
-import re
 import sys
 
 repo = Path(sys.argv[1])
-scans = 0
-for path in sorted((repo / "guards").rglob("*.sh")):
-    lines = path.read_text(encoding="utf-8").splitlines()
-    for index, line in enumerate(lines):
-        stripped = line.lstrip()
-        if not re.match(r"(?:if\s+!?)?ast-grep\s+scan(?:\s|\\)", stripped):
-            continue
-        scans += 1
-        if not any("--rule" in candidate for candidate in lines[index:index + 8]):
-            relative = path.relative_to(repo)
-            raise SystemExit(f"{relative}:{index + 1}: ast-grep scan lacks explicit --rule")
-if scans == 0:
-    raise SystemExit("no production ast-grep scan invocations found")
+guards = []
+for language in ("rust", "go", "typescript"):
+    language_dir = repo / "guards" / language
+    shim = (language_dir / "runtime-shim.sh").read_text(encoding="utf-8")
+    if 'scan "${language}" "${rule}"' not in shim:
+        raise SystemExit(f"guards/{language}/runtime-shim.sh does not dispatch runtime scan")
+    if shim.index("target/release/vibeguard-runtime") > shim.index("target/debug/vibeguard-runtime"):
+        raise SystemExit(f"guards/{language}/runtime-shim.sh lets debug shadow release")
+    if "VIBEGUARD_RUNTIME is not executable or not found" not in shim:
+        raise SystemExit(f"guards/{language}/runtime-shim.sh ignores invalid explicit runtime overrides")
+    if "runtime_supports_scan" not in shim:
+        raise SystemExit(f"guards/{language}/runtime-shim.sh does not probe implicit scan support")
+    for path in sorted(language_dir.glob("check_*.sh")):
+        guards.append(path)
+        content = path.read_text(encoding="utf-8")
+        relative = path.relative_to(repo)
+        if 'runtime-shim.sh' not in content or "run_runtime_guard " not in content:
+            raise SystemExit(f"{relative}: language guard is not a runtime compatibility shim")
+        if "ast-grep scan" in content:
+            raise SystemExit(f"{relative}: compatibility shim still owns an ast-grep scan")
+if not guards:
+    raise SystemExit("no production language guard compatibility shims found")
+behavior_eval = (repo / "eval" / "run_behavior_eval.py").read_text(encoding="utf-8")
+if behavior_eval.index('"target" / "release" / "vibeguard-runtime"') > behavior_eval.index(
+    '"target" / "debug" / "vibeguard-runtime"'
+):
+    raise SystemExit("behavior eval lets debug runtime shadow release")
 PY
+}
+
+implicit_runtime_probe_skips_stale_release() {
+  local root="${TMP_DIR}/runtime-probe"
+  mkdir -p "$root/guards/go" "$root/vibeguard-runtime/target/release" \
+    "$root/vibeguard-runtime/target/debug"
+  cp "$REPO_DIR/guards/go/runtime-shim.sh" "$root/guards/go/runtime-shim.sh"
+  cat > "$root/vibeguard-runtime/target/release/vibeguard-runtime" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'Usage: vibeguard-runtime <legacy-command>' >&2
+exit 2
+EOF
+  cat > "$root/vibeguard-runtime/target/debug/vibeguard-runtime" <<'EOF'
+#!/usr/bin/env bash
+if [[ $# -eq 0 ]]; then
+  printf '%s\n' '  scan  <language> <rule>' >&2
+  exit 2
+fi
+printf '%s\n' 'selected scan-capable runtime'
+EOF
+  chmod +x "$root/vibeguard-runtime/target/release/vibeguard-runtime" \
+    "$root/vibeguard-runtime/target/debug/vibeguard-runtime"
+  env -u VIBEGUARD_RUNTIME bash -c 'source "$1"; run_runtime_guard go error-handling "$2"' \
+    _ "$root/guards/go/runtime-shim.sh" "$root" \
+    | grep -qF 'selected scan-capable runtime'
 }
 
 TMP_DIR="$(mktemp -d)"
@@ -105,7 +143,13 @@ assert_cmd "retired alerting template is absent" test ! -e "$REPO_DIR/templates/
 assert_cmd "retired alerting template has no live references" assert_no_live_reference "templates/alerting-rules.yaml"
 assert_cmd "ast-grep is available for the sgconfig smoke" command -v ast-grep
 assert_cmd "sgconfig discovers the known RS-14 rule" sgconfig_smoke
-assert_cmd "production ast-grep scans retain explicit rule files" production_ast_grep_uses_explicit_rules
+assert_cmd "production language guards delegate to the Rust runtime" production_language_guards_use_runtime
+assert_cmd "implicit guard runtime skips stale release binaries" \
+  implicit_runtime_probe_skips_stale_release
+assert_fails_with "invalid explicit guard runtime fails visibly" \
+  "VIBEGUARD_RUNTIME is not executable or not found" \
+  env VIBEGUARD_RUNTIME="$TMP_DIR/missing-runtime" \
+  bash "$REPO_DIR/guards/go/check_error_handling.sh" "$TMP_DIR"
 
 architecture_fixture="${TMP_DIR}/architecture"
 mkdir -p "$architecture_fixture"

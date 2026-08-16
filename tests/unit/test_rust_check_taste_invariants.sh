@@ -61,6 +61,21 @@ EOF
 assert_fail "async fn with unwrap() fails --strict" bash "$GUARD" --strict "$proj_async"
 assert_output_contains "output contains TASTE-ASYNC-UNWRAP tag" "[TASTE-ASYNC-UNWRAP]" bash "$GUARD" --strict "$proj_async"
 
+# --- PASS: multiline bodyless async trait signatures do not capture later bodies ---
+proj_async_trait="${tmpdir}/pass_multiline_async_trait"
+mkdir -p "${proj_async_trait}/src"
+cat > "${proj_async_trait}/src/lib.rs" <<'EOF'
+pub trait Fetch {
+    async fn fetch(
+        &self,
+    ) -> Result<String, String>;
+}
+pub fn parse(value: Option<i32>) -> i32 {
+    value.unwrap()
+}
+EOF
+assert_ok "multiline bodyless async trait method does not capture later function" bash "$GUARD" --strict "$proj_async_trait"
+
 # --- FAIL: TASTE-PANIC-MSG: panic!() without message ---
 proj_panic="${tmpdir}/fail_panic_no_msg"
 mkdir -p "${proj_panic}/src"

@@ -105,6 +105,25 @@ impl Two {
 EOF
 assert_fail "two lock acquisitions in same function fails --strict" bash "$GUARD" --strict "$proj4"
 
+# --- FAIL: multiline assignments still bind guards across statements ---
+proj_multiline_binding="${tmpdir}/fail_multiline_lock_bindings"
+mkdir -p "${proj_multiline_binding}/src"
+cat > "${proj_multiline_binding}/src/state.rs" <<'EOF'
+use std::sync::Mutex;
+struct State { a: Mutex<i32>, b: Mutex<i32> }
+impl State {
+    fn update(&self) {
+        let first =
+            self.a.lock();
+        let second =
+            self.b.lock();
+        println!("{first:?} {second:?}");
+    }
+}
+EOF
+assert_fail "multiline lock bindings remain concurrent" \
+  bash "$GUARD" --strict "$proj_multiline_binding"
+
 # --- PASS: no lock calls at all ---
 proj5="${tmpdir}/pass_no_locks"
 mkdir -p "${proj5}/src"
@@ -126,6 +145,91 @@ impl S {
 }
 EOF
 assert_ok "locks split across separate functions passes" bash "$GUARD" --strict "$proj6"
+
+# --- PASS: locks acquired in sequential one-line scopes do not overlap ---
+proj_scoped="${tmpdir}/pass_one_line_scopes"
+mkdir -p "${proj_scoped}/src"
+cat > "${proj_scoped}/src/scoped.rs" <<'EOF'
+use std::sync::Mutex;
+struct Scoped { a: Mutex<i32>, b: Mutex<i32>, c: Mutex<i32> }
+impl Scoped {
+    fn update(&self, ready: bool) {
+        if ready { let _a = self.a.lock(); }
+        if ready { let _b = self.b.lock(); }
+        let _c = self.c.lock();
+    }
+}
+EOF
+assert_ok "sequential one-line lock scopes pass" bash "$GUARD" --strict "$proj_scoped"
+
+# --- PASS: unbound temporary guards end at each statement boundary ---
+proj_temporary="${tmpdir}/pass_temporary_statement_guards"
+mkdir -p "${proj_temporary}/src"
+cat > "${proj_temporary}/src/temporary.rs" <<'EOF'
+use std::sync::Mutex;
+struct Temporary { a: Mutex<i32>, b: Mutex<i32> }
+impl Temporary {
+    fn inspect(&self) {
+        self.a.lock().unwrap().count_ones();
+        self.b.lock().unwrap().count_ones();
+    }
+}
+EOF
+assert_ok "sequential temporary lock guards pass" bash "$GUARD" --strict "$proj_temporary"
+
+# --- PASS: explicit drop() releases a bound guard before the next lock ---
+proj_drop="${tmpdir}/pass_explicit_drop"
+mkdir -p "${proj_drop}/src"
+cat > "${proj_drop}/src/drop.rs" <<'EOF'
+use std::sync::Mutex;
+struct ExplicitDrop { a: Mutex<i32>, b: Mutex<i32> }
+impl ExplicitDrop {
+    fn inspect(&self) {
+        let first = self.a.lock();
+        drop(first);
+        let second = self.b.lock();
+        drop(second);
+    }
+}
+EOF
+assert_ok "explicitly dropped lock guards pass" bash "$GUARD" --strict "$proj_drop"
+
+# --- STAGED: deleting drop() makes unchanged lock acquisitions overlap ---
+proj_deleted_drop="${tmpdir}/fail_deleted_lock_release"
+mkdir -p "${proj_deleted_drop}/src"
+git -C "$proj_deleted_drop" init -q
+git -C "$proj_deleted_drop" config user.email test@example.com
+git -C "$proj_deleted_drop" config user.name Test
+cat > "${proj_deleted_drop}/src/state.rs" <<'EOF'
+use std::sync::Mutex;
+struct State { a: Mutex<i32>, b: Mutex<i32> }
+impl State {
+    fn inspect(&self) {
+        let first = self.a.lock();
+        drop(first);
+        let second = self.b.lock();
+        drop(second);
+    }
+}
+EOF
+git -C "$proj_deleted_drop" add src/state.rs
+git -C "$proj_deleted_drop" commit -q -m initial
+cat > "${proj_deleted_drop}/src/state.rs" <<'EOF'
+use std::sync::Mutex;
+struct State { a: Mutex<i32>, b: Mutex<i32> }
+impl State {
+    fn inspect(&self) {
+        let first = self.a.lock();
+        let second = self.b.lock();
+        drop(second);
+    }
+}
+EOF
+git -C "$proj_deleted_drop" add src/state.rs
+deleted_drop_files="${proj_deleted_drop}/staged-files"
+printf '%s\n' "${proj_deleted_drop}/src/state.rs" > "$deleted_drop_files"
+assert_fail "deleting drop() reports newly overlapping locks" \
+  env VIBEGUARD_STAGED_FILES="$deleted_drop_files" bash "$GUARD" --strict "$proj_deleted_drop"
 
 # --- Pre-commit mode: VIBEGUARD_STAGED_FILES with no .rs files (pipefail regression) ---
 staged_no_rs=$(mktemp)
@@ -166,6 +270,68 @@ else
   red "pre-commit diff temp directory leaked"
   FAIL=$((FAIL+1))
 fi
+
+# --- Pre-commit mode: unrelated edits do not resurface existing lock debt ---
+proj8="${tmpdir}/precommit_existing_lock_debt"
+mkdir -p "${proj8}/src"
+git -C "$proj8" init -q
+git -C "$proj8" config user.email test@example.com
+git -C "$proj8" config user.name Test
+cat > "${proj8}/src/state.rs" <<'EOF'
+use std::sync::Mutex;
+struct State { a: Mutex<i32>, b: Mutex<i32> }
+impl State {
+    fn update(&self) {
+        let _a = self.a.lock();
+        let _b = self.b.lock();
+    }
+}
+EOF
+git -C "$proj8" add src/state.rs
+git -C "$proj8" commit -q -m initial
+printf '\n// unrelated documentation\n' >> "${proj8}/src/state.rs"
+git -C "$proj8" add src/state.rs
+staged_existing=$(mktemp)
+printf '%s\n' "${proj8}/src/state.rs" > "$staged_existing"
+trap 'rm -f "$staged_no_rs" "$staged_excluded" "$staged_cleanup" "$staged_existing"; rm -rf "$tmpdir"' EXIT
+assert_ok "pre-commit unrelated edit ignores existing nested-lock debt" \
+  env VIBEGUARD_STAGED_FILES="$staged_existing" bash "$GUARD" --strict "$proj8"
+
+# --- FAIL: destructuring patterns keep acquired guards alive ---
+proj_pattern="${tmpdir}/fail_destructured_lock_guard"
+mkdir -p "${proj_pattern}/src"
+cat > "${proj_pattern}/src/state.rs" <<'EOF'
+use std::sync::Mutex;
+struct State { a: Mutex<i32>, b: Mutex<i32> }
+impl State {
+    fn update(&self) {
+        let (first, _) = (self.a.lock(), ());
+        let second = self.b.lock();
+        drop((first, second));
+    }
+}
+EOF
+assert_fail "destructured lock guards remain active until scope exit" \
+  bash "$GUARD" --strict "$proj_pattern"
+
+# --- FAIL: bodyless trait declarations do not absorb the next default method ---
+proj_trait="${tmpdir}/fail_trait_default_method_locks"
+mkdir -p "${proj_trait}/src"
+cat > "${proj_trait}/src/state.rs" <<'EOF'
+use std::sync::Mutex;
+trait Worker {
+    fn status(&self);
+    fn update(&self, first: &Mutex<i32>, second: &Mutex<i32>) {
+        let first_guard = first.lock();
+        let second_guard = second.lock();
+        drop((first_guard, second_guard));
+    }
+}
+EOF
+assert_fail "default trait method locks are evaluated after a bodyless declaration" \
+  bash "$GUARD" --strict "$proj_trait"
+assert_output_contains "nested-lock finding names the default trait method" "fn update" \
+  bash "$GUARD" --strict "$proj_trait"
 
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
