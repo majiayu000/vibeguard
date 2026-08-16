@@ -22,7 +22,7 @@ vg_policy_runtime_path() {
   wrapper_dir="${WRAPPER_DIR:-$(cd "${helper_dir}/.." && pwd)}"
   while IFS= read -r candidate; do
     if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
-      if vg_policy_runtime_supports "${candidate}"; then
+      if vg_policy_runtime_supports "${candidate}" < /dev/null; then
         VG_POLICY_RUNTIME_PATH_CACHE="${candidate}"
         printf '%s\n' "${candidate}"
         return 0
