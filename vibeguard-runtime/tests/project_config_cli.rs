@@ -30,8 +30,7 @@ fn project_config_validate_reports_accumulated_errors_and_hints() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains(".profile: unsupported value strictest"));
-    assert!(stderr.contains(".write_mode: unknown property"));
-    assert!(stderr.contains("write_mode belongs in ~/.vibeguard/config.json"));
+    assert!(!stderr.contains(".write_mode:"));
     assert!(stderr.contains(".gc.log_threshold_mb: expected integer >= 1"));
     assert!(stderr.contains(".gc.unexpected_gc_key: unknown property"));
     let _ = fs::remove_dir_all(dir);
@@ -192,4 +191,37 @@ fn project_config_value_fails_visibly_before_reading_invalid_config() {
             .contains(".gc.log_threshold_mb: expected integer >= 1")
     );
     let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn project_config_validate_accepts_layered_runtime_keys() {
+    let dir = unique_temp_dir("project_config_runtime_keys");
+    fs::create_dir_all(&dir).expect("temp dir should be created");
+    let config = dir.join(".vibeguard.json");
+    fs::write(
+        &config,
+        r#"{"profile":"strict","u16":{"limit":1200},"write_mode":"block"}"#,
+    )
+    .expect("project config should be written");
+
+    let valid = bin()
+        .arg("project-config-validate")
+        .arg(&config)
+        .output()
+        .expect("project config validate should run");
+    assert!(valid.status.success(), "{valid:?}");
+
+    fs::write(&config, r#"{"u16":{"limit":"secret-value"}}"#)
+        .expect("project config should be rewritten");
+    let invalid = bin()
+        .arg("project-config-validate")
+        .arg(&config)
+        .output()
+        .expect("project config validate should run");
+    assert_eq!(invalid.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&invalid.stderr);
+    assert!(stderr.contains("category=config_type_error"));
+    assert!(!stderr.contains("secret-value"));
+
+    fs::remove_dir_all(dir).expect("temp dir should be removed");
 }

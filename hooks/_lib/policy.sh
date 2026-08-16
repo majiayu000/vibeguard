@@ -9,7 +9,7 @@ _VG_POLICY_SH_LOADED=1
 _VG_POLICY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 vg_policy_user_config_file() {
-  printf '%s' "${_VG_CONFIG_FILE:-${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}}"
+  printf '%s' "${VG_INTERNAL_CONFIG_FILE:-${_VG_CONFIG_FILE:-${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}}}"
 }
 
 vg_policy_runtime_path() {
@@ -59,11 +59,15 @@ vg_policy_runtime_candidates() {
 }
 
 vg_policy_runtime_supports_cwd_json() {
-  local candidate="$1" probe_dir probe_output decision probe_cwd
+  local candidate="$1" probe_dir probe_output decision probe_cwd overlay_output overlay_source overlay_value
   probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-policy-probe-cwd.XXXXXX")" || return 1
+  if ! printf '%s\n' '{"write_mode":"block"}' > "${probe_dir}/.vibeguard.json"; then
+    rm -rf "${probe_dir}" 2>/dev/null || true
+    return 1
+  fi
   probe_output="$(
     VIBEGUARD_PROJECT_CONFIG="" \
-      VIBEGUARD_USER_CONFIG_FILE="" \
+      VG_INTERNAL_USER_CONFIG_FILE="" VIBEGUARD_USER_CONFIG_FILE="" \
       "${candidate}" runtime-policy-check --cwd "${probe_dir}" __vibeguard_policy_probe__ 2>/dev/null
   )" || {
     rm -rf "${probe_dir}" 2>/dev/null || true
@@ -77,8 +81,25 @@ vg_policy_runtime_supports_cwd_json() {
     rm -rf "${probe_dir}" 2>/dev/null || true
     return 1
   }
+  overlay_output="$(
+    VG_INTERNAL_CONFIG_FILE="${probe_dir}/missing-user-config.json" \
+      VIBEGUARD_PROJECT_CONFIG="" VIBEGUARD_WRITE_MODE="" \
+      "${candidate}" config explain write_mode --cwd "${probe_dir}" --json 2>/dev/null
+  )" || {
+    rm -rf "${probe_dir}" 2>/dev/null || true
+    return 1
+  }
+  overlay_source="$(printf '%s' "${overlay_output}" | "${candidate}" json-field --strict source 2>/dev/null)" || {
+    rm -rf "${probe_dir}" 2>/dev/null || true
+    return 1
+  }
+  overlay_value="$(printf '%s' "${overlay_output}" | "${candidate}" json-field --strict value 2>/dev/null)" || {
+    rm -rf "${probe_dir}" 2>/dev/null || true
+    return 1
+  }
   rm -rf "${probe_dir}" 2>/dev/null || true
-  [[ "${decision}" == "run" && "${probe_cwd}" == "${probe_dir}" ]]
+  [[ "${decision}" == "run" && "${probe_cwd}" == "${probe_dir}" \
+    && "${overlay_source}" == "project_config" && "${overlay_value}" == "block" ]]
 }
 
 vg_policy_runtime_supports() {
@@ -213,7 +234,7 @@ vg_policy_resolve_cwd() {
 vg_policy_check_hook() {
   local hook_name="$1"
   local payload_ref="${2:-}"
-  local output stderr_output status runtime_path policy_cwd decision enforcement reason output_filter
+  local output stderr_output status runtime_path policy_cwd decision enforcement reason output_filter user_config
   local stdout_file stderr_file
 
   VG_POLICY_REASON=""
@@ -235,6 +256,7 @@ vg_policy_check_hook() {
   VG_POLICY_RUNTIME_PATH="${runtime_path}"
   policy_cwd="$(vg_policy_resolve_cwd "${payload_ref}" "${runtime_path}")"
   VG_POLICY_CWD="${policy_cwd}"
+  export VG_INTERNAL_POLICY_CWD="${policy_cwd}"
 
   stdout_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-policy-stdout.XXXXXX")" || {
     VG_POLICY_REASON="VibeGuard policy error: failed to allocate runtime policy stdout capture."
@@ -255,7 +277,8 @@ vg_policy_check_hook() {
   fi
   check_args+=("${hook_name}")
   status=0
-  VIBEGUARD_USER_CONFIG_FILE="$(vg_policy_user_config_file)" \
+  user_config="$(vg_policy_user_config_file)"
+  VG_INTERNAL_USER_CONFIG_FILE="${user_config}" VIBEGUARD_USER_CONFIG_FILE="${user_config}" \
     "${runtime_path}" "${check_args[@]}" >"${stdout_file}" 2>"${stderr_file}" || status=$?
   output="$(cat "${stdout_file}")"
   stderr_output="$(cat "${stderr_file}")"

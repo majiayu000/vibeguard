@@ -11,6 +11,9 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process;
 
+use crate::runtime_config::fields::is_runtime_config_root_key;
+use crate::runtime_config::validation::validate_runtime_config_overlay;
+
 const PROFILE_VALUES: &[&str] = &["minimal", "core", "full", "strict"];
 const ENFORCEMENT_VALUES: &[&str] = &["block", "warn", "off"];
 const LANGUAGE_VALUES: &[&str] = &["rust", "python", "go", "typescript", "javascript"];
@@ -176,7 +179,7 @@ fn validate_project_config_file(path: &Path) -> Result<(), String> {
     validate_project_config_value(path, &value)
 }
 
-fn validated_project_config_json(path: &Path) -> Result<Value, String> {
+pub(crate) fn validated_project_config_json(path: &Path) -> Result<Value, String> {
     let value = read_project_config_json(path)?;
     validate_project_config_value(path, &value)?;
     Ok(value)
@@ -235,6 +238,15 @@ fn validate_project_config_value(path: &Path, value: &Value) -> Result<(), Strin
     validate_disabled_rules(object, &mut errors);
     validate_gc(object, &mut errors);
 
+    let runtime_overlay = object
+        .iter()
+        .filter(|(key, _)| is_runtime_config_root_key(key))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    if let Err(error) = validate_runtime_config_overlay(path, &Value::Object(runtime_overlay)) {
+        errors.push(error.message);
+    }
+
     if errors.is_empty() {
         Ok(())
     } else {
@@ -244,17 +256,19 @@ fn validate_project_config_value(path: &Path, value: &Value) -> Result<(), Strin
 
 fn validate_known_properties(object: &serde_json::Map<String, Value>, errors: &mut Vec<String>) {
     for key in object.keys() {
-        if !matches!(
-            key.as_str(),
-            "profile"
-                | "enforcement"
-                | "languages"
-                | "disabled_hooks"
-                | "disabled_rules"
-                | "disabled_guards"
-                | "scoped_suppressions"
-                | "gc"
-        ) {
+        if !is_runtime_config_root_key(key)
+            && !matches!(
+                key.as_str(),
+                "profile"
+                    | "enforcement"
+                    | "languages"
+                    | "disabled_hooks"
+                    | "disabled_rules"
+                    | "disabled_guards"
+                    | "scoped_suppressions"
+                    | "gc"
+            )
+        {
             errors.push(unknown_property_error(&[key.as_str()]));
         }
     }
@@ -432,16 +446,8 @@ fn unknown_property_error(path: &[&str]) -> String {
     message
 }
 
-fn runtime_config_key_hint(key: &str) -> Option<&'static str> {
-    match key {
-        "write_mode" => Some("write_mode belongs in ~/.vibeguard/config.json, not .vibeguard.json"),
-        "u16" => Some("u16.* belongs in ~/.vibeguard/config.json, not .vibeguard.json"),
-        "circuit_breaker" => {
-            Some("circuit_breaker.* belongs in ~/.vibeguard/config.json, not .vibeguard.json")
-        }
-        "paralysis" => Some("paralysis.* belongs in ~/.vibeguard/config.json, not .vibeguard.json"),
-        _ => None,
-    }
+fn runtime_config_key_hint(_key: &str) -> Option<&'static str> {
+    None
 }
 
 fn valid_disabled_rule_id(rule: &str) -> bool {
@@ -568,15 +574,20 @@ mod tests {
     }
 
     #[test]
-    fn validation_reports_runtime_config_key_hints() {
+    fn validation_accepts_runtime_overrides_and_rejects_invalid_values() {
         let path = Path::new("/tmp/.vibeguard.json");
         let value = json!({"write_mode":"block"});
 
-        let err =
-            validate_project_config_value(path, &value).expect_err("config should be invalid");
+        validate_project_config_value(path, &value)
+            .expect("project runtime override should be valid");
 
-        assert!(err.contains(".write_mode: unknown property"));
-        assert!(err.contains("write_mode belongs in ~/.vibeguard/config.json"));
+        let invalid = json!({"u16":{"limit": "secret-value"}});
+        let err = validate_project_config_value(path, &invalid)
+            .expect_err("invalid runtime override should fail");
+
+        assert!(err.contains("category=config_type_error"));
+        assert!(err.contains("path=$.u16.limit"));
+        assert!(!err.contains("secret-value"));
     }
 
     #[test]

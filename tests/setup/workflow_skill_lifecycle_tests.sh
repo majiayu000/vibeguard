@@ -649,12 +649,28 @@ assert_cmd "disabled skill source reports _VG_CONFIG_FILE" env \
     source "$1/scripts/setup/lib.sh"
     [[ "$(disabled_skills_source_label)" == "/custom/internal.json" ]]
   ' _ "${REPO_DIR}"
+assert_cmd "disabled skill source prefers VG_INTERNAL_CONFIG_FILE" env \
+  VG_INTERNAL_CONFIG_FILE=/custom/internal-v2.json \
+  _VG_CONFIG_FILE=/deprecated/internal.json \
+  VIBEGUARD_CONFIG_FILE=/ignored/user.json bash -c '
+    source "$1/scripts/setup/lib.sh"
+    [[ "$(disabled_skills_source_label)" == "/custom/internal-v2.json" ]]
+  ' _ "${REPO_DIR}"
 assert_cmd "disabled skill source reports temporary list override first" env \
   VIBEGUARD_DISABLED_SKILLS=plan-flow \
   _VG_CONFIG_FILE=/ignored/internal.json bash -c '
     source "$1/scripts/setup/lib.sh"
     [[ "$(disabled_skills_source_label)" == "temporary VIBEGUARD_DISABLED_SKILLS override" ]]
   ' _ "${REPO_DIR}"
+gh719_project_config="${gh719_order_home}/project-vibeguard.json"
+printf '%s\n' '{"disabled_skills":["plan-flow"]}' > "${gh719_project_config}"
+assert_cmd "disabled skill source reports project overlay" env \
+  VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  VIBEGUARD_PROJECT_CONFIG="${gh719_project_config}" \
+  VIBEGUARD_CONFIG_FILE=/ignored/user.json bash -c '
+    source "$1/scripts/setup/lib.sh"
+    [[ "$(disabled_skills_source_label)" == "$2" ]]
+  ' _ "${REPO_DIR}" "${gh719_project_config}"
 assert_cmd "disabled skill source reports VIBEGUARD_CONFIG_FILE" env \
   VIBEGUARD_CONFIG_FILE=/custom/user.json bash -c '
     source "$1/scripts/setup/lib.sh"

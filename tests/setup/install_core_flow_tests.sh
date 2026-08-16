@@ -414,8 +414,7 @@ cat > "${runtime_key_project_config}" <<'JSON'
 }
 JSON
 runtime_key_check_out="$(VIBEGUARD_PROJECT_CONFIG="${runtime_key_project_config}" bash "${REPO_DIR}/setup.sh" --check 2>&1)"
-assert_contains "${runtime_key_check_out}" ".write_mode: unknown property" "--check keeps runtime keys invalid in .vibeguard.json"
-assert_contains "${runtime_key_check_out}" "write_mode belongs in ~/.vibeguard/config.json, not .vibeguard.json" "--check points write_mode to user runtime config"
+assert_contains "${runtime_key_check_out}" "[OK] Project config valid (${runtime_key_project_config})" "--check accepts layered runtime keys in .vibeguard.json"
 
 header "setup install"
 dry_run_settings_sha_before="$(shasum -a 256 "${HOME}/.claude/settings.json" | cut -d' ' -f1)"

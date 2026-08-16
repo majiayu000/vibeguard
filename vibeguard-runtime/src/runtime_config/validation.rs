@@ -3,6 +3,8 @@ use std::fmt;
 use std::io::ErrorKind;
 use std::path::Path;
 
+use super::fields::{FieldKind, RUNTIME_CONFIG_FIELDS};
+
 const CONFIG_PARSE_ERROR: i32 = 30;
 const POLICY_ERROR: i32 = 20;
 
@@ -25,100 +27,6 @@ pub enum RuntimeConfigDecision {
     Missing,
     Valid,
 }
-
-#[derive(Debug, Clone, Copy)]
-enum FieldKind {
-    Integer { minimum: u64, maximum: u64 },
-    StringEnum { allowed: &'static [&'static str] },
-    StringArray { maximum_items: usize },
-    Version,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct RuntimeConfigField {
-    path: &'static str,
-    kind: FieldKind,
-}
-
-const RUNTIME_CONFIG_FIELDS: &[RuntimeConfigField] = &[
-    RuntimeConfigField {
-        path: "version",
-        kind: FieldKind::Version,
-    },
-    RuntimeConfigField {
-        path: "u16.warn_limit",
-        kind: FieldKind::Integer {
-            minimum: 0,
-            maximum: 1_000_000,
-        },
-    },
-    RuntimeConfigField {
-        path: "u16.limit",
-        kind: FieldKind::Integer {
-            minimum: 0,
-            maximum: 1_000_000,
-        },
-    },
-    RuntimeConfigField {
-        path: "circuit_breaker.threshold",
-        kind: FieldKind::Integer {
-            minimum: 0,
-            maximum: 1_000_000,
-        },
-    },
-    RuntimeConfigField {
-        path: "circuit_breaker.cooldown_seconds",
-        kind: FieldKind::Integer {
-            minimum: 0,
-            maximum: 31_536_000,
-        },
-    },
-    RuntimeConfigField {
-        path: "circuit_breaker.lock_timeout_seconds",
-        kind: FieldKind::Integer {
-            minimum: 0,
-            maximum: 300,
-        },
-    },
-    RuntimeConfigField {
-        path: "w14.cooldown_seconds",
-        kind: FieldKind::Integer {
-            minimum: 0,
-            maximum: 31_536_000,
-        },
-    },
-    RuntimeConfigField {
-        path: "paralysis.threshold",
-        kind: FieldKind::Integer {
-            minimum: 0,
-            maximum: 1_000_000,
-        },
-    },
-    RuntimeConfigField {
-        path: "write_mode",
-        kind: FieldKind::StringEnum {
-            allowed: &["warn", "block"],
-        },
-    },
-    RuntimeConfigField {
-        path: "write_escalate_threshold",
-        kind: FieldKind::Integer {
-            minimum: 0,
-            maximum: 1_000_000,
-        },
-    },
-    RuntimeConfigField {
-        path: "learn.metrics_tail_bytes",
-        kind: FieldKind::Integer {
-            minimum: 1,
-            maximum: 268_435_456,
-        },
-    },
-    RuntimeConfigField {
-        path: "disabled_skills",
-        kind: FieldKind::StringArray { maximum_items: 256 },
-    },
-];
 
 pub fn classify_runtime_config_file(
     path_text: &str,
@@ -215,6 +123,13 @@ fn config_error(
 
 fn validate_runtime_config_value(path: &Path, value: &Value) -> Result<(), RuntimeConfigError> {
     validate_object(path, "$", "", value)
+}
+
+pub(crate) fn validate_runtime_config_overlay(
+    path: &Path,
+    value: &Value,
+) -> Result<(), RuntimeConfigError> {
+    validate_runtime_config_value(path, value)
 }
 
 fn validate_object(

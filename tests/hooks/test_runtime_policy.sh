@@ -164,6 +164,7 @@ assert_contains "$(cat "${optimized_probe_log}")" "supports" "runtime policy res
 assert_contains "$(cat "${optimized_probe_log}")" "check:runtime-policy-check --cwd" "runtime policy resolver probes runtime-policy-check --cwd"
 assert_contains "$(cat "${optimized_probe_log}")" "json-field:--strict decision" "runtime policy resolver validates structured decision JSON"
 assert_contains "$(cat "${optimized_probe_log}")" "json-field:--strict cwd" "runtime policy resolver validates structured cwd JSON"
+assert_contains "$(cat "${optimized_probe_log}")" "config:explain write_mode --cwd" "runtime policy resolver probes project runtime overlays"
 
 stale_protocol_runtime="${WORK_DIR}/stale-protocol-runtime"
 hook_test_write_policy_runtime_probe_stub "${stale_protocol_runtime}"

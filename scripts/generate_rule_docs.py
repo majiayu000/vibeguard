@@ -546,6 +546,42 @@ Canonical source of truth: `rules/claude-rules/`
 
 ---
 
+## Supported Configuration Variables
+
+Runtime values resolve from lowest to highest precedence: built-in default →
+`~/.vibeguard/config.json` → project `.vibeguard.json` → environment. The user
+and project files use the same JSON paths. Run
+`vibeguard-runtime config explain <json-path-or-env> --cwd <project>` to print
+the effective value and source layer.
+
+| JSON path | Supported environment override | Default |
+|-----------|--------------------------------|---------|
+| `u16.warn_limit` | `VG_U16_WARN_LIMIT` | `400` |
+| `u16.limit` | `VG_U16_LIMIT` | `800` |
+| `circuit_breaker.threshold` | `VG_CB_THRESHOLD` | `3` |
+| `circuit_breaker.cooldown_seconds` | `VG_CB_COOLDOWN` | `300` |
+| `circuit_breaker.lock_timeout_seconds` | `VG_CB_LOCK_TIMEOUT_SECONDS` | `5` |
+| `w14.cooldown_seconds` | `VIBEGUARD_W14_COOLDOWN_SECONDS` | `3600` |
+| `paralysis.threshold` | `VG_PARALYSIS_THRESHOLD` | `7` |
+| `write_mode` | `VIBEGUARD_WRITE_MODE` | `warn` |
+| `write_escalate_threshold` | `VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD` | `5` |
+| `learn.metrics_tail_bytes` | `VIBEGUARD_LEARN_METRICS_TAIL_BYTES` | `5242880` |
+| `disabled_skills` | `VIBEGUARD_DISABLED_SKILLS` | `[]` |
+
+The supported location selectors are `VIBEGUARD_CONFIG_FILE`,
+`VIBEGUARD_PROJECT_CONFIG`, and `VIBEGUARD_LOG_DIR`. `VIBEGUARD_PROFILE`, the
+documented `VIBEGUARD_GC_*` project thresholds, and setup command variables
+remain supported by their existing project/setup contracts; they are not
+runtime-value aliases for the table above.
+
+All other `VIBEGUARD_*` / `VG_*` names are internal transport, test, or
+compatibility details rather than user configuration. New internal variables
+use the `VG_INTERNAL_*` prefix. Legacy internal names remain accepted during
+the 1.x deprecation window and may be removed in 2.0; do not build external
+automation around them.
+
+---
+
 ## Severity Semantics
 
 Severity labels describe the agent/reviewer contract. They do not, by themselves, promise that every rule is hook-blocked.

@@ -81,7 +81,18 @@ fn runtime_config_get_int_preserves_env_json_default_order() {
         .env("VG_TEST_LIMIT", "not-a-number")
         .output()
         .expect("runtime config command should run");
-    assert_eq!(String::from_utf8_lossy(&bad_env.stdout).trim(), "1234");
+    assert_config_failure(&bad_env, "config_type_error");
+
+    let out_of_range_env = bin()
+        .arg("runtime-config-get-int")
+        .arg("VG_TEST_LIMIT")
+        .arg("u16.limit")
+        .arg("800")
+        .env("VIBEGUARD_CONFIG_FILE", &config)
+        .env("VG_TEST_LIMIT", "1000001")
+        .output()
+        .expect("runtime config command should run");
+    assert_config_failure(&out_of_range_env, "config_range_error");
 
     let missing = bin()
         .arg("runtime-config-get-int")
@@ -94,6 +105,129 @@ fn runtime_config_get_int_preserves_env_json_default_order() {
         .expect("runtime config command should run");
     assert_eq!(String::from_utf8_lossy(&missing.stdout).trim(), "800");
     let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn runtime_config_get_int_adds_project_layer_between_user_and_environment() {
+    let dir = runtime_config_temp_dir("project_layer");
+    fs::create_dir_all(&dir).expect("temp dir should be created");
+    let user = dir.join("user.json");
+    let project = dir.join(".vibeguard.json");
+    fs::write(&user, r#"{"u16":{"limit":1100}}"#).expect("user config should be written");
+    fs::write(&project, r#"{"u16":{"limit":1200}}"#).expect("project config should be written");
+
+    let project_value = bin()
+        .arg("runtime-config-get-int")
+        .arg("VG_U16_LIMIT")
+        .arg("u16.limit")
+        .arg("800")
+        .current_dir(&dir)
+        .env("VIBEGUARD_CONFIG_FILE", &user)
+        .env_remove("VIBEGUARD_PROJECT_CONFIG")
+        .env_remove("VG_U16_LIMIT")
+        .output()
+        .expect("runtime config command should run");
+    assert!(project_value.status.success(), "{project_value:?}");
+    assert_eq!(project_value.stdout, b"1200\n");
+
+    let environment_value = bin()
+        .arg("runtime-config-get-int")
+        .arg("VG_U16_LIMIT")
+        .arg("u16.limit")
+        .arg("800")
+        .current_dir(&dir)
+        .env("VIBEGUARD_CONFIG_FILE", &user)
+        .env("VG_U16_LIMIT", "1300")
+        .output()
+        .expect("runtime config command should run");
+    assert!(environment_value.status.success(), "{environment_value:?}");
+    assert_eq!(environment_value.stdout, b"1300\n");
+
+    fs::remove_dir_all(dir).expect("temp dir should be removed");
+}
+
+#[test]
+fn runtime_config_get_int_uses_policy_cwd_instead_of_process_cwd() {
+    let dir = runtime_config_temp_dir("policy_cwd");
+    let policy_repo = dir.join("policy-repo");
+    let process_repo = dir.join("process-repo");
+    fs::create_dir_all(&policy_repo).expect("policy repo should be created");
+    fs::create_dir_all(&process_repo).expect("process repo should be created");
+    fs::write(
+        policy_repo.join(".vibeguard.json"),
+        r#"{"u16":{"limit":1200}}"#,
+    )
+    .expect("policy config should be written");
+    fs::write(
+        process_repo.join(".vibeguard.json"),
+        r#"{"u16":{"limit":1300}}"#,
+    )
+    .expect("process config should be written");
+
+    let output = bin()
+        .arg("runtime-config-get-int")
+        .arg("VG_U16_LIMIT")
+        .arg("u16.limit")
+        .arg("800")
+        .current_dir(&process_repo)
+        .env("VG_INTERNAL_POLICY_CWD", &policy_repo)
+        .env_remove("VIBEGUARD_PROJECT_CONFIG")
+        .env_remove("VG_U16_LIMIT")
+        .output()
+        .expect("runtime config command should run");
+
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"1200\n");
+    fs::remove_dir_all(dir).expect("temp dir should be removed");
+}
+
+#[test]
+fn config_explain_reports_each_resolved_source_layer() {
+    let dir = runtime_config_temp_dir("explain");
+    fs::create_dir_all(&dir).expect("temp dir should be created");
+    let user = dir.join("user.json");
+    let project = dir.join(".vibeguard.json");
+    fs::write(&user, r#"{"u16":{"limit":1100}}"#).expect("user config should be written");
+    fs::write(&project, r#"{"u16":{"limit":1200}}"#).expect("project config should be written");
+
+    let explain = |env_value: Option<&str>| {
+        let mut command = bin();
+        command
+            .args(["config", "explain", "VG_U16_LIMIT", "--json", "--cwd"])
+            .arg(&dir)
+            .env("VIBEGUARD_CONFIG_FILE", &user)
+            .env_remove("VIBEGUARD_PROJECT_CONFIG");
+        match env_value {
+            Some(value) => command.env("VG_U16_LIMIT", value),
+            None => command.env_remove("VG_U16_LIMIT"),
+        };
+        let output = command.output().expect("config explain should run");
+        assert!(output.status.success(), "{output:?}");
+        serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            .expect("config explain output should be JSON")
+    };
+
+    let project_result = explain(None);
+    assert_eq!(project_result["key"], "u16.limit");
+    assert_eq!(project_result["value"], 1200);
+    assert_eq!(project_result["source"], "project_config");
+    assert_eq!(project_result["environment"], "VG_U16_LIMIT");
+
+    let environment_result = explain(Some("1300"));
+    assert_eq!(environment_result["value"], 1300);
+    assert_eq!(environment_result["source"], "environment");
+
+    fs::remove_file(&project).expect("project config should be removed");
+    let user_result = explain(None);
+    assert_eq!(user_result["value"], 1100);
+    assert_eq!(user_result["source"], "user_config");
+
+    fs::write(&user, "{}").expect("user config should be reset");
+    let default_result = explain(None);
+    assert_eq!(default_result["value"], 800);
+    assert_eq!(default_result["source"], "default");
+
+    fs::remove_dir_all(dir).expect("temp dir should be removed");
 }
 
 #[test]
@@ -157,7 +291,16 @@ fn runtime_config_get_int_resolves_w14_cooldown_contract() {
     assert_eq!(resolve(None).trim(), "1800");
     assert_eq!(resolve(Some("7200")).trim(), "7200");
     assert_eq!(resolve(Some("0")).trim(), "0");
-    assert_eq!(resolve(Some("not-a-number")).trim(), "1800");
+    let invalid_env = bin()
+        .arg("runtime-config-get-int")
+        .arg("VIBEGUARD_W14_COOLDOWN_SECONDS")
+        .arg("w14.cooldown_seconds")
+        .arg("3600")
+        .env("VIBEGUARD_CONFIG_FILE", &config)
+        .env("VIBEGUARD_W14_COOLDOWN_SECONDS", "not-a-number")
+        .output()
+        .expect("runtime config command should run");
+    assert_config_failure(&invalid_env, "config_type_error");
 
     fs::write(&config, r#"{"w14":{}}"#).expect("runtime config should be rewritten");
     assert_eq!(resolve(None).trim(), "3600");
@@ -214,6 +357,18 @@ fn runtime_config_get_str_preserves_env_json_default_order() {
         .output()
         .expect("runtime config command should run");
     assert_eq!(String::from_utf8_lossy(&env_override.stdout).trim(), "warn");
+
+    let invalid_env = bin()
+        .arg("runtime-config-get-str")
+        .arg("VG_TEST_MODE")
+        .arg("write_mode")
+        .arg("warn")
+        .env("VIBEGUARD_CONFIG_FILE", &config)
+        .env("VG_TEST_MODE", "sensitive-invalid-mode")
+        .output()
+        .expect("runtime config command should run");
+    assert_config_failure(&invalid_env, "config_enum_error");
+    assert!(!String::from_utf8_lossy(&invalid_env.stderr).contains("sensitive-invalid-mode"));
 
     let missing = bin()
         .arg("runtime-config-get-str")
