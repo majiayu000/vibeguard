@@ -43,6 +43,14 @@ fn schema_at_path<'a>(schema: &'a Value, path: &str) -> &'a Value {
     node
 }
 
+fn value_at_path<'a>(value: &'a Value, path: &str) -> &'a Value {
+    let mut node = value;
+    for key in path.split('.') {
+        node = &node[key];
+    }
+    node
+}
+
 #[test]
 fn runtime_config_inventory_matches_schema_and_template() {
     let schema: Value = serde_json::from_str(include_str!(
@@ -65,13 +73,27 @@ fn runtime_config_inventory_matches_schema_and_template() {
 
     assert_eq!(schema_paths, rust_paths);
     assert_eq!(template_paths, rust_paths);
+    let mut environment_names = BTreeSet::new();
     for field in RUNTIME_CONFIG_FIELDS {
         let schema_field = schema_at_path(&schema, field.path);
+        let template_value = value_at_path(&template, field.path);
+        if let Some(environment) = field.env {
+            assert!(
+                environment_names.insert(environment),
+                "duplicate environment override {environment}"
+            );
+        }
         match field.kind {
             FieldKind::Integer { minimum, maximum } => {
                 assert_eq!(schema_field["type"], "integer", "{} type", field.path);
                 assert_eq!(schema_field["minimum"], minimum, "{} minimum", field.path);
                 assert_eq!(schema_field["maximum"], maximum, "{} maximum", field.path);
+                assert_eq!(
+                    nonnegative_json_integer(template_value),
+                    field.default.parse().ok(),
+                    "{} default",
+                    field.path
+                );
             }
             FieldKind::StringEnum { allowed } => {
                 let schema_allowed = schema_field["enum"]
@@ -81,6 +103,7 @@ fn runtime_config_inventory_matches_schema_and_template() {
                     .map(|value| value.as_str().expect("enum item should be a string"))
                     .collect::<Vec<_>>();
                 assert_eq!(schema_allowed, allowed, "{} enum", field.path);
+                assert_eq!(template_value.as_str(), Some(field.default));
             }
             FieldKind::StringArray { maximum_items } => {
                 assert_eq!(schema_field["type"], "array", "{} type", field.path);
@@ -104,15 +127,51 @@ fn runtime_config_inventory_matches_schema_and_template() {
                     "{} item pattern",
                     field.path
                 );
+                assert_eq!(template_value, &json!([]));
             }
             FieldKind::Version => {
                 assert_eq!(schema_field["type"], "integer", "version type");
                 assert_eq!(schema_field["const"], 1, "supported version");
+                assert_eq!(template_value, &json!(1));
             }
         }
     }
     validate_runtime_config_value(Path::new("template"), &template)
         .expect("published template should pass the Rust validator");
+}
+
+#[test]
+fn project_schema_and_public_docs_match_runtime_config_registry() {
+    let project_schema: Value = serde_json::from_str(include_str!(
+        "../../../schemas/vibeguard-project.schema.json"
+    ))
+    .expect("project config schema should parse");
+    let runtime_roots = RUNTIME_CONFIG_FIELDS
+        .iter()
+        .map(|field| field.path.split('.').next().expect("field path has a root"))
+        .collect::<BTreeSet<_>>();
+    let project_roots = project_schema["properties"]
+        .as_object()
+        .expect("project schema properties should be an object")
+        .iter()
+        .filter_map(|(key, value)| {
+            value["$ref"]
+                .as_str()
+                .is_some_and(|reference| {
+                    reference.starts_with("vibeguard-runtime-config.schema.json#")
+                })
+                .then_some(key.as_str())
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(project_roots, runtime_roots);
+
+    let reference = include_str!("../../../docs/rule-reference.md");
+    for environment in RUNTIME_CONFIG_FIELDS.iter().filter_map(|field| field.env) {
+        assert!(
+            reference.contains(&format!("`{environment}`")),
+            "docs/rule-reference.md missing supported variable {environment}"
+        );
+    }
 }
 
 #[test]

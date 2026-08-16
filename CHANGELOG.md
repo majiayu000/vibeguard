@@ -10,10 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - W-21 "evidence must be provably executed, not merely cited": decisive claims need an out-of-session channel (transcript, filesystem, git, persisted exit codes/hashes), accusing the harness or hooks is a red flag, and two falsified root-cause theories in one investigation terminate the session (#687).
 - `vibeguard-runtime scan <language> <rule>` now provides the canonical implementation for all 15 Rust, Go, and TypeScript shell guards, including staged and baseline-aware scanning (#752).
+- `vibeguard-runtime config explain` reports the effective runtime setting and its source across defaults, user config, project config, and environment overrides (#753).
 
 ### Changed
 - W-01's debugging protocol now starts at step 0, a channel-trust check that rules out degraded reading before any filesystem, harness, or hook is blamed (#687).
 - Rust, Go, and TypeScript `check_*.sh` files are now fail-closed runtime exec shims; behavior-eval fixtures pin every migrated rule, and `vibeguard-runtime` is now `1.1.17` (#752).
+- Runtime settings now share one four-layer resolver and documented environment-variable allowlist; internal transport variables begin migrating to `VG_INTERNAL_*` with 1.x compatibility aliases, and `vibeguard-runtime` is now `1.1.18` (#753).
 
 ## [1.1.10] - 2026-07-09
 

@@ -279,9 +279,15 @@ got=$(vg_config_get_int VG_TEST_X u16.limit 800)
 TOTAL=$((TOTAL+1)); PASS=$((PASS+1))
 
 VG_TEST_X="abc"
-got=$(vg_config_get_int VG_TEST_X u16.limit 800)
-[[ "$got" == "1234" ]] && green "non-numeric env falls through to JSON" || { red "bad env (got: $got)"; FAIL=$((FAIL+1)); }
-TOTAL=$((TOTAL+1)); PASS=$((PASS+1))
+set +e
+got=$(vg_config_get_int VG_TEST_X u16.limit 800 2>&1)
+invalid_env_status=$?
+set -e
+assert_exit_zero "non-numeric env fails visibly through the shell adapter" \
+  test "$invalid_env_status" -eq 2
+assert_contains "$got" "category=config_type_error" \
+  "non-numeric env reports its config error category"
+assert_not_contains "$got" "abc" "non-numeric env does not leak the rejected value"
 
 echo '{"u16":{"limit":"oops"}}' > "$WORK_DIR/cfg.json"
 unset VG_TEST_X

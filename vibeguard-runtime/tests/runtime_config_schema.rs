@@ -62,7 +62,7 @@ fn schema_runtime_validator_and_getter_accept_integral_number_representations() 
                 "9",
             ])
             .env_remove("VG_SCHEMA_TEST_UNSET")
-            .env("_VG_CONFIG_FILE", &path)
+            .env("VG_INTERNAL_CONFIG_FILE", &path)
             .output()
             .expect("runtime config getter should run");
         assert!(getter.status.success(), "{label}: {getter:?}");

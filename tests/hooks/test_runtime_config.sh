@@ -61,6 +61,22 @@ selected_hook_runtime="$(
 )"
 assert_contains "$selected_hook_runtime" "${resolver_home}/.vibeguard/installed/bin/vibeguard-runtime" "installed hook log resolver prefers installed runtime"
 
+probe_project="${WORK_DIR}/probe-project"
+mkdir -p "${probe_project}"
+write_cfg "${probe_project}/.vibeguard.json" \
+  '{"u16":{"limit":41},"write_mode":"warn"}'
+probe_result="$(
+  cd "${probe_project}"
+  HOME="${WORK_DIR}/probe-home" VIBEGUARD_RUNTIME="${RUNTIME_BIN}" \
+    VIBEGUARD_CONFIG_FILE="${WORK_DIR}/missing-user-config.json" bash -c '
+      source "$1"
+      printf "%s:%s" "$(_vg_config_runtime_path)" \
+        "$(vg_config_get_int VG_U16_LIMIT u16.limit 800)"
+    ' _ "${REPO_DIR}/hooks/_lib/config.sh"
+)"
+assert_contains "${probe_result}" "${RUNTIME_BIN}:41" \
+  "config capability probe ignores project overlays without hiding their values"
+
 header "runtime config — pre-write write_mode"
 cfg="$WORK_DIR/config.json"
 write_cfg "$cfg" '{"write_mode":"block"}'

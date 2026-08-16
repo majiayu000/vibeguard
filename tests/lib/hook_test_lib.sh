@@ -355,6 +355,10 @@ case "$command" in
     done
     printf '{"decision":"run","enforcement":"%s","hook":"%s","profile":"core","config_path":null,"cwd":"%s","reason":"compat text says enforcement=warn"}\n' "${VG_STUB_ENFORCEMENT:-block}" "${hook_name:-unknown}" "${cwd}"
     ;;
+  config)
+    log_probe "config:$*"
+    exec "${REAL_RUNTIME:?}" config "$@"
+    ;;
   json-field)
     log_probe "json-field:$*"
     exec "${REAL_RUNTIME:?}" json-field "$@"

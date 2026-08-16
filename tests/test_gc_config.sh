@@ -27,6 +27,16 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  local output="$1" unexpected="$2" desc="$3"
+  TOTAL=$((TOTAL + 1))
+  if grep -qF -- "$unexpected" <<< "$output"; then
+    red "$desc (unexpectedly contained: $unexpected)"; FAIL=$((FAIL + 1))
+  else
+    green "$desc"; PASS=$((PASS + 1))
+  fi
+}
+
 assert_occurrences() {
   local output="$1" expected="$2" count="$3" desc="$4"
   local actual
@@ -233,6 +243,34 @@ header "schema exposes gc contract"
 
 assert_cmd "project config validator syntax is correct" python3 -m py_compile "$REPO_DIR/scripts/lib/project_config_validate.py"
 assert_cmd "project config validator accepts valid config" python3 "$REPO_DIR/scripts/lib/project_config_validate.py" --quiet "$cfg" "$REPO_DIR/schemas/vibeguard-project.schema.json"
+runtime_project_cfg="${TMP_ROOT}/runtime-project.json"
+printf '%s\n' '{"u16":{"limit":1200},"write_mode":"block"}' > "$runtime_project_cfg"
+assert_cmd "project config validator accepts layered runtime config" python3 "$REPO_DIR/scripts/lib/project_config_validate.py" --quiet "$runtime_project_cfg" "$REPO_DIR/schemas/vibeguard-project.schema.json"
+printf '%s\n' '{"u16":{"limit":"secret-value"}}' > "$runtime_project_cfg"
+runtime_project_invalid_out="$(python3 "$REPO_DIR/scripts/lib/project_config_validate.py" --quiet "$runtime_project_cfg" "$REPO_DIR/schemas/vibeguard-project.schema.json" 2>&1 || true)"
+assert_contains "$runtime_project_invalid_out" ".u16.limit: expected integer" "project config validator rejects invalid layered runtime value"
+if grep -qF "secret-value" <<< "$runtime_project_invalid_out"; then
+  red "project config validator redacts invalid layered runtime values"
+  FAIL=$((FAIL + 1))
+else
+  green "project config validator redacts invalid layered runtime values"
+  PASS=$((PASS + 1))
+fi
+TOTAL=$((TOTAL + 1))
+printf '%s\n' '{"write_mode":"secret-value"}' > "$runtime_project_cfg"
+runtime_project_enum_out="$(python3 "$REPO_DIR/scripts/lib/project_config_validate.py" --quiet "$runtime_project_cfg" "$REPO_DIR/schemas/vibeguard-project.schema.json" 2>&1 || true)"
+assert_contains "$runtime_project_enum_out" ".write_mode: unsupported value; expected one of: warn, block" "project config validator rejects invalid runtime enum"
+assert_not_contains "$runtime_project_enum_out" "secret-value" "project config validator redacts invalid runtime enum"
+python3 - "$runtime_project_cfg" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump({"u16": {"limit": 10**400}}, handle)
+PY
+runtime_project_large_out="$(python3 "$REPO_DIR/scripts/lib/project_config_validate.py" --quiet "$runtime_project_cfg" "$REPO_DIR/schemas/vibeguard-project.schema.json" 2>&1 || true)"
+assert_contains "$runtime_project_large_out" ".u16.limit: expected integer <= 1000000" "project config validator bounds arbitrary-size integers"
+assert_not_contains "$runtime_project_large_out" "Traceback" "project config validator handles arbitrary-size integers without crashing"
 assert_cmd "project schema accepts gc config" python3 - "$REPO_DIR/schemas/vibeguard-project.schema.json" "$cfg" <<'PY'
 import json
 import sys

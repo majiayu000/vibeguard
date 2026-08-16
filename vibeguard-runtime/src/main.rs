@@ -295,6 +295,11 @@ static COMMANDS: &[Command] = &[
         handler: runtime_policy::runtime_policy_diag,
     },
     Command {
+        name: "config",
+        usage: "explain <key-or-env> [--cwd <path>] [--json]  — explain a layered runtime configuration value",
+        handler: runtime_config::config,
+    },
+    Command {
         name: "runtime-config-validate",
         usage: "<config-file>  — validate user runtime configuration",
         handler: runtime_config::runtime_config_validate,
