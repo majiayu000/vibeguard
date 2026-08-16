@@ -10,9 +10,10 @@ use super::fields::{FieldKind, RuntimeConfigField, field_for_key};
 use super::validation::{RuntimeConfigError, is_skill_name, nonnegative_json_integer};
 use super::{is_nonnegative_digits, loaded_runtime_config, runtime_config_file, value_at_path};
 
-static PROJECT_CONFIGS: OnceLock<
-    Mutex<HashMap<String, Result<Option<ProjectDocument>, RuntimeConfigError>>>,
-> = OnceLock::new();
+type CachedProjectDocument = Result<Option<ProjectDocument>, RuntimeConfigError>;
+type ProjectConfigCache = Mutex<HashMap<String, CachedProjectDocument>>;
+
+static PROJECT_CONFIGS: OnceLock<ProjectConfigCache> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ConfigSource {
