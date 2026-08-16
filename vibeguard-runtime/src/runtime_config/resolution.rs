@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -10,8 +11,8 @@ use super::fields::{FieldKind, RuntimeConfigField, field_for_key};
 use super::validation::{RuntimeConfigError, is_skill_name, nonnegative_json_integer};
 use super::{is_nonnegative_digits, loaded_runtime_config, runtime_config_file, value_at_path};
 
-type CachedProjectDocument = Result<Option<ProjectDocument>, RuntimeConfigError>;
-type ProjectConfigCache = Mutex<HashMap<String, CachedProjectDocument>>;
+type LoadedProjectDocument = Result<Option<ProjectDocument>, RuntimeConfigError>;
+type ProjectConfigCache = Mutex<HashMap<String, CachedProjectEntry>>;
 
 static PROJECT_CONFIGS: OnceLock<ProjectConfigCache> = OnceLock::new();
 
@@ -58,7 +59,7 @@ pub(super) fn resolve_int(
     {
         return Ok(resolved(value, ConfigSource::ProjectConfig, path));
     }
-    if let Some(value) = layers.user.and_then(nonnegative_json_integer) {
+    if let Some(value) = layers.user.as_ref().and_then(nonnegative_json_integer) {
         return Ok(resolved(value, ConfigSource::UserConfig, layers.user_path));
     }
     let value = default_value.parse::<u64>().map_err(|_| RuntimeConfigError {
@@ -91,7 +92,7 @@ pub(super) fn resolve_str(
             path,
         ));
     }
-    if let Some(value) = layers.user.and_then(Value::as_str) {
+    if let Some(value) = layers.user.as_ref().and_then(Value::as_str) {
         return Ok(resolved(
             value.to_string(),
             ConfigSource::UserConfig,
@@ -124,7 +125,7 @@ pub(super) fn resolve_list(
             path,
         ));
     }
-    if let Some(items) = layers.user.and_then(Value::as_array) {
+    if let Some(items) = layers.user.as_ref().and_then(Value::as_array) {
         return Ok(resolved(
             string_items(items),
             ConfigSource::UserConfig,
@@ -209,7 +210,7 @@ fn parse_explain_args(args: &[String]) -> Result<ParsedExplain, Box<dyn std::err
 }
 
 struct ConfigLayers {
-    user: Option<&'static Value>,
+    user: Option<Value>,
     user_path: String,
     project: Option<(Value, String)>,
 }
@@ -220,8 +221,23 @@ struct ProjectDocument {
     path: PathBuf,
 }
 
+#[derive(Clone)]
+struct CachedProjectEntry {
+    fingerprint: ProjectFileFingerprint,
+    document: LoadedProjectDocument,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct ProjectFileFingerprint {
+    path: Option<PathBuf>,
+    contents: Option<Result<Vec<u8>, ErrorKind>>,
+}
+
 fn config_layers(json_path: &str, cwd: Option<&str>) -> Result<ConfigLayers, RuntimeConfigError> {
-    let user = loaded_runtime_config()?.and_then(|value| value_at_path(value, json_path));
+    let user = loaded_runtime_config()?
+        .as_ref()
+        .and_then(|value| value_at_path(value, json_path))
+        .cloned();
     let user_path = source_detail(&runtime_config_file(), json_path);
     let effective_cwd = resolution_cwd(cwd);
     let project = cached_project_document(effective_cwd.as_deref())?.and_then(|document| {
@@ -245,23 +261,38 @@ fn cached_project_document(
         .unwrap_or_default();
     let selector = std::env::var("VIBEGUARD_PROJECT_CONFIG").unwrap_or_default();
     let key = format!("{}\0{selector}", current_dir.display());
+    let path = project_config_path(cwd, &HashMap::new());
+    let fingerprint = ProjectFileFingerprint {
+        contents: path
+            .as_deref()
+            .map(|path| std::fs::read(path).map_err(|error| error.kind())),
+        path: path.clone(),
+    };
     let cache = PROJECT_CONFIGS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut entries = cache.lock().map_err(|_| RuntimeConfigError {
         message: "VibeGuard runtime config cache unavailable: category=config_internal_error"
             .into(),
         exit_code: 20,
     })?;
-    if let Some(cached) = entries.get(&key) {
-        return cached.clone();
+    if let Some(cached) = entries.get(&key)
+        && cached.fingerprint == fingerprint
+    {
+        return cached.document.clone();
     }
-    let loaded = project_config_path(cwd, &HashMap::new())
+    let loaded = path
         .map(|path| {
             validated_project_config_json(&path)
                 .map(|value| ProjectDocument { value, path })
                 .map_err(project_error)
         })
         .transpose();
-    entries.insert(key, loaded.clone());
+    entries.insert(
+        key,
+        CachedProjectEntry {
+            fingerprint,
+            document: loaded.clone(),
+        },
+    );
     loaded
 }
 

@@ -182,3 +182,58 @@ chmod +x "${TMP_DIR}/child-read-loop.sh"
 analysis_json="$(run_wrapper "${APP_REPO_READ_LOOP}" "${TMP_DIR}/child-read-loop.sh" $'{"method":"thread/start","params":{"threadId":"thread/read-loop","cwd":"'"${APP_REPO_READ_LOOP}"'"}}')"
 assert_contains "${analysis_json}" '"method":"warning"' "Rust wrapper emits analysis-paralysis warning notification"
 assert_contains "${analysis_json}" 'analysis paralysis warning' "Analysis warning explains read-only streak"
+
+header "Rust app-server wrapper refreshes layered analysis config"
+APP_REPO_REFRESH="${TMP_DIR}/app-server-config-refresh"
+mkdir -p "${APP_REPO_REFRESH}/hooks"
+cat > "${APP_REPO_REFRESH}/hooks/pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '{"decision":"allow"}\n'
+HOOK
+chmod +x "${APP_REPO_REFRESH}/hooks/pre-bash-guard.sh"
+cat > "${APP_REPO_REFRESH}/.vibeguard.json" <<'JSON'
+{"paralysis":{"threshold":99}}
+JSON
+cat > "${TMP_DIR}/child-config-refresh.sh" <<'CHILD'
+#!/usr/bin/env bash
+IFS= read -r _thread_start
+printf '{"id":"req-refresh-1","method":"item/commandExecution/requestApproval","params":{"threadId":"thread/refresh","command":"rg first"}}\n'
+sleep 0.5
+printf '%s\n' '{"paralysis":{"threshold":2}}' > "${APP_REPO_REFRESH}/.vibeguard.json"
+printf '{"id":"req-refresh-2","method":"item/commandExecution/requestApproval","params":{"threadId":"thread/refresh","command":"rg second"}}\n'
+IFS= read -r warning
+printf '%s\n' "$warning"
+CHILD
+chmod +x "${TMP_DIR}/child-config-refresh.sh"
+refresh_json="$(APP_REPO_REFRESH="${APP_REPO_REFRESH}" run_wrapper "${APP_REPO_REFRESH}" "${TMP_DIR}/child-config-refresh.sh" $'{"method":"thread/start","params":{"threadId":"thread/refresh","cwd":"'"${APP_REPO_REFRESH}"'"}}')"
+assert_contains "${refresh_json}" 'analysis paralysis warning' \
+  "Rust wrapper refreshes project thresholds after in-session config edits"
+
+header "Rust app-server wrapper contains invalid layered config"
+APP_REPO_INVALID="${TMP_DIR}/app-server-invalid-config"
+mkdir -p "${APP_REPO_INVALID}/hooks"
+cat > "${APP_REPO_INVALID}/hooks/pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '{"decision":"allow"}\n'
+HOOK
+chmod +x "${APP_REPO_INVALID}/hooks/pre-bash-guard.sh"
+cat > "${TMP_DIR}/child-invalid-config.sh" <<'CHILD'
+#!/usr/bin/env bash
+IFS= read -r _thread_start
+printf '{"id":"req-invalid-config","method":"item/commandExecution/requestApproval","params":{"threadId":"thread/invalid-config","command":"rg invalid"}}\n'
+IFS= read -r response
+printf '%s\n' "$response"
+IFS= read -r warning
+printf '%s\n' "$warning"
+CHILD
+chmod +x "${TMP_DIR}/child-invalid-config.sh"
+invalid_config_json="$(VG_PARALYSIS_THRESHOLD=sensitive-invalid-threshold \
+  run_wrapper "${APP_REPO_INVALID}" "${TMP_DIR}/child-invalid-config.sh" $'{"method":"thread/start","params":{"threadId":"thread/invalid-config","cwd":"'"${APP_REPO_INVALID}"'"}}' 2>/dev/null)"
+assert_contains "${invalid_config_json}" '"decision":"decline"' \
+  "Rust wrapper declines one request for invalid layered config"
+assert_contains "${invalid_config_json}" 'category=config_type_error' \
+  "Rust wrapper reports invalid layered config without exiting"
+assert_not_contains "${invalid_config_json}" 'sensitive-invalid-threshold' \
+  "Rust wrapper redacts invalid layered config values"

@@ -41,7 +41,7 @@ _vg_config_runtime_path() {
 
   while IFS= read -r candidate; do
     if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
-      if _vg_config_runtime_supports "${candidate}"; then
+      if _vg_config_runtime_supports "${candidate}" < /dev/null; then
         _VG_CONFIG_RUNTIME_PATH_CACHE_KEY="${cache_key}"
         _VG_CONFIG_RUNTIME_PATH_CACHE_STATE="hit"
         _VG_CONFIG_RUNTIME_PATH_CACHE="${candidate}"
@@ -91,11 +91,13 @@ _vg_config_runtime_supports() {
   [[ "${validate_probe}" == "VALID" ]] || { rm -f "${probe_file}" 2>/dev/null || true; return 1; }
   int_probe="$(
     VG_INTERNAL_CONFIG_FILE="${probe_file}" _VG_CONFIG_FILE="${probe_file}" VIBEGUARD_CONFIG_FILE="${probe_file}" \
+      VIBEGUARD_PROJECT_CONFIG="${probe_file}.no-project" \
       "${candidate}" runtime-config-get-int __VIBEGUARD_CONFIG_PROBE_INT__ u16.limit 17 2>/dev/null
   )" || { rm -f "${probe_file}" 2>/dev/null || true; return 1; }
   [[ "${int_probe}" == "19" ]] || { rm -f "${probe_file}" 2>/dev/null || true; return 1; }
   str_probe="$(
     VG_INTERNAL_CONFIG_FILE="${probe_file}" _VG_CONFIG_FILE="${probe_file}" VIBEGUARD_CONFIG_FILE="${probe_file}" \
+      VIBEGUARD_PROJECT_CONFIG="${probe_file}.no-project" \
       "${candidate}" runtime-config-get-str __VIBEGUARD_CONFIG_PROBE_STR__ write_mode probe-default 2>/dev/null
   )" || { rm -f "${probe_file}" 2>/dev/null || true; return 1; }
   [[ "${str_probe}" == "block" ]] || { rm -f "${probe_file}" 2>/dev/null || true; return 1; }

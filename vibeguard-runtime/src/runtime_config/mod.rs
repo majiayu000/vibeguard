@@ -7,11 +7,24 @@ use crate::runtime_config::validation::{
     RuntimeConfigDecision, RuntimeConfigError, classify_runtime_config_file,
 };
 use serde_json::Value;
+use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::process;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
-static RUNTIME_CONFIG: OnceLock<Result<Option<Value>, RuntimeConfigError>> = OnceLock::new();
+static RUNTIME_CONFIG: OnceLock<Mutex<Option<CachedRuntimeConfig>>> = OnceLock::new();
+
+#[derive(Clone)]
+struct CachedRuntimeConfig {
+    fingerprint: RuntimeConfigFingerprint,
+    document: Result<Option<Value>, RuntimeConfigError>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct RuntimeConfigFingerprint {
+    path: PathBuf,
+    contents: Result<Vec<u8>, ErrorKind>,
+}
 
 pub fn validate_runtime_config_file(path_text: &str) -> Result<(), RuntimeConfigError> {
     classify_runtime_config_file(path_text).map(|_| ())
@@ -102,10 +115,8 @@ pub(crate) fn runtime_config_int_value_for_cwd(
     json_path: &str,
     default_value: &str,
     cwd: Option<&str>,
-) -> u64 {
-    resolution::resolve_int(env_name, json_path, default_value, cwd)
-        .map(|resolved| resolved.value)
-        .unwrap_or_else(exit_runtime_config_error)
+) -> Result<u64, RuntimeConfigError> {
+    resolution::resolve_int(env_name, json_path, default_value, cwd).map(|resolved| resolved.value)
 }
 
 pub(crate) fn runtime_config_str_value(
@@ -133,16 +144,30 @@ fn resolve_runtime_config_str(
     resolution::resolve_str(env_name, json_path, default_value, None).map(|resolved| resolved.value)
 }
 
-fn loaded_runtime_config() -> Result<Option<&'static Value>, RuntimeConfigError> {
-    let result = RUNTIME_CONFIG.get_or_init(|| {
-        let path = runtime_config_file();
-        let path_text = path.to_string_lossy();
-        classify_runtime_config_file(&path_text).map(|(_, value)| value)
-    });
-    match result {
-        Ok(value) => Ok(value.as_ref()),
-        Err(error) => Err(error.clone()),
+fn loaded_runtime_config() -> Result<Option<Value>, RuntimeConfigError> {
+    let path = runtime_config_file();
+    let fingerprint = RuntimeConfigFingerprint {
+        contents: std::fs::read(&path).map_err(|error| error.kind()),
+        path: path.clone(),
+    };
+    let cache = RUNTIME_CONFIG.get_or_init(|| Mutex::new(None));
+    let mut entry = cache.lock().map_err(|_| RuntimeConfigError {
+        message: "VibeGuard runtime config cache unavailable: category=config_internal_error"
+            .into(),
+        exit_code: 20,
+    })?;
+    if let Some(cached) = entry.as_ref()
+        && cached.fingerprint == fingerprint
+    {
+        return cached.document.clone();
     }
+    let path_text = path.to_string_lossy();
+    let document = classify_runtime_config_file(&path_text).map(|(_, value)| value);
+    *entry = Some(CachedRuntimeConfig {
+        fingerprint,
+        document: document.clone(),
+    });
+    document
 }
 
 fn exit_runtime_config_error<T>(error: RuntimeConfigError) -> T {

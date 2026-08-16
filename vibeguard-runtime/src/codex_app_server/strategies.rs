@@ -136,28 +136,34 @@ impl CommandApprovalStrategy {
         if result.decision == "warn" {
             let text = primary_feedback_text("pre-bash-guard.sh", &result, "");
             emit_warning(write_to_server, text, thread_id.as_deref());
-            self.observe(
+            if self.observe_or_decline(
+                &msg_id,
                 command,
                 thread_id.as_deref(),
                 cwd.as_deref(),
                 &env,
                 state,
                 write_to_server,
-            );
+            ) {
+                return true;
+            }
             return false;
         }
 
         if result.decision == "skip" {
             let text = primary_feedback_text("pre-bash-guard.sh", &result, "");
             emit_warning(write_to_server, text, thread_id.as_deref());
-            self.observe(
+            if self.observe_or_decline(
+                &msg_id,
                 command,
                 thread_id.as_deref(),
                 cwd.as_deref(),
                 &env,
                 state,
                 write_to_server,
-            );
+            ) {
+                return true;
+            }
             return false;
         }
 
@@ -190,20 +196,23 @@ impl CommandApprovalStrategy {
         }
 
         if let Some(updated_command) = result.updated_command {
-            write_to_server(json!({
-                "id": msg_id,
-                "result": {"decision": "accept", "updatedInput": {"command": updated_command}}
-            }));
-            eprintln!(
-                "[vibeguard-codex-wrapper] corrected command: {command:?} -> {updated_command:?}"
-            );
-            self.observe(
+            if self.observe_or_decline(
+                &msg_id,
                 &updated_command,
                 thread_id.as_deref(),
                 cwd.as_deref(),
                 &env,
                 state,
                 write_to_server,
+            ) {
+                return true;
+            }
+            write_to_server(json!({
+                "id": msg_id,
+                "result": {"decision": "accept", "updatedInput": {"command": updated_command}}
+            }));
+            eprintln!(
+                "[vibeguard-codex-wrapper] corrected command: {command:?} -> {updated_command:?}"
             );
             return true;
         }
@@ -221,15 +230,37 @@ impl CommandApprovalStrategy {
             );
         }
 
-        self.observe(
+        self.observe_or_decline(
+            &msg_id,
             command,
             thread_id.as_deref(),
             cwd.as_deref(),
             &env,
             state,
             write_to_server,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn observe_or_decline(
+        &self,
+        msg_id: &Value,
+        command: &str,
+        thread_id: Option<&str>,
+        cwd: Option<&str>,
+        env: &std::collections::HashMap<String, String>,
+        state: &mut SessionState,
+        write_to_server: &mut WriteServer<'_>,
+    ) -> bool {
+        let Err(reason) = self.observe(command, thread_id, cwd, env, state, write_to_server) else {
+            return false;
+        };
+        write_to_server(json!({"id": msg_id, "result": {"decision": "decline"}}));
+        emit_warning(write_to_server, reason.clone(), thread_id);
+        eprintln!(
+            "[vibeguard-codex-wrapper] analysis observation failed; declining command approval: {reason}"
         );
-        false
+        true
     }
 
     fn observe(
@@ -240,17 +271,12 @@ impl CommandApprovalStrategy {
         env: &std::collections::HashMap<String, String>,
         state: &mut SessionState,
         write_to_server: &mut WriteServer<'_>,
-    ) {
+    ) -> Result<(), String> {
         match evaluate_hook_policy("analysis-paralysis-guard.sh", cwd, env) {
             HookPolicyDecision::Run { .. } => {}
-            HookPolicyDecision::Skip(_) => return,
+            HookPolicyDecision::Skip(_) => return Ok(()),
             HookPolicyDecision::Error(reason) => {
-                emit_warning(
-                    write_to_server,
-                    format!("analysis-paralysis-guard.sh: {reason}"),
-                    thread_id,
-                );
-                return;
+                return Err(format!("analysis-paralysis-guard.sh: {reason}"));
             }
         }
         let threshold = crate::runtime_config::runtime_config_int_value_for_cwd(
@@ -258,11 +284,13 @@ impl CommandApprovalStrategy {
             "paralysis.threshold",
             "7",
             cwd,
-        );
+        )
+        .map_err(|error| format!("analysis-paralysis-guard.sh: {error}"))?;
         let threshold = usize::try_from(threshold).unwrap_or(usize::MAX);
         let thread = thread_id.map(|id| state.ensure_thread(id));
         self.analysis
             .observe_command(command, threshold, thread_id, thread, write_to_server);
+        Ok(())
     }
 }
 
