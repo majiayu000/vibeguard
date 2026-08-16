@@ -4,7 +4,7 @@ use super::shared::{Finding, Result, ScanContext, ScanResult};
 
 pub(super) fn error_handling(context: &ScanContext) -> Result<ScanResult> {
     let call = Regex::new(
-        r"(?m)(?:^|[;{}:]|\b(?:if|for|switch)[ \t]+)[ \t]*(?:_(?:[ \t]*,[ \t\r\n]*_)?|[\p{L}_][\p{L}\p{Nd}_]*(?:[ \t\r\n]*\.[ \t\r\n]*[\p{L}_][\p{L}\p{Nd}_]*)*[ \t]*,[ \t\r\n]*_)[ \t]*:?=[ \t\r\n]*(?:[\p{L}_][\p{L}\p{Nd}_]*(?:[ \t\r\n]*\.[ \t\r\n]*(?:[\p{L}_][\p{L}\p{Nd}_]*|\([^()\n]+\)))*(?:\[[^\n()]+\])?|\([^\n()]+\)(?:[ \t\r\n]*\.[ \t\r\n]*[\p{L}_][\p{L}\p{Nd}_]*)?)[ \t\r\n]*\(",
+        r"(?m)(?:^|[;{}:]|\b(?:if|for|switch)[ \t]+)[ \t]*(?:_(?:[ \t]*,[ \t\r\n]*_)?|[\p{L}_][\p{L}\p{Nd}_]*(?:[ \t\r\n]*\.[ \t\r\n]*[\p{L}_][\p{L}\p{Nd}_]*)*[ \t]*,[ \t\r\n]*_)[ \t]*:?=[ \t\r\n]*(?:[\p{L}_][\p{L}\p{Nd}_]*|\([^()\n]+\))(?:[ \t\r\n]*(?:\.[ \t\r\n]*(?:[\p{L}_][\p{L}\p{Nd}_]*|\([^()\n]+\))|\[[^\n()]+\]))*[ \t\r\n]*\(",
     )?;
     let mut findings = Vec::new();
     for path in production_files(context) {
@@ -118,7 +118,9 @@ pub(super) fn goroutine_leak(context: &ScanContext) -> Result<ScanResult> {
         let mut current = Vec::new();
         for (index, line) in code_lines.iter().enumerate() {
             let line_number = index + 1;
-            let body_end = if launch.is_match(line) {
+            let is_launch = launch.is_match(line);
+            let is_infinite = infinite.is_match(line);
+            let body_end = if is_launch || is_infinite {
                 brace_block_end(&code_lines, index)
             } else {
                 index
@@ -129,7 +131,7 @@ pub(super) fn goroutine_leak(context: &ScanContext) -> Result<ScanResult> {
                 continue;
             }
             let body = code_lines[index..=body_end].join("\n");
-            if launch.is_match(line) && !exit.is_match(&body) {
+            if is_launch && !exit.is_match(&body) {
                 current.push(Finding {
                     rule: "GO-02",
                     path: path.clone(),
@@ -137,7 +139,7 @@ pub(super) fn goroutine_leak(context: &ScanContext) -> Result<ScanResult> {
                     message: lines[index].trim().to_string(),
                 });
             }
-            if infinite.is_match(line) {
+            if is_infinite {
                 current.push(Finding {
                     rule: "GO-02/loop",
                     path: path.clone(),

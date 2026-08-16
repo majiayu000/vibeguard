@@ -103,6 +103,18 @@ EOF
 assert_fail "discarded call in an if initializer fails --strict" \
   bash "$GUARD" --strict "$proj_control_initializer"
 
+# --- FAIL: indexed receivers can continue into a method call ---
+proj_indexed_receiver="${tmpdir}/fail_indexed_receiver"
+mkdir -p "$proj_indexed_receiver"
+cat > "${proj_indexed_receiver}/discard.go" <<'EOF'
+package worker
+func run(files []File, i int) { _ = files[i].Close() }
+type File struct{}
+func (File) Close() error { return nil }
+EOF
+assert_fail "discarded call on an indexed receiver fails --strict" \
+  bash "$GUARD" --strict "$proj_indexed_receiver"
+
 # --- FAIL: multiple return values both discarded (mixed _ := and _ =) ---
 proj_multi="${tmpdir}/fail_multi_discard"
 mkdir -p "${proj_multi}"

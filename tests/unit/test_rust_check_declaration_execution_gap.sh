@@ -232,6 +232,19 @@ EOF
 assert_fail "nested generic Config impl still protects default()" \
   bash "$GUARD" --strict "$proj_nested_generic"
 
+# --- FAIL: workspace crate-qualified root Config types resolve their load() impl ---
+proj_workspace_crate="${tmpdir}/fail_workspace_crate_config"
+mkdir -p "${proj_workspace_crate}/crates/crate_a/src" "${proj_workspace_crate}/crates/app/src"
+cat > "${proj_workspace_crate}/crates/crate_a/src/lib.rs" <<'EOF'
+pub struct AppConfig;
+impl AppConfig { pub fn load() -> Self { Self } }
+EOF
+cat > "${proj_workspace_crate}/crates/app/src/main.rs" <<'EOF'
+fn main() { let _config = crate_a::AppConfig::default(); }
+EOF
+assert_fail "workspace crate-qualified Config detects load bypass" \
+  bash "$GUARD" --strict "$proj_workspace_crate"
+
 # --- FAIL: type names containing 'where' retain their full identity ---
 proj_somewhere="${tmpdir}/fail_where_in_config_name"
 mkdir -p "${proj_somewhere}/src"

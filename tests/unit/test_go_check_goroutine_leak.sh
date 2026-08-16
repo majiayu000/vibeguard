@@ -189,6 +189,40 @@ git -C "$proj_deleted_return" commit -q -m remove-return
 assert_fail "deleting a goroutine body return triggers re-evaluation" \
   bash "$GUARD" --strict --baseline "$return_baseline" "$proj_deleted_return"
 
+# --- BASELINE: deleting an exit from an unchanged infinite loop rechecks it ---
+proj_deleted_loop_exit="${tmpdir}/fail_deleted_loop_exit"
+mkdir -p "$proj_deleted_loop_exit"
+git -C "$proj_deleted_loop_exit" init -q
+git -C "$proj_deleted_loop_exit" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_deleted_loop_exit" config user.name "VibeGuard Tests"
+cat > "${proj_deleted_loop_exit}/worker.go" <<'EOF'
+package worker
+func run(done bool) {
+    for {
+        if done { break }
+        work()
+    }
+}
+func work() {}
+EOF
+git -C "$proj_deleted_loop_exit" add worker.go
+git -C "$proj_deleted_loop_exit" commit -q -m initial
+loop_baseline="$(git -C "$proj_deleted_loop_exit" rev-parse HEAD)"
+cat > "${proj_deleted_loop_exit}/worker.go" <<'EOF'
+package worker
+func run(done bool) {
+    for {
+        if done {}
+        work()
+    }
+}
+func work() {}
+EOF
+git -C "$proj_deleted_loop_exit" add worker.go
+git -C "$proj_deleted_loop_exit" commit -q -m remove-break
+assert_fail "deleting an infinite-loop exit triggers re-evaluation" \
+  bash "$GUARD" --strict --baseline "$loop_baseline" "$proj_deleted_loop_exit"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

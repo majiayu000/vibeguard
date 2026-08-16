@@ -296,16 +296,29 @@ def build_env(sample: dict[str, Any], repo_root: Path, tmp_path: Path) -> dict[s
             (
                 candidate
                 for candidate in candidates
-                if candidate.is_file() and os.access(candidate, os.X_OK)
+                if candidate.is_file()
+                and os.access(candidate, os.X_OK)
+                and runtime_supports_scan(candidate)
             ),
             None,
         )
         if runtime is None:
             raise BehaviorDatasetError(
-                "guard behavior eval requires a built vibeguard-runtime binary"
+                "guard behavior eval requires a built scan-capable vibeguard-runtime binary"
             )
         env["VIBEGUARD_RUNTIME"] = str(runtime)
     return env
+
+
+def runtime_supports_scan(candidate: Path) -> bool:
+    try:
+        completed = subprocess.run(
+            [str(candidate)], capture_output=True, text=True, timeout=5, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    usage = f"{completed.stdout}\n{completed.stderr}"
+    return any(line.startswith("  scan") for line in usage.splitlines())
 
 
 def base_result(sample: dict[str, Any], started: float) -> dict[str, Any]:

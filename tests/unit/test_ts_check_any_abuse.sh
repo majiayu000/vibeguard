@@ -250,6 +250,12 @@ export const Help = () => <p>{input as any}</p>;
 EOF
 assert_fail "as-any inside a JSX expression remains visible" \
   bash "$GUARD" --strict "$proj_jsx_text"
+cat > "${proj_jsx_text}/src/clean.tsx" <<'EOF'
+declare const value: string;
+export const Help = () => <p>{/[}]/.test(value) ? (value as any) : value}</p>;
+EOF
+assert_fail "regex braces do not hide any inside a JSX expression" \
+  bash "$GUARD" --strict "$proj_jsx_text"
 
 # --- FAIL: TSX generic arrows are expressions, not opening JSX tags ---
 proj_tsx_generic_arrow="${tmpdir}/fail_tsx_generic_arrow_any"
@@ -360,6 +366,22 @@ chmod +x "$ast_grep_stub_dir/ast-grep"
 assert_output_contains "staged mode without mapfile uses Rust target collection" "[TS-01]" \
   env PATH="$ast_grep_stub_dir:$PATH" BASH_ENV="$disable_mapfile_env" VIBEGUARD_STAGED_FILES="$staged_no_mapfile_list" \
   bash "$GUARD" --strict "$proj_staged_no_mapfile"
+
+# --- STAGED: changing a multiline type introducer rechecks the unchanged any token ---
+proj_staged_introducer="${tmpdir}/fail_staged_any_introducer"
+mkdir -p "${proj_staged_introducer}/src"
+git -C "$proj_staged_introducer" init -q
+git -C "$proj_staged_introducer" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_staged_introducer" config user.name "VibeGuard Tests"
+printf 'const any = 1;\nlet value =\n  any;\n' > "${proj_staged_introducer}/src/value.ts"
+git -C "$proj_staged_introducer" add src/value.ts
+git -C "$proj_staged_introducer" commit -q -m initial
+printf 'const any = 1;\nlet value:\n  any;\n' > "${proj_staged_introducer}/src/value.ts"
+git -C "$proj_staged_introducer" add src/value.ts
+staged_introducer_list="${tmpdir}/ts_any_introducer_files.txt"
+printf '%s\n' "${proj_staged_introducer}/src/value.ts" > "$staged_introducer_list"
+assert_fail "changed multiline type introducer rechecks unchanged any" \
+  env VIBEGUARD_STAGED_FILES="$staged_introducer_list" bash "$GUARD" --strict "$proj_staged_introducer"
 
 # --- PASS: recursive collection does not follow directory symlinks ---
 proj_symlink="${tmpdir}/pass_symlink_boundary"

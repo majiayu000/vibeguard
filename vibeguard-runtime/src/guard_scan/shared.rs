@@ -23,9 +23,15 @@ pub(super) fn rust_file_module(path: &Path, target: &Path) -> Option<String> {
         .map(|part| part.as_os_str())
         .collect::<Vec<_>>();
     let src = components.iter().rposition(|part| *part == "src")?;
-    let mut modules = components[src + 1..components.len().saturating_sub(1)]
-        .iter()
-        .map(|part| part.to_string_lossy().to_string())
+    let mut modules = components[..src]
+        .last()
+        .map(|part| part.to_string_lossy().replace('-', "_"))
+        .into_iter()
+        .chain(
+            components[src + 1..components.len().saturating_sub(1)]
+                .iter()
+                .map(|part| part.to_string_lossy().to_string()),
+        )
         .collect::<Vec<_>>();
     let stem = path.file_stem()?.to_string_lossy();
     if !matches!(stem.as_ref(), "lib" | "main" | "mod") {

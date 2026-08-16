@@ -108,7 +108,7 @@ class BehaviorEvalTest(unittest.TestCase):
             with self.assertRaises(run_behavior_eval.BehaviorDatasetError):
                 run_behavior_eval.materialize_guard_fixture(sample, Path(tmp))
 
-    def test_guard_env_skips_non_executable_release_runtime(self) -> None:
+    def test_guard_env_skips_release_runtime_without_scan_support(self) -> None:
         sample = {"id": "guard-runtime", "runner": "guard"}
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp) / "repo"
@@ -118,7 +118,13 @@ class BehaviorEvalTest(unittest.TestCase):
             debug.parent.mkdir(parents=True)
             release.write_text("release", encoding="utf-8")
             debug.write_text("debug", encoding="utf-8")
-            with patch("run_behavior_eval.os.access", side_effect=lambda path, _: path == debug):
+            def probe(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                usage = "  scan  <language> <rule>\n" if Path(command[0]) == debug else "old runtime\n"
+                return subprocess.CompletedProcess(command, 1, "", usage)
+
+            with patch("run_behavior_eval.os.access", return_value=True), patch(
+                "run_behavior_eval.subprocess.run", side_effect=probe
+            ):
                 env = run_behavior_eval.build_env(sample, repo_root, Path(tmp))
             self.assertEqual(env["VIBEGUARD_RUNTIME"], str(debug))
 

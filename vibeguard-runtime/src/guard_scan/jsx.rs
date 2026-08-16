@@ -1,3 +1,5 @@
+use crate::hook_checks::js::mask_javascript_non_code;
+
 fn masked(character: char) -> char {
     if character == '\n' { '\n' } else { ' ' }
 }
@@ -186,47 +188,20 @@ fn mask_tag(chars: &[char], start: usize, end: usize, output: &mut String) {
 }
 
 fn matching_jsx_expression_end(chars: &[char], start: usize) -> Option<usize> {
+    let tail = chars[start..].iter().collect::<String>();
+    let masked = mask_javascript_non_code(&tail);
     let mut depth = 0usize;
-    let mut quote = None;
-    let mut line_comment = false;
-    let mut block_comment = false;
-    let mut index = start;
-    while index < chars.len() {
-        let current = chars[index];
-        let next = chars.get(index + 1).copied();
-        if line_comment {
-            line_comment = current != '\n';
-        } else if block_comment {
-            if current == '*' && next == Some('/') {
-                block_comment = false;
-                index += 1;
-            }
-        } else if let Some(mark) = quote {
-            if current == '\\' {
-                index += 1;
-            } else if current == mark {
-                quote = None;
-            }
-        } else if current == '/' && next == Some('/') {
-            line_comment = true;
-            index += 1;
-        } else if current == '/' && next == Some('*') {
-            block_comment = true;
-            index += 1;
-        } else {
-            match current {
-                '\'' | '"' | '`' => quote = Some(current),
-                '{' => depth += 1,
-                '}' => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        return Some(index);
-                    }
+    for (offset, current) in masked.chars().enumerate() {
+        match current {
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(start + offset);
                 }
-                _ => {}
             }
+            _ => {}
         }
-        index += 1;
     }
     None
 }

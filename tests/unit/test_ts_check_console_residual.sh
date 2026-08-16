@@ -250,6 +250,12 @@ export const Help = () => <p>{console.log(value)}</p>;
 EOF
 assert_fail "console call inside a JSX expression remains visible" \
   bash "$GUARD" --strict "$proj_jsx_text"
+cat > "${proj_jsx_text}/src/help.tsx" <<'EOF'
+declare const value: string;
+export const Help = () => <p>{/[}]/.test(value) && console.log(value)}</p>;
+EOF
+assert_fail "regex braces do not hide console inside a JSX expression" \
+  bash "$GUARD" --strict "$proj_jsx_text"
 
 # --- FAIL: TSX generic arrows do not hide later executable statements ---
 proj_tsx_generic_arrow="${tmpdir}/fail_tsx_generic_arrow_console"

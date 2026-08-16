@@ -25,8 +25,8 @@ pub(super) fn any_abuse(context: &ScanContext) -> Result<ScanResult> {
         let masked = mask_typescript_non_code(&content, &path);
         let raw_lines = content.lines().collect::<Vec<_>>();
         let mut current = Vec::new();
-        for line_number in any_type_lines(&masked) {
-            if context.allows_line(&path, line_number) {
+        for (start_line, line_number) in any_type_lines(&masked) {
+            if (start_line..=line_number).any(|line| context.allows_line(&path, line)) {
                 current.push(Finding {
                     rule: "TS-01",
                     path: path.clone(),
@@ -473,7 +473,7 @@ struct TypeToken {
     line: usize,
 }
 
-fn any_type_lines(masked: &str) -> BTreeSet<usize> {
+fn any_type_lines(masked: &str) -> BTreeSet<(usize, usize)> {
     let tokens = type_tokens(masked);
     let mut findings = BTreeSet::new();
     let mut stack = Vec::new();
@@ -492,8 +492,12 @@ fn any_type_lines(masked: &str) -> BTreeSet<usize> {
             ":" if is_object_property_colon(&tokens, index, &stack) => {
                 object_colons.insert(index);
             }
-            "any" if any_is_type(&tokens, index, &object_colons, &stack) => {
-                findings.insert(token.line);
+            "any" => {
+                if let Some(introducer) =
+                    any_type_introducer(&tokens, index, &object_colons, &stack)
+                {
+                    findings.insert((tokens[introducer].line, token.line));
+                }
             }
             _ => {}
         }
@@ -501,27 +505,28 @@ fn any_type_lines(masked: &str) -> BTreeSet<usize> {
     findings
 }
 
-fn any_is_type(
+fn any_type_introducer(
     tokens: &[TypeToken],
     index: usize,
     object_colons: &BTreeSet<usize>,
     stack: &[Delimiter],
-) -> bool {
+) -> Option<usize> {
     for cursor in (0..index).rev() {
         match tokens[cursor].text.as_str() {
             ":" => {
-                return !object_colons.contains(&cursor)
+                return (!object_colons.contains(&cursor)
                     && !is_value_ternary_colon(tokens, cursor)
-                    && !is_case_or_label_colon(tokens, cursor, stack);
+                    && !is_case_or_label_colon(tokens, cursor, stack))
+                .then_some(cursor);
             }
-            "as" => return as_starts_type(tokens, cursor),
-            "," if !inside_type_container(tokens, cursor) => return false,
-            "=" => return statement_is_type_alias(tokens, cursor),
-            ";" | "{" | "}" => return false,
+            "as" => return as_starts_type(tokens, cursor).then_some(cursor),
+            "," if !inside_type_container(tokens, cursor) => return None,
+            "=" => return statement_is_type_alias(tokens, cursor).then_some(cursor),
+            ";" | "{" | "}" => return None,
             _ => {}
         }
     }
-    false
+    None
 }
 
 fn is_case_or_label_colon(tokens: &[TypeToken], colon: usize, stack: &[Delimiter]) -> bool {
