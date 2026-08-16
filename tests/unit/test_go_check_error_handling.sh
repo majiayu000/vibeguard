@@ -70,7 +70,8 @@ cat > "${proj_mixed_assign}/handler.go" <<'EOF'
 package handler
 func fetch() (string, error) { return "", nil }
 func Run() {
-    value, _ := fetch()
+    value,
+        _ := fetch()
     _ = value
 }
 EOF

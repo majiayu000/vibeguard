@@ -159,6 +159,22 @@ retry: any;
 EOF
 assert_ok "case and label values named any pass" bash "$GUARD" --strict "$proj_case_label"
 
+# --- FAIL: a later annotation colon inside a case clause remains a type ---
+proj_case_annotation="${tmpdir}/fail_case_clause_any_type"
+mkdir -p "${proj_case_annotation}/src"
+cat > "${proj_case_annotation}/src/value.ts" <<'EOF'
+declare const input: unknown;
+export function inspect(value: number): void {
+  switch (value) {
+    case 1:
+      let result: any = input;
+      console.info(result);
+  }
+}
+EOF
+assert_fail "any annotation inside a case clause still fails" \
+  bash "$GUARD" --strict "$proj_case_annotation"
+
 # --- FAIL: class fields remain type annotations, not labels ---
 proj_class_field="${tmpdir}/fail_class_field_any_type"
 mkdir -p "${proj_class_field}/src"
@@ -344,6 +360,14 @@ git -C "$proj_untracked" commit -q -m initial
 printf 'export const untracked: any = 1;\n' > "${proj_untracked}/src/untracked.ts"
 assert_fail "standalone scan reports an untracked source violation" \
   bash "$GUARD" --strict "$proj_untracked"
+
+# --- PASS: standalone scans exclude harness-owned copied worktrees ---
+proj_harness="${tmpdir}/pass_harness_worktree_exclusion"
+mkdir -p "${proj_harness}/src" "${proj_harness}/.harness/worktrees/copy/src"
+printf 'export const clean: string = "ok";\n' > "${proj_harness}/src/clean.ts"
+printf 'export const copied: any = 1;\n' > "${proj_harness}/.harness/worktrees/copy/src/copied.ts"
+assert_ok "standalone scan excludes .harness/worktrees" \
+  bash "$GUARD" --strict "$proj_harness"
 
 # --- PASS: empty project ---
 proj_empty="${tmpdir}/pass_empty"

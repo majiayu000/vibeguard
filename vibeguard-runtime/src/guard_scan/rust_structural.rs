@@ -73,9 +73,9 @@ pub(super) fn duplicate_types(context: &ScanContext) -> Result<ScanResult> {
 
 pub(super) fn workspace_consistency(context: &ScanContext) -> Result<ScanResult> {
     let cargo_path = context.target.join("Cargo.toml");
-    let cargo = match fs::read_to_string(&cargo_path) {
+    let cargo = match context.read(&cargo_path) {
         Ok(cargo) => cargo,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+        Err(_error) if !cargo_path.exists() => {
             return Ok(ScanResult::new(
                 Vec::new(),
                 format!("Not a Cargo workspace: {} not found.", cargo_path.display()),
@@ -112,7 +112,7 @@ pub(super) fn workspace_consistency(context: &ScanContext) -> Result<ScanResult>
     for member in members {
         let src = context.target.join(member).join("src");
         for path in walk_rust(&src)? {
-            let content = fs::read_to_string(&path)?;
+            let content = context.read(&path)?;
             let comment_free = strip_rust_comments(&content);
             for (index, code) in comment_free.lines().enumerate() {
                 for captures in env_regex.captures_iter(code) {

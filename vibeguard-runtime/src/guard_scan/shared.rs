@@ -538,10 +538,13 @@ fn walked_files(target: &Path) -> Result<Vec<PathBuf>> {
             let name = entry.file_name();
             let file_type = entry.file_type()?;
             if file_type.is_dir() {
+                let is_harness_worktrees = name == "worktrees"
+                    && dir.file_name().is_some_and(|parent| parent == ".harness");
                 if matches!(
                     name.to_str(),
                     Some(".git" | "target" | "node_modules" | "vendor" | "dist" | "build")
-                ) {
+                ) || is_harness_worktrees
+                {
                     continue;
                 }
                 visit(&path, files)?;

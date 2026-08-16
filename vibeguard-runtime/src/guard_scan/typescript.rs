@@ -531,9 +531,12 @@ fn is_case_or_label_colon(tokens: &[TypeToken], colon: usize, stack: &[Delimiter
     let statement = &tokens[start..colon];
     if statement
         .first()
-        .is_some_and(|token| matches!(token.text.as_str(), "case" | "default"))
+        .is_some_and(|token| token.text == "default")
     {
-        return true;
+        return statement.len() == 1;
+    }
+    if statement.first().is_some_and(|token| token.text == "case") {
+        return case_separator(tokens, start, colon) == Some(colon);
     }
     matches!(stack.last(), Some(Delimiter::Brace(BraceKind::Block)))
         && statement.len() == 1
@@ -542,6 +545,34 @@ fn is_case_or_label_colon(tokens: &[TypeToken], colon: usize, stack: &[Delimiter
             .as_bytes()
             .first()
             .is_some_and(|byte| byte.is_ascii_alphabetic() || matches!(byte, b'_' | b'$'))
+}
+
+fn case_separator(tokens: &[TypeToken], start: usize, end: usize) -> Option<usize> {
+    let mut delimiters = Vec::new();
+    let mut ternary_depth = 0usize;
+    for cursor in start + 1..=end {
+        match tokens[cursor].text.as_str() {
+            "(" | "[" | "{" => delimiters.push(tokens[cursor].text.as_str()),
+            ")" if delimiters.last() == Some(&"(") => {
+                delimiters.pop();
+            }
+            "]" if delimiters.last() == Some(&"[") => {
+                delimiters.pop();
+            }
+            "}" if delimiters.last() == Some(&"{") => {
+                delimiters.pop();
+            }
+            "?" if delimiters.is_empty()
+                && tokens.get(cursor + 1).is_none_or(|token| token.text != ".") =>
+            {
+                ternary_depth += 1;
+            }
+            ":" if delimiters.is_empty() && ternary_depth > 0 => ternary_depth -= 1,
+            ":" if delimiters.is_empty() => return Some(cursor),
+            _ => {}
+        }
+    }
+    None
 }
 
 fn as_starts_type(tokens: &[TypeToken], index: usize) -> bool {

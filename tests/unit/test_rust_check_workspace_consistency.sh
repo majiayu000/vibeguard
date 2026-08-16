@@ -245,6 +245,27 @@ git -C "$proj_baseline" commit -q -m contributor
 assert_fail "baseline reports a changed database configuration contributor" \
   bash "$GUARD" --strict --baseline "$baseline" "$proj_baseline"
 
+# --- STAGED: aggregate sources are read from the index, not unstaged worktree content ---
+proj_staged="${tmpdir}/staged_index_sources"
+mkdir -p "${proj_staged}/api/src" "${proj_staged}/worker/src"
+git -C "$proj_staged" init -q
+git -C "$proj_staged" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_staged" config user.name "VibeGuard Tests"
+printf '[workspace]\nmembers = ["api", "worker"]\n' > "${proj_staged}/Cargo.toml"
+for member in api worker; do
+  printf '[package]\nname = "%s"\nversion = "0.1.0"\n' "$member" > "${proj_staged}/${member}/Cargo.toml"
+  printf 'fn main() { let _ = std::env::var("APP_DB_PATH"); }\n' > "${proj_staged}/${member}/src/main.rs"
+done
+git -C "$proj_staged" add .
+git -C "$proj_staged" commit -q -m baseline
+printf 'fn main() { let _ = std::env::var("WORKER_DB_PATH"); }\n' > "${proj_staged}/worker/src/main.rs"
+git -C "$proj_staged" add worker/src/main.rs
+printf 'fn main() { let _ = std::env::var("APP_DB_PATH"); }\n' > "${proj_staged}/worker/src/main.rs"
+staged_list="${tmpdir}/staged_workspace_files.txt"
+printf '%s\n' "${proj_staged}/worker/src/main.rs" > "$staged_list"
+assert_fail "staged RS-06 reads conflicting source from the index" \
+  env VIBEGUARD_STAGED_FILES="$staged_list" bash "$GUARD" --strict "$proj_staged"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0
