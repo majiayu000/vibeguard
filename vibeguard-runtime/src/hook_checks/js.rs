@@ -270,6 +270,7 @@ pub(crate) fn mask_javascript_non_code(source: &str) -> String {
             LexState::Quoted(quote) if current == quote => {
                 masked.push(' ');
                 state = LexState::Code;
+                regex_can_start = false;
                 index += 1;
             }
             LexState::Quoted(_) => {

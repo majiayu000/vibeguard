@@ -80,7 +80,7 @@ pub(super) fn console_residual(context: &ScanContext) -> Result<ScanResult> {
     }
     let cli_exemption_removed = previous_cli_project(context)?;
     let console = Regex::new(
-        r"\bconsole[ \t\r\n]*\.[ \t\r\n]*[A-Za-z_$][A-Za-z0-9_$]*[ \t\r\n]*(?:\?\.)?[ \t\r\n]*\(",
+        r"\bconsole[ \t\r\n]*(?:\.|\?\.)[ \t\r\n]*[A-Za-z_$][A-Za-z0-9_$]*[ \t\r\n]*(?:\?\.)?[ \t\r\n]*\(",
     )?;
     let mut findings = Vec::new();
     for path in production_files(context) {
@@ -491,7 +491,7 @@ fn any_type_lines(masked: &str) -> BTreeSet<usize> {
             ":" if is_object_property_colon(&tokens, index, &stack) => {
                 object_colons.insert(index);
             }
-            "any" if any_is_type(&tokens, index, &object_colons) => {
+            "any" if any_is_type(&tokens, index, &object_colons, &stack) => {
                 findings.insert(token.line);
             }
             _ => {}
@@ -500,11 +500,18 @@ fn any_type_lines(masked: &str) -> BTreeSet<usize> {
     findings
 }
 
-fn any_is_type(tokens: &[TypeToken], index: usize, object_colons: &BTreeSet<usize>) -> bool {
+fn any_is_type(
+    tokens: &[TypeToken],
+    index: usize,
+    object_colons: &BTreeSet<usize>,
+    stack: &[Delimiter],
+) -> bool {
     for cursor in (0..index).rev() {
         match tokens[cursor].text.as_str() {
             ":" => {
-                return !object_colons.contains(&cursor) && !is_value_ternary_colon(tokens, cursor);
+                return !object_colons.contains(&cursor)
+                    && !is_value_ternary_colon(tokens, cursor)
+                    && !is_case_or_label_colon(tokens, cursor, stack);
             }
             "as" => return as_starts_type(tokens, cursor),
             "," if !inside_type_container(tokens, cursor) => return false,
@@ -514,6 +521,27 @@ fn any_is_type(tokens: &[TypeToken], index: usize, object_colons: &BTreeSet<usiz
         }
     }
     false
+}
+
+fn is_case_or_label_colon(tokens: &[TypeToken], colon: usize, stack: &[Delimiter]) -> bool {
+    let start = tokens[..colon]
+        .iter()
+        .rposition(|token| matches!(token.text.as_str(), ";" | "{" | "}"))
+        .map_or(0, |position| position + 1);
+    let statement = &tokens[start..colon];
+    if statement
+        .first()
+        .is_some_and(|token| matches!(token.text.as_str(), "case" | "default"))
+    {
+        return true;
+    }
+    matches!(stack.last(), Some(Delimiter::Brace(BraceKind::Block)))
+        && statement.len() == 1
+        && statement[0]
+            .text
+            .as_bytes()
+            .first()
+            .is_some_and(|byte| byte.is_ascii_alphabetic() || matches!(byte, b'_' | b'$'))
 }
 
 fn as_starts_type(tokens: &[TypeToken], index: usize) -> bool {
@@ -650,7 +678,9 @@ fn classify_brace(
         .iter()
         .rposition(|token| matches!(token.text.as_str(), ";" | "{" | "}"));
     let statement = &tokens[boundary.map_or(0, |value| value + 1)..index];
-    if statement.iter().any(|token| token.text == "interface")
+    if statement
+        .iter()
+        .any(|token| matches!(token.text.as_str(), "class" | "interface"))
         || statement.first().is_some_and(|token| token.text == "type")
     {
         BraceKind::Type

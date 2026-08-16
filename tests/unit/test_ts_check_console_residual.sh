@@ -99,6 +99,17 @@ export function inspect(data: unknown): void {
 EOF
 assert_fail "multiline console member call fails --strict" bash "$GUARD" --strict "$proj_multiline"
 
+# --- FAIL: optional chaining on the console object is still a console call ---
+proj_optional_object="${tmpdir}/fail_optional_console_object"
+mkdir -p "${proj_optional_object}/src"
+cat > "${proj_optional_object}/src/service.ts" <<'EOF'
+export function inspect(data: unknown): void {
+  console?.log(data);
+}
+EOF
+assert_fail "console optional-object call fails --strict" \
+  bash "$GUARD" --strict "$proj_optional_object"
+
 # --- PASS: no console calls ---
 proj_clean="${tmpdir}/pass_clean"
 mkdir -p "${proj_clean}/src"

@@ -146,6 +146,29 @@ export const value = condition ? specific : any;
 EOF
 assert_ok "ternary value named any passes" bash "$GUARD" --strict "$proj_ternary"
 
+# --- PASS: any after switch-case and label colons is a value ---
+proj_case_label="${tmpdir}/pass_case_label_any_value"
+mkdir -p "${proj_case_label}/src"
+cat > "${proj_case_label}/src/value.ts" <<'EOF'
+declare const any: unknown;
+export function inspect(value: number): void {
+  switch (value) { case 1: any; default: break; }
+retry: any;
+  if (value > 1) { break retry; }
+}
+EOF
+assert_ok "case and label values named any pass" bash "$GUARD" --strict "$proj_case_label"
+
+# --- FAIL: class fields remain type annotations, not labels ---
+proj_class_field="${tmpdir}/fail_class_field_any_type"
+mkdir -p "${proj_class_field}/src"
+cat > "${proj_class_field}/src/value.ts" <<'EOF'
+export class Holder {
+  value: any;
+}
+EOF
+assert_fail "class fields typed any still fail" bash "$GUARD" --strict "$proj_class_field"
+
 # --- PASS: import/export aliases named any are values, not type assertions ---
 proj_alias="${tmpdir}/pass_any_import_alias"
 mkdir -p "${proj_alias}/src"
@@ -221,6 +244,17 @@ export const payload: any = ratio;
 EOF
 assert_fail "any after postfix non-null division remains visible" \
   bash "$GUARD" --strict "$proj_nonnull_division"
+
+# --- FAIL: division after a quoted literal must not mask later source ---
+proj_string_division="${tmpdir}/fail_any_after_string_division"
+mkdir -p "${proj_string_division}/src"
+cat > "${proj_string_division}/src/value.ts" <<'EOF'
+declare const total: number;
+export const ratio = "10" / total;
+export const payload: any = ratio;
+EOF
+assert_fail "any after quoted-literal division remains visible" \
+  bash "$GUARD" --strict "$proj_string_division"
 
 # --- FAIL: any nested inside generic type annotations is still a type node ---
 proj_nested_type="${tmpdir}/fail_nested_any_type"

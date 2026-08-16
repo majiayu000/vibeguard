@@ -63,6 +63,20 @@ func Run() {
 EOF
 assert_fail "_, _ = CALL discards both values fails --strict" bash "$GUARD" --strict "$proj_multi_assign"
 
+# --- FAIL: mixed tuple assignment discards the error result ---
+proj_mixed_assign="${tmpdir}/fail_mixed_assign"
+mkdir -p "${proj_mixed_assign}"
+cat > "${proj_mixed_assign}/handler.go" <<'EOF'
+package handler
+func fetch() (string, error) { return "", nil }
+func Run() {
+    value, _ := fetch()
+    _ = value
+}
+EOF
+assert_fail "value, _ := CALL discards the error fails --strict" \
+  bash "$GUARD" --strict "$proj_mixed_assign"
+
 # --- FAIL: multiple return values both discarded (mixed _ := and _ =) ---
 proj_multi="${tmpdir}/fail_multi_discard"
 mkdir -p "${proj_multi}"

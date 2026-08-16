@@ -4,7 +4,7 @@ use super::shared::{Finding, Result, ScanContext, ScanResult};
 
 pub(super) fn error_handling(context: &ScanContext) -> Result<ScanResult> {
     let call = Regex::new(
-        r"(?m)(?:^|[;{}:])[ \t]*_(?:[ \t]*,[ \t]*_)?[ \t]*:?=[ \t\r\n]*(?:[A-Za-z_][A-Za-z0-9_]*(?:[ \t\r\n]*\.[ \t\r\n]*[A-Za-z_][A-Za-z0-9_]*)*(?:\[[^\n()]+\])?|\([^\n()]+\)(?:[ \t\r\n]*\.[ \t\r\n]*[A-Za-z_][A-Za-z0-9_]*)?)[ \t\r\n]*\(",
+        r"(?m)(?:^|[;{}:])[ \t]*(?:_(?:[ \t]*,[ \t]*_)?|[A-Za-z_][A-Za-z0-9_]*(?:[ \t\r\n]*\.[ \t\r\n]*[A-Za-z_][A-Za-z0-9_]*)*[ \t]*,[ \t]*_)[ \t]*:?=[ \t\r\n]*(?:[A-Za-z_][A-Za-z0-9_]*(?:[ \t\r\n]*\.[ \t\r\n]*[A-Za-z_][A-Za-z0-9_]*)*(?:\[[^\n()]+\])?|\([^\n()]+\)(?:[ \t\r\n]*\.[ \t\r\n]*[A-Za-z_][A-Za-z0-9_]*)?)[ \t\r\n]*\(",
     )?;
     let mut findings = Vec::new();
     for path in production_files(context) {
