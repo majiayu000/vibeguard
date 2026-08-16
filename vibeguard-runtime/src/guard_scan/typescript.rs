@@ -739,26 +739,50 @@ fn is_object_property_colon(tokens: &[TypeToken], index: usize, stack: &[Delimit
     if !matches!(stack.last(), Some(Delimiter::Brace(BraceKind::Object))) {
         return false;
     }
-    let Some(previous) = index.checked_sub(1).and_then(|value| tokens.get(value)) else {
-        return false;
-    };
-    let (key_index, key) = if previous.text == "?" {
-        let Some(key_index) = index.checked_sub(2) else {
-            return false;
-        };
-        (key_index, &tokens[key_index])
-    } else {
-        (index - 1, previous)
-    };
-    if !key
-        .text
-        .as_bytes()
-        .first()
-        .is_some_and(|byte| byte.is_ascii_alphabetic() || matches!(byte, b'_' | b'$'))
+    let mut end = index;
+    if tokens
+        .get(end.wrapping_sub(1))
+        .is_some_and(|token| token.text == "?")
     {
-        return false;
+        end -= 1;
     }
-    key_index == 0 || matches!(tokens[key_index - 1].text.as_str(), "{" | "," | ";")
+    let Some(key) = end.checked_sub(1).and_then(|value| tokens.get(value)) else {
+        return false;
+    };
+    let start = if matches!(key.text.as_str(), "{" | "," | ";") {
+        end
+    } else if key.text == "]" {
+        matching_open_bracket(tokens, end - 1).unwrap_or(end)
+    } else if key.text.as_bytes().first().is_some_and(|byte| {
+        byte.is_ascii_alphabetic() || byte.is_ascii_digit() || matches!(byte, b'_' | b'$')
+    }) {
+        let mut start = end - 1;
+        while start > 0
+            && tokens[start - 1]
+                .text
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_'))
+        {
+            start -= 1;
+        }
+        start
+    } else {
+        return false;
+    };
+    start == 0 || matches!(tokens[start - 1].text.as_str(), "{" | "," | ";")
+}
+
+fn matching_open_bracket(tokens: &[TypeToken], close: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for cursor in (0..=close).rev() {
+        match tokens[cursor].text.as_str() {
+            "]" => depth += 1,
+            "[" if depth == 1 => return Some(cursor),
+            "[" => depth -= 1,
+            _ => {}
+        }
+    }
+    None
 }
 
 fn pop_delimiter(stack: &mut Vec<Delimiter>, matches: impl Fn(Delimiter) -> bool) {

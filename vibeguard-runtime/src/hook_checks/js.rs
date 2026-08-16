@@ -165,6 +165,8 @@ pub(crate) fn mask_javascript_non_code(source: &str) -> String {
     let mut state = LexState::Code;
     let mut template_expression_depths: Vec<usize> = Vec::new();
     let mut regex_can_start = true;
+    let mut pending_control_condition = false;
+    let mut control_condition_parens = Vec::new();
     let mut index = 0;
     while index < chars.len() {
         let current = chars[index];
@@ -228,6 +230,8 @@ pub(crate) fn mask_javascript_non_code(source: &str) -> String {
                 let token = chars[start..index].iter().collect::<String>();
                 masked.push_str(&token);
                 regex_can_start = keyword_allows_regex_after(&token);
+                pending_control_condition =
+                    matches!(token.as_str(), "if" | "for" | "while" | "with");
             }
             LexState::Code if matches!(current, '+' | '-') && next == Some(current) => {
                 masked.push(current);
@@ -238,10 +242,24 @@ pub(crate) fn mask_javascript_non_code(source: &str) -> String {
                 masked.push(current);
                 index += 1;
             }
+            LexState::Code if current == '(' => {
+                masked.push(current);
+                control_condition_parens.push(pending_control_condition);
+                pending_control_condition = false;
+                regex_can_start = true;
+                index += 1;
+            }
+            LexState::Code if current == ')' => {
+                masked.push(current);
+                regex_can_start = control_condition_parens.pop().unwrap_or(false);
+                pending_control_condition = false;
+                index += 1;
+            }
             LexState::Code => {
                 masked.push(current);
                 if !current.is_whitespace() {
                     regex_can_start = !matches!(current, ')' | ']' | '}' | '.' | '0'..='9');
+                    pending_control_condition = false;
                 }
                 index += 1;
             }

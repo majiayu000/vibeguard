@@ -234,6 +234,18 @@ export const log = console.log;
 EOF
 assert_ok "console method reference without a call passes" bash "$GUARD" --strict "$proj_reference"
 
+# --- PASS: console-looking text in regex literals after control conditions is masked ---
+proj_control_regex="${tmpdir}/pass_control_condition_regex"
+mkdir -p "${proj_control_regex}/src"
+cat > "${proj_control_regex}/src/service.ts" <<'EOF'
+declare const enabled: boolean;
+declare const input: string;
+if (enabled) /console.log()/.test(input);
+while (enabled) /console.warn()/.test(input);
+for (; enabled;) /console.error()/.test(input);
+EOF
+assert_ok "regex literals after control conditions pass" bash "$GUARD" --strict "$proj_control_regex"
+
 # --- FAIL: JSX closing tags do not hide later console calls ---
 proj_tsx="${tmpdir}/fail_tsx_after_closing_tag"
 mkdir -p "${proj_tsx}/src"

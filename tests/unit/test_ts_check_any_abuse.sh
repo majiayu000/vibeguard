@@ -126,6 +126,16 @@ export function sendPayload(consume: (value: object) => void) { consume({ value:
 EOF
 assert_ok "object values named any pass in assignments, returns, and arguments" bash "$GUARD" --strict "$proj_object"
 
+# --- PASS: quoted, numeric, and computed object keys still introduce values ---
+proj_non_identifier_keys="${tmpdir}/pass_non_identifier_object_keys"
+mkdir -p "${proj_non_identifier_keys}/src"
+cat > "${proj_non_identifier_keys}/src/value.ts" <<'EOF'
+declare const any: unknown;
+declare const key: string;
+export const payload = { 'value': any, 42: any, [key]: any };
+EOF
+assert_ok "non-identifier object keys followed by any pass" bash "$GUARD" --strict "$proj_non_identifier_keys"
+
 # --- PASS: nested object values named any are still values, not annotations ---
 proj_nested_object="${tmpdir}/pass_nested_any_object_value"
 mkdir -p "${proj_nested_object}/src"
