@@ -88,6 +88,8 @@ for language in ("rust", "go", "typescript"):
         raise SystemExit(f"guards/{language}/runtime-shim.sh lets debug shadow release")
     if "VIBEGUARD_RUNTIME is not executable or not found" not in shim:
         raise SystemExit(f"guards/{language}/runtime-shim.sh ignores invalid explicit runtime overrides")
+    if "runtime_supports_scan" not in shim:
+        raise SystemExit(f"guards/{language}/runtime-shim.sh does not probe implicit scan support")
     for path in sorted(language_dir.glob("check_*.sh")):
         guards.append(path)
         content = path.read_text(encoding="utf-8")
@@ -106,6 +108,31 @@ if behavior_eval.index('"target" / "release" / "vibeguard-runtime"') > behavior_
 PY
 }
 
+implicit_runtime_probe_skips_stale_release() {
+  local root="${TMP_DIR}/runtime-probe"
+  mkdir -p "$root/guards/go" "$root/vibeguard-runtime/target/release" \
+    "$root/vibeguard-runtime/target/debug"
+  cp "$REPO_DIR/guards/go/runtime-shim.sh" "$root/guards/go/runtime-shim.sh"
+  cat > "$root/vibeguard-runtime/target/release/vibeguard-runtime" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'Usage: vibeguard-runtime <legacy-command>' >&2
+exit 2
+EOF
+  cat > "$root/vibeguard-runtime/target/debug/vibeguard-runtime" <<'EOF'
+#!/usr/bin/env bash
+if [[ $# -eq 0 ]]; then
+  printf '%s\n' '  scan  <language> <rule>' >&2
+  exit 2
+fi
+printf '%s\n' 'selected scan-capable runtime'
+EOF
+  chmod +x "$root/vibeguard-runtime/target/release/vibeguard-runtime" \
+    "$root/vibeguard-runtime/target/debug/vibeguard-runtime"
+  env -u VIBEGUARD_RUNTIME bash -c 'source "$1"; run_runtime_guard go error-handling "$2"' \
+    _ "$root/guards/go/runtime-shim.sh" "$root" \
+    | grep -qF 'selected scan-capable runtime'
+}
+
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -117,6 +144,8 @@ assert_cmd "retired alerting template has no live references" assert_no_live_ref
 assert_cmd "ast-grep is available for the sgconfig smoke" command -v ast-grep
 assert_cmd "sgconfig discovers the known RS-14 rule" sgconfig_smoke
 assert_cmd "production language guards delegate to the Rust runtime" production_language_guards_use_runtime
+assert_cmd "implicit guard runtime skips stale release binaries" \
+  implicit_runtime_probe_skips_stale_release
 assert_fails_with "invalid explicit guard runtime fails visibly" \
   "VIBEGUARD_RUNTIME is not executable or not found" \
   env VIBEGUARD_RUNTIME="$TMP_DIR/missing-runtime" \

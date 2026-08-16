@@ -237,6 +237,20 @@ export const payload: any = view;
 EOF
 assert_fail "any after JSX closing tag fails --strict" bash "$GUARD" --strict "$proj_tsx"
 
+# --- PASS/FAIL: JSX display text is masked while brace expressions stay executable ---
+proj_jsx_text="${tmpdir}/jsx_text_any"
+mkdir -p "${proj_jsx_text}/src"
+cat > "${proj_jsx_text}/src/clean.tsx" <<'EOF'
+export const Help = () => <p>Input: any value</p>;
+EOF
+assert_ok "any in JSX display text passes" bash "$GUARD" --strict "$proj_jsx_text"
+cat > "${proj_jsx_text}/src/clean.tsx" <<'EOF'
+declare const input: unknown;
+export const Help = () => <p>{input as any}</p>;
+EOF
+assert_fail "as-any inside a JSX expression remains visible" \
+  bash "$GUARD" --strict "$proj_jsx_text"
+
 # --- FAIL: division after a postfix operator must not mask later source ---
 proj_postfix_division="${tmpdir}/fail_any_after_postfix_division"
 mkdir -p "${proj_postfix_division}/src"

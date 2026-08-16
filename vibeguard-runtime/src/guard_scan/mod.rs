@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 mod go;
+mod jsx;
 mod rust;
 mod rust_structural;
 mod shared;

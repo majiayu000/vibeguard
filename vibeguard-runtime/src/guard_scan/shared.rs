@@ -7,15 +7,6 @@ use std::process::Command;
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-pub(super) fn read_allowlist(path: &Path) -> Result<BTreeSet<String>> {
-    let content = match fs::read_to_string(path) {
-        Ok(content) => content,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(format!("cannot read {}: {error}", path.display()).into()),
-    };
-    Ok(parse_allowlist(&content))
-}
-
 pub(super) fn parse_allowlist(content: &str) -> BTreeSet<String> {
     content
         .lines()
@@ -442,6 +433,42 @@ impl ScanContext {
             .previous_content(path)?
             .map(|content| parse_allowlist(&content))
             .unwrap_or_default())
+    }
+
+    pub(super) fn current_allowlist(&self, path: &Path) -> Result<BTreeSet<String>> {
+        if !self.staged {
+            return match fs::read_to_string(path) {
+                Ok(content) => Ok(parse_allowlist(&content)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(BTreeSet::new()),
+                Err(error) => Err(format!("cannot read {}: {error}", path.display()).into()),
+            };
+        }
+        let root = self
+            .git_root
+            .as_deref()
+            .ok_or("staged scan requires a Git worktree")?;
+        let relative = path.strip_prefix(root)?;
+        let output = Command::new("git")
+            .args(["-C"])
+            .arg(root)
+            .args(["show", &format!(":{}", relative.to_string_lossy())])
+            .output()?;
+        if output.status.success() {
+            return String::from_utf8(output.stdout)
+                .map(|content| parse_allowlist(&content))
+                .map_err(|error| format!("{} is not UTF-8: {error}", path.display()).into());
+        }
+        let tracked = Command::new("git")
+            .args(["-C"])
+            .arg(root)
+            .args(["ls-files", "--error-unmatch", "--"])
+            .arg(relative)
+            .output()?;
+        if tracked.status.code() == Some(1) {
+            Ok(BTreeSet::new())
+        } else {
+            Err(format!("cannot read staged allowlist {}", path.display()).into())
+        }
     }
 
     pub(super) fn keep_unsuppressed(&self, content: &str, findings: Vec<Finding>) -> Vec<Finding> {

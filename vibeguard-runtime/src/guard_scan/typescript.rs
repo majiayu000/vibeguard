@@ -4,6 +4,7 @@ use std::path::Path;
 
 use crate::hook_checks::js::mask_javascript_non_code;
 
+use super::jsx::mask_jsx_text;
 use super::shared::{Finding, Result, ScanContext, ScanResult, is_typescript_test_path};
 
 fn mask_typescript_non_code(source: &str, path: &Path) -> String {
@@ -11,7 +12,7 @@ fn mask_typescript_non_code(source: &str, path: &Path) -> String {
         path.extension().and_then(|value| value.to_str()),
         Some("tsx" | "jsx")
     ) {
-        mask_javascript_non_code(&source.replace("</", "< "))
+        mask_javascript_non_code(&mask_jsx_text(source))
     } else {
         mask_javascript_non_code(source)
     }

@@ -237,6 +237,20 @@ console.log(view);
 EOF
 assert_fail "console call after JSX closing tag fails --strict" bash "$GUARD" --strict "$proj_tsx"
 
+# --- PASS/FAIL: JSX display text is masked while brace expressions stay executable ---
+proj_jsx_text="${tmpdir}/jsx_text_console"
+mkdir -p "${proj_jsx_text}/src"
+cat > "${proj_jsx_text}/src/help.tsx" <<'EOF'
+export const Help = () => <p>Use console.log() to debug</p>;
+EOF
+assert_ok "console call text inside JSX passes" bash "$GUARD" --strict "$proj_jsx_text"
+cat > "${proj_jsx_text}/src/help.tsx" <<'EOF'
+declare const value: unknown;
+export const Help = () => <p>{console.log(value)}</p>;
+EOF
+assert_fail "console call inside a JSX expression remains visible" \
+  bash "$GUARD" --strict "$proj_jsx_text"
+
 # --- BASELINE: removing the CLI exemption rechecks unchanged console calls ---
 proj_cli_removed="${tmpdir}/baseline_cli_removed"
 mkdir -p "${proj_cli_removed}/src"

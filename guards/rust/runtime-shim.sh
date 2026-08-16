@@ -19,11 +19,17 @@ run_runtime_guard() {
     fi
     exec "${candidate}" scan "${language}" "${rule}" "$@"
   fi
+  runtime_supports_scan() {
+    local usage
+    usage="$("$1" 2>&1 || true)"
+    grep -qE '^  scan[[:space:]]' <<< "${usage}"
+  }
   for candidate in \
     "${repo_dir}/vibeguard-runtime/target/release/vibeguard-runtime" \
     "${repo_dir}/vibeguard-runtime/target/debug/vibeguard-runtime" \
     "${HOME:-}/.vibeguard/installed/bin/vibeguard-runtime"; do
-    if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
+    if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]] \
+      && runtime_supports_scan "${candidate}"; then
       exec "${candidate}" scan "${language}" "${rule}" "$@"
     fi
   done

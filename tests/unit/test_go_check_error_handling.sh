@@ -212,6 +212,17 @@ EOF
 assert_fail "parenthesized discarded calls fail --strict" \
   bash "$GUARD" --strict "$proj_parenthesized"
 
+# --- FAIL: calls through type-asserted receivers still discard errors ---
+proj_type_assertion="${tmpdir}/fail_type_assertion_receiver"
+mkdir -p "$proj_type_assertion"
+cat > "${proj_type_assertion}/discard.go" <<'EOF'
+package discard
+import "io"
+func Cleanup(value any) { _ = value.(io.Closer).Close() }
+EOF
+assert_fail "discarded call on a type-asserted receiver fails --strict" \
+  bash "$GUARD" --strict "$proj_type_assertion"
+
 # --- PASS: Go raw strings never become executable scanner input ---
 proj_raw_string="${tmpdir}/pass_raw_string"
 mkdir -p "$proj_raw_string"
