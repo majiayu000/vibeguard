@@ -4,7 +4,22 @@ header "GH719 persistent Codex skill opt-out"
 gh719_home="${TMP_HOME}/gh719-home"
 gh719_config="${gh719_home}/.vibeguard/config.json"
 gh719_runtime="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
+gh719_current_runtime_version="$(tr -d '[:space:]' < "${REPO_DIR}/vibeguard-runtime/VERSION")"
 mkdir -p "${gh719_home}"
+
+gh753_project_dir="${TMP_HOME}/gh753-project-config"
+gh753_caller_dir="${TMP_HOME}/gh753-outside-caller"
+mkdir -p "${gh753_project_dir}" "${gh753_caller_dir}"
+printf '%s\n' '{"disabled_skills":["plan-flow"]}' \
+  > "${gh753_project_dir}/.vibeguard.json"
+assert_cmd "disabled skills resolve against the setup repository outside its cwd" env \
+  VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  VIBEGUARD_SETUP_RUNTIME_VERSION="${gh719_current_runtime_version}" bash -c '
+    source "$1/scripts/setup/lib.sh"
+    REPO_DIR="$2"
+    cd "$3"
+    [[ "$(disabled_skills)" == plan-flow ]]
+  ' _ "${REPO_DIR}" "${gh753_project_dir}" "${gh753_caller_dir}"
 
 assert_cmd "install cleanup releases the lock before deleting staged runtime" env \
   VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c '
@@ -65,7 +80,6 @@ printf '%s\n' '#!/usr/bin/env bash' \
   '  *) printf "%s\n" "vibeguard-runtime error: Usage: capability fixture" >&2; exit 1 ;;' \
   'esac' > "${gh719_capability_runtime}"
 chmod +x "${gh719_capability_runtime}"
-gh719_current_runtime_version="$(tr -d '[:space:]' < "${REPO_DIR}/vibeguard-runtime/VERSION")"
 gh719_capability_probe_tmp="${TMP_HOME}/gh719-capability-probe-tmp"
 mkdir -p "${gh719_capability_probe_tmp}"
 assert_cmd "install-state selector rejects old setup-state-init usage" env \

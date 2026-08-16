@@ -130,7 +130,7 @@ disabled_skills() {
     return 0
   fi
   local output
-  if ! output="$(setup_runtime runtime-config-get-list \
+  if ! output="$(cd "${REPO_DIR}" && setup_runtime runtime-config-get-list \
     VIBEGUARD_DISABLED_SKILLS disabled_skills 2>&1)"; then
     red "  ERROR: cannot read disabled_skills from $(disabled_skills_source_label)" >&2
     while IFS= read -r line; do

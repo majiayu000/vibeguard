@@ -97,6 +97,17 @@ pub(crate) fn runtime_config_int_value(
         .unwrap_or_else(exit_runtime_config_error)
 }
 
+pub(crate) fn runtime_config_int_value_for_cwd(
+    env_name: &str,
+    json_path: &str,
+    default_value: &str,
+    cwd: Option<&str>,
+) -> u64 {
+    resolution::resolve_int(env_name, json_path, default_value, cwd)
+        .map(|resolved| resolved.value)
+        .unwrap_or_else(exit_runtime_config_error)
+}
+
 pub(crate) fn runtime_config_str_value(
     env_name: &str,
     json_path: &str,

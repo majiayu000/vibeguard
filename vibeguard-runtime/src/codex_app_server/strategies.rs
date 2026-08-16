@@ -14,16 +14,10 @@ use std::process::Command;
 struct AnalysisParalysisStrategy {
     read_re: Regex,
     write_re: Regex,
-    threshold: usize,
 }
 
 impl AnalysisParalysisStrategy {
     fn new() -> Result<Self, regex::Error> {
-        let threshold = std::env::var("VG_PARALYSIS_THRESHOLD")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(7)
-            .max(1);
         Ok(Self {
             read_re: Regex::new(
                 r"(^|\b)(rg|grep|fd|find|ls|cat|sed|awk|head|tail|wc|tree|nl)\b|\bgit\s+(show|diff|log|status|grep|ls-files)\b",
@@ -31,13 +25,13 @@ impl AnalysisParalysisStrategy {
             write_re: Regex::new(
                 r"\b(apply_patch|git\s+(add|commit|mv|rm)|mkdir|touch|mv|cp|rm|tee|install)\b|>\s*[^&]|>>\s*[^&]|\bsed\s+-i\b",
             )?,
-            threshold,
         })
     }
 
     fn observe_command(
         &self,
         command: &str,
+        threshold: usize,
         thread_id: Option<&str>,
         thread: Option<&mut ThreadState>,
         write_to_server: &mut WriteServer<'_>,
@@ -53,7 +47,7 @@ impl AnalysisParalysisStrategy {
             return;
         }
         thread.research_streak += 1;
-        if thread.research_streak >= self.threshold {
+        if thread.research_streak >= threshold.max(1) {
             emit_warning(
                 write_to_server,
                 format!(
@@ -259,9 +253,16 @@ impl CommandApprovalStrategy {
                 return;
             }
         }
+        let threshold = crate::runtime_config::runtime_config_int_value_for_cwd(
+            "VG_PARALYSIS_THRESHOLD",
+            "paralysis.threshold",
+            "7",
+            cwd,
+        );
+        let threshold = usize::try_from(threshold).unwrap_or(usize::MAX);
         let thread = thread_id.map(|id| state.ensure_thread(id));
         self.analysis
-            .observe_command(command, thread_id, thread, write_to_server);
+            .observe_command(command, threshold, thread_id, thread, write_to_server);
     }
 }
 

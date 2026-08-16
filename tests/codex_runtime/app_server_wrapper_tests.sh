@@ -167,6 +167,9 @@ cat > "${APP_REPO_READ_LOOP}/hooks/pre-bash-guard.sh" <<'HOOK'
 cat >/dev/null
 HOOK
 chmod +x "${APP_REPO_READ_LOOP}/hooks/pre-bash-guard.sh"
+cat > "${APP_REPO_READ_LOOP}/.vibeguard.json" <<'JSON'
+{"paralysis":{"threshold":2}}
+JSON
 cat > "${TMP_DIR}/child-read-loop.sh" <<'CHILD'
 #!/usr/bin/env bash
 IFS= read -r _thread_start
@@ -176,6 +179,6 @@ IFS= read -r warning
 printf '%s\n' "$warning"
 CHILD
 chmod +x "${TMP_DIR}/child-read-loop.sh"
-analysis_json="$(VG_PARALYSIS_THRESHOLD=2 run_wrapper "${APP_REPO_READ_LOOP}" "${TMP_DIR}/child-read-loop.sh" $'{"method":"thread/start","params":{"threadId":"thread/read-loop","cwd":"'"${APP_REPO_READ_LOOP}"'"}}')"
+analysis_json="$(run_wrapper "${APP_REPO_READ_LOOP}" "${TMP_DIR}/child-read-loop.sh" $'{"method":"thread/start","params":{"threadId":"thread/read-loop","cwd":"'"${APP_REPO_READ_LOOP}"'"}}')"
 assert_contains "${analysis_json}" '"method":"warning"' "Rust wrapper emits analysis-paralysis warning notification"
 assert_contains "${analysis_json}" 'analysis paralysis warning' "Analysis warning explains read-only streak"
