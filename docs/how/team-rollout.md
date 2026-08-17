@@ -99,9 +99,10 @@ file; do not put local machine facts in shared VibeGuard docs.
 ## Codex and Claude Boundaries
 
 Claude Code receives native rules, skills, commands, hooks, and git hooks.
-Codex receives `~/.codex/AGENTS.md`, copied skills, native
+Codex receives `~/.codex/AGENTS.md`, native
 Bash/apply_patch/PermissionRequest/PostToolUse/Stop hooks, and
-`~/.vibeguard/run-hook-codex.sh`.
+`~/.vibeguard/run-hook-codex.sh`; VibeGuard no longer copies bundled skills
+into `~/.codex/skills/`.
 
 Current Codex boundary: native Read/Glob/Grep hooks are not available through
 Codex, so read-only exploration gates remain Claude Code or optional

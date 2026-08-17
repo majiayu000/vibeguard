@@ -229,14 +229,19 @@ pub(crate) fn carry_incomplete_inventory(
     if !resume {
         return Ok(());
     }
-    let Some(home) = crate::setup::support::home_dir() else {
-        return Ok(());
+    let skills_dir = if let Some(codex_skills_dir) = codex_skills_dir {
+        setup_absolute_path(codex_skills_dir)
+    } else {
+        let Some(home) = crate::setup::support::home_dir() else {
+            return Ok(());
+        };
+        setup_absolute_path(&home.join(".codex/skills"))
     };
     for name in disabled_skills {
         if !valid_skill_name(name) {
             return Err("disabled skill name is invalid".into());
         }
-        let public = home.join(".codex/skills").join(name);
+        let public = skills_dir.join(name);
         let actual = if public.exists() {
             public.clone()
         } else if let Some(quarantine) = intent_quarantine_for_dest(&public)? {

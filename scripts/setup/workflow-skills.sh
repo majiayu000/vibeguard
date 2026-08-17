@@ -153,30 +153,10 @@ retire_bundled_codex_skill_copies() {
 }
 
 clean_retired_bundled_codex_skill_copies() {
-  local skills_dir="$1" source_path skill dest owned_rc
-  [[ -d "${skills_dir}" ]] || return 0
-
-  while IFS=$'\t' read -r source_path skill; do
-    [[ -n "${source_path}" && -n "${skill}" ]] || continue
-    dest="${skills_dir}/${skill}"
-    [[ -e "${dest}" || -L "${dest}" ]] || continue
-    [[ -d "${dest}" && ! -L "${dest}" ]] || continue
-
-    if state_managed_tree_owned "${dest}" "${source_path}"; then
-      owned_rc=0
-    else
-      owned_rc=$?
-    fi
-    if [[ "${owned_rc}" -eq 1 ]]; then
-      yellow "  Preserved modified or user-owned retired Codex skill: ${dest}"
-      continue
-    elif [[ "${owned_rc}" -ne 0 ]]; then
-      return "${owned_rc}"
-    fi
-
-    rm -rf "${dest}" || return 1
-    yellow "  Removed retired managed Codex skill: ${dest}"
-  done < <(retired_bundled_codex_skills)
+  # Clean must use the same atomic rename, post-rename ownership verification,
+  # and durable transaction as setup. A direct rm after a separate ownership
+  # check could delete a user replacement that races with clean.
+  retire_bundled_codex_skill_copies "$1"
 }
 
 disabled_skills_project_source_label() {

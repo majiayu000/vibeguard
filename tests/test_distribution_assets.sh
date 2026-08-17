@@ -150,6 +150,10 @@ workflows/optflow
 workflows/plan-mode
 workflows/auto-optimize
 EOF
+assert_cmd "README describes retired Codex skill distribution" \
+  grep -qF "bundled skills are retired" "$REPO_DIR/README.md"
+assert_cmd "team rollout excludes bundled Codex skill copies" \
+  grep -qF "VibeGuard no longer copies bundled skills" "$REPO_DIR/docs/how/team-rollout.md"
 assert_cmd "retired awk skill is absent" test ! -e "$REPO_DIR/skills/awk-posix-compat/SKILL.md"
 assert_cmd "retired awk skill has no live references" assert_no_live_reference "skills/awk-posix-compat"
 assert_cmd "retired alerting template is absent" test ! -e "$REPO_DIR/templates/alerting-rules.yaml"

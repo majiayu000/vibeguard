@@ -218,6 +218,7 @@ state_init() {
   local carry_state=""
   local current_status="" current_generation=0 previous_status="" previous_generation=0
   local base_generation=0 next_generation disabled_output="" disabled_csv=""
+  local retired_source retired_skill
   state_preflight || return 1
 
   if [[ -f "$STATE_FILE" ]]; then
@@ -262,8 +263,19 @@ state_init() {
   next_generation=$((base_generation + 1))
   if declare -F disabled_skills >/dev/null; then
     disabled_output="$(disabled_skills)" || return 1
-    disabled_csv="${disabled_output//$'\n'/,}"
   fi
+  # A newly retired manifest skill is no longer present in disabled_skills,
+  # but an interrupted generation can still be the only ownership inventory
+  # for its public copy. Carry those known names through the retry preflight so
+  # retirement can prove ownership instead of silently preserving stale bytes.
+  if declare -F retired_bundled_codex_skills >/dev/null; then
+    while IFS=$'\t' read -r retired_source retired_skill; do
+      [[ -n "${retired_source}" && -n "${retired_skill}" ]] || continue
+      [[ -z "${disabled_output}" ]] || disabled_output+=$'\n'
+      disabled_output+="${retired_skill}"
+    done < <(retired_bundled_codex_skills)
+  fi
+  disabled_csv="${disabled_output//$'\n'/,}"
   if [[ "$current_status" == "COMPLETE" ]]; then
     snapshot_tmp="$(mktemp "${STATE_PREVIOUS_FILE}.tmp.XXXXXX")" || {
       return 1

@@ -89,3 +89,97 @@ PY
     test -L "$skills/fixflow/user-link"
     test "$(setup_runtime setup-state-quarantine-count "$STATE_FILE")" = "1"
   ' _ "${REPO_DIR}" "${TMP_DIR}"
+
+assert_cmd "retry carries retired ownership from an incomplete custom CODEX_HOME generation" env \
+  VIBEGUARD_SETUP_RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime" \
+  bash -c '
+    set -euo pipefail
+    repo="$1"
+    root="$2/retired-custom-home-retry"
+    export HOME="$root/home"
+    export CODEX_HOME="$root/custom-codex"
+    skills="$CODEX_HOME/skills"
+    state="$HOME/.vibeguard/install-state.json"
+    dest="$skills/vibeguard"
+    mkdir -p "$dest" "$HOME/.vibeguard"
+    printf "managed\n" > "$dest/SKILL.md"
+    python3 - "$state" "$dest/SKILL.md" <<'PY'
+import hashlib
+import json
+import sys
+
+state_path, skill_file = sys.argv[1:]
+entry = {
+    "source": "skills/vibeguard/SKILL.md",
+    "type": "copy",
+    "checksum": "sha256:" + hashlib.sha256(b"managed\n").hexdigest(),
+}
+state = {
+    "version": 1,
+    "generation": 1,
+    "complete": False,
+    "profile": "core",
+    "languages": [],
+    "files": {skill_file: entry},
+}
+with open(state_path, "w", encoding="utf-8") as handle:
+    json.dump(state, handle)
+PY
+    source "$repo/scripts/setup/lib.sh"
+    source "$repo/scripts/lib/install-state.sh"
+    state_init core ""
+    python3 - "$state" "$dest/SKILL.md" <<'PY'
+import json
+import sys
+
+state_path, skill_file = sys.argv[1:]
+state = json.load(open(state_path, encoding="utf-8"))
+assert state["generation"] == 1 and state["complete"] is False
+assert skill_file in state["files"]
+PY
+  ' _ "${REPO_DIR}" "${TMP_DIR}"
+
+assert_cmd "clean fails visibly and preserves a concurrent user replacement" env \
+  VIBEGUARD_SETUP_RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime" \
+  VIBEGUARD_TEST_REMOVE_PUBLIC_REPLACEMENT="user-owned after verify" \
+  bash -c '
+    set -euo pipefail
+    repo="$1"
+    root="$2/retired-clean-race"
+    export HOME="$root/home"
+    export CODEX_HOME="$root/custom-codex"
+    skills="$CODEX_HOME/skills"
+    state="$HOME/.vibeguard/install-state.json"
+    dest="$skills/vibeguard"
+    mkdir -p "$dest" "$HOME/.vibeguard"
+    printf "managed\n" > "$dest/SKILL.md"
+    python3 - "$state" "$dest/SKILL.md" <<'PY'
+import hashlib
+import json
+import sys
+
+state_path, skill_file = sys.argv[1:]
+json.dump({
+    "version": 1,
+    "generation": 1,
+    "complete": True,
+    "profile": "core",
+    "languages": [],
+    "files": {skill_file: {
+        "source": "skills/vibeguard/SKILL.md",
+        "type": "copy",
+        "checksum": "sha256:" + hashlib.sha256(b"managed\n").hexdigest(),
+    }},
+}, open(state_path, "w", encoding="utf-8"))
+PY
+    source "$repo/scripts/setup/lib.sh"
+    source "$repo/scripts/lib/install-state.sh"
+    clean_rc=0
+    clean_retired_bundled_codex_skill_copies "$skills" >/dev/null 2>&1 || clean_rc=$?
+    test "$clean_rc" -ne 0
+    test "$(cat "$dest/custom.txt")" = "user-owned after verify"
+    quarantine="$(find "$skills" -maxdepth 1 -type d \
+      -name ".vibeguard.vibeguard-quarantine.*" -print -quit)"
+    test -n "$quarantine"
+    test "$(cat "$quarantine/SKILL.md")" = "managed"
+  ' _ "${REPO_DIR}" "${TMP_DIR}"
