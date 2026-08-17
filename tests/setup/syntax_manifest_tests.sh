@@ -335,11 +335,11 @@ assert_contains "${manifest_whitespace_err}" "no manifest skills declared for ~/
 cleanup_whitespace_stdout="${TMP_HOME}/cleanup-whitespace.stdout"
 cleanup_whitespace_stderr="${TMP_HOME}/cleanup-whitespace.stderr"
 if bash -c "source '${REPO_DIR}/scripts/setup/lib.sh'; MANIFEST_HELPER='${manifest_whitespace_helper}'; manifest_skill_links_for_cleanup '~/.claude/skills/'" >"${cleanup_whitespace_stdout}" 2>"${cleanup_whitespace_stderr}"; then
-  green "cleanup skill enumeration warns on whitespace-only target output"
-  PASS=$((PASS + 1))
-else
-  red "cleanup skill enumeration warns on whitespace-only target output (exit code: $?)"
+  red "cleanup skill enumeration unexpectedly accepts whitespace-only target output"
   FAIL=$((FAIL + 1))
+else
+  green "cleanup skill enumeration rejects whitespace-only target output"
+  PASS=$((PASS + 1))
 fi
 TOTAL=$((TOTAL + 1))
 cleanup_whitespace_err="$(cat "${cleanup_whitespace_stderr}")"
