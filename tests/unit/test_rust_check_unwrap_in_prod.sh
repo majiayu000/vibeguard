@@ -40,8 +40,8 @@ assert_output_not_contains() {
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
-# Build a minimal PATH that deliberately omits ast-grep so the supported awk
-# fallback is exercised even on developer machines that have ast-grep installed.
+# Build a minimal PATH that deliberately omits ast-grep to prove the Rust
+# scanner does not depend on the legacy shell/ast-grep implementation.
 fallback_bin="${tmpdir}/fallback-bin"
 mkdir -p "$fallback_bin"
 for command_name in awk cat cp dirname find git grep head mktemp rm sed tr wc; do
@@ -88,6 +88,26 @@ run_guard_with_runtime() {
 
 printf '\n=== check_unwrap_in_prod (RS-03) ===\n'
 
+# --- FAIL: Rust permits comments and newlines after a member-access dot ---
+proj_dot_comment="${tmpdir}/fail_dot_comment"
+mkdir -p "${proj_dot_comment}/src"
+cat > "${proj_dot_comment}/src/lib.rs" <<'EOF'
+pub fn value(input: Option<i32>) -> i32 {
+    input./* reason */unwrap()
+}
+EOF
+assert_fail "unwrap after a dot comment fails --strict" bash "$GUARD" --strict "$proj_dot_comment"
+
+proj_dot_newline="${tmpdir}/fail_dot_newline"
+mkdir -p "${proj_dot_newline}/src"
+cat > "${proj_dot_newline}/src/lib.rs" <<'EOF'
+pub fn value(input: Option<i32>) -> i32 {
+    input.
+        expect("required")
+}
+EOF
+assert_fail "expect after a dot newline fails --strict" bash "$GUARD" --strict "$proj_dot_newline"
+
 # --- FAIL: .unwrap() in production code ---
 proj="${tmpdir}/fail_unwrap"
 mkdir -p "${proj}/src"
@@ -109,6 +129,20 @@ pub fn load() -> String {
 }
 EOF
 assert_fail "expect() in prod code fails --strict" bash "$GUARD" --strict "$proj2"
+
+# --- FAIL: Rust permits whitespace and line breaks before call parentheses ---
+proj_whitespace="${tmpdir}/fail_unwrap_whitespace"
+mkdir -p "${proj_whitespace}/src"
+cat > "${proj_whitespace}/src/lib.rs" <<'EOF'
+pub fn parse(value: Option<i32>) -> i32 {
+    value.unwrap
+        ()
+}
+pub fn require(value: Option<i32>) -> i32 {
+    value.expect ("required")
+}
+EOF
+assert_fail "whitespace-separated unwrap/expect calls fail --strict" bash "$GUARD" --strict "$proj_whitespace"
 
 # --- PASS: only safe unwrap_or variants ---
 proj3="${tmpdir}/pass_safe"
@@ -178,7 +212,7 @@ fn bench() {
 EOF
 assert_ok "tests.rs/test_helpers/examples/benches are ignored" bash "$GUARD" --strict "$proj5b"
 
-# --- PASS: *_tests.rs is ignored by authoritative runtime and shell fallback ---
+# --- PASS: *_tests.rs is ignored by the authoritative runtime ---
 proj5c="${tmpdir}/pass_tests_suffix"
 mkdir -p "${proj5c}/src/nested"
 cat > "${proj5c}/src/nested/parser_tests.rs" <<'EOF'
@@ -192,7 +226,7 @@ fn mixed_case_fixture() { let _ = Some(42).unwrap(); }
 EOF
 assert_ok "*_tests.rs is ignored by runtime classifier" \
   run_guard_with_runtime "$runtime_wrapper" --strict "$proj5c"
-assert_ok "*_tests.rs is ignored by shell fallback" \
+assert_fail "runtime failure is fail-closed (no shell fallback)" \
   run_guard_with_runtime "$failing_runtime" --strict "$proj5c"
 assert_output_contains "hook runtime stub --test includes lowercase suffix" "src/foo_tests.rs" \
   run_stub_filter --test
@@ -214,9 +248,8 @@ done
 cat > "${proj5d}/src/foo_tests.rs" <<'EOF'
 fn fixture() { let _ = Some(1).unwrap(); }
 EOF
-for runtime in "$runtime_wrapper" "$failing_runtime"; do
+for runtime in "$runtime_wrapper"; do
   label="runtime classifier"
-  [[ "$runtime" == "$failing_runtime" ]] && label="shell fallback"
   assert_fail "similar production names fail with ${label}" \
     run_guard_with_runtime "$runtime" --strict "$proj5d"
   for name in contest latest tests_support; do
@@ -318,8 +351,54 @@ assert_output_not_contains "no RS-03 finding for config.rs test body" "config.rs
   bash "$GUARD" --strict "$proj5f"
 assert_ok "raw string fixture passes without ast-grep" \
   run_guard_without_ast_grep --strict "$proj5f"
-assert_output_not_contains "awk fallback excludes config.rs test body" "config.rs" \
+assert_output_not_contains "Rust scanner excludes config.rs test body without ast-grep" "config.rs" \
   run_guard_without_ast_grep --strict "$proj5f"
+
+# --- PASS: a cfg(test) item may place its opening brace on a later line ---
+proj5f_multiline="${tmpdir}/multiline_test_item"
+mkdir -p "${proj5f_multiline}/src"
+cat > "${proj5f_multiline}/src/lib.rs" <<'EOF'
+#[cfg(test)]
+mod tests
+{
+    #[test]
+    fn value_is_present() {
+        let value = Some(1);
+        assert_eq!(value.unwrap(), 1);
+    }
+}
+EOF
+assert_ok "multiline cfg(test) item keeps its body excluded" \
+  bash "$GUARD" --strict "$proj5f_multiline"
+
+# --- STAGED: removing one of multiple cfg(test) markers re-enables its body ---
+proj5f_multiple="${tmpdir}/multiple_test_scope_transition"
+mkdir -p "${proj5f_multiple}/src"
+git -C "$proj5f_multiple" init -q
+git -C "$proj5f_multiple" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj5f_multiple" config user.name "VibeGuard Tests"
+cat > "${proj5f_multiple}/src/old.rs" <<'EOF'
+#[cfg(test)]
+mod first {
+    fn fixture() { let _ = Some(1).unwrap(); }
+}
+#[cfg(test)]
+mod second {
+    fn fixture() { let _ = Some(2).unwrap(); }
+}
+EOF
+git -C "$proj5f_multiple" add src/old.rs
+git -C "$proj5f_multiple" commit -q -m initial
+git -C "$proj5f_multiple" mv src/old.rs src/new.rs
+sed -i.bak '1d' "${proj5f_multiple}/src/new.rs"
+rm -f "${proj5f_multiple}/src/new.rs.bak"
+git -C "$proj5f_multiple" add src/new.rs
+staged_multiple="${proj5f_multiple}/staged-files"
+printf '%s\n' "${proj5f_multiple}/src/new.rs" > "$staged_multiple"
+assert_fail "removing one of multiple cfg(test) markers reports exposed unwrap" \
+  env VIBEGUARD_STAGED_FILES="$staged_multiple" bash "$GUARD" --strict "$proj5f_multiple"
+assert_output_contains "exposed multi-scope unwrap is attributed to new.rs" "new.rs" \
+  env VIBEGUARD_STAGED_FILES="$staged_multiple" bash "$GUARD" --strict "$proj5f_multiple"
 
 # --- STAGED: same regression through the pre-commit diff path ---
 proj5g="${tmpdir}/staged_raw_string"
@@ -371,11 +450,11 @@ assert_output_contains "block-comment raw prefix does not hide production" \
   "block_comment.rs" bash "$GUARD" --strict "$proj5h"
 assert_output_contains "multiline ordinary string does not hide production" \
   "multiline_string.rs" bash "$GUARD" --strict "$proj5h"
-assert_fail "awk fallback keeps production findings visible" \
+assert_fail "Rust scanner keeps production findings visible without ast-grep" \
   run_guard_without_ast_grep --strict "$proj5h"
-assert_output_contains "awk fallback keeps block-comment production visible" \
+assert_output_contains "scanner keeps block-comment production visible without ast-grep" \
   "block_comment.rs" run_guard_without_ast_grep --strict "$proj5h"
-assert_output_contains "awk fallback keeps multiline-string production visible" \
+assert_output_contains "scanner keeps multiline-string production visible without ast-grep" \
   "multiline_string.rs" run_guard_without_ast_grep --strict "$proj5h"
 
 # --- STAGED: the same lexer-state regressions must not bypass pre-commit ---
@@ -400,6 +479,61 @@ assert_output_contains "staged block-comment case remains visible" \
 assert_output_contains "staged multiline-string case remains visible" \
   "multiline_string.rs" run_staged_lexer_guard
 
+# --- STAGED: deleting an identical test call does not shift production identity ---
+proj_identity="${tmpdir}/staged_unwrap_identity"
+mkdir -p "${proj_identity}/src"
+git -C "$proj_identity" init -q
+git -C "$proj_identity" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_identity" config user.name "VibeGuard Tests"
+cat > "${proj_identity}/src/lib.rs" <<'EOF'
+#[cfg(test)]
+fn fixture(input: Option<i32>) -> i32 { input.unwrap() }
+fn production(input: Option<i32>) -> i32 { input.unwrap() }
+EOF
+git -C "$proj_identity" add src/lib.rs
+git -C "$proj_identity" commit -q -m initial
+cat > "${proj_identity}/src/lib.rs" <<'EOF'
+fn production(input: Option<i32>) -> i32 { input.unwrap() }
+EOF
+git -C "$proj_identity" add src/lib.rs
+staged_identity="${proj_identity}/staged-files"
+printf '%s\n' "${proj_identity}/src/lib.rs" > "$staged_identity"
+assert_ok "deleted identical test call does not resurface unchanged production call" \
+  env VIBEGUARD_STAGED_FILES="$staged_identity" bash "$GUARD" --strict "$proj_identity"
+
+# --- PASS: any Rust directory prefixed with test_ is excluded ---
+proj_test_prefix="${tmpdir}/pass_test_prefix_directory"
+mkdir -p "${proj_test_prefix}/src/test_support"
+cat > "${proj_test_prefix}/src/test_support/helper.rs" <<'EOF'
+pub fn fixture(input: Option<i32>) -> i32 { input.unwrap() }
+EOF
+assert_ok "unwrap inside test_-prefixed Rust directory is excluded" \
+  bash "$GUARD" --strict "$proj_test_prefix"
+
+# --- STAGED: test-module calls do not share identity with production calls ---
+proj_module_identity="${tmpdir}/staged_module_unwrap_identity"
+mkdir -p "${proj_module_identity}/src"
+git -C "$proj_module_identity" init -q
+git -C "$proj_module_identity" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_module_identity" config user.name "VibeGuard Tests"
+cat > "${proj_module_identity}/src/lib.rs" <<'EOF'
+#[cfg(test)]
+mod tests {
+    fn parse(input: Option<i32>) -> i32 { input.unwrap() }
+}
+fn parse(input: Option<i32>) -> i32 { input.unwrap() }
+EOF
+git -C "$proj_module_identity" add src/lib.rs
+git -C "$proj_module_identity" commit -q -m initial
+cat > "${proj_module_identity}/src/lib.rs" <<'EOF'
+fn parse(input: Option<i32>) -> i32 { input.unwrap() }
+EOF
+git -C "$proj_module_identity" add src/lib.rs
+module_identity_files="${proj_module_identity}/staged-files"
+printf '%s\n' "${proj_module_identity}/src/lib.rs" > "$module_identity_files"
+assert_ok "deleted test-module call does not shift production identity" \
+  env VIBEGUARD_STAGED_FILES="$module_identity_files" bash "$GUARD" --strict "$proj_module_identity"
+
 # --- PASS: empty project (no .rs files) ---
 proj6="${tmpdir}/pass_empty"
 mkdir -p "${proj6}/src"
@@ -412,6 +546,41 @@ cat > "${proj7}/src/main.rs" <<'EOF'
 fn main() { let x = Some(1).unwrap(); }
 EOF
 assert_ok "unwrap() without --strict exits 0" bash "$GUARD" "$proj7"
+
+# --- BASELINE: escaped string continuations preserve physical line numbers ---
+proj_string_lines="${tmpdir}/baseline_string_lines"
+mkdir -p "${proj_string_lines}/src"
+git -C "$proj_string_lines" init -q
+git -C "$proj_string_lines" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_string_lines" config user.name "VibeGuard Tests"
+cat > "${proj_string_lines}/src/lib.rs" <<'EOF'
+const BANNER: &str = "hello\
+world";
+EOF
+git -C "$proj_string_lines" add .
+git -C "$proj_string_lines" commit -q -m baseline
+string_baseline="$(git -C "$proj_string_lines" rev-parse HEAD)"
+printf 'pub fn load(value: Option<i32>) -> i32 { value.unwrap() }\n' >> "${proj_string_lines}/src/lib.rs"
+git -C "$proj_string_lines" add src/lib.rs
+git -C "$proj_string_lines" commit -q -m add-unwrap
+assert_fail "baseline keeps unwrap line after escaped string continuation" \
+  bash "$GUARD" --strict --baseline "$string_baseline" "$proj_string_lines"
+
+# --- ERROR: malformed prior source is not treated as a new file ---
+proj_prior_utf8="${tmpdir}/baseline_prior_utf8"
+mkdir -p "${proj_prior_utf8}/src"
+git -C "$proj_prior_utf8" init -q
+git -C "$proj_prior_utf8" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_prior_utf8" config user.name "VibeGuard Tests"
+printf '\377' > "${proj_prior_utf8}/src/lib.rs"
+git -C "$proj_prior_utf8" add .
+git -C "$proj_prior_utf8" commit -q -m baseline
+utf8_baseline="$(git -C "$proj_prior_utf8" rev-parse HEAD)"
+printf 'pub fn clean() {}\n' > "${proj_prior_utf8}/src/lib.rs"
+git -C "$proj_prior_utf8" add src/lib.rs
+git -C "$proj_prior_utf8" commit -q -m repair-source
+assert_output_contains "non-UTF-8 prior source fails visibly" "prior source is not UTF-8" \
+  bash "$GUARD" --strict --baseline "$utf8_baseline" "$proj_prior_utf8"
 
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"

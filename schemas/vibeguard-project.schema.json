@@ -194,6 +194,33 @@
           "description": "Maximum age in hours for scheduled GC catch-up runs. Env override: VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS."
         }
       }
+    },
+    "version": {
+      "$ref": "vibeguard-runtime-config.schema.json#/properties/version"
+    },
+    "u16": {
+      "$ref": "vibeguard-runtime-config.schema.json#/properties/u16"
+    },
+    "circuit_breaker": {
+      "$ref": "vibeguard-runtime-config.schema.json#/properties/circuit_breaker"
+    },
+    "w14": {
+      "$ref": "vibeguard-runtime-config.schema.json#/properties/w14"
+    },
+    "paralysis": {
+      "$ref": "vibeguard-runtime-config.schema.json#/properties/paralysis"
+    },
+    "write_mode": {
+      "$ref": "vibeguard-runtime-config.schema.json#/properties/write_mode"
+    },
+    "write_escalate_threshold": {
+      "$ref": "vibeguard-runtime-config.schema.json#/properties/write_escalate_threshold"
+    },
+    "learn": {
+      "$ref": "vibeguard-runtime-config.schema.json#/properties/learn"
+    },
+    "disabled_skills": {
+      "$ref": "vibeguard-runtime-config.schema.json#/properties/disabled_skills"
     }
   },
   "additionalProperties": false

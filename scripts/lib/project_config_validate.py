@@ -11,25 +11,12 @@ from pathlib import Path
 from typing import Any
 
 
-_RUNTIME_CONFIG_KEY_HINTS = {
-    "write_mode": "write_mode belongs in ~/.vibeguard/config.json, not .vibeguard.json",
-    "u16": "u16.* belongs in ~/.vibeguard/config.json, not .vibeguard.json",
-    "u16.limit": "u16.limit belongs in ~/.vibeguard/config.json, not .vibeguard.json",
-    "u16.warn_limit": "u16.warn_limit belongs in ~/.vibeguard/config.json, not .vibeguard.json",
-    "circuit_breaker": "circuit_breaker.* belongs in ~/.vibeguard/config.json, not .vibeguard.json",
-    "paralysis": "paralysis.* belongs in ~/.vibeguard/config.json, not .vibeguard.json",
-}
-
-
 def _label(path: list[str]) -> str:
     return "." + ".".join(path) if path else "$"
 
 
 def _unknown_property_error(path: list[str]) -> str:
-    message = f"{_label(path)}: unknown property"
-    if len(path) == 1 and path[0] in _RUNTIME_CONFIG_KEY_HINTS:
-        message = f"{message}; {_RUNTIME_CONFIG_KEY_HINTS[path[0]]}"
-    return message
+    return f"{_label(path)}: unknown property"
 
 
 def _load_json(path: Path) -> Any:
@@ -111,7 +98,95 @@ def _validate_gc(value: Any, schema: dict[str, Any], errors: list[str]) -> None:
             errors.append(f"{_label(item_path)}: expected integer >= {minimum}")
 
 
-def validate(config: Any, schema: dict[str, Any]) -> list[str]:
+def _validate_runtime_value(
+    value: Any,
+    schema: dict[str, Any],
+    path: list[str],
+    errors: list[str],
+) -> None:
+    expected = schema.get("type")
+    if expected == "object":
+        if not isinstance(value, dict):
+            errors.append(f"{_label(path)}: expected object")
+            return
+        properties = schema.get("properties", {})
+        if schema.get("additionalProperties") is False:
+            for key in sorted(set(value) - set(properties)):
+                errors.append(_unknown_property_error(path + [key]))
+        for key, child in value.items():
+            if key in properties:
+                _validate_runtime_value(child, properties[key], path + [key], errors)
+        return
+    if expected == "integer":
+        valid_integer = not isinstance(value, bool) and (
+            isinstance(value, int)
+            or (isinstance(value, float) and value.is_integer())
+        )
+        if not valid_integer:
+            errors.append(f"{_label(path)}: expected integer")
+            return
+        if "const" in schema and value != schema["const"]:
+            errors.append(f"{_label(path)}: expected {schema['const']}")
+        if "minimum" in schema and value < schema["minimum"]:
+            errors.append(f"{_label(path)}: expected integer >= {schema['minimum']}")
+        if "maximum" in schema and value > schema["maximum"]:
+            errors.append(f"{_label(path)}: expected integer <= {schema['maximum']}")
+        return
+    if expected == "string":
+        if not isinstance(value, str):
+            errors.append(f"{_label(path)}: expected string")
+            return
+        if value not in schema.get("enum", [value]):
+            allowed = ", ".join(str(item) for item in schema["enum"])
+            errors.append(f"{_label(path)}: unsupported value; expected one of: {allowed}")
+        if len(value) < schema.get("minLength", 0):
+            errors.append(f"{_label(path)}: string is too short")
+        pattern = schema.get("pattern")
+        if pattern and not re.fullmatch(pattern, value):
+            errors.append(f"{_label(path)}: does not match {pattern}")
+        return
+    if expected == "array":
+        if not isinstance(value, list):
+            errors.append(f"{_label(path)}: expected array")
+            return
+        if len(value) > schema.get("maxItems", len(value)):
+            errors.append(f"{_label(path)}: too many items")
+        item_schema = schema.get("items", {})
+        for index, item in enumerate(value):
+            _validate_runtime_value(item, item_schema, path + [str(index)], errors)
+
+
+def _validate_runtime_overlay(
+    config: dict[str, Any],
+    project_schema: dict[str, Any],
+    runtime_schema: dict[str, Any] | None,
+    errors: list[str],
+) -> None:
+    runtime_keys = {
+        key
+        for key, node in project_schema.get("properties", {}).items()
+        if isinstance(node, dict)
+        and str(node.get("$ref", "")).startswith("vibeguard-runtime-config.schema.json#")
+    }
+    if not runtime_keys.intersection(config):
+        return
+    if runtime_schema is None:
+        errors.append("runtime config schema is required for project runtime overrides")
+        return
+    properties = runtime_schema.get("properties", {})
+    for key in sorted(runtime_keys.intersection(config)):
+        node = properties.get(key)
+        if not isinstance(node, dict):
+            errors.append(f"runtime config schema property missing: {key}")
+            continue
+        _validate_runtime_value(config[key], node, [key], errors)
+
+
+def validate(
+    config: Any,
+    schema: dict[str, Any],
+    runtime_schema: dict[str, Any] | None = None,
+) -> list[str]:
     errors: list[str] = []
     if not isinstance(config, dict):
         return ["$: expected object"]
@@ -146,6 +221,7 @@ def validate(config: Any, schema: dict[str, Any]) -> list[str]:
         _validate_string_array(config["disabled_rules"], ["disabled_rules"], errors, pattern=pattern)
     if "gc" in config:
         _validate_gc(config["gc"], schema, errors)
+    _validate_runtime_overlay(config, schema, runtime_schema, errors)
 
     return errors
 
@@ -165,11 +241,13 @@ def main() -> int:
     try:
         config = _load_json(args.config)
         schema = _load_json(args.schema)
+        runtime_schema_path = args.schema.parent / "vibeguard-runtime-config.schema.json"
+        runtime_schema = _load_json(runtime_schema_path) if runtime_schema_path.is_file() else None
     except ValueError as exc:
         print(f"VibeGuard project config invalid: {exc}", file=sys.stderr)
         return 1
 
-    errors = validate(config, schema)
+    errors = validate(config, schema, runtime_schema)
     if errors:
         print(f"VibeGuard project config invalid: {args.config}", file=sys.stderr)
         for error in errors:

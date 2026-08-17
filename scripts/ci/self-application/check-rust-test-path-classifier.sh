@@ -32,8 +32,9 @@ for fn in vg_post_edit_detect_rust vg_post_edit_detect_hardcoded_db_path vg_post
   fi
 done
 
-if ! grep -Fq 'test-path-filter' "${REPO_DIR}/guards/rust/common.sh"; then
-  echo "FAIL: guards/rust/common.sh must consume vibeguard-runtime test-path-filter"
+if ! grep -Fq 'runtime-shim.sh' "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" \
+    || ! grep -Fq 'run_runtime_guard rust unwrap' "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh"; then
+  echo "FAIL: check_unwrap_in_prod.sh must delegate classification to the Rust guard scanner"
   failures=$((failures + 1))
 fi
 
@@ -46,4 +47,4 @@ if [[ "${failures}" -gt 0 ]]; then
   exit 1
 fi
 
-echo "OK: Rust hook/guard test-path classification uses runtime classifier"
+echo "OK: Rust hook/guard test-path classification uses runtime-owned classifiers"

@@ -48,6 +48,40 @@ pub fn update_status(id: u64) -> Result<String, String> {
 EOF
 assert_fail "update_ fn without writes in task/ path fails --strict" bash "$GUARD" --strict "$proj_update"
 
+# --- FAIL: every action name ending in _done remains protected ---
+proj_suffix_done="${tmpdir}/fail_suffix_done"
+mkdir -p "${proj_suffix_done}/src/task"
+cat > "${proj_suffix_done}/src/task/archive.rs" <<'EOF'
+pub fn archive_done(id: u64) -> Result<String, String> {
+    Ok(format!("archived-{id}"))
+}
+EOF
+assert_fail "action fn ending in _done without effects fails --strict" \
+  bash "$GUARD" --strict "$proj_suffix_done"
+
+# --- PASS: bodyless action-named trait declarations are not implementations ---
+proj_trait="${tmpdir}/pass_bodyless_trait_action"
+mkdir -p "${proj_trait}/src/task"
+cat > "${proj_trait}/src/task/api.rs" <<'EOF'
+pub trait TaskApi {
+    fn update_task(&self);
+}
+fn unrelated() -> Result<(), String> { Ok(()) }
+EOF
+assert_ok "bodyless trait action declaration does not consume later body" bash "$GUARD" --strict "$proj_trait"
+
+# --- FAIL: semicolons inside signature types do not make functions bodyless ---
+proj_signature_semicolon="${tmpdir}/fail_signature_semicolon"
+mkdir -p "${proj_signature_semicolon}/src/task"
+cat > "${proj_signature_semicolon}/src/task/action.rs" <<'EOF'
+pub fn update_item(id: [u8; 32]) -> Result<[u8; 32], String>
+{
+    Ok(id)
+}
+EOF
+assert_fail "array-type semicolon does not hide result-only action body" \
+  bash "$GUARD" --strict "$proj_signature_semicolon"
+
 # --- PASS: mark_done with state mutation (insert/push) ---
 proj_with_effect="${tmpdir}/pass_with_effect"
 mkdir -p "${proj_with_effect}/src/task"
@@ -83,6 +117,69 @@ pub fn format_result(val: f64) -> String {
 }
 EOF
 assert_ok "non-action functions are ignored" bash "$GUARD" --strict "$proj_no_action"
+
+# --- BASELINE: unchanged historical result-only actions stay out of scope ---
+proj_baseline_unchanged="${tmpdir}/pass_baseline_unchanged_action"
+mkdir -p "${proj_baseline_unchanged}/src/task"
+git -C "$proj_baseline_unchanged" init -q
+git -C "$proj_baseline_unchanged" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_baseline_unchanged" config user.name "VibeGuard Tests"
+cat > "${proj_baseline_unchanged}/src/task/action.rs" <<'EOF'
+pub fn mark_done(id: u64) -> Result<u64, String> { Ok(id) }
+EOF
+git -C "$proj_baseline_unchanged" add src/task/action.rs
+git -C "$proj_baseline_unchanged" commit -q -m initial
+unchanged_baseline="$(git -C "$proj_baseline_unchanged" rev-parse HEAD)"
+cat > "${proj_baseline_unchanged}/README.md" <<'EOF'
+Unrelated documentation change.
+EOF
+git -C "$proj_baseline_unchanged" add README.md
+git -C "$proj_baseline_unchanged" commit -q -m docs
+assert_ok "baseline ignores unchanged historical result-only action" \
+  bash "$GUARD" --strict --baseline "$unchanged_baseline" "$proj_baseline_unchanged"
+
+# --- BASELINE: deleting the semantic effect rechecks the action body ---
+proj_baseline_deleted="${tmpdir}/fail_baseline_deleted_effect"
+mkdir -p "${proj_baseline_deleted}/src/task"
+git -C "$proj_baseline_deleted" init -q
+git -C "$proj_baseline_deleted" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_baseline_deleted" config user.name "VibeGuard Tests"
+cat > "${proj_baseline_deleted}/src/task/action.rs" <<'EOF'
+pub fn mark_done(id: u64, state: &mut Vec<u64>) -> Result<u64, String> {
+    state.push(id);
+    Ok(id)
+}
+EOF
+git -C "$proj_baseline_deleted" add src/task/action.rs
+git -C "$proj_baseline_deleted" commit -q -m initial
+deleted_effect_baseline="$(git -C "$proj_baseline_deleted" rev-parse HEAD)"
+cat > "${proj_baseline_deleted}/src/task/action.rs" <<'EOF'
+pub fn mark_done(id: u64, _state: &mut Vec<u64>) -> Result<u64, String> {
+    Ok(id)
+}
+EOF
+git -C "$proj_baseline_deleted" add src/task/action.rs
+git -C "$proj_baseline_deleted" commit -q -m remove-effect
+assert_fail "baseline reports action whose semantic effect was deleted" \
+  bash "$GUARD" --strict --baseline "$deleted_effect_baseline" "$proj_baseline_deleted"
+
+# --- BASELINE: removing an allowlist entry rechecks the unchanged action ---
+proj_allowlist_removed="${tmpdir}/fail_allowlist_removed"
+mkdir -p "${proj_allowlist_removed}/src/task"
+git -C "$proj_allowlist_removed" init -q
+git -C "$proj_allowlist_removed" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_allowlist_removed" config user.name "VibeGuard Tests"
+printf 'pub fn mark_done(id: u64) -> Result<u64, String> { Ok(id) }\n' \
+  > "${proj_allowlist_removed}/src/task/action.rs"
+printf 'mark_done\n' > "${proj_allowlist_removed}/.vibeguard-semantic-effect-allowlist"
+git -C "$proj_allowlist_removed" add .
+git -C "$proj_allowlist_removed" commit -q -m allowlisted
+allowlist_baseline="$(git -C "$proj_allowlist_removed" rev-parse HEAD)"
+: > "${proj_allowlist_removed}/.vibeguard-semantic-effect-allowlist"
+git -C "$proj_allowlist_removed" add .vibeguard-semantic-effect-allowlist
+git -C "$proj_allowlist_removed" commit -q -m enforce-action
+assert_fail "baseline reports a result-only action after allowlist removal" \
+  bash "$GUARD" --strict --baseline "$allowlist_baseline" "$proj_allowlist_removed"
 
 # --- PASS: empty project ---
 proj_empty="${tmpdir}/pass_empty"

@@ -3,7 +3,8 @@
 #
 # Resolution order:
 #   1. Environment variable supplied by the caller.
-#   2. JSON config file at $_VG_CONFIG_FILE / $VIBEGUARD_CONFIG_FILE, or
+#   2. JSON config file at $VG_INTERNAL_CONFIG_FILE / deprecated
+#      $_VG_CONFIG_FILE / public $VIBEGUARD_CONFIG_FILE, or
 #      ${VIBEGUARD_LOG_DIR:-$HOME/.vibeguard}/config.json.
 #   3. Caller-provided default.
 #
@@ -17,7 +18,7 @@ _VG_CONFIG_SH_LOADED=1
 _VG_CONFIG_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 _vg_config_file() {
-  printf '%s' "${_VG_CONFIG_FILE:-${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}}"
+  printf '%s' "${VG_INTERNAL_CONFIG_FILE:-${_VG_CONFIG_FILE:-${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}}}"
 }
 
 _vg_config_runtime_path() {
@@ -40,7 +41,7 @@ _vg_config_runtime_path() {
 
   while IFS= read -r candidate; do
     if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
-      if _vg_config_runtime_supports "${candidate}"; then
+      if _vg_config_runtime_supports "${candidate}" < /dev/null; then
         _VG_CONFIG_RUNTIME_PATH_CACHE_KEY="${cache_key}"
         _VG_CONFIG_RUNTIME_PATH_CACHE_STATE="hit"
         _VG_CONFIG_RUNTIME_PATH_CACHE="${candidate}"
@@ -89,12 +90,14 @@ _vg_config_runtime_supports() {
   }
   [[ "${validate_probe}" == "VALID" ]] || { rm -f "${probe_file}" 2>/dev/null || true; return 1; }
   int_probe="$(
-    _VG_CONFIG_FILE="${probe_file}" VIBEGUARD_CONFIG_FILE="${probe_file}" \
+    VG_INTERNAL_CONFIG_FILE="${probe_file}" _VG_CONFIG_FILE="${probe_file}" VIBEGUARD_CONFIG_FILE="${probe_file}" \
+      VIBEGUARD_PROJECT_CONFIG="${probe_file}.no-project" \
       "${candidate}" runtime-config-get-int __VIBEGUARD_CONFIG_PROBE_INT__ u16.limit 17 2>/dev/null
   )" || { rm -f "${probe_file}" 2>/dev/null || true; return 1; }
   [[ "${int_probe}" == "19" ]] || { rm -f "${probe_file}" 2>/dev/null || true; return 1; }
   str_probe="$(
-    _VG_CONFIG_FILE="${probe_file}" VIBEGUARD_CONFIG_FILE="${probe_file}" \
+    VG_INTERNAL_CONFIG_FILE="${probe_file}" _VG_CONFIG_FILE="${probe_file}" VIBEGUARD_CONFIG_FILE="${probe_file}" \
+      VIBEGUARD_PROJECT_CONFIG="${probe_file}.no-project" \
       "${candidate}" runtime-config-get-str __VIBEGUARD_CONFIG_PROBE_STR__ write_mode probe-default 2>/dev/null
   )" || { rm -f "${probe_file}" 2>/dev/null || true; return 1; }
   [[ "${str_probe}" == "block" ]] || { rm -f "${probe_file}" 2>/dev/null || true; return 1; }
@@ -111,11 +114,11 @@ vg_config_get_int_result() {
     runtime_path="${_VG_CONFIG_RUNTIME_PATH_RESULT}"
     env_value="${!env_name:-}"
     if [[ -n "${env_value}" ]]; then
-      config_val="$(_VG_CONFIG_FILE="${config_file}" VIBEGUARD_CONFIG_FILE="${config_file}" \
+      config_val="$(VG_INTERNAL_CONFIG_FILE="${config_file}" _VG_CONFIG_FILE="${config_file}" VIBEGUARD_CONFIG_FILE="${config_file}" \
         env "${env_name}=${env_value}" \
         "${runtime_path}" runtime-config-get-int "$env_name" "$json_path" "$default_val")" || return 2
     else
-      config_val="$(_VG_CONFIG_FILE="${config_file}" VIBEGUARD_CONFIG_FILE="${config_file}" \
+      config_val="$(VG_INTERNAL_CONFIG_FILE="${config_file}" _VG_CONFIG_FILE="${config_file}" VIBEGUARD_CONFIG_FILE="${config_file}" \
         "${runtime_path}" runtime-config-get-int "$env_name" "$json_path" "$default_val")" || return 2
     fi
     if [[ -z "${config_val}" ]]; then
@@ -156,11 +159,11 @@ vg_config_get_str_result() {
     runtime_path="${_VG_CONFIG_RUNTIME_PATH_RESULT}"
     env_value="${!env_name:-}"
     if [[ -n "${env_value}" ]]; then
-      config_val="$(_VG_CONFIG_FILE="${config_file}" VIBEGUARD_CONFIG_FILE="${config_file}" \
+      config_val="$(VG_INTERNAL_CONFIG_FILE="${config_file}" _VG_CONFIG_FILE="${config_file}" VIBEGUARD_CONFIG_FILE="${config_file}" \
         env "${env_name}=${env_value}" \
         "${runtime_path}" runtime-config-get-str "$env_name" "$json_path" "$default_val")" || return 2
     else
-      config_val="$(_VG_CONFIG_FILE="${config_file}" VIBEGUARD_CONFIG_FILE="${config_file}" \
+      config_val="$(VG_INTERNAL_CONFIG_FILE="${config_file}" _VG_CONFIG_FILE="${config_file}" VIBEGUARD_CONFIG_FILE="${config_file}" \
         "${runtime_path}" runtime-config-get-str "$env_name" "$json_path" "$default_val")" || return 2
     fi
     if [[ -z "${config_val}" ]]; then

@@ -76,6 +76,46 @@ export async function fetchData(url: string): Promise<string> {
 EOF
 assert_fail "console.error fails --strict in non-MCP file" bash "$GUARD" --strict "$proj_err"
 
+# --- FAIL: every console method call is residual output, not a six-method allowlist ---
+proj_other_methods="${tmpdir}/fail_other_console_methods"
+mkdir -p "${proj_other_methods}/src"
+cat > "${proj_other_methods}/src/service.ts" <<'EOF'
+export function inspect(data: unknown): void {
+  console.table(data);
+  console.dir(data);
+  console.assert(data !== null);
+}
+EOF
+assert_fail "console.table/dir/assert fail --strict" bash "$GUARD" --strict "$proj_other_methods"
+
+# --- FAIL: member access may cross a physical line boundary ---
+proj_multiline="${tmpdir}/fail_multiline_console"
+mkdir -p "${proj_multiline}/src"
+cat > "${proj_multiline}/src/service.ts" <<'EOF'
+export function inspect(data: unknown): void {
+  console
+    .log(data);
+}
+EOF
+assert_fail "multiline console member call fails --strict" bash "$GUARD" --strict "$proj_multiline"
+
+# --- FAIL: optional chaining on the console object is still a console call ---
+proj_optional_object="${tmpdir}/fail_optional_console_object"
+mkdir -p "${proj_optional_object}/src"
+cat > "${proj_optional_object}/src/service.ts" <<'EOF'
+export function inspect(data: unknown): void {
+  console?.log(data);
+}
+EOF
+assert_fail "console optional-object call fails --strict" \
+  bash "$GUARD" --strict "$proj_optional_object"
+
+cat > "${proj_optional_object}/src/service.ts" <<'EOF'
+console.\u006cog("escaped method");
+EOF
+assert_fail "escaped console method identifier fails --strict" \
+  bash "$GUARD" --strict "$proj_optional_object"
+
 # --- PASS: no console calls ---
 proj_clean="${tmpdir}/pass_clean"
 mkdir -p "${proj_clean}/src"
@@ -170,7 +210,7 @@ target="${!#}"
 printf '[{"file":"%s","range":{"start":{"line":1}},"message":"stub console residual"}]\n' "$target"
 EOF
 chmod +x "$ast_grep_stub_dir/ast-grep"
-assert_output_contains "staged mode without mapfile uses ast-grep target collection" "stub console residual" \
+assert_output_contains "staged mode without mapfile uses Rust target collection" "[TS-03]" \
   env PATH="$ast_grep_stub_dir:$PATH" BASH_ENV="$disable_mapfile_env" VIBEGUARD_STAGED_FILES="$staged_no_mapfile_list" \
   bash "$GUARD" --strict "$proj_staged_no_mapfile"
 
@@ -185,6 +225,101 @@ export function doWork(): void {
 }
 EOF
 assert_ok "console.log only in comments passes" bash "$GUARD" --strict "$proj_commented"
+
+# --- PASS: referencing a console method without calling it is not residual output ---
+proj_reference="${tmpdir}/pass_console_reference"
+mkdir -p "${proj_reference}/src"
+cat > "${proj_reference}/src/service.ts" <<'EOF'
+export const log = console.log;
+EOF
+assert_ok "console method reference without a call passes" bash "$GUARD" --strict "$proj_reference"
+
+# --- PASS: console-looking text in regex literals after control conditions is masked ---
+proj_control_regex="${tmpdir}/pass_control_condition_regex"
+mkdir -p "${proj_control_regex}/src"
+cat > "${proj_control_regex}/src/service.ts" <<'EOF'
+declare const enabled: boolean;
+declare const input: string;
+if (enabled) /console.log()/.test(input);
+while (enabled) /console.warn()/.test(input);
+for (; enabled;) /console.error()/.test(input);
+EOF
+assert_ok "regex literals after control conditions pass" bash "$GUARD" --strict "$proj_control_regex"
+
+# --- FAIL: JSX closing tags do not hide later console calls ---
+proj_tsx="${tmpdir}/fail_tsx_after_closing_tag"
+mkdir -p "${proj_tsx}/src"
+cat > "${proj_tsx}/src/component.tsx" <<'EOF'
+export const view = <div>ready</div>;
+console.log(view);
+EOF
+assert_fail "console call after JSX closing tag fails --strict" bash "$GUARD" --strict "$proj_tsx"
+
+# --- PASS/FAIL: JSX display text is masked while brace expressions stay executable ---
+proj_jsx_text="${tmpdir}/jsx_text_console"
+mkdir -p "${proj_jsx_text}/src"
+cat > "${proj_jsx_text}/src/help.tsx" <<'EOF'
+export const Help = () => <p>Use console.log() to debug</p>;
+EOF
+assert_ok "console call text inside JSX passes" bash "$GUARD" --strict "$proj_jsx_text"
+cat > "${proj_jsx_text}/src/help.tsx" <<'EOF'
+declare const value: unknown;
+export const Help = () => <p>{console.log(value)}</p>;
+EOF
+assert_fail "console call inside a JSX expression remains visible" \
+  bash "$GUARD" --strict "$proj_jsx_text"
+cat > "${proj_jsx_text}/src/help.tsx" <<'EOF'
+declare const value: string;
+export const Help = () => <p>{/[}]/.test(value) && console.log(value)}</p>;
+EOF
+assert_fail "regex braces do not hide console inside a JSX expression" \
+  bash "$GUARD" --strict "$proj_jsx_text"
+
+# --- FAIL: TSX generic arrows do not hide later executable statements ---
+proj_tsx_generic_arrow="${tmpdir}/fail_tsx_generic_arrow_console"
+mkdir -p "${proj_tsx_generic_arrow}/src"
+cat > "${proj_tsx_generic_arrow}/src/value.tsx" <<'EOF'
+export const identity = <T,>(value: T) => value;
+console.log(identity("value"));
+EOF
+assert_fail "console after a TSX generic arrow remains visible" \
+  bash "$GUARD" --strict "$proj_tsx_generic_arrow"
+
+# --- BASELINE: removing the CLI exemption rechecks unchanged console calls ---
+proj_cli_removed="${tmpdir}/baseline_cli_removed"
+mkdir -p "${proj_cli_removed}/src"
+git -C "$proj_cli_removed" init -q
+git -C "$proj_cli_removed" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_cli_removed" config user.name "VibeGuard Tests"
+printf '%s\n' '{"bin":{"tool":"src/index.ts"}}' > "${proj_cli_removed}/package.json"
+printf 'console.log("cli output");\n' > "${proj_cli_removed}/src/index.ts"
+git -C "$proj_cli_removed" add .
+git -C "$proj_cli_removed" commit -q -m baseline
+cli_baseline="$(git -C "$proj_cli_removed" rev-parse HEAD)"
+printf '%s\n' '{"name":"app"}' > "${proj_cli_removed}/package.json"
+git -C "$proj_cli_removed" add package.json
+git -C "$proj_cli_removed" commit -q -m remove-cli
+assert_fail "baseline rechecks console calls when package bin is removed" \
+  bash "$GUARD" --strict --baseline "$cli_baseline" "$proj_cli_removed"
+
+# --- BASELINE: escaped string continuations preserve physical line numbers ---
+proj_string_lines="${tmpdir}/baseline_string_lines"
+mkdir -p "${proj_string_lines}/src"
+git -C "$proj_string_lines" init -q
+git -C "$proj_string_lines" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_string_lines" config user.name "VibeGuard Tests"
+cat > "${proj_string_lines}/src/app.ts" <<'EOF'
+const banner = "hello\
+world";
+EOF
+git -C "$proj_string_lines" add .
+git -C "$proj_string_lines" commit -q -m baseline
+string_baseline="$(git -C "$proj_string_lines" rev-parse HEAD)"
+printf 'console.log(banner);\n' >> "${proj_string_lines}/src/app.ts"
+git -C "$proj_string_lines" add src/app.ts
+git -C "$proj_string_lines" commit -q -m add-console
+assert_fail "baseline keeps console line after escaped string continuation" \
+  bash "$GUARD" --strict --baseline "$string_baseline" "$proj_string_lines"
 
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"

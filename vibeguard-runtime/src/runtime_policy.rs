@@ -30,7 +30,10 @@ pub fn runtime_policy_supports(args: &[String]) -> HandlerResult {
 pub fn runtime_policy_check(args: &[String]) -> HandlerResult {
     let parsed = parse_runtime_policy_check_args(args)?;
 
-    let user_config = std::env::var("VIBEGUARD_USER_CONFIG_FILE").unwrap_or_default();
+    let user_config = ["VG_INTERNAL_USER_CONFIG_FILE", "VIBEGUARD_USER_CONFIG_FILE"]
+        .iter()
+        .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
+        .unwrap_or_default();
     if let Err(err) = validate_runtime_config_file(&user_config) {
         let payload = runtime_policy_error_payload(
             &parsed.hook_name,

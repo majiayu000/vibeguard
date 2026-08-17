@@ -92,6 +92,19 @@ EOF
 assert_output_contains "wrong rule ID does not suppress RS-03" "[RS-03]" \
   bash "$RUST_GUARD" "$proj4"
 
+# --- FAIL: a longer rule-id prefix does not suppress the requested rule ---
+proj4b="${tmpdir}/rs03_prefix_rule"
+mkdir -p "${proj4b}/src"
+cat > "${proj4b}/src/main.rs" <<'EOF'
+fn main() {
+    // vibeguard-disable-next-line RS-03junk
+    let val = std::env::var("HOME").unwrap();
+    println!("{}", val);
+}
+EOF
+assert_output_contains "rule-id prefix mismatch does not suppress RS-03" "[RS-03]" \
+  bash "$RUST_GUARD" "$proj4b"
+
 # --- PASS: suppression on same line does NOT suppress (must be previous line) ---
 proj5="${tmpdir}/rs03_same_line"
 mkdir -p "${proj5}/src"

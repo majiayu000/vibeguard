@@ -49,57 +49,6 @@ staged_list() {
   echo "$out"
 }
 
-printf '\n=== Baseline Scanning: vg_build_diff_linemap (Go) ===\n'
-
-# ---- Test 1: linemap captures added lines in pre-commit mode ----
-repo1="${tmpdir}/linemap_go"
-init_repo "$repo1"
-
-cat > "${repo1}/main.go" <<'EOF'
-package main
-
-func existing() {}
-EOF
-git -C "$repo1" add main.go
-git -C "$repo1" commit -q -m "initial"
-
-# Add new lines
-cat >> "${repo1}/main.go" <<'EOF'
-
-func newFunc() {
-    go process()
-}
-EOF
-git -C "$repo1" add main.go
-
-staged1=$(staged_list "$repo1" main.go)
-linemap1=$(mktemp)
-(
-  cd "$repo1"
-  source "${REPO_DIR}/guards/go/common.sh"
-  VIBEGUARD_STAGED_FILES="$staged1" vg_build_diff_linemap "$linemap1" '\.go$'
-)
-
-TOTAL=$((TOTAL+1))
-if [[ -s "$linemap1" ]]; then
-  green "vg_build_diff_linemap produces non-empty linemap for staged Go file"
-  PASS=$((PASS+1))
-else
-  red "vg_build_diff_linemap should produce non-empty linemap"
-  FAIL=$((FAIL+1))
-fi
-
-TOTAL=$((TOTAL+1))
-repo1_real=$(canon "$repo1")
-if grep -q "${repo1_real}/main.go:" "$linemap1" 2>/dev/null; then
-  green "linemap contains entries for the staged file"
-  PASS=$((PASS+1))
-else
-  red "linemap should contain entries for ${repo1_real}/main.go"
-  FAIL=$((FAIL+1))
-fi
-rm -f "$staged1" "$linemap1"
-
 printf '\n=== Baseline Scanning: GO-02 goroutine_leak diff-only mode ===\n'
 
 # ---- Test 2: Pre-existing goroutine leak is NOT reported in pre-commit mode ----
@@ -210,7 +159,7 @@ git -C "$repo4" add files.go
 staged4=$(staged_list "$repo4" files.go)
 
 TOTAL=$((TOTAL+1))
-if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repo4}/files.go" 2>/dev/null; then
+if awk '/^[[:space:]]*for([[:space:]]|$)/ { found=1 } END { exit !found }' "${repo4}/files.go" 2>/dev/null; then
   out4=$(VIBEGUARD_STAGED_FILES="$staged4" bash "${REPO_DIR}/guards/go/check_defer_in_loop.sh" --strict "$repo4" 2>&1 || true)
   if echo "$out4" | grep -q '\[GO-08\]'; then
     red "pre-commit mode should NOT report pre-existing defer-in-loop (got: $out4)"
@@ -220,7 +169,7 @@ if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repo4}/files.go" 2>/dev/
     PASS=$((PASS+1))
   fi
 else
-  yellow "awk lacks \\s support — skipping defer-in-loop pre-commit test"
+  yellow "awk did not recognize fixture loop — skipping defer-in-loop pre-commit test"
   SKIP=$((SKIP+1))
 fi
 rm -f "$staged4"
@@ -263,6 +212,15 @@ else
   PASS=$((PASS+1))
 fi
 
+TOTAL=$((TOTAL+1))
+if echo "$out5" | grep -qF "$baseline5"; then
+  red "--baseline validation must not print the resolved commit SHA (got: $out5)"
+  FAIL=$((FAIL+1))
+else
+  green "--baseline validation keeps the resolved commit SHA silent"
+  PASS=$((PASS+1))
+fi
+
 # ---- Test 6: --baseline DOES report new goroutine leak added after baseline ----
 repo6="${tmpdir}/go02_baseline_new"
 init_repo "$repo6"
@@ -299,12 +257,11 @@ else
   FAIL=$((FAIL+1))
 fi
 
-printf '\n=== Baseline Scanning: deletion-only commit (empty linemap) ===\n'
+printf '\n=== Baseline Scanning: deletion-only commit ===\n'
 
 # ---- Test 7: deletion-only staged change should NOT trigger full scan ----
-# When staged changes contain only deletions, vg_build_diff_linemap produces an empty
-# linemap. Guards must not fall back to full-scan in this case — they should report
-# nothing, because the pre-existing goroutine was not introduced by this commit.
+# When staged changes contain only irrelevant deletions, the runtime diff map is
+# empty. Guards must not fall back to a full scan or report pre-existing code.
 repo7="${tmpdir}/go02_deletion_only"
 init_repo "$repo7"
 
@@ -349,7 +306,7 @@ if echo "$out7" | grep -q '\[GO-02\]'; then
   red "deletion-only commit should NOT report pre-existing goroutine leak via full scan (got: $out7)"
   FAIL=$((FAIL+1))
 else
-  green "deletion-only commit: empty linemap correctly suppresses full scan"
+  green "deletion-only commit: empty runtime diff correctly suppresses full scan"
   PASS=$((PASS+1))
 fi
 rm -f "$staged7"
@@ -396,17 +353,17 @@ git -C "$repo8" add files.go
 staged8=$(staged_list "$repo8" files.go)
 
 TOTAL=$((TOTAL+1))
-if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repo8}/files.go" 2>/dev/null; then
+if awk '/^[[:space:]]*for([[:space:]]|$)/ { found=1 } END { exit !found }' "${repo8}/files.go" 2>/dev/null; then
   out8=$(VIBEGUARD_STAGED_FILES="$staged8" bash "${REPO_DIR}/guards/go/check_defer_in_loop.sh" --strict "$repo8" 2>&1 || true)
   if echo "$out8" | grep -q '\[GO-08\]'; then
     red "deletion-only commit should NOT report pre-existing defer-in-loop via full scan (got: $out8)"
     FAIL=$((FAIL+1))
   else
-    green "deletion-only commit: defer-in-loop empty linemap correctly suppresses full scan"
+    green "deletion-only commit: empty runtime diff suppresses defer-in-loop full scan"
     PASS=$((PASS+1))
   fi
 else
-  yellow "awk lacks \\s support — skipping defer-in-loop deletion-only test"
+  yellow "awk did not recognize fixture loop — skipping defer-in-loop deletion-only test"
   SKIP=$((SKIP+1))
 fi
 rm -f "$staged8"
@@ -508,7 +465,7 @@ git -C "$repoB" add files.go
 stagedB=$(staged_list "$repoB" files.go)
 
 TOTAL=$((TOTAL+1))
-if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repoB}/files.go" 2>/dev/null; then
+if awk '/^[[:space:]]*for([[:space:]]|$)/ { found=1 } END { exit !found }' "${repoB}/files.go" 2>/dev/null; then
   outB=$(VIBEGUARD_STAGED_FILES="$stagedB" bash "${REPO_DIR}/guards/go/check_defer_in_loop.sh" "$repoB" 2>&1 || true)
   if echo "$outB" | grep -q '\[GO-08\]'; then
     green "for loop added wrapping existing defer IS reported (Issue 2 fix)"
@@ -518,12 +475,12 @@ if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repoB}/files.go" 2>/dev/
     FAIL=$((FAIL+1))
   fi
 else
-  yellow "awk lacks \\s support — skipping wrapped-defer test"
+  yellow "awk did not recognize fixture loop — skipping wrapped-defer test"
   SKIP=$((SKIP+1))
 fi
 rm -f "$stagedB"
 
-# ---- Test C: output format filepath:linenum is correct with tab-based parsing (Issue 3) ----
+# ---- Test C: output format filepath:linenum: content is correct (Issue 3) ----
 repoC="${tmpdir}/go08_tab_parsing"
 init_repo "$repoC"
 
@@ -543,18 +500,19 @@ git -C "$repoC" add resource.go
 git -C "$repoC" commit -q -m "initial"
 
 TOTAL=$((TOTAL+1))
-if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repoC}/resource.go" 2>/dev/null; then
+if awk '/^[[:space:]]*for([[:space:]]|$)/ { found=1 } END { exit !found }' "${repoC}/resource.go" 2>/dev/null; then
   outC=$(bash "${REPO_DIR}/guards/go/check_defer_in_loop.sh" "$repoC" 2>&1 || true)
-  # Verify output format is [GO-08] filepath:linenum content (not broken by tab parsing)
-  if echo "$outC" | grep -qE '\[GO-08\] .+:[0-9]+ '; then
-    green "tab-based parsing produces correct filepath:linenum output format (Issue 3 fix)"
+  # The Rust scanner emits a diagnostic followed by a summary. Match the
+  # diagnostic's canonical filepath:linenum: content form anywhere in output.
+  if echo "$outC" | grep -qE '\[GO-08\] .+:[0-9]+: .+'; then
+    green "scanner produces correct filepath:linenum: content output format (Issue 3 fix)"
     PASS=$((PASS+1))
   else
-    red "output format should be [GO-08] filepath:linenum content (got: $outC)"
+    red "output format should be [GO-08] filepath:linenum: content (got: $outC)"
     FAIL=$((FAIL+1))
   fi
 else
-  yellow "awk lacks \\s support — skipping tab-parsing format test"
+  yellow "awk did not recognize fixture loop — skipping tab-parsing format test"
   SKIP=$((SKIP+1))
 fi
 
@@ -633,8 +591,8 @@ else
 fi
 rm -f "$stagedR2"
 
-# ---- Rename test C: Go linemap only contains edited lines for a rename ----
-repoR3="${tmpdir}/linemap_go_rename"
+# ---- Rename test C: Go scanner only reports edited lines for a rename ----
+repoR3="${tmpdir}/runtime_go_rename"
 init_repo "$repoR3"
 
 cat > "${repoR3}/old_worker.go" <<'EOF'
@@ -657,25 +615,16 @@ EOF
 git -C "$repoR3" add moved_worker.go
 
 stagedR3=$(staged_list "$repoR3" moved_worker.go)
-linemapR3=$(mktemp)
-(
-  cd "$repoR3"
-  source "${REPO_DIR}/guards/go/common.sh"
-  VIBEGUARD_STAGED_FILES="$stagedR3" vg_build_diff_linemap "$linemapR3" '\.go$'
-)
-
 TOTAL=$((TOTAL+1))
-repoR3_real=$(canon "$repoR3")
-# Line 4 holds the pre-existing `go loop()`; it must not be in the linemap.
-if grep -q "${repoR3_real}/moved_worker.go:" "$linemapR3" 2>/dev/null \
-    && ! grep -q "${repoR3_real}/moved_worker.go:4$" "$linemapR3" 2>/dev/null; then
-  green "Go linemap for a staged rename contains only edited lines"
+outR3=$( (cd "$repoR3" && VIBEGUARD_STAGED_FILES="$stagedR3" bash "${REPO_DIR}/guards/go/check_goroutine_leak.sh" --strict .) 2>&1 || true )
+if ! echo "$outR3" | grep -q '\[GO-02\]'; then
+  green "Go scanner ignores pre-existing findings in an edited rename"
   PASS=$((PASS+1))
 else
-  red "Go linemap should pair the rename and keep only edited lines (got: $(cat "$linemapR3" 2>/dev/null))"
+  red "Go scanner must not resurface the pre-existing renamed line (got: $outR3)"
   FAIL=$((FAIL+1))
 fi
-rm -f "$stagedR3" "$linemapR3"
+rm -f "$stagedR3"
 
 # ---- Rename test D: test → production rename is treated as new production code ----
 repoR4="${tmpdir}/rs03_rename_test_to_prod"
@@ -705,8 +654,8 @@ else
 fi
 rm -f "$stagedR4"
 
-# ---- Rename test E: Go linemap treats *_test.go → prod as fully added ----
-repoR5="${tmpdir}/linemap_go_test_to_prod"
+# ---- Rename test E: Go scanner treats *_test.go → prod as fully added ----
+repoR5="${tmpdir}/runtime_go_test_to_prod"
 init_repo "$repoR5"
 
 cat > "${repoR5}/helper_test.go" <<'EOF'
@@ -725,24 +674,16 @@ git -C "$repoR5" mv helper_test.go helper.go
 git -C "$repoR5" add helper.go
 
 stagedR5=$(staged_list "$repoR5" helper.go)
-linemapR5=$(mktemp)
-(
-  cd "$repoR5"
-  source "${REPO_DIR}/guards/go/common.sh"
-  VIBEGUARD_STAGED_FILES="$stagedR5" vg_build_diff_linemap "$linemapR5" '\.go$'
-)
-
 TOTAL=$((TOTAL+1))
-repoR5_real=$(canon "$repoR5")
-# Without pairing, the pre-existing `go loop()` on line 4 must appear as added.
-if grep -q "${repoR5_real}/helper.go:4$" "$linemapR5" 2>/dev/null; then
-  green "Go linemap treats test-to-production rename as newly added lines"
+outR5=$( (cd "$repoR5" && VIBEGUARD_STAGED_FILES="$stagedR5" bash "${REPO_DIR}/guards/go/check_goroutine_leak.sh" --strict .) 2>&1 || true )
+if echo "$outR5" | grep -q '\[GO-02\].*/helper.go:4:'; then
+  green "Go scanner treats test-to-production rename as newly enforced code"
   PASS=$((PASS+1))
 else
-  red "helper_test.go → helper.go should add pre-existing lines to the linemap (got: $(cat "$linemapR5" 2>/dev/null))"
+  red "helper_test.go → helper.go must report the pre-existing goroutine (got: $outR5)"
   FAIL=$((FAIL+1))
 fi
-rm -f "$stagedR5" "$linemapR5"
+rm -f "$stagedR5"
 
 # ---- Rename test F: vendor/ → production is treated as fully added ----
 repoR6="${tmpdir}/go_vendor_to_prod"
@@ -814,22 +755,16 @@ git -C "$repoR8" mv tests/helper.ts src/helper.ts
 git -C "$repoR8" add src/helper.ts
 
 stagedR8=$(staged_list "$repoR8" src/helper.ts)
-linemapR8=$(mktemp)
-(
-  cd "$repoR8"
-  source "${REPO_DIR}/guards/typescript/common.sh"
-  VIBEGUARD_STAGED_FILES="$stagedR8" vg_build_diff_linemap "$linemapR8" '\.(ts|tsx|js|jsx)$'
-)
 TOTAL=$((TOTAL+1))
-repoR8_real=$(canon "$repoR8")
-if grep -q "${repoR8_real}/src/helper.ts:1$" "$linemapR8" 2>/dev/null; then
-  green "root tests-to-production rename is treated as newly added TypeScript"
+outR8=$( (cd "$repoR8" && VIBEGUARD_STAGED_FILES="$stagedR8" bash "${REPO_DIR}/guards/typescript/check_any_abuse.sh" --strict .) 2>&1 || true )
+if echo "$outR8" | grep -q '\[TS-01\].*/src/helper.ts:1:'; then
+  green "root tests-to-production rename is treated as newly enforced TypeScript"
   PASS=$((PASS+1))
 else
-  red "tests/helper.ts → src/helper.ts should add pre-existing lines to the linemap (got: $(cat "$linemapR8" 2>/dev/null))"
+  red "tests/helper.ts → src/helper.ts must report the pre-existing any usage (got: $outR8)"
   FAIL=$((FAIL+1))
 fi
-rm -f "$stagedR8" "$linemapR8"
+rm -f "$stagedR8"
 
 # ---- Rename test I: TS vendor/ → production is treated as fully added ----
 repoR9="${tmpdir}/ts_vendor_to_prod"
@@ -842,22 +777,16 @@ git -C "$repoR9" mv vendor/helper.ts src/helper.ts
 git -C "$repoR9" add src/helper.ts
 
 stagedR9=$(staged_list "$repoR9" src/helper.ts)
-linemapR9=$(mktemp)
-(
-  cd "$repoR9"
-  source "${REPO_DIR}/guards/typescript/common.sh"
-  VIBEGUARD_STAGED_FILES="$stagedR9" vg_build_diff_linemap "$linemapR9" '\.(ts|tsx|js|jsx)$'
-)
 TOTAL=$((TOTAL+1))
-repoR9_real=$(canon "$repoR9")
-if grep -q "${repoR9_real}/src/helper.ts:1$" "$linemapR9" 2>/dev/null; then
-  green "vendor-to-production rename is treated as newly added TypeScript"
+outR9=$( (cd "$repoR9" && VIBEGUARD_STAGED_FILES="$stagedR9" bash "${REPO_DIR}/guards/typescript/check_any_abuse.sh" --strict .) 2>&1 || true )
+if echo "$outR9" | grep -q '\[TS-01\].*/src/helper.ts:1:'; then
+  green "vendor-to-production rename is treated as newly enforced TypeScript"
   PASS=$((PASS+1))
 else
-  red "vendor/helper.ts → src/helper.ts should add pre-existing lines to the linemap (got: $(cat "$linemapR9" 2>/dev/null))"
+  red "vendor/helper.ts → src/helper.ts must report the pre-existing any usage (got: $outR9)"
   FAIL=$((FAIL+1))
 fi
-rm -f "$stagedR9" "$linemapR9"
+rm -f "$stagedR9"
 
 # ---- Rename test J: TS rule exclusions are relative to the scan target ----
 repoR10="${tmpdir}/ts_monorepo_logger_target"
@@ -967,22 +896,16 @@ git -C "$repoR14" mv worker.txt worker.ts
 git -C "$repoR14" add worker.ts
 
 stagedR14=$(staged_list "$repoR14" worker.ts)
-linemapR14=$(mktemp)
-(
-  cd "$repoR14"
-  source "${REPO_DIR}/guards/typescript/common.sh"
-  VIBEGUARD_STAGED_FILES="$stagedR14" vg_build_diff_linemap "$linemapR14" '\.(ts|tsx|js|jsx)$'
-)
 TOTAL=$((TOTAL+1))
-repoR14_real=$(canon "$repoR14")
-if grep -q "${repoR14_real}/worker.ts:1$" "$linemapR14" 2>/dev/null; then
+outR14=$( (cd "$repoR14" && VIBEGUARD_STAGED_FILES="$stagedR14" bash "${REPO_DIR}/guards/typescript/check_any_abuse.sh" --strict .) 2>&1 || true )
+if echo "$outR14" | grep -q '\[TS-01\].*/worker.ts:1:'; then
   green "non-source-to-TypeScript rename is treated as newly enforced code"
   PASS=$((PASS+1))
 else
-  red "worker.txt → worker.ts should add pre-existing lines to the linemap (got: $(cat "$linemapR14" 2>/dev/null))"
+  red "worker.txt → worker.ts must report the pre-existing any usage (got: $outR14)"
   FAIL=$((FAIL+1))
 fi
-rm -f "$stagedR14" "$linemapR14"
+rm -f "$stagedR14"
 
 # ---- Rename test O: removing the last MCP marker enables TS-03 enforcement ----
 repoR15="${tmpdir}/ts_mcp_to_regular"
@@ -1054,23 +977,16 @@ printf '\nfunc Helper() string { return "ok" }\n' >> "${repoR17}/新_worker.go"
 git -C "$repoR17" add "新_worker.go"
 
 stagedR17=$(staged_list "$repoR17" "新_worker.go")
-linemapR17=$(mktemp)
-(
-  cd "$repoR17"
-  source "${REPO_DIR}/guards/go/common.sh"
-  VIBEGUARD_STAGED_FILES="$stagedR17" vg_build_diff_linemap "$linemapR17" '\.go$'
-)
 TOTAL=$((TOTAL+1))
-repoR17_real=$(canon "$repoR17")
-if grep -q "${repoR17_real}/新_worker.go:" "$linemapR17" 2>/dev/null \
-    && ! grep -q "${repoR17_real}/新_worker.go:4$" "$linemapR17" 2>/dev/null; then
+outR17=$( (cd "$repoR17" && VIBEGUARD_STAGED_FILES="$stagedR17" bash "${REPO_DIR}/guards/go/check_goroutine_leak.sh" --strict .) 2>&1 || true )
+if ! echo "$outR17" | grep -q '\[GO-02\]'; then
   green "Unicode Go rename preserves only newly edited lines"
   PASS=$((PASS+1))
 else
-  red "Unicode Go rename must not resurface line 4 (got: $(cat "$linemapR17" 2>/dev/null))"
+  red "Unicode Go rename must not resurface line 4 (got: $outR17)"
   FAIL=$((FAIL+1))
 fi
-rm -f "$stagedR17" "$linemapR17"
+rm -f "$stagedR17"
 
 # ---- Rename test R: Unicode TypeScript paths use the NUL-delimited rename map ----
 repoR18="${tmpdir}/ts_unicode_rename"
@@ -1083,38 +999,28 @@ printf 'const added = 2\n' >> "${repoR18}/新.ts"
 git -C "$repoR18" add "新.ts"
 
 stagedR18=$(staged_list "$repoR18" "新.ts")
-linemapR18=$(mktemp)
-(
-  cd "$repoR18"
-  source "${REPO_DIR}/guards/typescript/common.sh"
-  VIBEGUARD_STAGED_FILES="$stagedR18" vg_build_diff_linemap "$linemapR18" '\.(ts|tsx|js|jsx)$'
-)
 TOTAL=$((TOTAL+1))
-repoR18_real=$(canon "$repoR18")
-if grep -q "${repoR18_real}/新.ts:2$" "$linemapR18" 2>/dev/null \
-    && ! grep -q "${repoR18_real}/新.ts:1$" "$linemapR18" 2>/dev/null; then
+outR18=$( (cd "$repoR18" && VIBEGUARD_STAGED_FILES="$stagedR18" bash "${REPO_DIR}/guards/typescript/check_any_abuse.sh" --strict .) 2>&1 || true )
+if ! echo "$outR18" | grep -q '\[TS-01\].*/新.ts:'; then
   green "Unicode TypeScript rename preserves only newly edited lines"
   PASS=$((PASS+1))
 else
-  red "Unicode TypeScript rename must keep line 1 out of the linemap (got: $(cat "$linemapR18" 2>/dev/null))"
+  red "Unicode TypeScript rename must not resurface line 1 (got: $outR18)"
   FAIL=$((FAIL+1))
 fi
-rm -f "$stagedR18" "$linemapR18"
+rm -f "$stagedR18"
 
-# ---- Rename test S: Rust path classification does not allocate temp files ----
+# ---- Rename test S: Rust runtime classification does not allocate temp files ----
 repoR19="${tmpdir}/rs_classifier_temp"
-mkdir -p "${repoR19}/tmp"
+mkdir -p "${repoR19}/tmp" "${repoR19}/src"
+printf 'pub fn clean() {}\n' > "${repoR19}/src/lib.rs"
 TOTAL=$((TOTAL+1))
-classR19=$(
-  cd "$repoR19"
-  TMPDIR="${repoR19}/tmp" source "${REPO_DIR}/guards/rust/common.sh"
-  TMPDIR="${repoR19}/tmp" vg_path_enforcement_class "src/worker.rs"
-)
-if [[ "$classR19" == "1:0:0" ]] && ! find "${repoR19}/tmp" -mindepth 1 -print -quit | grep -q .; then
+if TMPDIR="${repoR19}/tmp" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict "$repoR19" >/dev/null 2>&1 \
+    && ! find "${repoR19}/tmp" -mindepth 1 -print -quit | grep -q .; then
   green "Rust rename classification leaves no temp directories"
   PASS=$((PASS+1))
 else
-  red "Rust rename classification leaked temp state (class=$classR19)"
+  red "Rust runtime classification leaked temp state"
   FAIL=$((FAIL+1))
 fi
 
@@ -1203,6 +1109,106 @@ else
   FAIL=$((FAIL+1))
 fi
 rm -f "$stagedR22"
+
+# ---- Test W: Unicode staged Rust additions are attributed to their real path ----
+repoR23="${tmpdir}/rs_unicode_addition"
+init_repo "$repoR23"
+mkdir -p "${repoR23}/src"
+printf 'pub fn clean() {}\n' > "${repoR23}/src/lib.rs"
+git -C "$repoR23" add src/lib.rs
+git -C "$repoR23" commit -q -m "initial Rust source"
+printf 'pub fn read(input: Option<i32>) -> i32 { input.unwrap() }\n' > "${repoR23}/src/新增.rs"
+git -C "$repoR23" add "src/新增.rs"
+stagedR23=$(staged_list "$repoR23" "src/新增.rs")
+TOTAL=$((TOTAL+1))
+outR23=$( (cd "$repoR23" && VIBEGUARD_STAGED_FILES="$stagedR23" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 || true )
+if echo "$outR23" | grep -q '\[RS-03\].*/src/新增.rs:1'; then
+  green "Unicode staged Rust addition is enforced"
+  PASS=$((PASS+1))
+else
+  red "Unicode staged Rust addition must report RS-03 (got: $outR23)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR23"
+
+# ---- Test X: Unicode staged Go additions are attributed to their real path ----
+repoR24="${tmpdir}/go_unicode_addition"
+init_repo "$repoR24"
+printf 'package worker\n' > "${repoR24}/base.go"
+git -C "$repoR24" add base.go
+git -C "$repoR24" commit -q -m "initial Go source"
+cat > "${repoR24}/新增.go" <<'EOF'
+package worker
+func risky() error { return nil }
+func run() {
+    _ = risky()
+}
+EOF
+git -C "$repoR24" add "新增.go"
+stagedR24=$(staged_list "$repoR24" "新增.go")
+TOTAL=$((TOTAL+1))
+outR24=$( (cd "$repoR24" && VIBEGUARD_STAGED_FILES="$stagedR24" bash "${REPO_DIR}/guards/go/check_error_handling.sh" --strict .) 2>&1 || true )
+if echo "$outR24" | grep -q '\[GO-01\].*/新增.go:4'; then
+  green "Unicode staged Go addition is enforced"
+  PASS=$((PASS+1))
+else
+  red "Unicode staged Go addition must report GO-01 (got: $outR24)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR24"
+
+# ---- Test Y: Unicode staged TypeScript additions are attributed to their real path ----
+repoR25="${tmpdir}/ts_unicode_addition"
+init_repo "$repoR25"
+printf 'export const clean: string = "ok"\n' > "${repoR25}/base.ts"
+git -C "$repoR25" add base.ts
+git -C "$repoR25" commit -q -m "initial TypeScript source"
+printf 'export const unsafe: any = 1\n' > "${repoR25}/新增.ts"
+git -C "$repoR25" add "新增.ts"
+stagedR25=$(staged_list "$repoR25" "新增.ts")
+TOTAL=$((TOTAL+1))
+outR25=$( (cd "$repoR25" && VIBEGUARD_STAGED_FILES="$stagedR25" bash "${REPO_DIR}/guards/typescript/check_any_abuse.sh" --strict .) 2>&1 || true )
+if echo "$outR25" | grep -q '\[TS-01\].*/新增.ts:1'; then
+  green "Unicode staged TypeScript addition is enforced"
+  PASS=$((PASS+1))
+else
+  red "Unicode staged TypeScript addition must report TS-01 (got: $outR25)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR25"
+
+# ---- Test Z: identical production/test calls retain occurrence-level scope pairing ----
+repoR26="${tmpdir}/rs03_identical_scopes"
+init_repo "$repoR26"
+mkdir -p "${repoR26}/src"
+cat > "${repoR26}/src/lib.rs" <<'EOF'
+pub fn production(input: Option<i32>) -> i32 {
+    input.unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    pub fn test_helper(input: Option<i32>) -> i32 {
+        input.unwrap()
+    }
+}
+EOF
+git -C "$repoR26" add src/lib.rs
+git -C "$repoR26" commit -q -m "initial identical calls"
+printf '\n// unrelated staged edit\n' >> "${repoR26}/src/lib.rs"
+git -C "$repoR26" add src/lib.rs
+stagedR26=$(staged_list "$repoR26" src/lib.rs)
+TOTAL=$((TOTAL+1))
+rcR26=0
+outR26=$( (cd "$repoR26" && VIBEGUARD_STAGED_FILES="$stagedR26" bash "${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh" --strict .) 2>&1 ) || rcR26=$?
+if [[ $rcR26 -eq 0 ]] && ! echo "$outR26" | grep -q '\[RS-03\]'; then
+  green "identical production/test calls do not resurface production debt"
+  PASS=$((PASS+1))
+else
+  red "identical scoped calls must preserve occurrence pairing (rc=$rcR26, got: $outR26)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedR26"
 
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"

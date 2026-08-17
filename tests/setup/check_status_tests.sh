@@ -264,7 +264,7 @@ assert_eq "$drift_rc" "2" "drift: strict exit code 2"
 drift_install_rc="$(run_with_buffer "$drift_buf" 'status_install_exit_code')"
 assert_eq "$drift_install_rc" "2" "drift: install exit code 2"
 
-optional_missing_buf=$'[OK] base\n[MISSING] ast-grep not installed — TS/Rust AST guards will SKIP\n[MISSING] agents not in ~/.claude/agents/\n[MISSING] context profiles not in ~/.claude/context-profiles/\n'
+optional_missing_buf=$'[OK] base\n[MISSING] agents not in ~/.claude/agents/\n[MISSING] context profiles not in ~/.claude/context-profiles/\n'
 optional_install_rc="$(run_with_buffer "$optional_missing_buf" 'status_install_exit_code')"
 assert_eq "$optional_install_rc" "0" "install mode: optional missing rows do not fail"
 codex_required_missing_buf=$'[OK] base\n[MISSING] Codex hooks.json not installed\n[MISSING] Codex hook wrapper not installed\n[MISSING] hooks feature not enabled in ~/.codex/config.toml\n'

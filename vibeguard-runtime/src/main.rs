@@ -7,6 +7,7 @@ mod codex_hooks;
 mod event_schema;
 mod gemini_hooks;
 mod git_root;
+mod guard_scan;
 mod hook_checks;
 mod hook_input_diag;
 mod hook_orchestrator;
@@ -47,6 +48,11 @@ static COMMANDS: &[Command] = &[
         name: "version",
         usage: "  — print the vibeguard-runtime package version",
         handler: version,
+    },
+    Command {
+        name: "scan",
+        usage: "<language> <rule> [--strict] [--baseline <commit>] [target-dir]  — run a canonical language guard",
+        handler: guard_scan::run,
     },
     Command {
         name: "json-field",
@@ -287,6 +293,11 @@ static COMMANDS: &[Command] = &[
         name: "runtime-policy-diag",
         usage: "<diag-file> <hook-name> <event-name> <kind> <wrapper>  — append policy diagnostic JSONL from stdin reason",
         handler: runtime_policy::runtime_policy_diag,
+    },
+    Command {
+        name: "config",
+        usage: "explain <key-or-env> [--cwd <path>] [--json]  — explain a layered runtime configuration value",
+        handler: runtime_config::config,
     },
     Command {
         name: "runtime-config-validate",

@@ -77,6 +77,29 @@ fn runtime_policy_check_validates_user_runtime_config_before_policy() {
 }
 
 #[test]
+fn runtime_policy_check_falls_back_from_empty_internal_user_config_selector() {
+    let repo = runtime_config_fixture_dir("empty_internal_selector");
+    write_policy(&repo, r#"{}"#);
+    let user_config = repo.join("bad-config.json");
+    fs::write(&user_config, r#"{"write_mode":"#).expect("runtime config should be written");
+
+    let output = bin()
+        .arg("runtime-policy-check")
+        .arg("--cwd")
+        .arg(&repo)
+        .arg("pre-bash-guard.sh")
+        .current_dir(&repo)
+        .env("VG_INTERNAL_USER_CONFIG_FILE", "")
+        .env("VIBEGUARD_USER_CONFIG_FILE", &user_config)
+        .output()
+        .expect("runtime policy command should run");
+
+    assert_eq!(output.status.code(), Some(30));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("category=config_json_error"));
+    fs::remove_dir_all(repo).expect("temp dir should be removed");
+}
+
+#[test]
 fn runtime_policy_check_shares_semantic_and_path_decisions_without_value_leaks() {
     let repo = runtime_config_fixture_dir("runtime_config_decisions");
     write_policy(&repo, r#"{}"#);

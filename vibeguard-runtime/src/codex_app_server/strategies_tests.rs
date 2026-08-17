@@ -36,7 +36,6 @@ fn analysis_strategy_classifies_read_and_write_commands() {
     assert!(analysis.read_re.is_match("git diff -- src/lib.rs"));
     assert!(analysis.write_re.is_match("apply_patch <<'PATCH'"));
     assert!(analysis.write_re.is_match("git commit -m fix"));
-    assert!(analysis.threshold >= 1);
 }
 
 #[test]

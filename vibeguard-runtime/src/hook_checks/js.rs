@@ -159,12 +159,14 @@ fn keyword_allows_regex_after(token: &str) -> bool {
     )
 }
 
-fn mask_javascript_non_code(source: &str) -> String {
+pub(crate) fn mask_javascript_non_code(source: &str) -> String {
     let chars = source.chars().collect::<Vec<_>>();
     let mut masked = String::with_capacity(source.len());
     let mut state = LexState::Code;
     let mut template_expression_depths: Vec<usize> = Vec::new();
     let mut regex_can_start = true;
+    let mut pending_control_condition = false;
+    let mut control_condition_parens = Vec::new();
     let mut index = 0;
     while index < chars.len() {
         let current = chars[index];
@@ -228,11 +230,36 @@ fn mask_javascript_non_code(source: &str) -> String {
                 let token = chars[start..index].iter().collect::<String>();
                 masked.push_str(&token);
                 regex_can_start = keyword_allows_regex_after(&token);
+                pending_control_condition =
+                    matches!(token.as_str(), "if" | "for" | "while" | "with");
+            }
+            LexState::Code if matches!(current, '+' | '-') && next == Some(current) => {
+                masked.push(current);
+                masked.push(current);
+                index += 2;
+            }
+            LexState::Code if current == '!' && next != Some('=') && !regex_can_start => {
+                masked.push(current);
+                index += 1;
+            }
+            LexState::Code if current == '(' => {
+                masked.push(current);
+                control_condition_parens.push(pending_control_condition);
+                pending_control_condition = false;
+                regex_can_start = true;
+                index += 1;
+            }
+            LexState::Code if current == ')' => {
+                masked.push(current);
+                regex_can_start = control_condition_parens.pop().unwrap_or(false);
+                pending_control_condition = false;
+                index += 1;
             }
             LexState::Code => {
                 masked.push(current);
                 if !current.is_whitespace() {
                     regex_can_start = !matches!(current, ')' | ']' | '}' | '.' | '0'..='9');
+                    pending_control_condition = false;
                 }
                 index += 1;
             }
@@ -255,12 +282,13 @@ fn mask_javascript_non_code(source: &str) -> String {
                 index += 1;
             }
             LexState::Quoted(_) if current == '\\' && next.is_some() => {
-                masked.push_str("  ");
+                push_masked_escape(&mut masked, next);
                 index += 2;
             }
             LexState::Quoted(quote) if current == quote => {
                 masked.push(' ');
                 state = LexState::Code;
+                regex_can_start = false;
                 index += 1;
             }
             LexState::Quoted(_) => {
@@ -302,7 +330,7 @@ fn mask_javascript_non_code(source: &str) -> String {
                 index += 1;
             }
             LexState::Template if current == '\\' && next.is_some() => {
-                masked.push_str("  ");
+                push_masked_escape(&mut masked, next);
                 index += 2;
             }
             LexState::Template if current == '$' && next == Some('{') => {
@@ -325,6 +353,11 @@ fn mask_javascript_non_code(source: &str) -> String {
         }
     }
     masked
+}
+
+fn push_masked_escape(masked: &mut String, next: Option<char>) {
+    masked.push(' ');
+    masked.push(if next == Some('\n') { '\n' } else { ' ' });
 }
 
 #[cfg(test)]

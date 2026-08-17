@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 # Unit tests for guards/rust/check_declaration_execution_gap.sh (RS-14)
-#
-# NOTE: This guard requires ast-grep. Tests are skipped if ast-grep is unavailable.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -44,16 +42,6 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 printf '\n=== check_declaration_execution_gap (RS-14) ===\n'
 
-# Skip gracefully if ast-grep is not available
-if ! command -v ast-grep >/dev/null 2>&1; then
-  SKIP=$((SKIP+1))
-  yellow "ast-grep not available — skipping RS-14 tests"
-  echo
-  printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' \
-    "$TOTAL" "$PASS" "$FAIL" "$SKIP"
-  exit 0
-fi
-
 # --- FAIL: Config::default() used in production code ---
 proj_default="${tmpdir}/fail_config_default"
 mkdir -p "${proj_default}/src"
@@ -88,6 +76,23 @@ assert_output_contains "output contains RS-14 tag" "[RS-14]" \
   bash "$GUARD" --strict "$proj_default"
 assert_output_contains "output contains AppConfig::default()" "AppConfig::default()" \
   bash "$GUARD" --strict "$proj_default"
+
+# --- FAIL: whitespace and line breaks cannot hide Config::default() ---
+proj_multiline_default="${tmpdir}/fail_multiline_config_default"
+mkdir -p "${proj_multiline_default}/src"
+cat > "${proj_multiline_default}/src/main.rs" <<'EOF'
+pub struct AppConfig;
+impl AppConfig {
+    pub fn load() -> Self { Self }
+}
+fn main() {
+    let _cfg = AppConfig
+        :: default
+        ();
+}
+EOF
+assert_output_contains "multiline Config default call bypasses load" "bypasses load" \
+  bash "$GUARD" --strict "$proj_multiline_default"
 
 # --- PASS: ServerConfig::default() without load() method is not flagged ---
 proj_server="${tmpdir}/pass_server_no_load"
@@ -151,6 +156,193 @@ assert_ok "Non-Config structs using default() pass" \
   bash "$GUARD" --strict "$proj_non_config"
 assert_output_not_contains "No Config violations in output" "AppState::default()" \
   bash "$GUARD" --strict "$proj_non_config"
+
+# --- FAIL: persistence methods on non-Config types must be called at startup ---
+proj_store="${tmpdir}/fail_non_config_persistence"
+mkdir -p "${proj_store}/src"
+cat > "${proj_store}/src/store.rs" <<'EOF'
+pub struct StateStore;
+impl StateStore {
+    pub fn persist(&self) {}
+}
+EOF
+cat > "${proj_store}/src/main.rs" <<'EOF'
+mod store;
+fn main() {}
+EOF
+assert_fail "unused persistence method on non-Config type fails" \
+  bash "$GUARD" --strict "$proj_store"
+assert_output_contains "non-Config persistence finding names the type" "StateStore::persist()" \
+  bash "$GUARD" --strict "$proj_store"
+
+# --- PASS: same-named Config types keep their qualified module identities ---
+proj_qualified="${tmpdir}/pass_qualified_config_identity"
+mkdir -p "${proj_qualified}/src"
+cat > "${proj_qualified}/src/config_a.rs" <<'EOF'
+pub struct AppConfig;
+impl AppConfig { pub fn load() -> Self { Self } }
+EOF
+cat > "${proj_qualified}/src/config_b.rs" <<'EOF'
+pub struct AppConfig;
+impl Default for AppConfig { fn default() -> Self { Self } }
+EOF
+cat > "${proj_qualified}/src/main.rs" <<'EOF'
+mod config_a;
+mod config_b;
+fn main() {
+    let _loaded = config_a::AppConfig::load();
+    let _defaults = config_b::AppConfig::default();
+}
+EOF
+assert_ok "qualified Config identity avoids cross-module load pollution" \
+  bash "$GUARD" --strict "$proj_qualified"
+
+# --- FAIL: super-qualified Config paths resolve from the caller module ---
+proj_super="${tmpdir}/fail_super_qualified_config"
+mkdir -p "${proj_super}/src/commands"
+cat > "${proj_super}/src/commands/config.rs" <<'EOF'
+pub struct AppConfig;
+impl AppConfig { pub fn load() -> Self { Self } }
+EOF
+cat > "${proj_super}/src/commands/start.rs" <<'EOF'
+pub fn start() {
+    let _config = super::config::AppConfig::default();
+}
+EOF
+assert_output_contains "super-qualified Config path detects load bypass" \
+  "super::config::AppConfig::default()" bash "$GUARD" --strict "$proj_super"
+
+# --- FAIL: balanced nested generic impl headers still register load() ---
+proj_nested_generic="${tmpdir}/fail_nested_generic_impl"
+mkdir -p "${proj_nested_generic}/src"
+cat > "${proj_nested_generic}/src/config.rs" <<'EOF'
+pub struct AppConfig<T>(T);
+impl<T: Into<Vec<u8>>> AppConfig<T> {
+    pub fn load(value: T) -> Self { Self(value) }
+}
+impl<T: Default> Default for AppConfig<T> {
+    fn default() -> Self { Self(T::default()) }
+}
+EOF
+cat > "${proj_nested_generic}/src/main.rs" <<'EOF'
+mod config;
+use config::AppConfig;
+fn main() { let _config = AppConfig::<Vec<u8>>::default(); }
+EOF
+assert_fail "nested generic Config impl still protects default()" \
+  bash "$GUARD" --strict "$proj_nested_generic"
+
+# --- FAIL: workspace crate-qualified root Config types resolve their load() impl ---
+proj_workspace_crate="${tmpdir}/fail_workspace_crate_config"
+mkdir -p "${proj_workspace_crate}/crates/crate_a/src" "${proj_workspace_crate}/crates/app/src"
+cat > "${proj_workspace_crate}/crates/crate_a/src/lib.rs" <<'EOF'
+pub struct AppConfig;
+impl AppConfig { pub fn load() -> Self { Self } }
+EOF
+cat > "${proj_workspace_crate}/crates/app/src/main.rs" <<'EOF'
+fn main() { let _config = crate_a::AppConfig::default(); }
+EOF
+assert_fail "workspace crate-qualified Config detects load bypass" \
+  bash "$GUARD" --strict "$proj_workspace_crate"
+
+mkdir -p "${proj_workspace_crate}/crates/crate_a/src/config"
+cat > "${proj_workspace_crate}/crates/crate_a/src/config/mod.rs" <<'EOF'
+pub struct NestedConfig;
+impl NestedConfig { pub fn load() -> Self { Self } }
+pub fn defaults() { let _config = crate::config::NestedConfig::default(); }
+EOF
+assert_fail "workspace crate:: Config path retains its crate prefix" \
+  bash "$GUARD" --strict "$proj_workspace_crate"
+
+# --- FAIL: Rust identifiers may use Unicode XID characters ---
+proj_unicode_config="${tmpdir}/fail_unicode_config"
+mkdir -p "${proj_unicode_config}/src"
+cat > "${proj_unicode_config}/src/main.rs" <<'EOF'
+pub struct 配置Config;
+impl 配置Config { pub fn load() -> Self { Self } }
+fn main() { let _config = 配置Config::default(); }
+EOF
+assert_fail "Unicode Config type detects load bypass" bash "$GUARD" --strict "$proj_unicode_config"
+
+# --- FAIL: type names containing 'where' retain their full identity ---
+proj_somewhere="${tmpdir}/fail_where_in_config_name"
+mkdir -p "${proj_somewhere}/src"
+cat > "${proj_somewhere}/src/main.rs" <<'EOF'
+pub struct SomewhereConfig;
+impl SomewhereConfig {
+    pub fn load() -> Self { Self }
+}
+fn main() { let _config = SomewhereConfig::default(); }
+EOF
+assert_fail "where substring in Config name still resolves load()" \
+  bash "$GUARD" --strict "$proj_somewhere"
+
+# --- STAGED: unchanged Config impls participate in the method index ---
+proj_staged="${tmpdir}/fail_staged_unchanged_impl"
+mkdir -p "${proj_staged}/src"
+git -C "$proj_staged" init -q
+git -C "$proj_staged" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_staged" config user.name "VibeGuard Tests"
+cat > "${proj_staged}/src/config.rs" <<'EOF'
+pub struct AppConfig;
+impl AppConfig { pub fn load() -> Self { Self } }
+EOF
+cat > "${proj_staged}/src/main.rs" <<'EOF'
+mod config;
+fn main() { let _config = config::AppConfig::load(); }
+EOF
+git -C "$proj_staged" add src/config.rs src/main.rs
+git -C "$proj_staged" commit -q -m initial
+cat > "${proj_staged}/src/main.rs" <<'EOF'
+mod config;
+fn main() {
+    let _loaded = config::AppConfig::load();
+    let _defaults = config::AppConfig::default();
+}
+EOF
+git -C "$proj_staged" add src/main.rs
+staged_list="${proj_staged}/staged-files"
+printf '%s\n' "${proj_staged}/src/main.rs" > "$staged_list"
+assert_fail "staged default() sees unchanged load() implementation" \
+  env VIBEGUARD_STAGED_FILES="$staged_list" bash "$GUARD" --strict "$proj_staged"
+
+# --- PASS: persistence declarations honor the documented suppression directive ---
+proj_suppressed="${tmpdir}/pass_suppressed_persistence_declaration"
+mkdir -p "${proj_suppressed}/src"
+cat > "${proj_suppressed}/src/config.rs" <<'EOF'
+pub struct AppConfig;
+impl AppConfig {
+    // vibeguard-disable-next-line RS-14 -- intentionally invoked outside startup
+    pub fn save(&self) {}
+}
+EOF
+assert_ok "suppressed persistence declaration passes" bash "$GUARD" --strict "$proj_suppressed"
+
+# --- BASELINE: deleting the only startup call rechecks an unchanged declaration ---
+proj_deleted_call="${tmpdir}/fail_deleted_startup_call"
+mkdir -p "${proj_deleted_call}/src"
+git -C "$proj_deleted_call" init -q
+git -C "$proj_deleted_call" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj_deleted_call" config user.name "VibeGuard Tests"
+cat > "${proj_deleted_call}/src/config.rs" <<'EOF'
+pub struct AppConfig;
+impl AppConfig { pub fn load() -> Self { Self } }
+EOF
+cat > "${proj_deleted_call}/src/main.rs" <<'EOF'
+mod config;
+fn main() { let _config = config::AppConfig::load(); }
+EOF
+git -C "$proj_deleted_call" add src/config.rs src/main.rs
+git -C "$proj_deleted_call" commit -q -m initial
+deleted_call_baseline="$(git -C "$proj_deleted_call" rev-parse HEAD)"
+cat > "${proj_deleted_call}/src/main.rs" <<'EOF'
+mod config;
+fn main() {}
+EOF
+git -C "$proj_deleted_call" add src/main.rs
+git -C "$proj_deleted_call" commit -q -m remove-load
+assert_fail "deleted startup persistence call fails baseline scan" \
+  bash "$GUARD" --strict --baseline "$deleted_call_baseline" "$proj_deleted_call"
 
 # --- PASS: empty project ---
 proj_empty="${tmpdir}/pass_empty"

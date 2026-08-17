@@ -4,7 +4,22 @@ header "GH719 persistent Codex skill opt-out"
 gh719_home="${TMP_HOME}/gh719-home"
 gh719_config="${gh719_home}/.vibeguard/config.json"
 gh719_runtime="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
+gh719_current_runtime_version="$(tr -d '[:space:]' < "${REPO_DIR}/vibeguard-runtime/VERSION")"
 mkdir -p "${gh719_home}"
+
+gh753_project_dir="${TMP_HOME}/gh753-project-config"
+gh753_caller_dir="${TMP_HOME}/gh753-outside-caller"
+mkdir -p "${gh753_project_dir}" "${gh753_caller_dir}"
+printf '%s\n' '{"disabled_skills":["plan-flow"]}' \
+  > "${gh753_project_dir}/.vibeguard.json"
+assert_cmd "disabled skills resolve against the setup repository outside its cwd" env \
+  VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  VIBEGUARD_SETUP_RUNTIME_VERSION="${gh719_current_runtime_version}" bash -c '
+    source "$1/scripts/setup/lib.sh"
+    REPO_DIR="$2"
+    cd "$3"
+    [[ "$(disabled_skills)" == plan-flow ]]
+  ' _ "${REPO_DIR}" "${gh753_project_dir}" "${gh753_caller_dir}"
 
 assert_cmd "install cleanup releases the lock before deleting staged runtime" env \
   VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c '
@@ -65,7 +80,6 @@ printf '%s\n' '#!/usr/bin/env bash' \
   '  *) printf "%s\n" "vibeguard-runtime error: Usage: capability fixture" >&2; exit 1 ;;' \
   'esac' > "${gh719_capability_runtime}"
 chmod +x "${gh719_capability_runtime}"
-gh719_current_runtime_version="$(tr -d '[:space:]' < "${REPO_DIR}/vibeguard-runtime/VERSION")"
 gh719_capability_probe_tmp="${TMP_HOME}/gh719-capability-probe-tmp"
 mkdir -p "${gh719_capability_probe_tmp}"
 assert_cmd "install-state selector rejects old setup-state-init usage" env \
@@ -632,12 +646,48 @@ assert_cmd "disabled skill source reports _VG_CONFIG_FILE" env \
     source "$1/scripts/setup/lib.sh"
     [[ "$(disabled_skills_source_label)" == "/custom/internal.json" ]]
   ' _ "${REPO_DIR}"
+assert_cmd "disabled skill source prefers VG_INTERNAL_CONFIG_FILE" env \
+  VG_INTERNAL_CONFIG_FILE=/custom/internal-v2.json \
+  _VG_CONFIG_FILE=/deprecated/internal.json \
+  VIBEGUARD_CONFIG_FILE=/ignored/user.json bash -c '
+    source "$1/scripts/setup/lib.sh"
+    [[ "$(disabled_skills_source_label)" == "/custom/internal-v2.json" ]]
+  ' _ "${REPO_DIR}"
 assert_cmd "disabled skill source reports temporary list override first" env \
   VIBEGUARD_DISABLED_SKILLS=plan-flow \
   _VG_CONFIG_FILE=/ignored/internal.json bash -c '
     source "$1/scripts/setup/lib.sh"
     [[ "$(disabled_skills_source_label)" == "temporary VIBEGUARD_DISABLED_SKILLS override" ]]
   ' _ "${REPO_DIR}"
+gh719_project_config="${gh719_order_home}/project-vibeguard.json"
+printf '%s\n' '{"disabled_skills":["plan-flow"]}' > "${gh719_project_config}"
+assert_cmd "disabled skill source reports project overlay" env \
+  VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  VIBEGUARD_PROJECT_CONFIG="${gh719_project_config}" \
+  VIBEGUARD_CONFIG_FILE=/ignored/user.json bash -c '
+    source "$1/scripts/setup/lib.sh"
+    [[ "$(disabled_skills_source_label)" == "$2" ]]
+  ' _ "${REPO_DIR}" "${gh719_project_config}"
+gh719_invalid_project_config="${gh719_order_home}/invalid-project-vibeguard.json"
+printf '%s\n' '{' > "${gh719_invalid_project_config}"
+gh719_invalid_project_out=""
+if gh719_invalid_project_out="$(HOME="${gh719_order_home}" \
+  VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+  VIBEGUARD_PROJECT_CONFIG="${gh719_invalid_project_config}" bash -c '
+    source "$1/scripts/setup/lib.sh"
+    disabled_skills
+  ' _ "${REPO_DIR}" 2>&1)"; then
+  red "invalid project disabled_skills config unexpectedly succeeded"
+  FAIL=$((FAIL + 1))
+  TOTAL=$((TOTAL + 1))
+else
+  green "invalid project disabled_skills config fails visibly"
+  PASS=$((PASS + 1))
+  TOTAL=$((TOTAL + 1))
+fi
+assert_contains "${gh719_invalid_project_out}" \
+  "cannot read disabled_skills from ${gh719_invalid_project_config}" \
+  "invalid project disabled_skills diagnostic preserves project path"
 assert_cmd "disabled skill source reports VIBEGUARD_CONFIG_FILE" env \
   VIBEGUARD_CONFIG_FILE=/custom/user.json bash -c '
     source "$1/scripts/setup/lib.sh"

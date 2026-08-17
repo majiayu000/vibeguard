@@ -518,6 +518,8 @@ fn gemini_installed_wrapper_ignores_hostile_runtime_environment() {
     )
     .unwrap();
     fs::set_permissions(&hostile_runtime, fs::Permissions::from_mode(0o700)).unwrap();
+    let hostile_config = root.join("hostile-config.json");
+    fs::write(&hostile_config, r#"{"write_mode":"#).unwrap();
 
     let mut command = Command::new("/bin/bash");
     command
@@ -526,6 +528,8 @@ fn gemini_installed_wrapper_ignores_hostile_runtime_environment() {
         .env("HOME", root.join("attacker-home"))
         .env("VIBEGUARD_RUNTIME", &hostile_runtime)
         .env("VIBEGUARD_POLICY_RUNTIME", &hostile_runtime)
+        .env("VG_INTERNAL_CONFIG_FILE", &hostile_config)
+        .env("VG_INTERNAL_POLICY_CWD", root.join("attacker-project"))
         .env("VIBEGUARD_EXECUTION_MODE", "dev-linked-repo")
         .env("VIBEGUARD_LOG_DIR", root.join("attacker-config"));
     let output = run_with_stdin(
@@ -535,6 +539,12 @@ fn gemini_installed_wrapper_ignores_hostile_runtime_environment() {
     assert!(output.status.success());
     let decision: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(decision["decision"], "deny");
+    assert!(
+        !decision["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("runtime config invalid")
+    );
     assert!(!marker.exists());
 
     fs::remove_dir_all(root).unwrap();
