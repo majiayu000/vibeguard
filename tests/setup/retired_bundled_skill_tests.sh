@@ -183,3 +183,17 @@ PY
     test -n "$quarantine"
     test "$(cat "$quarantine/SKILL.md")" = "managed"
   ' _ "${REPO_DIR}" "${TMP_DIR}"
+
+assert_cmd "malformed manifest output preserves tracked active skill links" bash -c '
+  set -euo pipefail
+  repo="$1"
+  root="$2/malformed-manifest-cleanup"
+  skill="$root/skills/eval-harness"
+  mkdir -p "$(dirname "$skill")"
+  ln -s "$repo/skills/eval-harness" "$skill"
+  source "$repo/scripts/setup/lib.sh"
+  manifest_skill_links() { printf "  \n"; }
+  state_list_tracked_symlinks_under() { printf "%s\n" "$skill"; }
+  cleanup_retired_manifest_skill_links "~/.claude/skills/" "$root/skills"
+  test -L "$skill"
+' _ "${REPO_DIR}" "${TMP_DIR}"

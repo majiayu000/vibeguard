@@ -535,7 +535,7 @@ manifest_skill_links_for_cleanup() {
   fi
   if [[ -n "${output}" && -z "${output//[[:space:]]/}" ]]; then
     yellow "  WARN: no manifest skills declared for ${target}; skipping malformed skill link output" >&2
-    return 0
+    return 1
   fi
   printf '%s\n' "${output}"
 }

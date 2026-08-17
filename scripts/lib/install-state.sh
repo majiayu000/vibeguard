@@ -473,9 +473,11 @@ state_prepare_clean() {
   _VG_STATE_CLEAN_QUARANTINE_COUNT="$total_count"
 }
 
-# Remove state only after clean preflight has captured quarantine ownership.
+# Remove state only after revalidating quarantine ownership created during
+# clean. The initial preflight runs before asset mutation; Codex cleanup may
+# atomically quarantine a newly retired managed tree after that point.
 state_clean() {
-  [[ "${_VG_STATE_CLEAN_QUARANTINE_COUNT:-}" =~ ^[0-9]+$ ]] || return 1
+  state_prepare_clean || return 1
   local total_count="${_VG_STATE_CLEAN_QUARANTINE_COUNT}"
   if [[ "$total_count" -gt 0 ]]; then
     _VG_STATE_CLEAN_RESULT="RETAINED"
