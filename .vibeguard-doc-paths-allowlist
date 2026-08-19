@@ -12,26 +12,6 @@ _lib/log.sh | historical | plan/** | - | Completed audit plan records the earlie
 _lib/detect_duplicate.sh | historical | plan/** | - | Completed audit plan records the earlier unqualified helper layout
 _lib/detect_filename_collision.sh | historical | plan/** | - | Completed audit plan records the earlier unqualified helper layout
 schemas/prompt-contract.schema.yaml | planned | plan/** | - | SPEC-96 plan records the proposed YAML schema path before implementation selected JSON
-checks/pr_gate.py | historical | docs/specs/GH595/** | - | GH595 retains the former PR gate path as historical evidence
-checks/pr_gate.py | historical | docs/specs/GH660/** | - | GH660 retains the former PR gate path as historical evidence
-checks/pr_gate.py | historical | docs/specs/GH720/** | - | GH720 retains the former PR gate path as historical evidence
-checks/runtime_ledger_gate.py | historical | docs/specs/GH595/** | - | GH595 retains the former runtime gate path as historical evidence
-checks/github_pr_evidence.py | historical | docs/specs/GH595/** | - | GH595 retains the former PR evidence adapter path as historical evidence
-checks/github_review_threads.py | historical | docs/specs/GH595/** | - | GH595 retains the former review-thread adapter path as historical evidence
-checks/specrail_lib.py | historical | docs/specs/GH595/** | - | GH595 retains the former shared library path as historical evidence
-checks/check_workflow.py | historical | docs/specs/GH595/** | - | GH595 retains the former workflow validator path as historical evidence
-checks/check_workflow.py | historical | docs/specs/GH720/** | - | GH720 retains the former workflow validator path as historical evidence
-schemas/runtime_checkpoint.schema.json | historical | docs/specs/GH595/** | - | GH595 retains the former checkpoint schema path as historical evidence
-tests/test_specrail_adoption.sh | historical | docs/specs/GH595/** | - | GH595 retains the former adoption test path as historical evidence
-checks/github_issue_reference.py | historical | docs/specs/GH595/** | - | GH595 retains the former issue adapter path as historical evidence
-checks/runtime_gate_rules.py | historical | docs/specs/GH595/** | - | GH595 retains the former runtime rules path as historical evidence
-docs/ADOPTION_MATRIX.md | historical | docs/specs/GH595/** | - | GH595 retains the former adoption matrix path as historical evidence
-examples/adoptions/matrix.json | historical | docs/specs/GH595/** | - | GH595 retains the former adoption fixture path as historical evidence
-skills/specrail-install/SKILL.md | historical | docs/specs/GH595/** | - | GH595 retains the former install skill path as historical evidence
-tools/install_codex_skills.py | historical | docs/specs/GH595/** | - | GH595 retains the former local installer path as historical evidence
-review/human_final_review.md | historical | docs/specs/GH595/** | - | GH595 retains the former review template path as historical evidence
-schemas/workflow-routing-decision.schema.json | historical | docs/specs/GH658/** | - | GH658 retains the former routing schema path as historical evidence
-checks/route_gate.py | historical | docs/specs/GH720/** | - | GH720 retains the former route gate path as historical evidence
 vibeguard-runtime/src/codex_app_server.rs | historical | plan/** | - | Completed plans retain the pre-reorg flat module path (now codex_app_server/mod.rs)
 vibeguard-runtime/src/codex_app_server_core.rs | historical | plan/** | - | Completed plans retain the pre-reorg flat module path (now codex_app_server/core.rs)
 vibeguard-runtime/src/codex_app_server_file_changes.rs | historical | plan/** | - | Completed plans retain the pre-reorg flat module path (now codex_app_server/file_changes.rs)

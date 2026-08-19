@@ -1,78 +1,29 @@
+<!-- Generated from docs/directory-guidance.md; do not edit directly. -->
+
 # scripts/ directory
 
-Reference notes for the utility scripts shipped with VibeGuard.
+Scripts are grouped by responsibility; search the existing group before adding
+a new entrypoint.
 
-## Main scripts
+| Path | Responsibility |
+|------|----------------|
+| `setup/` | Public installation, checks, cleanup, and host targets |
+| `ci/` | CI and static contract validators |
+| `verify/` | Local compliance and freshness checks |
+| `gc/` | Log, worktree, and scheduled cleanup |
+| `metrics/` | Metrics collection and Prometheus export |
+| `release/` | Deterministic release payload construction |
+| `constraints/` | Constraint inventory and recommendations |
+| `doctors/` | Installation and host diagnostics |
+| `lib/` | Shared install and configuration helpers |
 
-| Script | Purpose |
-|------|------|
-| `stats.sh` | Analyze `events.jsonl` and summarize hook activity, decision mix, and hot spots |
-| `health-report.py` | Aggregate observe summary/health, precision tracker, and Learn adoption into a weekly health report (markdown or JSON); reads existing sources only, never mutates the scorecard |
-| `health-report-scheduled.sh` | Write a dated weekly health report file under `~/.vibeguard/reports/health/`; does not install a scheduler |
-| `install-health-report-scheduler.sh` | Opt-in installer/remover for the weekly health report launchd/cron scheduler; default mode is dry-run |
-| `hook-health.sh` | Show recent hook health: risk rate, top noisy hooks, and recent risky events |
-| `quality-grader.sh` | Compute the current quality grade from runtime events |
-| `project-init.sh` | Bootstrap another repository with detected languages, recommended constraints, and git hook wiring |
-| `constraint-recommender.py` | Generate an initial preflight constraint draft from project structure |
-| `log-capability-change.sh` | Extract a capability-change timeline from git history |
-| `authorized-discard.py` | Print and execute an explicit, confirmed Git cleanup plan for tracked, untracked, and selected ignored paths |
-| `live_truth.py` | Verify mutable claims such as latest, PR-ready, merged, running, deployed, and published with fresh facts/inferences/gaps |
-| `skill_validate.py` | Validate SKILL.md and template structure, then score proposed skill changes with with/without repair and regression evidence |
-| `ci/validate-skill-format.py` | Validate VibeGuard skill/workflow SKILL.md and template structure (`When to Activate`, `Red Flags`, `Checklist`) |
+Common maintainer entrypoints include `stats.sh`, `health-report.py`,
+`hook-health.sh`, `quality-grader.sh`, `project-init.sh`,
+`authorized-discard.py`, `live_truth.py`, and `skill_validate.py`. Keep errors
+visible, preserve dry-run behavior where documented, and put generated or
+session-local output under the ignored locations defined by
+`docs/reference/process-artifacts.md`.
 
-## GC / Metrics / Verification
-
-| Script | Purpose |
-|------|------|
-| `gc/gc-logs.sh` | Archive oversized `events.jsonl` logs |
-| `gc/gc-worktrees.sh` | Clean up stale worktrees |
-| `gc/gc-scheduled.sh` | Scheduled GC + cross-session learning signal aggregation |
-| `metrics/metrics-exporter.sh` | Export Prometheus-format metrics from runtime logs |
-| `metrics/metrics_collector.sh` | Collect codebase metrics for benchmarking / reporting |
-| `verify/compliance_check.sh` | Run project compliance checks |
-| `verify/doc-freshness-check.sh` | Cross-check rule IDs against guards/hooks coverage |
-
-## CI helpers (`scripts/ci/`)
-
-| Script | Purpose |
-|------|------|
-| `validate-guards.sh` | Validate guard script presence, executability, and contract basics |
-| `validate-hooks.sh` | Validate hook script presence and contract basics |
-| `validate-rules.sh` | Validate rule file format and ID uniqueness |
-| `validate-doc-paths.sh` | Check backtick path references in markdown docs |
-| `validate-doc-command-paths.sh` | Check shell command paths and stale command aliases in user-facing docs |
-| `validate-no-personal-paths.sh` | Catch accidental personal absolute paths in tracked files |
-| `validate-skill-format.sh` | Check VibeGuard skill/workflow SKILL.md and template activation, red-flag, and checklist sections |
-| `check-branch-protection.sh` | Verify branch protection settings |
-| `apply-branch-protection.sh` | Apply the expected branch protection policy |
-
-## Codex integration helpers
-
-| Script | Purpose |
-|------|------|
-| `vibeguard-runtime codex-app-server-wrapper` | Rust external wrapper for `codex app-server` with VibeGuard gates |
-| `lib/settings_json.py` | Manage Claude Code hook configuration in `~/.claude/settings.json` |
-| `lib/codex_hooks_json.py` | Manage VibeGuard-owned entries in `~/.codex/hooks.json` |
-| `lib/hooks_manifest.py` | Read and validate `hooks/manifest.json` as the hook registration, install-target, and disabled-hook exposure source of truth |
-| `setup/` | Install, check, clean, and target-specific setup logic |
-
-## Quick usage
-
-```bash
-bash scripts/stats.sh
-python3 scripts/health-report.py --days 7 --format markdown
-python3 scripts/health-report.py --days 30 --scope global --format json --output report.json
-bash scripts/health-report-scheduled.sh --dry-run
-bash scripts/install-health-report-scheduler.sh --dry-run
-bash scripts/hook-health.sh 24
-bash scripts/quality-grader.sh
-python3 scripts/authorized-discard.py --plan
-python3 scripts/live_truth.py checklist
-python3 scripts/skill_validate.py --format-only --proposed-skill path/to/SKILL.md
-python3 scripts/skill_validate.py --check-repo-format --repo-root .
-python3 scripts/skill_validate.py --proposed-skill path/to/SKILL.md --baseline-trajectories path/to/baseline.jsonl
-bash scripts/ci/validate-skill-format.sh
-bash scripts/ci/validate-hooks-manifest.sh
-bash scripts/ci/validate-doc-paths.sh
-bash scripts/ci/validate-doc-command-paths.sh
-```
+The configured hook production path is Rust-first and Python-free. Python
+scripts may support tests, CI, evaluation, installation, and maintainer tools,
+but must not be introduced into configured hook execution.

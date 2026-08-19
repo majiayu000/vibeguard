@@ -166,10 +166,12 @@ When changing rules, guards, hooks, or script paths, update matching docs in the
 - Canonical rule source: `rules/claude-rules/**` is the only canonical rule text. Keep it English-only.
 - Localized docs: translations such as `docs/README_CN.md` belong in the docs layer only. Do not add localized copies of canonical rules.
 - Derived rule docs: `rules/*.md` and `docs/rule-reference.md` are generated artifacts. Do not hand-edit them; regenerate them with `python3 scripts/generate_rule_docs.py`.
+- Scoped Claude guidance: repository `CLAUDE.md` files are generated from `docs/directory-guidance.md`. Regenerate them with `python3 scripts/generate_directory_guidance.py` instead of editing an output directly.
 - Script moves or renames: update command examples in `README.md`, `docs/README_CN.md`, and any contributor docs that mention them.
 - Canonical rule checks: run `bash scripts/ci/validate-canonical-rule-language.sh` to ensure no CJK text or malformed headings leak into `rules/claude-rules/**`.
 - Generated doc checks: run `bash scripts/ci/validate-generated-rule-docs.sh` after rule changes to verify derived docs are in sync.
 - Documentation checks: run both `bash scripts/ci/validate-doc-paths.sh` and `bash scripts/ci/validate-doc-command-paths.sh`.
+- Directory-guidance check: run `bash scripts/ci/validate-generated-directory-guidance.sh` after changing its canonical source or a generated `CLAUDE.md`.
 - Coverage checks: run `bash scripts/verify/doc-freshness-check.sh --strict` after changing guards or rule IDs.
 
 ### 3. Commit Message Format
@@ -217,6 +219,16 @@ Optional trailers such as `Related:` are encouraged when they add useful context
 - A bug fix must not include unrelated refactoring.
 - Style-only edits belong in a separate commit.
 - Prefer deletion and reuse over new abstraction layers.
+
+### 5. Keep Process Output Local
+
+Logs, routing packets, review transcripts, triage exports, screenshots,
+benchmark output, and command receipts belong under the ignored `artifacts/`
+directory. Do not force-add them. Only deterministic product outputs, minimal
+test fixtures, consumed schemas/manifests/data, and explicitly requested
+bounded design documents may be committed. See
+[`docs/reference/process-artifacts.md`](docs/reference/process-artifacts.md)
+for the full decision test.
 
 ---
 

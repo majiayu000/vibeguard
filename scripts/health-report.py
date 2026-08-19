@@ -20,7 +20,7 @@ Usage:
   python3 scripts/health-report.py --scope global
   python3 scripts/health-report.py --log-file /path/events.jsonl --output report.md
 
-Data rules (see docs/specs/GH556):
+Data rules (implemented by the current report sources and regression tests):
   - Missing event log is an explicit "no data" state, never success-with-zero.
   - Malformed triage JSONL or invalid scorecard JSON is a HARD ERROR (non-zero
     exit, error-level message). We never emit a misleading summary on top of

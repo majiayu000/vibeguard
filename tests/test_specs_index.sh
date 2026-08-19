@@ -1,122 +1,147 @@
 #!/usr/bin/env bash
-# VibeGuard specs-index sync regression tests
-#
-# Usage: bash tests/test_specs_index.sh
+# Regression tests for the archived specs-index policy.
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VALIDATOR="$REPO_DIR/scripts/ci/validate-specs-index.sh"
+repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
+validator="$repo_dir/scripts/ci/validate-specs-index.sh"
+tmp_dir="$(mktemp -d)"
+pass=0
+fail=0
+total=0
 
-PASS=0
-FAIL=0
-TOTAL=0
-TMP_DIR="$(mktemp -d)"
-
-cleanup() {
-  rm -rf "${TMP_DIR}"
-}
+cleanup() { rm -rf "$tmp_dir"; }
 trap cleanup EXIT
 
 green() { printf '\033[32m  PASS: %s\033[0m\n' "$1"; }
-red()   { printf '\033[31m  FAIL: %s\033[0m\n' "$1"; }
-header(){ printf '\n\033[1m=== %s ===\033[0m\n' "$1"; }
+red() { printf '\033[31m  FAIL: %s\033[0m\n' "$1"; }
 
 assert_exit() {
-  local desc="$1" expected="$2"
+  local description="$1" expected="$2"
   shift 2
-  TOTAL=$((TOTAL + 1))
   local actual=0
+  total=$((total + 1))
   "$@" >/dev/null 2>&1 || actual=$?
   if [[ "$actual" -eq "$expected" ]]; then
-    green "$desc"
-    PASS=$((PASS + 1))
+    green "$description"
+    pass=$((pass + 1))
   else
-    red "$desc (expected exit $expected, got $actual)"
-    FAIL=$((FAIL + 1))
+    red "$description (expected $expected, got $actual)"
+    fail=$((fail + 1))
   fi
 }
 
 assert_stderr_contains() {
-  local desc="$1" needle="$2"
+  local description="$1" expected="$2"
   shift 2
-  TOTAL=$((TOTAL + 1))
-  local stderr_out
-  stderr_out="$("$@" 2>&1 >/dev/null || true)"
-  if [[ "$stderr_out" == *"$needle"* ]]; then
-    green "$desc"
-    PASS=$((PASS + 1))
+  local output
+  total=$((total + 1))
+  output="$("$@" 2>&1 >/dev/null || true)"
+  if [[ "$output" == *"$expected"* ]]; then
+    green "$description"
+    pass=$((pass + 1))
   else
-    red "$desc (stderr missing: $needle)"
-    FAIL=$((FAIL + 1))
+    red "$description (missing: $expected)"
+    fail=$((fail + 1))
   fi
 }
 
 make_fixture() {
   local name="$1"
-  local dir="$TMP_DIR/$name"
-  mkdir -p "$dir"
-  printf '%s' "$dir"
+  local fixture="$tmp_dir/$name"
+  mkdir -p "$fixture"
+  printf '%s' "$fixture"
 }
 
-header "specs-index validator"
+write_valid_index() {
+  local destination="$1"
+  printf '%s\n' \
+    '# Specs' \
+    '' \
+    '## Archived GitHub Packet Index' \
+    '' \
+    '| Issue | Outcome |' \
+    '|---|---|' \
+    '| [GH100](https://github.com/majiayu000/vibeguard/issues/100) | Fixture outcome |' \
+    > "$destination/README.md"
+  printf '%s\n' 'GH100' > "$destination/archived-issues.txt"
+}
 
-# In-sync fixture: one dir, one matching row.
-SYNCED="$(make_fixture synced)"
-mkdir -p "$SYNCED/GH100"
-cat > "$SYNCED/README.md" <<'EOF'
-| Spec | Status | Use it for |
-|---|---|---|
-| `GH100/` | Implemented reference | Fixture spec |
-| `some-file.md` | Implemented reference | Non-directory rows are ignored |
-EOF
-assert_exit "in-sync specs dir passes" 0 bash "$VALIDATOR" "$SYNCED"
+printf '\n=== specs-index archive policy ===\n'
 
-# Directory on disk missing from index.
-UNINDEXED="$(make_fixture unindexed)"
-mkdir -p "$UNINDEXED/GH100" "$UNINDEXED/GH101"
-cat > "$UNINDEXED/README.md" <<'EOF'
-| `GH100/` | Implemented reference | Fixture spec |
-EOF
-assert_exit "unindexed spec directory fails" 1 bash "$VALIDATOR" "$UNINDEXED"
-assert_stderr_contains "unindexed failure names the directory" "docs/specs/GH101/" bash "$VALIDATOR" "$UNINDEXED"
+valid="$(make_fixture valid)"
+write_valid_index "$valid"
+assert_exit "archive index without packet directories passes" 0 bash "$validator" "$valid"
 
-# No index rows must still report every directory missing from the index.
-NO_INDEX_ROWS="$(make_fixture no-index-rows)"
-mkdir -p "$NO_INDEX_ROWS/GH100" "$NO_INDEX_ROWS/GH101"
-cat > "$NO_INDEX_ROWS/README.md" <<'EOF'
-| Spec | Status | Use it for |
-|---|---|---|
-EOF
-assert_exit "index without GH rows fails when spec directories exist" 1 bash "$VALIDATOR" "$NO_INDEX_ROWS"
-assert_stderr_contains "empty index names first missing directory" "docs/specs/GH100/" bash "$VALIDATOR" "$NO_INDEX_ROWS"
-assert_stderr_contains "empty index names second missing directory" "docs/specs/GH101/" bash "$VALIDATOR" "$NO_INDEX_ROWS"
+restored="$(make_fixture restored)"
+write_valid_index "$restored"
+mkdir -p "$restored/GH100"
+assert_exit "restored packet directory fails" 1 bash "$validator" "$restored"
+assert_stderr_contains "restored packet failure names path" "docs/specs/GH100/" bash "$validator" "$restored"
 
-# An empty directory set and an index without GH rows are in sync.
-EMPTY_SYNCED="$(make_fixture empty-synced)"
-cat > "$EMPTY_SYNCED/README.md" <<'EOF'
-| Spec | Status | Use it for |
-|---|---|---|
-EOF
-assert_exit "empty specs dir and index without GH rows pass" 0 bash "$VALIDATOR" "$EMPTY_SYNCED"
+legacy="$(make_fixture legacy)"
+write_valid_index "$legacy"
+printf '%s\n' '| `GH101/` | Implemented reference | Legacy path row |' >> "$legacy/README.md"
+assert_exit "legacy live-directory row fails" 1 bash "$validator" "$legacy"
+assert_stderr_contains "legacy row explains issue-link format" "must be issue links" bash "$validator" "$legacy"
 
-# Index row without a directory on disk.
-DANGLING="$(make_fixture dangling)"
-mkdir -p "$DANGLING/GH100"
-cat > "$DANGLING/README.md" <<'EOF'
-| `GH100/` | Implemented reference | Fixture spec |
-| `GH102/` | Implemented reference | Row without a directory |
-EOF
-assert_exit "index row without directory fails" 1 bash "$VALIDATOR" "$DANGLING"
-assert_stderr_contains "dangling failure names the row" "GH102/" bash "$VALIDATOR" "$DANGLING"
+duplicate="$(make_fixture duplicate)"
+write_valid_index "$duplicate"
+printf '%s\n' '| [GH100](https://github.com/majiayu000/vibeguard/issues/100) | Duplicate |' >> "$duplicate/README.md"
+assert_exit "duplicate issue row fails" 1 bash "$validator" "$duplicate"
+assert_stderr_contains "duplicate failure names issue" "GH100" bash "$validator" "$duplicate"
 
-# Missing README is an explicit error, not a silent pass.
-EMPTY="$(make_fixture empty)"
-mkdir -p "$EMPTY/GH100"
-assert_exit "missing index file fails" 1 bash "$VALIDATOR" "$EMPTY"
+mismatch="$(make_fixture mismatch)"
+write_valid_index "$mismatch"
+printf '%s\n' '| [GH101](https://github.com/majiayu000/vibeguard/issues/102) | Mismatch |' >> "$mismatch/README.md"
+assert_exit "issue label and URL mismatch fails" 1 bash "$validator" "$mismatch"
+assert_stderr_contains "mismatch failure is explicit" "label/URL mismatch" bash "$validator" "$mismatch"
 
-# The live repo must be in sync.
-assert_exit "live docs/specs index is in sync" 0 bash "$VALIDATOR"
+incomplete="$(make_fixture incomplete)"
+write_valid_index "$incomplete"
+printf '%s\n' 'GH100' 'GH101' > "$incomplete/archived-issues.txt"
+assert_exit "archive inventory requires every index row" 1 bash "$validator" "$incomplete"
+assert_stderr_contains "incomplete index names omitted issue" "missing index rows: GH101" bash "$validator" "$incomplete"
 
-printf '\n%d/%d passed\n' "$PASS" "$TOTAL"
-[[ "$FAIL" -eq 0 ]]
+scoped="$(make_fixture scoped)"
+write_valid_index "$scoped"
+printf '%s\n' '## Example Elsewhere' '| [GH999](not-an-issue-link) | Example only |' >> "$scoped/README.md"
+assert_exit "GH-like rows outside archive section are ignored" 0 bash "$validator" "$scoped"
+
+h1_boundary="$(make_fixture h1-boundary)"
+write_valid_index "$h1_boundary"
+printf '%s\n' 'GH100' 'GH101' > "$h1_boundary/archived-issues.txt"
+printf '%s\n' '# New Document Section' '| [GH101](https://github.com/majiayu000/vibeguard/issues/101) | Outside |' >> "$h1_boundary/README.md"
+assert_exit "visible H1 terminates archive section" 1 bash "$validator" "$h1_boundary"
+assert_stderr_contains "H1 boundary keeps outside row out" "missing index rows: GH101" bash "$validator" "$h1_boundary"
+
+fenced_heading="$(make_fixture fenced-heading)"
+printf '%s\n' '```markdown' '## Archived GitHub Packet Index' '```' > "$fenced_heading/README.md"
+printf '%s\n' 'GH100' > "$fenced_heading/archived-issues.txt"
+assert_exit "archive heading inside code fence is ignored" 1 bash "$validator" "$fenced_heading"
+assert_stderr_contains "fenced heading failure requires visible section" "expected exactly one visible" bash "$validator" "$fenced_heading"
+
+fake_closer="$(make_fixture fake-closer)"
+printf '%s\n' \
+  '# Specs' \
+  '```markdown' \
+  '``` trailing text is not a closing fence' \
+  '## Archived GitHub Packet Index' \
+  '| [GH100](https://github.com/majiayu000/vibeguard/issues/100) | Fenced |' \
+  > "$fake_closer/README.md"
+printf '%s\n' 'GH100' > "$fake_closer/archived-issues.txt"
+assert_exit "fence-like line with trailing text does not close fence" 1 bash "$validator" "$fake_closer"
+assert_stderr_contains "fake closer keeps heading fenced" "expected exactly one visible" bash "$validator" "$fake_closer"
+
+missing_section="$(make_fixture missing-section)"
+printf '%s\n' '# Specs' > "$missing_section/README.md"
+printf '%s\n' 'GH100' > "$missing_section/archived-issues.txt"
+assert_exit "missing archive section fails" 1 bash "$validator" "$missing_section"
+
+missing_readme="$(make_fixture missing-readme)"
+assert_exit "missing index fails" 1 bash "$validator" "$missing_readme"
+
+assert_exit "live specs index passes" 0 bash "$validator"
+
+printf '\n%d/%d passed\n' "$pass" "$total"
+[[ "$fail" -eq 0 ]]
