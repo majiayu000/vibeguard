@@ -83,7 +83,7 @@ state_runtime_path() {
 state_runtime_supports() {
   local runtime="$1" capability_out command probe_out
   capability_out="$("${runtime}" setup-state-capabilities 2>/dev/null)" || return 1
-  [[ "${capability_out}" == "complete-snapshot-v1" ]] || return 1
+  [[ "${capability_out}" == "complete-snapshot-v2" ]] || return 1
   for command in \
     setup-state-init \
     setup-state-list \
@@ -159,10 +159,14 @@ state_reject_nonregular_paths() {
 }
 
 # Validate both install-state generations before any active install mutation.
+state_codex_skills_dir() {
+  printf '%s\n' "${CODEX_DIR:-${CODEX_HOME:-${HOME}/.codex}}/skills"
+}
+
 state_preflight() {
   state_reject_legacy_publish_artifacts || return 1
   state_reject_nonregular_paths || return 1
-  state_runtime setup-state-validate-managed-tree-transactions "${HOME}/.codex/skills" || return 1
+  state_runtime setup-state-validate-managed-tree-transactions "$(state_codex_skills_dir)" || return 1
   if [[ -f "$STATE_FILE" ]] \
     && ! state_runtime setup-state-quarantine-count "$STATE_FILE" >/dev/null; then
     printf 'ERROR: refusing to mutate malformed install-state: %s\n' "$STATE_FILE" >&2
@@ -214,6 +218,7 @@ state_init() {
   local carry_state=""
   local current_status="" current_generation=0 previous_status="" previous_generation=0
   local base_generation=0 next_generation disabled_output="" disabled_csv=""
+  local retired_source retired_skill
   state_preflight || return 1
 
   if [[ -f "$STATE_FILE" ]]; then
@@ -258,8 +263,19 @@ state_init() {
   next_generation=$((base_generation + 1))
   if declare -F disabled_skills >/dev/null; then
     disabled_output="$(disabled_skills)" || return 1
-    disabled_csv="${disabled_output//$'\n'/,}"
   fi
+  # A newly retired manifest skill is no longer present in disabled_skills,
+  # but an interrupted generation can still be the only ownership inventory
+  # for its public copy. Carry those known names through the retry preflight so
+  # retirement can prove ownership instead of silently preserving stale bytes.
+  if declare -F retired_bundled_codex_skills >/dev/null; then
+    while IFS=$'\t' read -r retired_source retired_skill; do
+      [[ -n "${retired_source}" && -n "${retired_skill}" ]] || continue
+      [[ -z "${disabled_output}" ]] || disabled_output+=$'\n'
+      disabled_output+="${retired_skill}"
+    done < <(retired_bundled_codex_skills)
+  fi
+  disabled_csv="${disabled_output//$'\n'/,}"
   if [[ "$current_status" == "COMPLETE" ]]; then
     snapshot_tmp="$(mktemp "${STATE_PREVIOUS_FILE}.tmp.XXXXXX")" || {
       return 1
@@ -270,7 +286,8 @@ state_init() {
       return 1
     fi
     if ! state_runtime setup-state-init \
-      "$snapshot_tmp" "" "" "$current_generation" "" "$carry_state" complete-snapshot; then
+      "$snapshot_tmp" "" "" "$current_generation" "" "$carry_state" complete-snapshot \
+      "$(state_codex_skills_dir)"; then
       rm -f -- "$snapshot_tmp"
       return 1
     fi
@@ -290,7 +307,8 @@ state_init() {
     return 1
   fi
   state_runtime setup-state-init \
-    "$STATE_FILE" "$profile" "$languages" "$next_generation" "$disabled_csv" "$carry_state"
+    "$STATE_FILE" "$profile" "$languages" "$next_generation" "$disabled_csv" "$carry_state" "" \
+    "$(state_codex_skills_dir)"
 }
 
 state_mark_complete() {
@@ -439,7 +457,7 @@ state_prepare_clean() {
   state_reject_legacy_publish_artifacts || return 1
   state_reject_nonregular_paths || return 1
   state_runtime setup-state-validate-managed-tree-transactions \
-    "${HOME}/.codex/skills" "$STATE_FILE" "$STATE_PREVIOUS_FILE" || return 1
+    "$(state_codex_skills_dir)" "$STATE_FILE" "$STATE_PREVIOUS_FILE" || return 1
   if [[ -f "$STATE_FILE" ]]; then
     current_count="$(state_runtime setup-state-quarantine-count "$STATE_FILE")" || return 1
   fi
@@ -455,9 +473,11 @@ state_prepare_clean() {
   _VG_STATE_CLEAN_QUARANTINE_COUNT="$total_count"
 }
 
-# Remove state only after clean preflight has captured quarantine ownership.
+# Remove state only after revalidating quarantine ownership created during
+# clean. The initial preflight runs before asset mutation; Codex cleanup may
+# atomically quarantine a newly retired managed tree after that point.
 state_clean() {
-  [[ "${_VG_STATE_CLEAN_QUARANTINE_COUNT:-}" =~ ^[0-9]+$ ]] || return 1
+  state_prepare_clean || return 1
   local total_count="${_VG_STATE_CLEAN_QUARANTINE_COUNT}"
   if [[ "$total_count" -gt 0 ]]; then
     _VG_STATE_CLEAN_RESULT="RETAINED"

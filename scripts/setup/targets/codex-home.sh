@@ -46,7 +46,8 @@ _install_codex_manifest_skill() {
 install_codex_home_assets() {
   echo "Step 6: Install Codex skills"
   retire_legacy_codex_skills "${CODEX_DIR}/skills" "${HOME}/.vibeguard/retired-codex-skills"
-  install_manifest_skills "~/.codex/skills/" "${CODEX_DIR}/skills" _install_codex_manifest_skill 1 || return 1
+  retire_bundled_codex_skill_copies "${CODEX_DIR}/skills" || return 1
+  install_manifest_skills "~/.codex/skills/" "${CODEX_DIR}/skills" _install_codex_manifest_skill 1 1 || return 1
   echo
 
   echo "Step 6.5: Install Codex hooks"
@@ -170,7 +171,7 @@ check_codex_home_installation() {
   check_codex_agents_hygiene
 
   local link skill_links source_path skill
-  skill_links="$(manifest_skill_links_checked "~/.codex/skills/")" || return 1
+  skill_links="$(manifest_skill_links_checked "~/.codex/skills/" 1)" || return 1
   disabled_skills >/dev/null || return 1
   while IFS=$'\t' read -r source_path skill; do
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
@@ -569,7 +570,9 @@ clean_codex_home_installation() {
   esac
 
   local skill_links source_path skill skill_path
-  skill_links="$(manifest_skill_links_for_cleanup "~/.codex/skills/")"
+  if ! skill_links="$(manifest_skill_links_for_cleanup "~/.codex/skills/")"; then
+    skill_links=""
+  fi
   while IFS=$'\t' read -r source_path skill; do
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
     skill_path="${CODEX_DIR}/skills/${skill}"
@@ -580,6 +583,7 @@ clean_codex_home_installation() {
       red "Refusing to clean unowned Codex skill tree: ${skill_path/#${HOME}/~}"
     fi
   done <<< "${skill_links}"
+  clean_retired_bundled_codex_skill_copies "${CODEX_DIR}/skills" || return 1
   cleanup_retired_manifest_skill_links "~/.codex/skills/" "${CODEX_DIR}/skills"
 
   rm -f "${HOME}/.vibeguard/run-hook-codex.sh"

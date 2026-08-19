@@ -335,11 +335,11 @@ assert_contains "${manifest_whitespace_err}" "no manifest skills declared for ~/
 cleanup_whitespace_stdout="${TMP_HOME}/cleanup-whitespace.stdout"
 cleanup_whitespace_stderr="${TMP_HOME}/cleanup-whitespace.stderr"
 if bash -c "source '${REPO_DIR}/scripts/setup/lib.sh'; MANIFEST_HELPER='${manifest_whitespace_helper}'; manifest_skill_links_for_cleanup '~/.claude/skills/'" >"${cleanup_whitespace_stdout}" 2>"${cleanup_whitespace_stderr}"; then
-  green "cleanup skill enumeration warns on whitespace-only target output"
-  PASS=$((PASS + 1))
-else
-  red "cleanup skill enumeration warns on whitespace-only target output (exit code: $?)"
+  red "cleanup skill enumeration unexpectedly accepts whitespace-only target output"
   FAIL=$((FAIL + 1))
+else
+  green "cleanup skill enumeration rejects whitespace-only target output"
+  PASS=$((PASS + 1))
 fi
 TOTAL=$((TOTAL + 1))
 cleanup_whitespace_err="$(cat "${cleanup_whitespace_stderr}")"
@@ -409,6 +409,7 @@ mkdir -p \
   "${retired_home}/.codex/skills" \
   "${retired_home}/.vibeguard"
 ln -s "${REPO_DIR}/skills/vibeguard" "${retired_home}/.claude/skills/vibeguard"
+ln -s "${REPO_DIR}/skills/eval-harness" "${retired_home}/.claude/skills/eval-harness"
 ln -s "${REPO_DIR}/skills/old-retired" "${retired_home}/.claude/skills/old-retired"
 ln -s "${REPO_DIR}/skills/user-skill" "${retired_home}/.claude/skills/user-skill"
 mkdir -p "${retired_home}/.claude/skills/old-dir"
@@ -423,6 +424,7 @@ state = {
     "version": 1,
     "files": {
         str(home / ".claude/skills/vibeguard"): {"source": "skills/vibeguard", "type": "symlink"},
+        str(home / ".claude/skills/eval-harness"): {"source": "skills/eval-harness", "type": "symlink"},
         str(home / ".claude/skills/old-retired"): {"source": "skills/old-retired", "type": "symlink"},
         str(home / ".claude/skills/old-dir"): {"source": "skills/old-dir", "type": "symlink"},
         str(home / ".codex/skills/old-flow"): {"source": "workflows/old-flow", "type": "symlink"},
@@ -440,7 +442,8 @@ retired_cleanup_out="$(
   " 2>&1
 )"
 assert_contains "${retired_cleanup_out}" "Removed retired VibeGuard skill link" "retired skill cleanup reports removed managed links"
-assert_cmd "retired cleanup keeps active manifest Claude skill" test -L "${retired_home}/.claude/skills/vibeguard"
+assert_cmd "retired cleanup removes retired Claude vibeguard skill" test ! -L "${retired_home}/.claude/skills/vibeguard"
+assert_cmd "retired cleanup keeps active manifest Claude skill" test -L "${retired_home}/.claude/skills/eval-harness"
 assert_cmd "retired cleanup removes tracked retired Claude skill" test ! -L "${retired_home}/.claude/skills/old-retired"
 assert_cmd "retired cleanup removes tracked retired Codex skill" test ! -L "${retired_home}/.codex/skills/old-flow"
 assert_cmd "retired cleanup preserves untracked user skill" test -L "${retired_home}/.claude/skills/user-skill"

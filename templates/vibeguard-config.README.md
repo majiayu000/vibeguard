@@ -36,23 +36,6 @@ vibeguard-runtime config explain u16.limit --cwd /path/to/project
 | `write_mode` | `VIBEGUARD_WRITE_MODE` | `warn` | `warn` = advisory; `block` = hard reject new source files without prior search. |
 | `write_escalate_threshold` | `VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD` | `5` | Search-first reminders in one session before write mode escalates to block; `0` disables escalation. |
 | `learn.metrics_tail_bytes` | `VIBEGUARD_LEARN_METRICS_TAIL_BYTES` | `5242880` | Maximum recent metrics bytes read by the learn evaluator. |
-| `disabled_skills` | `VIBEGUARD_DISABLED_SKILLS` | `[]` | Managed Codex workflow skill directory names to keep uninstalled. `setup.sh` removes only an exact install-state-owned copy; `setup.sh --check` reports `[DISABLED]`. Env form is a temporary comma-separated override; an explicit empty value enables all skills for that run. |
-
-## Example: keep Codex workflow skills uninstalled
-
-Deleting `~/.codex/skills/plan-flow` by hand is not durable — the next install
-restores it (and says so). Record the opt-out instead:
-
-```json
-{
-  "version": 1,
-  "disabled_skills": ["plan-flow", "fixflow"]
-}
-```
-
-Re-running `setup.sh` then removes those skills and leaves them removed.
-Re-enabling is explicit: drop the name from the list and re-run `setup.sh`.
-
 ## Example: raise U-16 for a Rust-heavy machine
 
 ```json

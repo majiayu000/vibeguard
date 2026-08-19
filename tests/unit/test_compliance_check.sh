@@ -143,7 +143,7 @@ CONTROL_PATH_ROOT="${TMP_DIR}/control path distribution"
 MALFORMED_OUTPUT_ROOT="${TMP_DIR}/malformed output distribution"
 
 mkdir -p \
-  "${FIXTURE_HOME}/.claude/skills/vibeguard" \
+  "${FIXTURE_HOME}/.claude/commands/vibeguard" \
   "${FIXTURE_HOME}/.claude/rules/vibeguard" \
   "${OUTSIDE_CWD}" \
   "${OVERRIDE_ROOT}/guards/python"

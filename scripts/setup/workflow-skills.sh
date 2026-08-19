@@ -95,6 +95,70 @@ retire_legacy_codex_skills() {
   done
 }
 
+retired_bundled_codex_skills() {
+  printf '%s\t%s\n' \
+    'skills/vibeguard' 'vibeguard' \
+    'skills/agentsmd-audit' 'agentsmd-audit' \
+    'skills/trajectory-review' 'trajectory-review' \
+    'workflows/plan-flow' 'plan-flow' \
+    'workflows/fixflow' 'fixflow' \
+    'workflows/optflow' 'optflow' \
+    'workflows/plan-mode' 'plan-mode' \
+    'workflows/auto-optimize' 'auto-optimize'
+}
+
+retire_bundled_codex_skill_copies() {
+  local skills_dir="$1" source_path skill dest owned_rc output quarantine
+  [[ -d "${skills_dir}" ]] || return 0
+
+  while IFS=$'\t' read -r source_path skill; do
+    [[ -n "${source_path}" && -n "${skill}" ]] || continue
+    dest="${skills_dir}/${skill}"
+    [[ -e "${dest}" || -L "${dest}" ]] || continue
+    [[ -d "${dest}" && ! -L "${dest}" ]] || continue
+
+    if state_managed_tree_owned "${dest}" "${source_path}"; then
+      owned_rc=0
+    else
+      owned_rc=$?
+    fi
+    if [[ "${owned_rc}" -eq 1 ]]; then
+      yellow "  Preserved modified or user-owned retired Codex skill: ${dest}"
+      continue
+    elif [[ "${owned_rc}" -ne 0 ]]; then
+      return "${owned_rc}"
+    fi
+
+    if ! output="$(setup_runtime setup-state-remove-managed-tree \
+      "${STATE_FILE}" "${STATE_PREVIOUS_FILE}" "${dest}" "${source_path}" 2>&1)"; then
+      red "  ERROR: failed to retire managed Codex skill ${skill}: ${dest}"
+      while IFS= read -r line; do
+        [[ -n "${line}" ]] && red "  ${line}"
+      done <<< "${output}"
+      return 1
+    fi
+    case "${output}" in
+      ABSENT) ;;
+      $'QUARANTINED\t'*)
+        quarantine="${output#*$'\t'}"
+        [[ -n "${quarantine}" ]] || return 1
+        yellow "  Retired managed Codex skill: ${dest} -> ${quarantine}"
+        ;;
+      *)
+        red "  ERROR: invalid retirement result for ${skill}: ${output}"
+        return 1
+        ;;
+    esac
+  done < <(retired_bundled_codex_skills)
+}
+
+clean_retired_bundled_codex_skill_copies() {
+  # Clean must use the same atomic rename, post-rename ownership verification,
+  # and durable transaction as setup. A direct rm after a separate ownership
+  # check could delete a user replacement that races with clean.
+  retire_bundled_codex_skill_copies "$1"
+}
+
 disabled_skills_project_source_label() {
   local output source detail cwd
   cwd="${REPO_DIR:-${PWD}}"
@@ -255,11 +319,11 @@ release_reenabled_skill() {
 }
 
 install_manifest_skills() {
-  local target_uri="$1" dest_dir="$2" install_fn="$3" apply_disabled="${4:-0}"
+  local target_uri="$1" dest_dir="$2" install_fn="$3" apply_disabled="${4:-0}" allow_empty="${5:-0}"
   local skill_links source_path skill
 
   mkdir -p "${dest_dir}"
-  skill_links="$(manifest_skill_links_checked "${target_uri}")" || return 1
+  skill_links="$(manifest_skill_links_checked "${target_uri}" "${allow_empty}")" || return 1
   if [[ "${apply_disabled}" == "1" ]]; then
     disabled_skills >/dev/null || return 1
   fi

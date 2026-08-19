@@ -1,6 +1,6 @@
 # BDD Guide — Shared behavior-driven development reference
 
-> This file is referenced by both fixflow and optflow. Please consider the needs of both workflows when modifying it.
+> This shared reference is retained for command and documentation consumers.
 
 ## When to use BDD
 

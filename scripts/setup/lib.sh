@@ -76,7 +76,7 @@ setup_runtime_version_matches() {
 setup_runtime_supports() {
   local runtime="$1" capability_out probe_state="${TMPDIR:-/tmp}/vibeguard-runtime-probe.$$.json"
   capability_out="$("${runtime}" setup-state-capabilities 2>/dev/null)" || return 1
-  [[ "${capability_out}" == "complete-snapshot-v1" ]] || return 1
+  [[ "${capability_out}" == "complete-snapshot-v2" ]] || return 1
   "${runtime}" setup-state-list-symlinks-under "${probe_state}" "${TMPDIR:-/tmp}" >/dev/null 2>&1 || return 1
   setup_runtime_version_matches "${runtime}" || return 1
 
@@ -100,6 +100,7 @@ setup_runtime_supports() {
     setup-state-list-tracked-under \
     setup-state-verify-managed-tree \
     setup-state-quarantine-managed-tree \
+    setup-state-remove-managed-tree \
     setup-state-quarantine-count \
     setup-state-validate-managed-tree-transactions \
     setup-state-release-quarantined-tree \
@@ -503,7 +504,7 @@ manifest_rule_labels_checked() {
 }
 
 manifest_skill_links_checked() {
-  local target="$1"
+  local target="$1" allow_empty="${2:-0}"
   local output
   if ! output="$(manifest_skill_links "${target}" 2>&1)"; then
     red "  ERROR: failed to enumerate manifest skills for ${target}" >&2
@@ -513,8 +514,11 @@ manifest_skill_links_checked() {
     return 1
   fi
   if [[ -z "${output//[[:space:]]/}" ]]; then
-    red "  ERROR: no manifest skills declared for ${target}" >&2
-    return 1
+    if [[ -n "${output}" || "${allow_empty}" != "1" ]]; then
+      red "  ERROR: no manifest skills declared for ${target}" >&2
+      return 1
+    fi
+    return 0
   fi
   printf '%s\n' "${output}"
 }
@@ -527,11 +531,11 @@ manifest_skill_links_for_cleanup() {
     while IFS= read -r line; do
       [[ -n "${line}" ]] && yellow "  ${line}" >&2
     done <<< "${output}"
-    return 0
+    return 1
   fi
-  if [[ -z "${output//[[:space:]]/}" ]]; then
-    yellow "  WARN: no manifest skills declared for ${target}; skipping skill link cleanup" >&2
-    return 0
+  if [[ -n "${output}" && -z "${output//[[:space:]]/}" ]]; then
+    yellow "  WARN: no manifest skills declared for ${target}; skipping malformed skill link output" >&2
+    return 1
   fi
   printf '%s\n' "${output}"
 }
@@ -545,8 +549,9 @@ cleanup_retired_manifest_skill_links() {
     return 0
   fi
 
-  active_links="$(manifest_skill_links_for_cleanup "${target}")"
-  [[ -n "${active_links//[[:space:]]/}" ]] || return 0
+  if ! active_links="$(manifest_skill_links_for_cleanup "${target}")"; then
+    return 0
+  fi
 
   local active_names=$'\n'
   local source_path skill

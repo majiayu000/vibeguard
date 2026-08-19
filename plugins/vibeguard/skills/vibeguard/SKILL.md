@@ -38,4 +38,4 @@ For dashboard, stats, health, doctor, or metrics work, read the
 `vibeguard-observe` skill first. For setup, install, status, or uninstall work,
 read the `vibeguard-setup` skill first.
 For repository development work, follow the root VibeGuard `AGENTS.md` and the
-existing `skills/vibeguard/SKILL.md` in the source checkout.
+repository contribution guidance in `CONTRIBUTING.md`.

@@ -793,7 +793,7 @@ echo "  VIBEGUARD_DISABLED_HOOKS=hook1,hook2           Disable project hooks"
 echo "  VIBEGUARD_GC_*                                 Project GC thresholds; see schemas/vibeguard-project.schema.json"
 echo
 echo "User runtime tuning (~/.vibeguard/config.json or env vars):"
-printf '%s\n' "  VIBEGUARD_WRITE_MODE=warn|block                New-source write guard mode" "  VG_U16_WARN_LIMIT / VG_U16_LIMIT               U-16 advisory and hard limits" "  VIBEGUARD_DISABLED_SKILLS=plan-flow,fixflow     Temporary Codex managed-skill override"
+printf '%s\n' "  VIBEGUARD_WRITE_MODE=warn|block                New-source write guard mode" "  VG_U16_WARN_LIMIT / VG_U16_LIMIT               U-16 advisory and hard limits"
 echo
 printf '%s\n' "Git Hooks:" "Automatically installed to VibeGuard repository (pre-commit + pre-push)" "Other projects: bash scripts/project-init.sh <project_dir>"
 setup_lock_release

@@ -159,12 +159,12 @@ if [[ "${LANGUAGE_SCOPE_VALID}" == "true" ]] && language_selected "python"; then
 fi
 
 # --- Layer 5: Workflows ---
-echo "--- Layer 5: Skill/Workflow ---"
+echo "--- Layer 5: Commands/Workflow ---"
 
-if [[ -d "${HOME}/.claude/skills/vibeguard" ]]; then
-  check_pass "vibeguard skill installed in ~/.claude/skills/"
+if [[ -d "${HOME}/.claude/commands/vibeguard" || -L "${HOME}/.claude/commands/vibeguard" ]]; then
+  check_pass "vibeguard commands installed in ~/.claude/commands/"
 else
-  check_fail "vibeguard skill not found in ~/.claude/skills/ (run setup.sh)"
+  check_fail "vibeguard commands not found in ~/.claude/commands/ (run setup.sh)"
 fi
 
 # --- Layer 6: Prompt Rules ---

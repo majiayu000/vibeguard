@@ -6,8 +6,6 @@ ExecPlan is an explicit recovery document for genuinely long architecture or mig
 
 | Tool | Use |
 |---|---|
-| `plan-mode` | User explicitly asks for a one-session plan |
-| `plan-flow` | User requests durable convergence analysis |
 | ExecPlan | Major work must resume across sessions |
 
 Small bugs, docs, tests, and mechanical changes execute directly and do not create an ExecPlan.
