@@ -120,6 +120,23 @@ class DirectoryGuidanceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "orphaned generated"):
                 generator.validate_output_inventory(root, set(), set())
 
+    def test_symlinked_scoped_guidance_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            expected = root / "guards" / "CLAUDE.md"
+            expected.parent.mkdir()
+            expected.write_text(generator.GENERATED_HEADER + "# Guards\n", encoding="utf-8")
+            orphan = root / "guards" / "nested" / "CLAUDE.md"
+            orphan.parent.mkdir()
+            orphan.symlink_to(expected)
+
+            with self.assertRaisesRegex(ValueError, "symlinked scoped guidance"):
+                generator.validate_output_inventory(
+                    root,
+                    {"guards/CLAUDE.md"},
+                    set(),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

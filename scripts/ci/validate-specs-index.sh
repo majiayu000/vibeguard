@@ -133,7 +133,8 @@ if legacy_rows:
 
 row_pattern = re.compile(
     r"^\| \[GH(?P<label>[0-9]+)\]"
-    r"\(https://github\.com/majiayu000/vibeguard/issues/(?P<url>[0-9]+)\) \| .+ \|$"
+    r"\(https://github\.com/majiayu000/vibeguard/issues/(?P<url>[0-9]+)\) "
+    r"\| (?P<outcome>.*\S.*) \|$"
 )
 candidate_rows = [line for line in archive_lines if line.startswith("| [GH")]
 if not candidate_rows:

@@ -199,7 +199,11 @@ def validate_output_inventory(
         relative_path = candidate.relative_to(root).as_posix()
         if relative_path in expected_outputs:
             continue
-        if candidate.is_symlink() or not candidate.is_file():
+        if candidate.is_symlink():
+            raise ValueError(
+                f"symlinked scoped guidance outside canonical inventory: {relative_path}"
+            )
+        if not candidate.is_file():
             continue
         try:
             prefix = read_regular_output(root, relative_path, missing_ok=False)[

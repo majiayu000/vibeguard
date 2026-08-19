@@ -104,6 +104,13 @@ printf '%s\n' '| [GH101](https://github.com/majiayu000/vibeguard/issues/102) | M
 assert_exit "issue label and URL mismatch fails" 1 bash "$validator" "$mismatch"
 assert_stderr_contains "mismatch failure is explicit" "label/URL mismatch" bash "$validator" "$mismatch"
 
+blank_outcome="$(make_fixture blank-outcome)"
+write_valid_index "$blank_outcome"
+sed -i.bak 's/Fixture outcome/   /' "$blank_outcome/README.md"
+rm "$blank_outcome/README.md.bak"
+assert_exit "blank archived outcome fails" 1 bash "$validator" "$blank_outcome"
+assert_stderr_contains "blank outcome is reported as malformed" "malformed archived packet row" bash "$validator" "$blank_outcome"
+
 incomplete="$(make_fixture incomplete)"
 write_valid_index "$incomplete"
 printf '%s\n' 'GH100' 'GH101' > "$incomplete/archived-issues.txt"
