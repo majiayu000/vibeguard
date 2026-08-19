@@ -18,12 +18,22 @@ if [[ ! -f "$inventory_file" ]]; then
   exit 1
 fi
 
-packet_dirs="$(find "$specs_dir" -mindepth 1 -maxdepth 1 -type d -name 'GH[0-9]*' -exec basename {} \; | sort)"
-if [[ -n "$packet_dirs" ]]; then
-  echo "validate-specs-index: closed issue packets must stay in Git history, not the current tree:" >&2
-  while IFS= read -r packet_dir; do
-    [[ -n "$packet_dir" ]] && printf '  - docs/specs/%s/\n' "$packet_dir" >&2
-  done <<< "$packet_dirs"
+packet_entries="$(python3 - "$specs_dir" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+specs_dir = Path(sys.argv[1])
+for entry in sorted(specs_dir.iterdir(), key=lambda path: path.name):
+    if re.fullmatch(r"GH[0-9]+", entry.name):
+        print(entry.name)
+PY
+)"
+if [[ -n "$packet_entries" ]]; then
+  echo "validate-specs-index: closed issue packet paths must stay in Git history, not the current tree:" >&2
+  while IFS= read -r packet_entry; do
+    [[ -n "$packet_entry" ]] && printf '  - docs/specs/%s\n' "$packet_entry" >&2
+  done <<< "$packet_entries"
   echo "validate-specs-index: add or update the archived outcome row instead of restoring the packet." >&2
   exit 1
 fi
@@ -47,6 +57,30 @@ def visible_markdown_lines(source_lines: list[str]) -> list[tuple[int, str]]:
     visible: list[tuple[int, str]] = []
     fence_character: str | None = None
     fence_length = 0
+    in_html_comment = False
+
+    def strip_html_comments(line: str) -> str:
+        nonlocal in_html_comment
+        fragments: list[str] = []
+        remaining = line
+        while remaining:
+            if in_html_comment:
+                comment_end = remaining.find("-->")
+                if comment_end == -1:
+                    return "".join(fragments)
+                remaining = remaining[comment_end + 3 :]
+                in_html_comment = False
+                continue
+
+            comment_start = remaining.find("<!--")
+            if comment_start == -1:
+                fragments.append(remaining)
+                break
+            fragments.append(remaining[:comment_start])
+            remaining = remaining[comment_start + 4 :]
+            in_html_comment = True
+        return "".join(fragments)
+
     for index, line in enumerate(source_lines):
         if fence_character is not None:
             closing_fence = re.fullmatch(
@@ -57,13 +91,14 @@ def visible_markdown_lines(source_lines: list[str]) -> list[tuple[int, str]]:
                 fence_character = None
                 fence_length = 0
             continue
-        fence = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        visible_line = strip_html_comments(line)
+        fence = re.match(r"^ {0,3}(`{3,}|~{3,})", visible_line)
         if fence is not None:
             marker = fence.group(1)
             fence_character = marker[0]
             fence_length = len(marker)
             continue
-        visible.append((index, line))
+        visible.append((index, visible_line))
     return visible
 
 

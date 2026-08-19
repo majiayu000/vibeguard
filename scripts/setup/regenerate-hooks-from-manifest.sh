@@ -24,12 +24,12 @@ sys.path.insert(0, str(repo / "scripts/lib"))
 
 from hooks_manifest import load_manifest, render_doc_table  # noqa: E402
 
-doc = repo / "hooks/CLAUDE.md"
+doc = repo / "docs/directory-guidance.md"
 start = "<!-- hooks-manifest-table:start -->"
 end = "<!-- hooks-manifest-table:end -->"
 text = doc.read_text(encoding="utf-8")
 if start not in text or end not in text:
-    raise SystemExit("hooks/CLAUDE.md missing hooks manifest table markers")
+    raise SystemExit("docs/directory-guidance.md missing hooks manifest table markers")
 
 before, rest = text.split(start, 1)
 current, after = rest.split(end, 1)
@@ -45,7 +45,7 @@ if mode == "--write":
     raise SystemExit(0)
 
 if next_text == text:
-    print("OK: hooks/CLAUDE.md generated table is current")
+    print("OK: canonical hook manifest table is current")
     raise SystemExit(0)
 
 diff = difflib.unified_diff(
@@ -57,3 +57,7 @@ diff = difflib.unified_diff(
 sys.stdout.writelines(diff)
 raise SystemExit(1)
 PY
+
+if [[ "${MODE}" == "--write" ]]; then
+  python3 "${REPO_DIR}/scripts/generate_directory_guidance.py"
+fi

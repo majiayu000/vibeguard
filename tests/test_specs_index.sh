@@ -77,7 +77,14 @@ restored="$(make_fixture restored)"
 write_valid_index "$restored"
 mkdir -p "$restored/GH100"
 assert_exit "restored packet directory fails" 1 bash "$validator" "$restored"
-assert_stderr_contains "restored packet failure names path" "docs/specs/GH100/" bash "$validator" "$restored"
+assert_stderr_contains "restored packet failure names path" "docs/specs/GH100" bash "$validator" "$restored"
+
+symlinked="$(make_fixture symlinked)"
+write_valid_index "$symlinked"
+mkdir -p "$symlinked/packet-content"
+ln -s packet-content "$symlinked/GH100"
+assert_exit "symlinked packet path fails" 1 bash "$validator" "$symlinked"
+assert_stderr_contains "symlinked packet failure names path" "docs/specs/GH100" bash "$validator" "$symlinked"
 
 legacy="$(make_fixture legacy)"
 write_valid_index "$legacy"
@@ -120,6 +127,18 @@ printf '%s\n' '```markdown' '## Archived GitHub Packet Index' '```' > "$fenced_h
 printf '%s\n' 'GH100' > "$fenced_heading/archived-issues.txt"
 assert_exit "archive heading inside code fence is ignored" 1 bash "$validator" "$fenced_heading"
 assert_stderr_contains "fenced heading failure requires visible section" "expected exactly one visible" bash "$validator" "$fenced_heading"
+
+commented_heading="$(make_fixture commented-heading)"
+printf '%s\n' \
+  '# Specs' \
+  '<!--' \
+  '## Archived GitHub Packet Index' \
+  '| [GH100](https://github.com/majiayu000/vibeguard/issues/100) | Hidden |' \
+  '-->' \
+  > "$commented_heading/README.md"
+printf '%s\n' 'GH100' > "$commented_heading/archived-issues.txt"
+assert_exit "archive section inside HTML comment is ignored" 1 bash "$validator" "$commented_heading"
+assert_stderr_contains "commented heading failure requires visible section" "expected exactly one visible" bash "$validator" "$commented_heading"
 
 fake_closer="$(make_fixture fake-closer)"
 printf '%s\n' \
