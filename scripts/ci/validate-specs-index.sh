@@ -134,7 +134,8 @@ def visible_markdown_lines(source_lines: list[str]) -> list[tuple[int, str]]:
             ):
                 raw_html_until_blank = True
                 continue
-            if generic_html_tag.fullmatch(line):
+            generic_block_can_start = index == 0 or not source_lines[index - 1].strip()
+            if generic_block_can_start and generic_html_tag.fullmatch(line):
                 raw_html_until_blank = True
                 continue
 

@@ -386,6 +386,20 @@ printf '%s\n' 'GH100' > "$generic_tag_heading/archived-issues.txt"
 assert_exit "archive section inside generic GFM HTML tag block is ignored" 1 bash "$validator" "$generic_tag_heading"
 assert_stderr_contains "generic tag block failure requires visible section" "expected exactly one visible" bash "$validator" "$generic_tag_heading"
 
+paragraph_generic_tag="$(make_fixture paragraph-generic-tag)"
+write_valid_index "$paragraph_generic_tag"
+printf '%s\n' \
+  'Text' \
+  '<x-widget>' \
+  '### Visible subsection' \
+  '| Issue | Outcome |' \
+  '|---|---|' \
+  '| [GH999](https://github.com/majiayu000/vibeguard/issues/999) | Unexpected |' \
+  '</x-widget>' \
+  >> "$paragraph_generic_tag/README.md"
+assert_exit "generic tag cannot interrupt a paragraph to hide rows" 1 bash "$validator" "$paragraph_generic_tag"
+assert_stderr_contains "paragraph-context table remains visible" "expected exactly one archive issue table" bash "$validator" "$paragraph_generic_tag"
+
 fake_closer="$(make_fixture fake-closer)"
 printf '%s\n' \
   '# Specs' \
