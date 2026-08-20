@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read eval/runs/index.jsonl and print compact run summaries."""
+"""Read artifacts/eval/runs/index.jsonl and print compact run summaries."""
 
 from __future__ import annotations
 

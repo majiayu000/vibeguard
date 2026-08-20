@@ -136,6 +136,12 @@ printf '%s\n' '|[GH999](https://github.com/majiayu000/vibeguard/issues/999)| Une
 assert_exit "GH row without canonical pipe spacing fails" 1 bash "$validator" "$compact_spacing"
 assert_stderr_contains "compact-spacing row is reported as malformed" "malformed archived packet row" bash "$validator" "$compact_spacing"
 
+formatted_label="$(make_fixture formatted-label)"
+write_valid_index "$formatted_label"
+printf '%s\n' '| [**GH999**](https://github.com/majiayu000/vibeguard/issues/999) | Unexpected |' >> "$formatted_label/README.md"
+assert_exit "formatted GH label cannot bypass archive validation" 1 bash "$validator" "$formatted_label"
+assert_stderr_contains "formatted GH label is reported as malformed" "malformed archived packet row" bash "$validator" "$formatted_label"
+
 blockquoted_row="$(make_fixture blockquoted-row)"
 write_valid_index "$blockquoted_row"
 printf '%s\n' '> | Issue | Outcome |' '> |---|---|' '> | [GH999](https://github.com/majiayu000/vibeguard/issues/999) | Unexpected |' >> "$blockquoted_row/README.md"

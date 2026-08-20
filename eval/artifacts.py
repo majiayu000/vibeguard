@@ -13,7 +13,7 @@ try:
 except ImportError:
     from sample_ids import SAFE_SAMPLE_ID_PATTERN, is_safe_sample_id
 
-DEFAULT_RUNS_DIR = Path(__file__).resolve().parent / "runs"
+DEFAULT_RUNS_DIR = Path(__file__).resolve().parents[1] / "artifacts" / "eval" / "runs"
 DEFAULT_INDEX_NAME = "index.jsonl"
 
 

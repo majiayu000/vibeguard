@@ -244,11 +244,15 @@ row_pattern = re.compile(
     r"\(https://github\.com/majiayu000/vibeguard/issues/(?P<url>[0-9]+)\) "
     r"\| (?P<outcome>.*\S.*) \|$"
 )
-candidate_rows = [
-    (index, line)
-    for index, line in archive_lines
-    if re.search(r"\[GH[0-9]+\]", line)
-]
+issue_url_pattern = re.compile(
+    r"https://github\.com/majiayu000/vibeguard/issues/[0-9]+"
+)
+candidate_rows: list[tuple[int, str]] = []
+for index, line in archive_lines:
+    cells = table_cells(line)
+    first_cell = cells[0] if cells else ""
+    if re.search(r"GH[0-9]+", first_cell) or issue_url_pattern.search(line):
+        candidate_rows.append((index, line))
 if not candidate_rows:
     raise SystemExit("validate-specs-index: archived packet index has no GH issue rows")
 
