@@ -236,12 +236,6 @@ def validate_inventory_directory(
             if relative_directory
             else entry.name
         )
-        if (
-            relative_path in INVENTORY_EXCLUDED_DIRECTORIES
-            or entry.name in INVENTORY_EXCLUDED_DIRECTORY_NAMES
-            or entry.name.startswith(".tmp-")
-        ):
-            continue
         try:
             entry_stat = os.stat(
                 entry.name,
@@ -272,6 +266,13 @@ def validate_inventory_directory(
                     "symlinked scoped guidance outside canonical inventory: "
                     f"{relative_path}"
                 )
+            continue
+
+        if (
+            relative_path in INVENTORY_EXCLUDED_DIRECTORIES
+            or entry.name in INVENTORY_EXCLUDED_DIRECTORY_NAMES
+            or entry.name.startswith(".tmp-")
+        ):
             continue
 
         if stat.S_ISDIR(entry_stat.st_mode):

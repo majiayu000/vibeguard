@@ -85,6 +85,20 @@ printf '%s\n' 'GH100' > "$missing_table/archived-issues.txt"
 assert_exit "archive outcomes without a GFM table fail" 1 bash "$validator" "$missing_table"
 assert_stderr_contains "missing table structure is explicit" "must be inside a GFM table" bash "$validator" "$missing_table"
 
+over_indented_table="$(make_fixture over-indented-table)"
+printf '%s\n' \
+  '# Specs' \
+  '' \
+  '## Archived GitHub Packet Index' \
+  '' \
+  '    | Issue | Outcome |' \
+  '    |---|---|' \
+  '| [GH100](https://github.com/majiayu000/vibeguard/issues/100) | Fixture outcome |' \
+  > "$over_indented_table/README.md"
+printf '%s\n' 'GH100' > "$over_indented_table/archived-issues.txt"
+assert_exit "four-space-indented archive table fails" 1 bash "$validator" "$over_indented_table"
+assert_stderr_contains "over-indented table structure is explicit" "must be inside a GFM table" bash "$validator" "$over_indented_table"
+
 restored="$(make_fixture restored)"
 write_valid_index "$restored"
 mkdir -p "$restored/GH100"

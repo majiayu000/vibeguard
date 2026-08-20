@@ -253,6 +253,27 @@ class DirectoryGuidanceTests(unittest.TestCase):
                     ):
                         generator.validate_output_inventory(root, set(), set())
 
+    def test_tracked_ignored_basename_symlink_is_inspected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with tempfile.TemporaryDirectory() as outside_directory:
+                root = Path(temporary_directory)
+                outside = Path(outside_directory)
+                subprocess.run(["git", "init", "-q", root], check=True)
+                (outside / "CLAUDE.md").write_text(
+                    "# Hidden guidance\n",
+                    encoding="utf-8",
+                )
+                ignored_link = root / "docs" / "artifacts"
+                ignored_link.parent.mkdir()
+                ignored_link.symlink_to(outside, target_is_directory=True)
+                subprocess.run(
+                    ["git", "-C", root, "add", "-f", ignored_link.relative_to(root)],
+                    check=True,
+                )
+
+                with self.assertRaisesRegex(ValueError, "symlinked directory"):
+                    generator.validate_output_inventory(root, set(), set())
+
 
 if __name__ == "__main__":
     unittest.main()

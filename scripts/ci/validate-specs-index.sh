@@ -124,6 +124,8 @@ def gfm_table_line_indexes(markdown_lines: list[tuple[int, str]]) -> set[int]:
         delimiter_cells = table_cells(delimiter)
         is_delimiter = (
             header_index + 1 == delimiter_index
+            and re.match(r"^ {0,3}\S", header) is not None
+            and re.match(r"^ {0,3}\S", delimiter) is not None
             and header_cells is not None
             and delimiter_cells is not None
             and len(header_cells) == len(delimiter_cells)
