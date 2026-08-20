@@ -29,7 +29,6 @@ SPEC.loader.exec_module(generate_rule_docs)
 EXPECTED_COMPACT_TABLE = """| ID | Severity | Rule |
 |----|----------|------|
 | U-17 | Strict | Handle errors completely. Do not swallow exceptions silently. |
-| U-26 | Strict | Declaration-execution completeness: declared Config / Trait / persistence layers must be wired into startup. |
 | U-29 | Strict | No silent degradation: errors causing user-visible missing data or wrong output must `error` or raise, not `warning` + fallback. |
 | W-02 | Strict | After 3 consecutive failed fixes on the same problem, stop and challenge the hypothesis or architecture. |
 | W-03 | Strict | Verify before claiming completion: produce fresh command output proving the claim. |
@@ -202,6 +201,12 @@ class CompactRuleGenerationTests(unittest.TestCase):
         shared = generate_rule_docs.COMPACT_RULES_PATH.read_text(encoding="utf-8")
         self.assertIn("nearest applicable repository instructions", shared)
         self.assertNotIn("repository-level `AGENTS.md` or `CLAUDE.md`", shared)
+        self.assertNotIn("For L6 work routing", shared)
+        self.assertNotIn("rules total are available", shared)
+        self.assertEqual(shared.count("__VIBEGUARD_RULE_COUNT__"), 1)
+        rendered = shared.replace("__VIBEGUARD_RULE_COUNT__", "127")
+        self.assertIn("contains 127 rules total", rendered)
+        self.assertNotIn("| U-26 |", shared)
 
     def test_codex_host_guidance_retires_bundled_skills(self) -> None:
         codex_host = generate_rule_docs.CODEX_HOST_RULES_PATH.read_text(encoding="utf-8")
