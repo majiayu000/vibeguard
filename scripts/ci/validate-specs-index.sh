@@ -223,10 +223,16 @@ for position, (index, line) in enumerate(visible_lines):
     archive_end = heading_index
     break
 archive_lines = [
-    line for index, line in visible_lines if archive_start < index < archive_end
+    (index, line)
+    for index, line in visible_lines
+    if archive_start < index < archive_end
 ]
 
-legacy_rows = [line for line in archive_lines if re.fullmatch(r"\| `GH[0-9]+/` .*", line)]
+legacy_rows = [
+    line
+    for _, line in archive_lines
+    if re.fullmatch(r"\| `GH[0-9]+/` .*", line)
+]
 if legacy_rows:
     raise SystemExit(
         "validate-specs-index: archived rows must be issue links, not live GH<n>/ paths: "
@@ -239,15 +245,20 @@ row_pattern = re.compile(
     r"\| (?P<outcome>.*\S.*) \|$"
 )
 candidate_rows = [
-    line
-    for line in archive_lines
+    (index, line)
+    for index, line in archive_lines
     if re.match(r"^ {0,3}\|?[ \t]*\[GH[0-9]+\]", line)
 ]
 if not candidate_rows:
     raise SystemExit("validate-specs-index: archived packet index has no GH issue rows")
 
 ids: list[str] = []
-for line in candidate_rows:
+for index, line in candidate_rows:
+    if index not in table_indexes:
+        raise SystemExit(
+            "validate-specs-index: archived packet row must be inside a GFM table: "
+            + line
+        )
     match = row_pattern.fullmatch(line)
     if match is None:
         raise SystemExit(f"validate-specs-index: malformed archived packet row: {line}")

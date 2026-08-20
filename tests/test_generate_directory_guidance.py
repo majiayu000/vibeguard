@@ -181,6 +181,19 @@ class DirectoryGuidanceTests(unittest.TestCase):
                     ):
                         generator.validate_output_inventory(root, set(), set())
 
+    def test_isolated_worktree_roots_are_excluded_from_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            for worktree_root in (".claude/worktrees", ".vibeguard/worktrees"):
+                nested_guidance = root / worktree_root / "review" / "guards" / "CLAUDE.md"
+                nested_guidance.parent.mkdir(parents=True)
+                nested_guidance.write_text(
+                    generator.GENERATED_HEADER + "# Nested checkout\n",
+                    encoding="utf-8",
+                )
+
+            generator.validate_output_inventory(root, set(), set())
+
 
 if __name__ == "__main__":
     unittest.main()

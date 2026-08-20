@@ -28,6 +28,11 @@ RETIRED_OUTPUTS = {
     "guards/go/CLAUDE.md",
     "guards/rust/CLAUDE.md",
 }
+INVENTORY_EXCLUDED_DIRECTORIES = {
+    ".git",
+    ".claude/worktrees",
+    ".vibeguard/worktrees",
+}
 GENERATED_HEADER = (
     "<!-- Generated from docs/directory-guidance.md; do not edit directly. -->\n\n"
 )
@@ -216,13 +221,13 @@ def validate_inventory_directory(
         ) from error
 
     for entry in entries:
-        if not relative_directory and entry.name == ".git":
-            continue
         relative_path = (
             f"{relative_directory}/{entry.name}"
             if relative_directory
             else entry.name
         )
+        if relative_path in INVENTORY_EXCLUDED_DIRECTORIES:
+            continue
         try:
             entry_stat = os.stat(
                 entry.name,

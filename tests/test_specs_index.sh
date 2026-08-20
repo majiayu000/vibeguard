@@ -73,6 +73,18 @@ valid="$(make_fixture valid)"
 write_valid_index "$valid"
 assert_exit "archive index without packet directories passes" 0 bash "$validator" "$valid"
 
+missing_table="$(make_fixture missing-table)"
+printf '%s\n' \
+  '# Specs' \
+  '' \
+  '## Archived GitHub Packet Index' \
+  '' \
+  '| [GH100](https://github.com/majiayu000/vibeguard/issues/100) | Fixture outcome |' \
+  > "$missing_table/README.md"
+printf '%s\n' 'GH100' > "$missing_table/archived-issues.txt"
+assert_exit "archive outcomes without a GFM table fail" 1 bash "$validator" "$missing_table"
+assert_stderr_contains "missing table structure is explicit" "must be inside a GFM table" bash "$validator" "$missing_table"
+
 restored="$(make_fixture restored)"
 write_valid_index "$restored"
 mkdir -p "$restored/GH100"
@@ -166,7 +178,7 @@ assert_exit "pipe-containing paragraph can form a Setext boundary" 0 bash "$vali
 
 reference_thematic_break="$(make_fixture reference-thematic-break)"
 write_valid_index "$reference_thematic_break"
-printf '%s\n' '' '[docs]: /docs' '---' '| [GH999](https://github.com/majiayu000/vibeguard/issues/999) | Still in archive |' >> "$reference_thematic_break/README.md"
+printf '%s\n' '' '[docs]: /docs' '---' '| Issue | Outcome |' '|---|---|' '| [GH999](https://github.com/majiayu000/vibeguard/issues/999) | Still in archive |' >> "$reference_thematic_break/README.md"
 assert_exit "link reference followed by thematic break stays in archive scope" 1 bash "$validator" "$reference_thematic_break"
 assert_stderr_contains "row after reference thematic break is validated" "index rows absent from inventory: GH999" bash "$validator" "$reference_thematic_break"
 
