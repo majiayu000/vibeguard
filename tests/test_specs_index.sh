@@ -137,6 +137,13 @@ rm "$blank_outcome/README.md.bak"
 assert_exit "blank archived outcome fails" 1 bash "$validator" "$blank_outcome"
 assert_stderr_contains "blank outcome is reported as malformed" "malformed archived packet row" bash "$validator" "$blank_outcome"
 
+entity_blank_outcome="$(make_fixture entity-blank-outcome)"
+write_valid_index "$entity_blank_outcome"
+sed -i.bak 's/Fixture outcome/\&nbsp;/' "$entity_blank_outcome/README.md"
+rm "$entity_blank_outcome/README.md.bak"
+assert_exit "entity-only archived outcome fails" 1 bash "$validator" "$entity_blank_outcome"
+assert_stderr_contains "entity-only outcome is reported as malformed" "malformed archived packet row" bash "$validator" "$entity_blank_outcome"
+
 extra_cell_outcome="$(make_fixture extra-cell-outcome)"
 write_valid_index "$extra_cell_outcome"
 sed -i.bak 's/Fixture outcome/   | Hidden evidence/' "$extra_cell_outcome/README.md"

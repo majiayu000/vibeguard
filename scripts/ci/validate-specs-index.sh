@@ -41,6 +41,7 @@ fi
 python3 - "$index_file" "$inventory_file" <<'PY'
 from __future__ import annotations
 
+import html
 import re
 import subprocess
 import sys
@@ -391,6 +392,8 @@ for index, line in candidate_rows:
         raise SystemExit(f"validate-specs-index: malformed archived packet row: {line}")
     match = row_pattern.fullmatch(line)
     if match is None:
+        raise SystemExit(f"validate-specs-index: malformed archived packet row: {line}")
+    if not html.unescape(match.group("outcome")).strip():
         raise SystemExit(f"validate-specs-index: malformed archived packet row: {line}")
     if match.group("label") != match.group("url"):
         raise SystemExit(f"validate-specs-index: issue label/URL mismatch: {line}")
