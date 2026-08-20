@@ -19,7 +19,7 @@ from skill_format import (  # noqa: E402
 )
 
 OUTCOMES = {"success", "failure"}
-DEFAULT_OUTPUT_DIR = ".vibeguard/skill-validate"
+DEFAULT_OUTPUT_DIR = "artifacts/skill-validate"
 
 
 class SkillValidateError(Exception):

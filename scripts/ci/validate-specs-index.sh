@@ -240,8 +240,8 @@ if legacy_rows:
     )
 
 row_pattern = re.compile(
-    r"^\| \[GH(?P<label>[0-9]+)\]"
-    r"\(https://github\.com/majiayu000/vibeguard/issues/(?P<url>[0-9]+)\) "
+    r"^\| \[GH(?P<label>[1-9][0-9]*)\]"
+    r"\(https://github\.com/majiayu000/vibeguard/issues/(?P<url>[1-9][0-9]*)\) "
     r"\| (?P<outcome>.*\S.*) \|$"
 )
 issue_url_pattern = re.compile(
@@ -285,7 +285,11 @@ inventory_rows = [
     for line in inventory_path.read_text(encoding="utf-8").splitlines()
     if line.strip() and not line.lstrip().startswith("#")
 ]
-malformed_inventory = [line for line in inventory_rows if re.fullmatch(r"GH[0-9]+", line) is None]
+malformed_inventory = [
+    line
+    for line in inventory_rows
+    if re.fullmatch(r"GH[1-9][0-9]*", line) is None
+]
 if malformed_inventory:
     raise SystemExit(
         "validate-specs-index: malformed archive inventory row: " + malformed_inventory[0]

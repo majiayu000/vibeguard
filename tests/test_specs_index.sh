@@ -142,6 +142,19 @@ printf '%s\n' '| [**GH999**](https://github.com/majiayu000/vibeguard/issues/999)
 assert_exit "formatted GH label cannot bypass archive validation" 1 bash "$validator" "$formatted_label"
 assert_stderr_contains "formatted GH label is reported as malformed" "malformed archived packet row" bash "$validator" "$formatted_label"
 
+zero_padded_row="$(make_fixture zero-padded-row)"
+write_valid_index "$zero_padded_row"
+printf '%s\n' '| [GH0100](https://github.com/majiayu000/vibeguard/issues/0100) | Duplicate identity |' >> "$zero_padded_row/README.md"
+printf '%s\n' 'GH100' 'GH0100' > "$zero_padded_row/archived-issues.txt"
+assert_exit "zero-padded issue row is not canonical" 1 bash "$validator" "$zero_padded_row"
+assert_stderr_contains "zero-padded issue row is reported as malformed" "malformed archived packet row" bash "$validator" "$zero_padded_row"
+
+zero_padded_inventory="$(make_fixture zero-padded-inventory)"
+write_valid_index "$zero_padded_inventory"
+printf '%s\n' 'GH0100' > "$zero_padded_inventory/archived-issues.txt"
+assert_exit "zero-padded inventory ID is not canonical" 1 bash "$validator" "$zero_padded_inventory"
+assert_stderr_contains "zero-padded inventory ID is reported as malformed" "malformed archive inventory row" bash "$validator" "$zero_padded_inventory"
+
 blockquoted_row="$(make_fixture blockquoted-row)"
 write_valid_index "$blockquoted_row"
 printf '%s\n' '> | Issue | Outcome |' '> |---|---|' '> | [GH999](https://github.com/majiayu000/vibeguard/issues/999) | Unexpected |' >> "$blockquoted_row/README.md"

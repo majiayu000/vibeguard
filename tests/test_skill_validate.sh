@@ -258,16 +258,17 @@ cat > "${PASSING_JSONL}" <<'JSONL'
 {"scenario_id":"unrelated-2","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 JSONL
 passing_out="$(
+  cd "${TMP_DIR}"
   python3 "${SKILL_VALIDATE}" \
     --proposed-skill "${SKILL_DIR}/SKILL.md" \
     --baseline-trajectories "${PASSING_JSONL}" \
-    --output-dir "${TMP_DIR}/artifacts" \
     --current-agent claude-opus-4-7 \
     --as-of 2026-05-18
 )"
 assert_contains "${passing_out}" "verdict: pass" "pass verdict when repair beats regression"
 assert_contains "${passing_out}" "repair: 1" "pass output records repair count"
-assert_cmd "pass verdict writes an artifact" test -f "${TMP_DIR}/artifacts/demo-skill-2026-05-18.jsonl"
+assert_cmd "default output writes beneath artifacts" test -f "${TMP_DIR}/artifacts/skill-validate/demo-skill-2026-05-18.jsonl"
+assert_cmd "default skill-validation artifacts are ignored by Git" git -C "${REPO_DIR}" check-ignore --quiet "artifacts/skill-validate/demo-skill-2026-05-18.jsonl"
 passing_json="$(
   python3 "${SKILL_VALIDATE}" \
     --proposed-skill "${SKILL_DIR}/SKILL.md" \

@@ -146,7 +146,7 @@ The text artifact emitted by `scripts/live_truth.py` uses these same sections so
 }
 ```
 
-`scripts/skill_validate.py` appends this artifact as JSONL under `.vibeguard/skill-validate/` unless `--no-persist` is used.
+`scripts/skill_validate.py` appends this artifact as JSONL under `artifacts/skill-validate/` unless `--no-persist` is used.
 Evidence validation also fails when the proposed `SKILL.md` is missing the required reusable-skill sections: `## When to Activate`, `## Red Flags`, and `## Checklist`.
 
 ## skill_validate format output Schema
