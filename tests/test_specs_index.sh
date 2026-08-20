@@ -292,7 +292,19 @@ printf '%s\n' \
   > "$commented_heading/README.md"
 printf '%s\n' 'GH100' > "$commented_heading/archived-issues.txt"
 assert_exit "archive section inside HTML comment is ignored" 1 bash "$validator" "$commented_heading"
-assert_stderr_contains "commented heading failure requires visible section" "expected exactly one visible" bash "$validator" "$commented_heading"
+assert_stderr_contains "HTML comments fail closed" "HTML comments are not allowed" bash "$validator" "$commented_heading"
+
+inline_code_comment="$(make_fixture inline-code-comment)"
+write_valid_index "$inline_code_comment"
+printf '%s\n' \
+  'Text `<!--`' \
+  '| Issue | Outcome |' \
+  '|---|---|' \
+  '| [GH999](https://github.com/majiayu000/vibeguard/issues/999) | Unexpected |' \
+  '-->' \
+  >> "$inline_code_comment/README.md"
+assert_exit "comment markers inside inline code fail closed" 1 bash "$validator" "$inline_code_comment"
+assert_stderr_contains "inline-code comment ambiguity is explicit" "HTML comments are not allowed" bash "$validator" "$inline_code_comment"
 
 for raw_html_tag in script pre; do
   raw_html_heading="$(make_fixture "raw-html-${raw_html_tag}")"
@@ -385,6 +397,18 @@ printf '%s\n' \
 printf '%s\n' 'GH100' > "$fake_closer/archived-issues.txt"
 assert_exit "fence-like line with trailing text does not close fence" 1 bash "$validator" "$fake_closer"
 assert_stderr_contains "fake closer keeps heading fenced" "expected exactly one visible" bash "$validator" "$fake_closer"
+
+backtick_info="$(make_fixture backtick-info)"
+write_valid_index "$backtick_info"
+printf '%s\n' \
+  '```bad`info' \
+  '| Issue | Outcome |' \
+  '|---|---|' \
+  '| [GH999](https://github.com/majiayu000/vibeguard/issues/999) | Unexpected |' \
+  '```' \
+  >> "$backtick_info/README.md"
+assert_exit "backtick in fence info string cannot hide archive rows" 1 bash "$validator" "$backtick_info"
+assert_stderr_contains "invalid backtick fence leaves table visible" "expected exactly one archive issue table" bash "$validator" "$backtick_info"
 
 missing_section="$(make_fixture missing-section)"
 printf '%s\n' '# Specs' > "$missing_section/README.md"

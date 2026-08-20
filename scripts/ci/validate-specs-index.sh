@@ -53,12 +53,16 @@ inventory_path = Path(sys.argv[2])
 text = index_path.read_text(encoding="utf-8")
 lines = text.splitlines()
 
+if "<!--" in text or "-->" in text:
+    raise SystemExit(
+        "validate-specs-index: HTML comments are not allowed in the specs index"
+    )
+
 
 def visible_markdown_lines(source_lines: list[str]) -> list[tuple[int, str]]:
     visible: list[tuple[int, str]] = []
     fence_character: str | None = None
     fence_length = 0
-    in_html_comment = False
     raw_html_end: re.Pattern[str] | None = None
     raw_html_until_blank = False
 
@@ -80,28 +84,6 @@ def visible_markdown_lines(source_lines: list[str]) -> list[tuple[int, str]]:
         r"</[A-Za-z][A-Za-z0-9-]*[ \t]*>"
         r")[ \t]*$"
     )
-
-    def strip_html_comments(line: str) -> str:
-        nonlocal in_html_comment
-        fragments: list[str] = []
-        remaining = line
-        while remaining:
-            if in_html_comment:
-                comment_end = remaining.find("-->")
-                if comment_end == -1:
-                    return "".join(fragments)
-                remaining = remaining[comment_end + 3 :]
-                in_html_comment = False
-                continue
-
-            comment_start = remaining.find("<!--")
-            if comment_start == -1:
-                fragments.append(remaining)
-                break
-            fragments.append(remaining[:comment_start])
-            remaining = remaining[comment_start + 4 :]
-            in_html_comment = True
-        return "".join(fragments)
 
     for index, line in enumerate(source_lines):
         if raw_html_end is not None:
@@ -133,8 +115,6 @@ def visible_markdown_lines(source_lines: list[str]) -> list[tuple[int, str]]:
                 end_pattern = re.compile(
                     rf"</{re.escape(tag_match.group(1))}[ \t]*>", re.IGNORECASE
                 )
-            elif re.match(r"^ {0,3}<!--", line):
-                end_pattern = re.compile(r"-->")
             elif re.match(r"^ {0,3}<\?", line):
                 end_pattern = re.compile(r"\?>")
             elif re.match(r"^ {0,3}<![A-Z]", line):
@@ -158,12 +138,14 @@ def visible_markdown_lines(source_lines: list[str]) -> list[tuple[int, str]]:
                 raw_html_until_blank = True
                 continue
 
-        visible_line = strip_html_comments(line)
-        if not visible_line and line:
-            continue
+        visible_line = line
         fence = re.match(r"^ {0,3}(`{3,}|~{3,})", visible_line)
         if fence is not None:
             marker = fence.group(1)
+            info_string = visible_line[fence.end() :]
+            if marker[0] == "`" and "`" in info_string:
+                visible.append((index, visible_line))
+                continue
             fence_character = marker[0]
             fence_length = len(marker)
             continue

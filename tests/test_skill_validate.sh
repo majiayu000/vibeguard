@@ -268,7 +268,9 @@ passing_out="$(
 )"
 assert_contains "${passing_out}" "verdict: pass" "pass verdict when repair beats regression"
 assert_contains "${passing_out}" "repair: 1" "pass output records repair count"
-assert_cmd "default output writes beneath the VibeGuard user state root" test -f "${DEFAULT_TEST_HOME}/.vibeguard/artifacts/skill-validate/demo-skill-2026-05-18.jsonl"
+default_artifact="$(find "${DEFAULT_TEST_HOME}/.vibeguard/artifacts/skill-validate" -type f -name 'demo-skill-2026-05-18.jsonl' -print)"
+assert_cmd "default output writes beneath a project namespace" test -f "${default_artifact}"
+assert_contains "${passing_out}" "${default_artifact}" "default output reports its project-namespaced artifact"
 assert_cmd "default output does not write into the target repository" test ! -e "${TMP_DIR}/artifacts/skill-validate/demo-skill-2026-05-18.jsonl"
 custom_state_out="$(
   VIBEGUARD_HOME="${TMP_DIR}/custom-vibeguard" python3 "${SKILL_VALIDATE}" \
@@ -277,8 +279,24 @@ custom_state_out="$(
     --current-agent claude-opus-4-7 \
     --as-of 2026-05-18
 )"
-assert_contains "${custom_state_out}" "${TMP_DIR}/custom-vibeguard/artifacts/skill-validate/demo-skill-2026-05-18.jsonl" "VIBEGUARD_HOME controls the default artifact path"
-assert_cmd "custom VibeGuard state root receives the artifact" test -f "${TMP_DIR}/custom-vibeguard/artifacts/skill-validate/demo-skill-2026-05-18.jsonl"
+custom_state_artifact="$(find "${TMP_DIR}/custom-vibeguard/artifacts/skill-validate" -type f -name 'demo-skill-2026-05-18.jsonl' -print)"
+assert_contains "${custom_state_out}" "${custom_state_artifact}" "VIBEGUARD_HOME controls the project-namespaced artifact path"
+assert_cmd "custom VibeGuard state root receives the artifact" test -f "${custom_state_artifact}"
+for project_id in one two; do
+  project_root="${TMP_DIR}/${project_id}/project"
+  mkdir -p "${project_root}/skills/demo-skill"
+  cp "${SKILL_DIR}/SKILL.md" "${project_root}/skills/demo-skill/SKILL.md"
+  git -C "${project_root}" init -q
+  git -C "${project_root}" remote add origin "https://example.com/${project_id}/project.git"
+  VIBEGUARD_HOME="${TMP_DIR}/shared-vibeguard" python3 "${SKILL_VALIDATE}" \
+    --proposed-skill "${project_root}/skills/demo-skill/SKILL.md" \
+    --baseline-trajectories "${PASSING_JSONL}" \
+    --current-agent claude-opus-4-7 \
+    --as-of 2026-05-18 \
+    >/dev/null
+done
+project_artifact_count="$(find "${TMP_DIR}/shared-vibeguard/artifacts/skill-validate" -type f -name 'demo-skill-2026-05-18.jsonl' | wc -l | tr -d ' ')"
+assert_cmd "different repositories cannot share a default verdict file" test "${project_artifact_count}" = 2
 passing_json="$(
   python3 "${SKILL_VALIDATE}" \
     --proposed-skill "${SKILL_DIR}/SKILL.md" \
