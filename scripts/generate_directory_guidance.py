@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import stat
+import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
@@ -352,6 +353,40 @@ def validate_output_inventory(
             raise ValueError(
                 f"retired scoped guidance still exists: {relative_path}; "
                 "remove it so parent guidance cannot be overridden"
+            )
+
+    git_probe = subprocess.run(
+        ["git", "-C", os.fspath(root), "rev-parse", "--is-inside-work-tree"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=False,
+    )
+    if git_probe.returncode == 0 and git_probe.stdout.strip() == "true":
+        try:
+            tracked_output = subprocess.run(
+                ["git", "-C", os.fspath(root), "ls-files", "-z"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            ).stdout
+        except subprocess.CalledProcessError as error:
+            detail = error.stderr.decode("utf-8", errors="replace").strip()
+            raise ValueError(
+                "cannot inspect tracked directory-guidance inventory"
+                + (f": {detail}" if detail else "")
+            ) from error
+        tracked_guidance = sorted(
+            path
+            for path in tracked_output.decode("utf-8").split("\0")
+            if path
+            and PurePosixPath(path).name == "CLAUDE.md"
+            and path not in expected_outputs
+        )
+        if tracked_guidance:
+            raise ValueError(
+                "tracked scoped guidance outside canonical inventory: "
+                f"{tracked_guidance[0]}"
             )
 
     root_descriptor = os.open(root, DIRECTORY_OPEN_FLAGS)

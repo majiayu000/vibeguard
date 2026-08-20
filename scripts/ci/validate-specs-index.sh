@@ -42,6 +42,7 @@ python3 - "$index_file" "$inventory_file" <<'PY'
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -309,6 +310,66 @@ if inventory_ids != sorted(inventory_ids, key=int):
 
 indexed_set = set(ids)
 inventory_set = set(inventory_ids)
+
+git_root_result = subprocess.run(
+    ["git", "-C", str(index_path.parent), "rev-parse", "--show-toplevel"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.DEVNULL,
+    text=True,
+    check=False,
+)
+if git_root_result.returncode == 0:
+    git_root = Path(git_root_result.stdout.strip()).resolve()
+    specs_path = index_path.parent.resolve()
+    try:
+        relative_specs = specs_path.relative_to(git_root).as_posix()
+    except ValueError as error:
+        raise SystemExit(
+            "validate-specs-index: specs directory is outside its Git worktree"
+        ) from error
+    shallow = subprocess.run(
+        ["git", "-C", str(git_root), "rev-parse", "--is-shallow-repository"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    if shallow == "true":
+        raise SystemExit(
+            "validate-specs-index: full Git history is required to prove archive completeness"
+        )
+    historical_paths = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(git_root),
+            "log",
+            "--format=",
+            "--name-only",
+            "-z",
+            "HEAD",
+            "--",
+            relative_specs,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    ).stdout.decode("utf-8").split("\0")
+    historical_pattern = re.compile(
+        rf"{re.escape(relative_specs)}/GH([1-9][0-9]*)(?:/.*)?"
+    )
+    historical_ids = {
+        match.group(1)
+        for path in historical_paths
+        if (match := historical_pattern.fullmatch(path)) is not None
+    }
+    erased = sorted(historical_ids - inventory_set, key=int)
+    if erased:
+        raise SystemExit(
+            "validate-specs-index: archived issue IDs are append-only relative to Git history: "
+            + ", ".join(f"GH{issue_id}" for issue_id in erased)
+        )
+
 missing = sorted(inventory_set - indexed_set, key=int)
 unexpected = sorted(indexed_set - inventory_set, key=int)
 if missing or unexpected:

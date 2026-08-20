@@ -167,6 +167,30 @@ printf '%s\n' 'GH100' 'GH101' > "$incomplete/archived-issues.txt"
 assert_exit "archive inventory requires every index row" 1 bash "$validator" "$incomplete"
 assert_stderr_contains "incomplete index names omitted issue" "missing index rows: GH101" bash "$validator" "$incomplete"
 
+history_repo="$tmp_dir/history-repo"
+history_specs="$history_repo/docs/specs"
+mkdir -p "$history_specs/GH100" "$history_specs/GH101"
+git -C "$history_repo" init -q
+git -C "$history_repo" config user.email fixture@example.com
+git -C "$history_repo" config user.name Fixture
+printf '%s\n' 'packet' > "$history_specs/GH100/outcome.md"
+printf '%s\n' 'packet' > "$history_specs/GH101/outcome.md"
+git -C "$history_repo" add docs/specs
+git -C "$history_repo" commit -q -m 'Add packet history'
+rm -rf "$history_specs/GH100" "$history_specs/GH101"
+write_valid_index "$history_specs"
+printf '%s\n' \
+  '| [GH101](https://github.com/majiayu000/vibeguard/issues/101) | Second outcome |' \
+  >> "$history_specs/README.md"
+printf '%s\n' 'GH100' 'GH101' > "$history_specs/archived-issues.txt"
+git -C "$history_repo" add -A
+git -C "$history_repo" commit -q -m 'Archive packets'
+sed -i.bak '/GH100/d' "$history_specs/README.md"
+rm "$history_specs/README.md.bak"
+printf '%s\n' 'GH101' > "$history_specs/archived-issues.txt"
+assert_exit "coordinated archive deletion fails against Git history" 1 bash "$validator" "$history_specs"
+assert_stderr_contains "history-backed failure names erased issue" "append-only relative to Git history: GH100" bash "$validator" "$history_specs"
+
 scoped="$(make_fixture scoped)"
 write_valid_index "$scoped"
 printf '%s\n' '## Example Elsewhere' '| [GH999](not-an-issue-link) | Example only |' >> "$scoped/README.md"

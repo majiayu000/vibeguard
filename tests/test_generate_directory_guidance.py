@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -231,6 +232,26 @@ class DirectoryGuidanceTests(unittest.TestCase):
                 guidance.write_text("# Ignored local guidance\n", encoding="utf-8")
 
             generator.validate_output_inventory(root, set(), set())
+
+    def test_tracked_guidance_inside_ignored_directory_is_rejected(self) -> None:
+        for ignored_root in ("docs/artifacts", "docs/node_modules"):
+            with self.subTest(ignored_root=ignored_root):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    subprocess.run(["git", "init", "-q", root], check=True)
+                    guidance = root / ignored_root / "CLAUDE.md"
+                    guidance.parent.mkdir(parents=True)
+                    guidance.write_text("# Force-added guidance\n", encoding="utf-8")
+                    subprocess.run(
+                        ["git", "-C", root, "add", "-f", guidance.relative_to(root)],
+                        check=True,
+                    )
+
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "tracked scoped guidance outside canonical inventory",
+                    ):
+                        generator.validate_output_inventory(root, set(), set())
 
 
 if __name__ == "__main__":
