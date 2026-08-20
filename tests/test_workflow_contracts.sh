@@ -309,9 +309,11 @@ if '--snapshot artifacts/' in command or '--tool-inventory artifacts/' in comman
     raise SystemExit("ExecPlan retains a target-repository artifact destination")
 if "--snapshot .vibeguard/" in pinning_rule or "--tool-inventory .vibeguard/" in pinning_rule:
     raise SystemExit("W-20 rule retains a non-ignored process-artifact example")
-rule_artifact_root = '${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/'
+rule_artifact_root = '${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/runtime-pinning/<project-name>/'
 if pinning_rule.count(rule_artifact_root) < 2:
     raise SystemExit("W-20 rule does not route process artifacts outside the target repository")
+if '<task>-runtime.snapshot' not in pinning_rule or '<task>-tool-inventory.txt' not in pinning_rule:
+    raise SystemExit("W-20 rule does not namespace process artifacts by task")
 PY
   printf '\033[32m  PASS: ExecPlan drift checks resolve the installed guard and rules\033[0m\n'
   PASS=$((PASS + 1))

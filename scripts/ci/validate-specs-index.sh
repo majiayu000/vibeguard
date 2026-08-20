@@ -333,12 +333,50 @@ row_pattern = re.compile(
 issue_url_pattern = re.compile(
     r"https://github\.com/majiayu000/vibeguard/issues/[0-9]+"
 )
-candidate_rows: list[tuple[int, str]] = []
+suspicious_rows: list[tuple[int, str]] = []
 for index, line in archive_lines:
     cells = table_cells(line)
     first_cell = cells[0] if cells else ""
     if re.search(r"GH[0-9]+", first_cell) or issue_url_pattern.search(line):
-        candidate_rows.append((index, line))
+        suspicious_rows.append((index, line))
+
+archive_table_rows: list[tuple[int, str]] | None = None
+for position in range(len(archive_lines) - 1):
+    header_index, header_line = archive_lines[position]
+    delimiter_index, _ = archive_lines[position + 1]
+    header_cells = table_cells(header_line)
+    if (
+        header_cells is None
+        or len(header_cells) != 2
+        or header_cells[0] != "Issue"
+        or not header_cells[1].startswith("Outcome")
+        or header_index not in table_indexes
+        or delimiter_index not in table_indexes
+    ):
+        continue
+    if archive_table_rows is not None:
+        raise SystemExit("validate-specs-index: expected exactly one archive issue table")
+    archive_table_rows = []
+    body_position = position + 2
+    while body_position < len(archive_lines):
+        body_index, body_line = archive_lines[body_position]
+        if body_index not in table_indexes:
+            break
+        archive_table_rows.append((body_index, body_line))
+        body_position += 1
+
+if archive_table_rows is None:
+    if suspicious_rows:
+        raise SystemExit(
+            "validate-specs-index: archived packet row must be inside a GFM table: "
+            + suspicious_rows[0][1]
+        )
+    raise SystemExit("validate-specs-index: archive section has no GFM issue table")
+
+candidate_rows_by_index = {index: line for index, line in archive_table_rows}
+for index, line in suspicious_rows:
+    candidate_rows_by_index[index] = line
+candidate_rows = sorted(candidate_rows_by_index.items())
 if not candidate_rows:
     raise SystemExit("validate-specs-index: archived packet index has no GH issue rows")
 

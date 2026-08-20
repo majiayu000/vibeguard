@@ -163,6 +163,12 @@ printf '%s\n' '| [**GH999**](https://github.com/majiayu000/vibeguard/issues/999)
 assert_exit "formatted GH label cannot bypass archive validation" 1 bash "$validator" "$formatted_label"
 assert_stderr_contains "formatted GH label is reported as malformed" "malformed archived packet row" bash "$validator" "$formatted_label"
 
+entity_relative_link="$(make_fixture entity-relative-link)"
+write_valid_index "$entity_relative_link"
+printf '%s\n' '| [&#71;&#72;999](/majiayu000/vibeguard/issues/999) | Unexpected |' >> "$entity_relative_link/README.md"
+assert_exit "entity-encoded relative issue row cannot bypass validation" 1 bash "$validator" "$entity_relative_link"
+assert_stderr_contains "entity-relative row is reported as malformed" "malformed archived packet row" bash "$validator" "$entity_relative_link"
+
 zero_padded_row="$(make_fixture zero-padded-row)"
 write_valid_index "$zero_padded_row"
 printf '%s\n' '| [GH0100](https://github.com/majiayu000/vibeguard/issues/0100) | Duplicate identity |' >> "$zero_padded_row/README.md"
@@ -246,7 +252,8 @@ assert_exit "H3 followed by thematic break is not a Setext boundary" 0 bash "$va
 table_thematic_break="$(make_fixture table-thematic-break)"
 write_valid_index "$table_thematic_break"
 printf '%s\n' '| Supporting | Table |' '---' >> "$table_thematic_break/README.md"
-assert_exit "table row followed by thematic break is not a Setext boundary" 0 bash "$validator" "$table_thematic_break"
+assert_exit "noncanonical body row in the archive table fails" 1 bash "$validator" "$table_thematic_break"
+assert_stderr_contains "noncanonical archive table row is reported" "malformed archived packet row" bash "$validator" "$table_thematic_break"
 
 pipe_setext_boundary="$(make_fixture pipe-setext-boundary)"
 write_valid_index "$pipe_setext_boundary"
@@ -257,7 +264,7 @@ reference_thematic_break="$(make_fixture reference-thematic-break)"
 write_valid_index "$reference_thematic_break"
 printf '%s\n' '' '[docs]: /docs' '---' '| Issue | Outcome |' '|---|---|' '| [GH999](https://github.com/majiayu000/vibeguard/issues/999) | Still in archive |' >> "$reference_thematic_break/README.md"
 assert_exit "link reference followed by thematic break stays in archive scope" 1 bash "$validator" "$reference_thematic_break"
-assert_stderr_contains "row after reference thematic break is validated" "index rows absent from inventory: GH999" bash "$validator" "$reference_thematic_break"
+assert_stderr_contains "second archive issue table is rejected" "expected exactly one archive issue table" bash "$validator" "$reference_thematic_break"
 
 multiline_setext_boundary="$(make_fixture multiline-setext-boundary)"
 write_valid_index "$multiline_setext_boundary"

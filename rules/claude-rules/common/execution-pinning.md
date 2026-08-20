@@ -18,11 +18,12 @@ Long-running agent tasks must freeze the execution surface at the start of the t
 | Rules | hash of the loaded VibeGuard rule set for the task |
 
 **Protocol**:
-1. Before execution starts, write or generate a tool inventory file that lists every tool, MCP entry, or skill available to the task.
-2. Resolve the VibeGuard execution source from `${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}` and run its `guards/universal/check_runtime_drift.sh snapshot --snapshot <file> --tool-inventory <file> --rules-dir <execution-source>/rules/claude-rules`.
-3. Store the snapshot path in the SPEC, ExecPlan, or shared planning handoff.
-4. Before resuming a long task in a later session, run the same installed guard with `check --snapshot <file> --tool-inventory <file> --rules-dir <execution-source>/rules/claude-rules`.
-5. If drift is detected, stop and show the changed surface before continuing.
+1. Choose stable `<project-name>` and `<task>` slugs for this task and reuse them across sessions. Store its evidence under `${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/runtime-pinning/<project-name>/`; never share fixed global filenames across tasks.
+2. Before execution starts, write or generate a `<task>-tool-inventory.txt` file that lists every tool, MCP entry, or skill available to the task.
+3. Resolve the VibeGuard execution source from `${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}` and run its `guards/universal/check_runtime_drift.sh snapshot --snapshot <file> --tool-inventory <file> --rules-dir <execution-source>/rules/claude-rules`.
+4. Store the snapshot path in the SPEC, ExecPlan, or shared planning handoff.
+5. Before resuming a long task in a later session, run the same installed guard with `check --snapshot <file> --tool-inventory <file> --rules-dir <execution-source>/rules/claude-rules`.
+6. If drift is detected, stop and show the changed surface before continuing.
 
 **Mechanical checks (agent execution rules)**:
 - `interview` and `exec-plan` flows must capture the runtime pinning snapshot path before they hand off to execution.
@@ -37,8 +38,8 @@ Use:
 
 ```bash
 bash guards/universal/check_runtime_drift.sh accept \
-  --snapshot "${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/runtime-pinning.snapshot" \
-  --tool-inventory "${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/tool-inventory.txt" \
+  --snapshot "${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/runtime-pinning/<project-name>/<task>-runtime.snapshot" \
+  --tool-inventory "${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/runtime-pinning/<project-name>/<task>-tool-inventory.txt" \
   --decision-log SECURITY.md \
   --reason "User accepted Codex CLI upgrade during this task"
 ```
