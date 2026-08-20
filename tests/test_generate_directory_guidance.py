@@ -274,6 +274,20 @@ class DirectoryGuidanceTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "symlinked directory"):
                     generator.validate_output_inventory(root, set(), set())
 
+    def test_untracked_ignored_root_symlink_is_excluded(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with tempfile.TemporaryDirectory() as outside_directory:
+                root = Path(temporary_directory)
+                outside = Path(outside_directory)
+                subprocess.run(["git", "init", "-q", root], check=True)
+                (outside / "CLAUDE.md").write_text(
+                    "# Ignored local guidance\n",
+                    encoding="utf-8",
+                )
+                (root / "artifacts").symlink_to(outside, target_is_directory=True)
+
+                generator.validate_output_inventory(root, set(), set())
+
 
 if __name__ == "__main__":
     unittest.main()

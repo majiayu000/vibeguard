@@ -220,6 +220,7 @@ def validate_inventory_directory(
     directory_descriptor: int,
     relative_directory: str,
     expected_outputs: set[str],
+    tracked_paths: set[str],
 ) -> None:
     try:
         with os.scandir(directory_descriptor) as iterator:
@@ -247,6 +248,14 @@ def validate_inventory_directory(
                 f"cannot inspect directory-guidance inventory entry {relative_path}: {error}"
             ) from error
 
+        excluded = (
+            relative_path in INVENTORY_EXCLUDED_DIRECTORIES
+            or entry.name in INVENTORY_EXCLUDED_DIRECTORY_NAMES
+            or entry.name.startswith(".tmp-")
+        )
+        if excluded and relative_path not in tracked_paths:
+            continue
+
         if stat.S_ISLNK(entry_stat.st_mode):
             try:
                 target_stat = os.stat(entry.name, dir_fd=directory_descriptor)
@@ -268,11 +277,7 @@ def validate_inventory_directory(
                 )
             continue
 
-        if (
-            relative_path in INVENTORY_EXCLUDED_DIRECTORIES
-            or entry.name in INVENTORY_EXCLUDED_DIRECTORY_NAMES
-            or entry.name.startswith(".tmp-")
-        ):
+        if excluded:
             continue
 
         if stat.S_ISDIR(entry_stat.st_mode):
@@ -297,6 +302,7 @@ def validate_inventory_directory(
                     child_descriptor,
                     relative_path,
                     expected_outputs,
+                    tracked_paths,
                 )
                 current_stat = os.stat(
                     entry.name,
@@ -356,6 +362,7 @@ def validate_output_inventory(
                 "remove it so parent guidance cannot be overridden"
             )
 
+    tracked_paths: set[str] = set()
     git_probe = subprocess.run(
         ["git", "-C", os.fspath(root), "rev-parse", "--is-inside-work-tree"],
         stdout=subprocess.PIPE,
@@ -377,11 +384,15 @@ def validate_output_inventory(
                 "cannot inspect tracked directory-guidance inventory"
                 + (f": {detail}" if detail else "")
             ) from error
-        tracked_guidance = sorted(
+        tracked_paths = {
             path
             for path in tracked_output.decode("utf-8").split("\0")
             if path
-            and PurePosixPath(path).name == "CLAUDE.md"
+        }
+        tracked_guidance = sorted(
+            path
+            for path in tracked_paths
+            if PurePosixPath(path).name == "CLAUDE.md"
             and path not in expected_outputs
         )
         if tracked_guidance:
@@ -392,7 +403,12 @@ def validate_output_inventory(
 
     root_descriptor = os.open(root, DIRECTORY_OPEN_FLAGS)
     try:
-        validate_inventory_directory(root_descriptor, "", expected_outputs)
+        validate_inventory_directory(
+            root_descriptor,
+            "",
+            expected_outputs,
+            tracked_paths,
+        )
     finally:
         os.close(root_descriptor)
 
