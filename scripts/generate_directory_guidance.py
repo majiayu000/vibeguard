@@ -31,7 +31,16 @@ RETIRED_OUTPUTS = {
 INVENTORY_EXCLUDED_DIRECTORIES = {
     ".git",
     ".claude/worktrees",
+    ".vibeguard/benchmarks",
     ".vibeguard/worktrees",
+    "vibeguard-runtime/target",
+}
+INVENTORY_EXCLUDED_DIRECTORY_NAMES = {
+    ".omx",
+    "__pycache__",
+    "artifacts",
+    "mcp-server",
+    "node_modules",
 }
 GENERATED_HEADER = (
     "<!-- Generated from docs/directory-guidance.md; do not edit directly. -->\n\n"
@@ -226,7 +235,11 @@ def validate_inventory_directory(
             if relative_directory
             else entry.name
         )
-        if relative_path in INVENTORY_EXCLUDED_DIRECTORIES:
+        if (
+            relative_path in INVENTORY_EXCLUDED_DIRECTORIES
+            or entry.name in INVENTORY_EXCLUDED_DIRECTORY_NAMES
+            or entry.name.startswith(".tmp-")
+        ):
             continue
         try:
             entry_stat = os.stat(

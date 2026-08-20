@@ -211,6 +211,27 @@ class DirectoryGuidanceTests(unittest.TestCase):
 
             generator.validate_output_inventory(root, set(), set())
 
+    def test_repository_ignored_roots_are_excluded_from_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            ignored_roots = (
+                "artifacts/execplan",
+                "node_modules/package",
+                "nested/node_modules/package",
+                "mcp-server/cache",
+                ".omx/state",
+                "nested/__pycache__",
+                ".tmp-stale",
+                ".vibeguard/benchmarks",
+                "vibeguard-runtime/target",
+            )
+            for ignored_root in ignored_roots:
+                guidance = root / ignored_root / "CLAUDE.md"
+                guidance.parent.mkdir(parents=True)
+                guidance.write_text("# Ignored local guidance\n", encoding="utf-8")
+
+            generator.validate_output_inventory(root, set(), set())
+
 
 if __name__ == "__main__":
     unittest.main()
