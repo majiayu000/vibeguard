@@ -169,6 +169,17 @@ printf '%s\n' '| [&#71;&#72;999](/majiayu000/vibeguard/issues/999) | Unexpected 
 assert_exit "entity-encoded relative issue row cannot bypass validation" 1 bash "$validator" "$entity_relative_link"
 assert_stderr_contains "entity-relative row is reported as malformed" "malformed archived packet row" bash "$validator" "$entity_relative_link"
 
+secondary_entity_table="$(make_fixture secondary-entity-table)"
+write_valid_index "$secondary_entity_table"
+printf '%s\n' \
+  '' \
+  '| Label | Outcome |' \
+  '|---|---|' \
+  '| [&#71;&#72;999](/majiayu000/vibeguard/issues/999) | Unexpected |' \
+  >> "$secondary_entity_table/README.md"
+assert_exit "secondary archive-section table cannot hide encoded issue rows" 1 bash "$validator" "$secondary_entity_table"
+assert_stderr_contains "secondary table is rejected structurally" "expected exactly one GFM table" bash "$validator" "$secondary_entity_table"
+
 zero_padded_row="$(make_fixture zero-padded-row)"
 write_valid_index "$zero_padded_row"
 printf '%s\n' '| [GH0100](https://github.com/majiayu000/vibeguard/issues/0100) | Duplicate identity |' >> "$zero_padded_row/README.md"
@@ -264,7 +275,7 @@ reference_thematic_break="$(make_fixture reference-thematic-break)"
 write_valid_index "$reference_thematic_break"
 printf '%s\n' '' '[docs]: /docs' '---' '| Issue | Outcome |' '|---|---|' '| [GH999](https://github.com/majiayu000/vibeguard/issues/999) | Still in archive |' >> "$reference_thematic_break/README.md"
 assert_exit "link reference followed by thematic break stays in archive scope" 1 bash "$validator" "$reference_thematic_break"
-assert_stderr_contains "second archive issue table is rejected" "expected exactly one archive issue table" bash "$validator" "$reference_thematic_break"
+assert_stderr_contains "second archive issue table is rejected" "expected exactly one GFM table" bash "$validator" "$reference_thematic_break"
 
 multiline_setext_boundary="$(make_fixture multiline-setext-boundary)"
 write_valid_index "$multiline_setext_boundary"
@@ -398,7 +409,7 @@ printf '%s\n' \
   '</x-widget>' \
   >> "$paragraph_generic_tag/README.md"
 assert_exit "generic tag cannot interrupt a paragraph to hide rows" 1 bash "$validator" "$paragraph_generic_tag"
-assert_stderr_contains "paragraph-context table remains visible" "expected exactly one archive issue table" bash "$validator" "$paragraph_generic_tag"
+assert_stderr_contains "paragraph-context table remains visible" "expected exactly one GFM table" bash "$validator" "$paragraph_generic_tag"
 
 fake_closer="$(make_fixture fake-closer)"
 printf '%s\n' \
@@ -422,7 +433,7 @@ printf '%s\n' \
   '```' \
   >> "$backtick_info/README.md"
 assert_exit "backtick in fence info string cannot hide archive rows" 1 bash "$validator" "$backtick_info"
-assert_stderr_contains "invalid backtick fence leaves table visible" "expected exactly one archive issue table" bash "$validator" "$backtick_info"
+assert_stderr_contains "invalid backtick fence leaves table visible" "expected exactly one GFM table" bash "$validator" "$backtick_info"
 
 missing_section="$(make_fixture missing-section)"
 printf '%s\n' '# Specs' > "$missing_section/README.md"

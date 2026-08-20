@@ -323,38 +323,54 @@ for index, line in archive_lines:
     if re.search(r"GH[0-9]+", first_cell) or issue_url_pattern.search(line):
         suspicious_rows.append((index, line))
 
-archive_table_rows: list[tuple[int, str]] | None = None
+archive_table_positions: list[int] = []
 for position in range(len(archive_lines) - 1):
     header_index, header_line = archive_lines[position]
-    delimiter_index, _ = archive_lines[position + 1]
+    delimiter_index, delimiter_line = archive_lines[position + 1]
     header_cells = table_cells(header_line)
+    delimiter_cells = table_cells(delimiter_line)
     if (
         header_cells is None
-        or len(header_cells) != 2
-        or header_cells[0] != "Issue"
-        or not header_cells[1].startswith("Outcome")
+        or delimiter_cells is None
+        or len(header_cells) != len(delimiter_cells)
+        or not all(re.fullmatch(r":?-{3,}:?", cell) for cell in delimiter_cells)
         or header_index not in table_indexes
         or delimiter_index not in table_indexes
     ):
         continue
-    if archive_table_rows is not None:
-        raise SystemExit("validate-specs-index: expected exactly one archive issue table")
-    archive_table_rows = []
-    body_position = position + 2
-    while body_position < len(archive_lines):
-        body_index, body_line = archive_lines[body_position]
-        if body_index not in table_indexes:
-            break
-        archive_table_rows.append((body_index, body_line))
-        body_position += 1
+    archive_table_positions.append(position)
 
-if archive_table_rows is None:
+if not archive_table_positions:
     if suspicious_rows:
         raise SystemExit(
             "validate-specs-index: archived packet row must be inside a GFM table: "
             + suspicious_rows[0][1]
         )
     raise SystemExit("validate-specs-index: archive section has no GFM issue table")
+if len(archive_table_positions) != 1:
+    raise SystemExit(
+        "validate-specs-index: expected exactly one GFM table in the archive section"
+    )
+
+archive_table_position = archive_table_positions[0]
+_, archive_header_line = archive_lines[archive_table_position]
+archive_header_cells = table_cells(archive_header_line)
+if (
+    archive_header_cells is None
+    or len(archive_header_cells) != 2
+    or archive_header_cells[0] != "Issue"
+    or not archive_header_cells[1].startswith("Outcome")
+):
+    raise SystemExit("validate-specs-index: malformed archive issue table header")
+
+archive_table_rows: list[tuple[int, str]] = []
+body_position = archive_table_position + 2
+while body_position < len(archive_lines):
+    body_index, body_line = archive_lines[body_position]
+    if body_index not in table_indexes:
+        break
+    archive_table_rows.append((body_index, body_line))
+    body_position += 1
 
 candidate_rows_by_index = {index: line for index, line in archive_table_rows}
 for index, line in suspicious_rows:
