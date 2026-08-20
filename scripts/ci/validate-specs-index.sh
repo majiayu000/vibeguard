@@ -59,6 +59,7 @@ def visible_markdown_lines(source_lines: list[str]) -> list[tuple[int, str]]:
     fence_character: str | None = None
     fence_length = 0
     in_html_comment = False
+    raw_html_tag: str | None = None
 
     def strip_html_comments(line: str) -> str:
         nonlocal in_html_comment
@@ -83,6 +84,14 @@ def visible_markdown_lines(source_lines: list[str]) -> list[tuple[int, str]]:
         return "".join(fragments)
 
     for index, line in enumerate(source_lines):
+        if raw_html_tag is not None:
+            if re.search(
+                rf"</{re.escape(raw_html_tag)}[ \t]*>",
+                line,
+                re.IGNORECASE,
+            ):
+                raw_html_tag = None
+            continue
         if fence_character is not None:
             closing_fence = re.fullmatch(
                 rf" {{0,3}}{re.escape(fence_character)}{{{fence_length},}}[ \t]*",
@@ -93,6 +102,20 @@ def visible_markdown_lines(source_lines: list[str]) -> list[tuple[int, str]]:
                 fence_length = 0
             continue
         visible_line = strip_html_comments(line)
+        raw_html_start = re.match(
+            r"^ {0,3}<(script|pre|style|textarea)(?:[ \t]|>|$)",
+            visible_line,
+            re.IGNORECASE,
+        )
+        if raw_html_start is not None:
+            tag = raw_html_start.group(1)
+            if re.search(
+                rf"</{re.escape(tag)}[ \t]*>",
+                visible_line,
+                re.IGNORECASE,
+            ) is None:
+                raw_html_tag = tag
+            continue
         fence = re.match(r"^ {0,3}(`{3,}|~{3,})", visible_line)
         if fence is not None:
             marker = fence.group(1)

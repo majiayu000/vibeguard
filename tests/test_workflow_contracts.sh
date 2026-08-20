@@ -302,14 +302,16 @@ if command.count(installed_root) < 5:
     raise SystemExit("ExecPlan does not resolve its installed VibeGuard source in init/update/status")
 if command.count('--rules-dir') != 3:
     raise SystemExit("ExecPlan does not pin the installed rules directory in all drift commands")
-if ".vibeguard/execplan/" in command or ".vibeguard/execplan/" in template:
-    raise SystemExit("ExecPlan retains a non-ignored process-artifact destination")
-if "artifacts/execplan/" not in command or "artifacts/execplan/" not in template:
-    raise SystemExit("ExecPlan does not route snapshots and inventories under artifacts/")
+state_artifact_root = '${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/execplan/'
+if state_artifact_root not in command or state_artifact_root not in template:
+    raise SystemExit("ExecPlan does not route snapshots outside the target repository")
+if '--snapshot artifacts/' in command or '--tool-inventory artifacts/' in command:
+    raise SystemExit("ExecPlan retains a target-repository artifact destination")
 if "--snapshot .vibeguard/" in pinning_rule or "--tool-inventory .vibeguard/" in pinning_rule:
     raise SystemExit("W-20 rule retains a non-ignored process-artifact example")
-if "--snapshot artifacts/" not in pinning_rule or "--tool-inventory artifacts/" not in pinning_rule:
-    raise SystemExit("W-20 rule does not route process artifacts under artifacts/")
+rule_artifact_root = '${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/'
+if pinning_rule.count(rule_artifact_root) < 2:
+    raise SystemExit("W-20 rule does not route process artifacts outside the target repository")
 PY
   printf '\033[32m  PASS: ExecPlan drift checks resolve the installed guard and rules\033[0m\n'
   PASS=$((PASS + 1))
@@ -317,10 +319,6 @@ else
   printf '\033[31m  FAIL: ExecPlan drift checks resolve the installed guard and rules\033[0m\n'
   FAIL=$((FAIL + 1))
 fi
-
-assert_cmd "ExecPlan process artifacts are ignored" \
-  git -C "${REPO_DIR}" check-ignore -q --no-index \
-  artifacts/execplan/example-runtime.snapshot
 
 printf '\nResults: %d passed, %d failed, %d total\n' "${PASS}" "${FAIL}" "${TOTAL}"
 exit "${FAIL}"

@@ -287,6 +287,21 @@ printf '%s\n' 'GH100' > "$commented_heading/archived-issues.txt"
 assert_exit "archive section inside HTML comment is ignored" 1 bash "$validator" "$commented_heading"
 assert_stderr_contains "commented heading failure requires visible section" "expected exactly one visible" bash "$validator" "$commented_heading"
 
+for raw_html_tag in script pre; do
+  raw_html_heading="$(make_fixture "raw-html-${raw_html_tag}")"
+  printf '%s\n' \
+    "<${raw_html_tag}>" \
+    '## Archived GitHub Packet Index' \
+    '| Issue | Outcome |' \
+    '|---|---|' \
+    '| [GH100](https://github.com/majiayu000/vibeguard/issues/100) | Hidden |' \
+    "</${raw_html_tag}>" \
+    > "$raw_html_heading/README.md"
+  printf '%s\n' 'GH100' > "$raw_html_heading/archived-issues.txt"
+  assert_exit "archive section inside ${raw_html_tag} block is ignored" 1 bash "$validator" "$raw_html_heading"
+  assert_stderr_contains "${raw_html_tag} block failure requires visible section" "expected exactly one visible" bash "$validator" "$raw_html_heading"
+done
+
 fake_closer="$(make_fixture fake-closer)"
 printf '%s\n' \
   '# Specs' \
