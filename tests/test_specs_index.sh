@@ -136,6 +136,12 @@ printf '%s\n' '|[GH999](https://github.com/majiayu000/vibeguard/issues/999)| Une
 assert_exit "GH row without canonical pipe spacing fails" 1 bash "$validator" "$compact_spacing"
 assert_stderr_contains "compact-spacing row is reported as malformed" "malformed archived packet row" bash "$validator" "$compact_spacing"
 
+blockquoted_row="$(make_fixture blockquoted-row)"
+write_valid_index "$blockquoted_row"
+printf '%s\n' '> | Issue | Outcome |' '> |---|---|' '> | [GH999](https://github.com/majiayu000/vibeguard/issues/999) | Unexpected |' >> "$blockquoted_row/README.md"
+assert_exit "blockquoted GH row cannot bypass archive validation" 1 bash "$validator" "$blockquoted_row"
+assert_stderr_contains "blockquoted row failure names archived packet row" "archived packet row" bash "$validator" "$blockquoted_row"
+
 incomplete="$(make_fixture incomplete)"
 write_valid_index "$incomplete"
 printf '%s\n' 'GH100' 'GH101' > "$incomplete/archived-issues.txt"

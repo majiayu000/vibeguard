@@ -291,11 +291,25 @@ import sys
 
 repo = Path(sys.argv[1])
 command = (repo / ".claude/commands/vibeguard/exec-plan.md").read_text(encoding="utf-8")
+template = (repo / "workflows/plan-flow/references/execplan-template.md").read_text(
+    encoding="utf-8"
+)
+pinning_rule = (repo / "rules/claude-rules/common/execution-pinning.md").read_text(
+    encoding="utf-8"
+)
 installed_root = '${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}'
 if command.count(installed_root) < 5:
     raise SystemExit("ExecPlan does not resolve its installed VibeGuard source in init/update/status")
 if command.count('--rules-dir') != 3:
     raise SystemExit("ExecPlan does not pin the installed rules directory in all drift commands")
+if ".vibeguard/execplan/" in command or ".vibeguard/execplan/" in template:
+    raise SystemExit("ExecPlan retains a non-ignored process-artifact destination")
+if "artifacts/execplan/" not in command or "artifacts/execplan/" not in template:
+    raise SystemExit("ExecPlan does not route snapshots and inventories under artifacts/")
+if "--snapshot .vibeguard/" in pinning_rule or "--tool-inventory .vibeguard/" in pinning_rule:
+    raise SystemExit("W-20 rule retains a non-ignored process-artifact example")
+if "--snapshot artifacts/" not in pinning_rule or "--tool-inventory artifacts/" not in pinning_rule:
+    raise SystemExit("W-20 rule does not route process artifacts under artifacts/")
 PY
   printf '\033[32m  PASS: ExecPlan drift checks resolve the installed guard and rules\033[0m\n'
   PASS=$((PASS + 1))
@@ -303,6 +317,10 @@ else
   printf '\033[31m  FAIL: ExecPlan drift checks resolve the installed guard and rules\033[0m\n'
   FAIL=$((FAIL + 1))
 fi
+
+assert_cmd "ExecPlan process artifacts are ignored" \
+  git -C "${REPO_DIR}" check-ignore -q --no-index \
+  artifacts/execplan/example-runtime.snapshot
 
 printf '\nResults: %d passed, %d failed, %d total\n' "${PASS}" "${FAIL}" "${TOTAL}"
 exit "${FAIL}"

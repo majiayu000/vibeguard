@@ -247,7 +247,7 @@ row_pattern = re.compile(
 candidate_rows = [
     (index, line)
     for index, line in archive_lines
-    if re.match(r"^ {0,3}\|?[ \t]*\[GH[0-9]+\]", line)
+    if re.search(r"\[GH[0-9]+\]", line)
 ]
 if not candidate_rows:
     raise SystemExit("validate-specs-index: archived packet index has no GH issue rows")

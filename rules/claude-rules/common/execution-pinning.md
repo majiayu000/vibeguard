@@ -37,8 +37,8 @@ Use:
 
 ```bash
 bash guards/universal/check_runtime_drift.sh accept \
-  --snapshot .vibeguard/runtime-pinning.snapshot \
-  --tool-inventory .vibeguard/tool-inventory.txt \
+  --snapshot artifacts/runtime-pinning.snapshot \
+  --tool-inventory artifacts/tool-inventory.txt \
   --decision-log SECURITY.md \
   --reason "User accepted Codex CLI upgrade during this task"
 ```

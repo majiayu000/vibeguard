@@ -54,9 +54,9 @@ Generate ExecPlan files from SPEC.
    - Document existing code locations related to SPEC
 
 3.5. **Capture the W-20 execution snapshot**
-   - Write the active runtime, model, tool/MCP/skill names, and stable description hashes to `.vibeguard/execplan/<task>-tool-inventory.txt`; each non-comment line must be `<kind> <name> <description_sha256>`
+   - Create the ignored `artifacts/execplan/` directory, then write the active runtime, model, tool/MCP/skill names, and stable description hashes to `artifacts/execplan/<task>-tool-inventory.txt`; each non-comment line must be `<kind> <name> <description_sha256>`
    - Resolve the installed source as `${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}` and verify that its drift guard and `rules/claude-rules` directory exist
-   - Run `bash "${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}/guards/universal/check_runtime_drift.sh" snapshot --snapshot .vibeguard/execplan/<task>-runtime.snapshot --tool-inventory .vibeguard/execplan/<task>-tool-inventory.txt --rules-dir "${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}/rules/claude-rules"`
+   - Run `bash "${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}/guards/universal/check_runtime_drift.sh" snapshot --snapshot artifacts/execplan/<task>-runtime.snapshot --tool-inventory artifacts/execplan/<task>-tool-inventory.txt --rules-dir "${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}/rules/claude-rules"`
    - Stop if the inventory or snapshot cannot be created; do not generate a resumable ExecPlan without them
 
 4. **Generate ExecPlan**

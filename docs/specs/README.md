@@ -64,7 +64,7 @@ machine-readable completeness inventory checked against this table.
 | [GH700](https://github.com/majiayu000/vibeguard/issues/700) | Released-binary benchmark command and paired corpus |
 | [GH701](https://github.com/majiayu000/vibeguard/issues/701) | Historical host-adapter roadmap; no adapter delivered |
 | [GH702](https://github.com/majiayu000/vibeguard/issues/702) | Historical guard-pack roadmap; no publish/install surface delivered |
-| [GH703](https://github.com/majiayu000/vibeguard/issues/703) | Weekly value summaries and explicit share exports |
+| [GH703](https://github.com/majiayu000/vibeguard/issues/703) | Historical unapproved weekly-value draft; no summary or share-export implementation delivered |
 | [GH704](https://github.com/majiayu000/vibeguard/issues/704) | Historical L2 semantic-defense research; no model runtime delivered |
 | [GH706](https://github.com/majiayu000/vibeguard/issues/706) | Malformed-input diagnostics and protocol-error accounting |
 | [GH719](https://github.com/majiayu000/vibeguard/issues/719) | Ownership-safe per-skill opt-out for managed Codex copies |
