@@ -1,7 +1,7 @@
 <!-- vibeguard-start -->
 # VibeGuard shared core
 
-> __VIBEGUARD_RULE_COUNT__ rules total are available. This managed block keeps only cross-project defaults in global context. The user's request and the nearest applicable repository instructions define project facts, conventions, and verification commands. Load deeper rules on demand from `~/.vibeguard/installed/rules/claude-rules/`.
+> This managed block keeps only cross-project defaults in global context. The user's request and the nearest applicable repository instructions define project facts, conventions, and verification commands. The installed tree contains __VIBEGUARD_RULE_COUNT__ rules total; open a file under `~/.vibeguard/installed/rules/claude-rules/` only when the current task needs that specific rule.
 
 ## Scope and precedence
 
@@ -9,7 +9,7 @@
 - Treat inspection, analysis, and review as read-only unless the user also asks for changes.
 - Use repository-provided build and test commands; do not invent a global command for every project.
 - Missing or conflicting facts that would materially change the result must be clarified before mutation.
-- For L6 work routing, follow the canonical contract at __VIBEGUARD_DIR__/workflows/references/routing-contract.md.
+- For planning versus direct execution, follow the contract at __VIBEGUARD_DIR__/workflows/references/routing-contract.md.
 
 ## Core contract
 
@@ -39,7 +39,6 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 | ID | Severity | Rule |
 |----|----------|------|
 | U-17 | Strict | Handle errors completely. Do not swallow exceptions silently. |
-| U-26 | Strict | Declaration-execution completeness: declared Config / Trait / persistence layers must be wired into startup. |
 | U-29 | Strict | No silent degradation: errors causing user-visible missing data or wrong output must `error` or raise, not `warning` + fallback. |
 | W-02 | Strict | After 3 consecutive failed fixes on the same problem, stop and challenge the hypothesis or architecture. |
 | W-03 | Strict | Verify before claiming completion: produce fresh command output proving the claim. |
