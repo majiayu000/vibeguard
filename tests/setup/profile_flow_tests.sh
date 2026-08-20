@@ -81,8 +81,34 @@ assert_contains "${project_init_out}" "pre-commit hook installed" "project-init 
 assert_contains "${project_init_out}" "pre-push hook installed" "project-init installs tracked pre-push hook"
 assert_cmd "project-init pre-commit hook targets VibeGuard wrapper" bash -c "[[ \"\$(readlink '${project_init_target}/.git/hooks/pre-commit')\" == '${HOME}/.vibeguard/pre-commit' ]]"
 assert_cmd "install-state records project-init hooks" bash -c "grep -q '${project_init_target}/.git/hooks/pre-commit' '${HOME}/.vibeguard/install-state.json'"
+upgrade_retired_skill="${HOME}/.codex/skills/plan-flow"
+mkdir -p "${upgrade_retired_skill}"
+printf 'managed before retirement\n' > "${upgrade_retired_skill}/SKILL.md"
+python3 - "${HOME}/.vibeguard/install-state.json" "${upgrade_retired_skill}/SKILL.md" <<'PY'
+import hashlib
+import json
+import sys
+
+state_path, skill_file = sys.argv[1:]
+with open(state_path, encoding="utf-8") as handle:
+    state = json.load(handle)
+state["files"][skill_file] = {
+    "source": "workflows/plan-flow/SKILL.md",
+    "type": "copy",
+    "checksum": "sha256:" + hashlib.sha256(b"managed before retirement\n").hexdigest(),
+}
+with open(state_path, "w", encoding="utf-8") as handle:
+    json.dump(state, handle, indent=2)
+    handle.write("\n")
+PY
 clean_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
 assert_contains "${clean_out}" "VibeGuard cleaned." "--clean route to cleanup process"
+assert_contains "${clean_out}" "Retained install state for 1 disabled-skill quarantine" "--clean retains newly quarantined retirement ownership"
+assert_cmd "--clean quarantines a newly retired managed Codex skill" test ! -e "${upgrade_retired_skill}"
+assert_cmd "--clean preserves retired managed bytes in quarantine" bash -c \
+  'quarantine="$(find "$1" -maxdepth 1 -type d -name ".plan-flow.vibeguard-quarantine.*" -print -quit)"; [[ -n "$quarantine" && -f "$quarantine/SKILL.md" ]]' _ \
+  "${HOME}/.codex/skills"
+assert_cmd "--clean preserves install state owning the new quarantine" test -f "${HOME}/.vibeguard/install-state.json"
 assert_cmd "--clean removes scheduled GC entry" assert_scheduled_gc_absent
 assert_cmd "--clean preserves foreign repo pre-commit hook" bash -c "[[ \"\$(readlink '${REPO_GIT_HOOK_DIR}/pre-commit')\" == '${foreign_pre_commit}' ]]"
 assert_cmd "--clean removes owned repo pre-push hook" test ! -e "${REPO_GIT_HOOK_DIR}/pre-push"

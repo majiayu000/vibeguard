@@ -203,14 +203,16 @@ class CompactRuleGenerationTests(unittest.TestCase):
         self.assertNotIn("repository-level `AGENTS.md` or `CLAUDE.md`", shared)
         self.assertNotIn("For L6 work routing", shared)
         self.assertNotIn("rules total are available", shared)
-        self.assertIn("rules total", shared)
+        self.assertEqual(shared.count("__VIBEGUARD_RULE_COUNT__"), 1)
+        rendered = shared.replace("__VIBEGUARD_RULE_COUNT__", "127")
+        self.assertIn("contains 127 rules total", rendered)
         self.assertNotIn("| U-26 |", shared)
 
-    def test_codex_host_guidance_respects_configured_home(self) -> None:
+    def test_codex_host_guidance_retires_bundled_skills(self) -> None:
         codex_host = generate_rule_docs.CODEX_HOST_RULES_PATH.read_text(encoding="utf-8")
-        self.assertIn("When managed VibeGuard skills are installed", codex_host)
+        self.assertIn("does not install bundled Codex skills", codex_host)
         self.assertIn("$CODEX_HOME/skills/", codex_host)
-        self.assertIn("defaulting to `~/.codex/skills/`", codex_host)
+        self.assertIn("preserve user-managed skills", codex_host)
 
     def test_codex_host_guidance_matches_profile_hook_contract(self) -> None:
         codex_host = generate_rule_docs.CODEX_HOST_RULES_PATH.read_text(encoding="utf-8")

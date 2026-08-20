@@ -648,7 +648,9 @@ clean_claude_home_installation() {
     "${REPO_DIR}/.claude/commands/vg" \
     "${HOME}/.vibeguard/installed/.claude/commands/vg"
   local skill_links source_path skill
-  skill_links="$(manifest_skill_links_for_cleanup "~/.claude/skills/")"
+  if ! skill_links="$(manifest_skill_links_for_cleanup "~/.claude/skills/")"; then
+    skill_links=""
+  fi
   while IFS=$'\t' read -r source_path skill; do
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
     rm -f "${CLAUDE_DIR}/skills/${skill}"

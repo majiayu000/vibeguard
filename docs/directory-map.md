@@ -21,8 +21,8 @@ VibeGuard keeps runtime and installable source directories at the repository roo
 | `.claude/commands/` | Claude slash command source installed into `~/.claude/commands/`. |
 | `.claude/skills/` | Repo-local maintainer skills for this repository. They are validated by skill-format checks but are not installable product skills unless promoted into `skills/` or `workflows/` and declared in `schemas/install-modules.json`. |
 | `agents/` | Claude agent prompt source installed into `~/.claude/agents/`. |
-| `skills/` | Core reusable skills installed into Claude and Codex skill locations. |
-| `workflows/` | Codex workflow skills and shared workflow references. |
+| `skills/` | Claude-only evaluation and retrieval skills declared by the install manifest. |
+| `workflows/` | Shared references used by command workflows; no user-level Codex skills are installed from this directory. |
 | `context-profiles/` | Claude context profiles installed into `~/.claude/context-profiles/`. |
 | `templates/` | Project and language templates copied or referenced by setup and docs. |
 | `claude-md/` | Text injected into user-level Claude memory during setup. |

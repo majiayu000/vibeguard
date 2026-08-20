@@ -42,7 +42,7 @@ assert_cmd "file_ops.py syntax is correct" python3 -m py_compile "${REPO_DIR}/sc
 assert_cmd "hook_config_model.py syntax is correct" python3 -m py_compile "${REPO_DIR}/scripts/lib/hook_config_model.py"
 assert_cmd "shared setup primitives are declared" bash -c "
   source '${REPO_DIR}/scripts/setup/lib.sh'
-  declare -F install_manifest_skills install_context_profiles inject_vibeguard_rules retire_legacy_codex_skills >/dev/null
+  declare -F install_manifest_skills install_context_profiles inject_vibeguard_rules retire_legacy_codex_skills retire_bundled_codex_skill_copies clean_retired_bundled_codex_skill_copies >/dev/null
 "
 assert_cmd "install-state uses Python hashlib instead of shell sha tools" bash -c "
   ! grep -Eq 'shasum|sha256sum|subprocess\\.run' '${REPO_DIR}/scripts/lib/install-state.sh'
@@ -85,6 +85,8 @@ assert_cmd "only untouched legacy skill copies are quarantined" bash -c '
   actual_skills="$root/codex/actual-skills"
   quarantine="$root/vibeguard/retired-codex-skills"
   source "$repo/scripts/setup/lib.sh"
+  STATE_FILE="$root/install-state.json"
+  STATE_PREVIOUS_FILE="$root/install-state.previous.json"
   mkdir -p "$actual_skills"
   ln -s "$actual_skills" "$skills"
   official="official legacy skill"
@@ -120,12 +122,14 @@ import sys
 
 text = (Path(sys.argv[1]) / "scripts/setup/targets/codex-home.sh").read_text(encoding="utf-8")
 call = "retire_legacy_codex_skills"
+bundled_call = "retire_bundled_codex_skill_copies"
 install = "install_manifest_skills"
-assert call in text and install in text
+assert call in text and bundled_call in text and install in text
 assert text.index(call) < text.index(install)
+assert text.index(bundled_call) < text.index(install)
 PY
 
-assert_cmd "vibeguard-runtime builds for install-state tests" cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
+source "${REPO_DIR}/tests/setup/retired_bundled_skill_tests.sh"
 
 INSTALL_STATE_HOME="${TMP_DIR}/install-state-home"
 INSTALL_STATE_DEST="${INSTALL_STATE_HOME}/tracked.txt"

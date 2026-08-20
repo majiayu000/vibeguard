@@ -446,7 +446,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-state-init",
-        usage: "<state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot]  — initialize install state or merge a complete outgoing snapshot",
+        usage: "<state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot] [codex-skills-dir]  — initialize install state or merge a complete outgoing snapshot",
         handler: setup::install_state::init,
     },
     Command {

@@ -426,11 +426,11 @@ _check_execution_sources() {
   _check_execution_source_file "Git pre-push" "hooks/git/pre-push"
   _check_execution_source_dir "Native rules" "rules/claude-rules"
   _check_execution_source_dir "Claude commands" ".claude/commands"
-  _check_execution_source_dir "Skills" "skills"
+  _check_execution_source_dir "Claude skills" "skills"
   if [[ -d "$(_execution_source_path "workflows")" ]]; then
-    green "[OK] Workflow skills execution source: $(_execution_source_label) ($(_execution_source_path "workflows"))"
+    green "[OK] Workflow references execution source: $(_execution_source_label) ($(_execution_source_path "workflows"))"
   else
-    red "[BROKEN] Workflow skills execution source missing: $(_execution_source_label) ($(_execution_source_path "workflows"))"
+    red "[BROKEN] Workflow references execution source missing: $(_execution_source_label) ($(_execution_source_path "workflows"))"
   fi
   if [[ -x "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" ]]; then
     green "[OK] Runtime execution source: installed snapshot (${HOME}/.vibeguard/installed/bin/vibeguard-runtime)"

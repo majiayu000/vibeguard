@@ -267,7 +267,6 @@ import sys
 
 repo = Path(sys.argv[1])
 cross_review = (repo / ".claude/commands/vibeguard/cross-review.md").read_text(encoding="utf-8")
-auto_optimize = (repo / "workflows/auto-optimize/SKILL.md").read_text(encoding="utf-8")
 
 if "at most two total review rounds" not in cross_review:
     raise SystemExit("cross-review does not declare the two-round ceiling")
@@ -277,16 +276,11 @@ for stale in ("up to 3 rounds", "after 3 rounds"):
     if stale in cross_review:
         raise SystemExit(f"cross-review retains stale loop marker: {stale}")
 
-for stale in ("max_iterations:", "max_duration:", "./orchestrator --dir", "Create Runner environment"):
-    if stale in auto_optimize:
-        raise SystemExit(f"auto-optimize retains autonomous queue marker: {stale}")
-if "select exactly one" not in auto_optimize or "Stop when the selected fix is verified" not in auto_optimize:
-    raise SystemExit("auto-optimize does not enforce one bounded implementation")
 PY
-  printf '\033[32m  PASS: review and optimization workflows stay bounded\033[0m\n'
+  printf '\033[32m  PASS: review workflow stays bounded\033[0m\n'
   PASS=$((PASS + 1))
 else
-  printf '\033[31m  FAIL: review and optimization workflows stay bounded\033[0m\n'
+  printf '\033[31m  FAIL: review workflow stays bounded\033[0m\n'
   FAIL=$((FAIL + 1))
 fi
 

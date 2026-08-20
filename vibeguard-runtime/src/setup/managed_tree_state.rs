@@ -333,11 +333,18 @@ pub(crate) fn intent_quarantine_for_dest(dest: &Path) -> SetupResult<Option<Path
 /// install loop cannot be relied on to revisit its public destination. Only an
 /// intent whose hidden tree is an exact match for this state's tracked
 /// inventory is eligible for carry.
-pub(crate) fn orphan_intent_records(state: &Value) -> SetupResult<Map<String, Value>> {
-    let Some(home) = home_dir() else {
-        return Ok(Map::new());
+pub(crate) fn orphan_intent_records(
+    state: &Value,
+    codex_skills_dir: Option<&Path>,
+) -> SetupResult<Map<String, Value>> {
+    let directory = if let Some(codex_skills_dir) = codex_skills_dir {
+        setup_absolute_path(codex_skills_dir)
+    } else {
+        let Some(home) = home_dir() else {
+            return Ok(Map::new());
+        };
+        setup_absolute_path(&home.join(".codex/skills"))
     };
-    let directory = setup_absolute_path(&home.join(".codex/skills"));
     match fs::symlink_metadata(&directory) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Map::new()),
         Err(error) => return Err(error.into()),
@@ -566,7 +573,9 @@ fn managed_tree_decision_for_state(
 
     let mut leaves = BTreeSet::new();
     let mut directories = BTreeSet::new();
-    collect_managed_tree_paths(dest_dir, &mut leaves, &mut directories)?;
+    if !collect_managed_tree_paths(dest_dir, &mut leaves, &mut directories)? {
+        return Ok("UNOWNED:unsupported_path_type");
+    }
     for leaf in &leaves {
         let Some(info) = tracked.get(leaf) else {
             return Ok("UNOWNED:untracked_path");
@@ -604,24 +613,22 @@ fn collect_managed_tree_paths(
     directory: &Path,
     leaves: &mut BTreeSet<PathBuf>,
     directories: &mut BTreeSet<PathBuf>,
-) -> SetupResult<()> {
+) -> SetupResult<bool> {
     for entry in std::fs::read_dir(directory)? {
         let entry = entry?;
         let path = entry.path();
         let metadata = std::fs::symlink_metadata(&path)?;
         if metadata.file_type().is_symlink() || (!metadata.is_file() && !metadata.is_dir()) {
-            return Err(format!(
-                "managed tree contains unsupported path type: {}",
-                path.display()
-            )
-            .into());
+            return Ok(false);
         }
         if metadata.is_dir() {
             directories.insert(path.clone());
-            collect_managed_tree_paths(&path, leaves, directories)?;
+            if !collect_managed_tree_paths(&path, leaves, directories)? {
+                return Ok(false);
+            }
         } else {
             leaves.insert(path);
         }
     }
-    Ok(())
+    Ok(true)
 }

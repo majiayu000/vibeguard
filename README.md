@@ -97,7 +97,7 @@ VibeGuard has two layers:
 | Surface | Scope | Canonical Source |
 |---------|-------|------------------|
 | **VibeGuard Core** | Rules, hooks, static guards, install/runtime contract, observability | `rules/claude-rules/`, `schemas/install-modules.json`, `hooks/`, `guards/` |
-| **VibeGuard Workflows** | Slash commands, agent prompts, planning/execution presets | `skills/`, `workflows/`, `agents/` |
+| **VibeGuard Workflows** | Slash commands, agent prompts, and shared command references | `.claude/commands/`, `workflows/references/`, `agents/` |
 
 If these surfaces disagree, treat the Core contract as authoritative first, then update workflow/docs surfaces to match it.
 
@@ -153,7 +153,7 @@ Inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engine
 
 ### Rule Injection (active from session start)
 
-Claude Code's `full` and `strict` profiles expose the native rule set from `rules/claude-rules/` through `~/.claude/rules/vibeguard/`; `core` (the default) and `minimal` do not front-inject that tree. Every profile receives a smaller shared global core for scope, factuality, error visibility, safety, preservation, and verification. The installer then adds a host-specific section: Claude Code receives profile-aware native-rule and slash-command guidance, while Codex receives `AGENTS.md`, managed-skill, and native-hook capability guidance. Project facts and exact test commands stay in the nearest repository instructions.
+Claude Code's `full` and `strict` profiles expose the native rule set from `rules/claude-rules/` through `~/.claude/rules/vibeguard/`; `core` (the default) and `minimal` do not front-inject that tree. Every profile receives a smaller shared global core for scope, factuality, error visibility, safety, preservation, and verification. The installer then adds a host-specific section: Claude Code receives profile-aware native-rule and slash-command guidance, while Codex receives `AGENTS.md`, bundled-skill retirement, and native-hook capability guidance. Project facts and exact test commands stay in the nearest repository instructions.
 
 Canonical references for this contract:
 - Install/runtime contract: `schemas/install-modules.json`
@@ -532,7 +532,7 @@ protection.
 
 | Tool | How |
 |------|-----|
-| **OpenAI Codex** | `cp ~/vibeguard/templates/AGENTS.md ./AGENTS.md` + `bash ~/vibeguard/setup.sh` (installs skills + Codex hooks) |
+| **OpenAI Codex** | `cp ~/vibeguard/templates/AGENTS.md ./AGENTS.md` + `bash ~/vibeguard/setup.sh` (installs Codex guidance and hooks; bundled skills are retired) |
 | **Any project (rules only)** | `cp ~/vibeguard/docs/CLAUDE.md.example ./CLAUDE.md` |
 
 ### Project Bootstrap

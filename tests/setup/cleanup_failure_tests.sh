@@ -133,9 +133,12 @@ HOME="${rm_cleanup_failure_home}" \
   VIBEGUARD_SETUP_RUNTIME="${rm_cleanup_failure_runtime}" \
   bash "${REPO_DIR}/setup.sh" --clean >/dev/null 2>&1 \
   || rm_cleanup_failure_rc=$?
-assert_cmd "managed skill removal failure aborts clean" \
-  test "${rm_cleanup_failure_rc}" -ne 0
-assert_cmd "managed skill removal failure preserves skill and recovery payload" bash -c \
-  'test -f "$1" && test -f "$2"' _ \
-  "${rm_cleanup_failure_skill}/SKILL.md" \
-  "${rm_cleanup_failure_home}/.vibeguard/dist/${cleanup_fixture_version}/payload"
+assert_cmd "managed skill retirement does not depend on direct rm" \
+  test "${rm_cleanup_failure_rc}" -eq 0
+assert_cmd "managed skill retirement removes the public path" \
+  test ! -e "${rm_cleanup_failure_skill}"
+assert_cmd "managed skill retirement retains quarantined bytes" bash -c \
+  'quarantine="$(find "$1" -maxdepth 1 -type d -name ".vibeguard.vibeguard-quarantine.*" -print -quit)"; [[ -n "$quarantine" && -f "$quarantine/SKILL.md" ]]' _ \
+  "$(dirname "${rm_cleanup_failure_skill}")"
+assert_cmd "managed skill retirement retains owning install state" \
+  test -f "${rm_cleanup_failure_home}/.vibeguard/install-state.json"

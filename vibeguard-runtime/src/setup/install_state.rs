@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const STATE_VERSION: i64 = 1;
-const STATE_CAPABILITY_TOKEN: &str = "complete-snapshot-v1";
-const INIT_USAGE: &str = "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot]";
+const STATE_CAPABILITY_TOKEN: &str = "complete-snapshot-v2";
+const INIT_USAGE: &str = "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation] [disabled-skills] [carry-state-file] [complete-snapshot] [codex-skills-dir]";
 
 pub fn capabilities(args: &[String]) -> SetupResult<()> {
     if !args.is_empty() {
@@ -17,7 +17,7 @@ pub fn capabilities(args: &[String]) -> SetupResult<()> {
 }
 
 pub fn init(args: &[String]) -> SetupResult<()> {
-    if !(3..=7).contains(&args.len()) {
+    if !(3..=8).contains(&args.len()) {
         return Err(INIT_USAGE.into());
     }
     if std::env::var_os("VIBEGUARD_TEST_SETUP_STATE_INIT_FAILURE").is_some() {
@@ -39,10 +39,11 @@ pub fn init(args: &[String]) -> SetupResult<()> {
         .transpose()?
         .unwrap_or(1);
     let complete_snapshot = match args.get(6).map(String::as_str) {
-        None => false,
+        None | Some("") => false,
         Some("complete-snapshot") => true,
         Some(_) => return Err(INIT_USAGE.into()),
     };
+    let codex_skills_dir = args.get(7).filter(|value| !value.is_empty()).map(Path::new);
     if complete_snapshot {
         if !args[1].is_empty() || !args[2].is_empty() || args.get(4).is_some_and(|v| !v.is_empty())
         {
@@ -52,7 +53,12 @@ pub fn init(args: &[String]) -> SetupResult<()> {
             );
         }
         let carry_path = args.get(5).filter(|value| !value.is_empty());
-        let merged = merge_complete_snapshot(state_file, carry_path.map(Path::new), generation)?;
+        let merged = merge_complete_snapshot(
+            state_file,
+            carry_path.map(Path::new),
+            generation,
+            codex_skills_dir,
+        )?;
         if std::env::var_os("VIBEGUARD_TEST_SETUP_STATE_WRITE_FAILURE").is_some() {
             return Err("injected setup-state write failure".into());
         }
@@ -83,7 +89,13 @@ pub fn init(args: &[String]) -> SetupResult<()> {
     };
     if let Some(existing) = current_inventory.as_ref() {
         validate_state_for_preflight(existing)?;
-        carry_incomplete_inventory(existing, &mut state, generation, &disabled_skills)?;
+        carry_incomplete_inventory(
+            existing,
+            &mut state,
+            generation,
+            &disabled_skills,
+            codex_skills_dir,
+        )?;
     }
     if let Some(carry_path) = args.get(5).filter(|value| !value.is_empty()) {
         let carry = read_state(Path::new(carry_path))?;
@@ -91,7 +103,7 @@ pub fn init(args: &[String]) -> SetupResult<()> {
             &carry,
             current_inventory.as_ref().unwrap_or(&carry),
         )?;
-        carry_incomplete_inventory(&carry, &mut state, 0, &[])?;
+        carry_incomplete_inventory(&carry, &mut state, 0, &[], codex_skills_dir)?;
     }
     if std::env::var_os("VIBEGUARD_TEST_SETUP_STATE_WRITE_FAILURE").is_some() {
         return Err("injected setup-state write failure".into());
@@ -104,6 +116,7 @@ fn merge_complete_snapshot(
     state_file: &Path,
     carry_path: Option<&Path>,
     generation: u64,
+    codex_skills_dir: Option<&Path>,
 ) -> SetupResult<Value> {
     let mut state = read_regular_state(state_file, "complete snapshot source")?;
     validate_state_for_preflight(&state)?;
@@ -124,7 +137,7 @@ fn merge_complete_snapshot(
         return Err("complete snapshot carry source must be a complete older generation".into());
     }
     reject_snapshot_inventory_conflicts(&state, &carry)?;
-    carry_incomplete_inventory(&carry, &mut state, 0, &[])?;
+    carry_incomplete_inventory(&carry, &mut state, 0, &[], codex_skills_dir)?;
     validate_state_for_preflight(&state)?;
     Ok(state)
 }

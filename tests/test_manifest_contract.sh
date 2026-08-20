@@ -164,11 +164,14 @@ assert_not_contains "${rust_rule_labels_out}" "python" "manifest rule-labels omi
 reference_rules_out="$(python3 "${MANIFEST_HELPER}" rule-ids --source reference)"
 assert_contains "${reference_rules_out}" "TASTE-ANSI" "reference rule ids include TASTE-prefixed rules"
 claude_skills_out="$(python3 "${MANIFEST_HELPER}" skill-links --target "~/.claude/skills/")"
-assert_contains "${claude_skills_out}" $'skills/vibeguard\tvibeguard' "manifest declares Claude vibeguard skill link"
-assert_contains "${claude_skills_out}" $'workflows/auto-optimize\tauto-optimize' "manifest declares Claude auto-optimize skill link"
+assert_contains "${claude_skills_out}" $'skills/eval-harness\teval-harness' "manifest keeps Claude eval-harness skill link"
+assert_contains "${claude_skills_out}" $'skills/iterative-retrieval\titerative-retrieval' "manifest keeps Claude iterative-retrieval skill link"
 codex_skills_out="$(python3 "${MANIFEST_HELPER}" skill-links --target "~/.codex/skills/")"
-assert_contains "${codex_skills_out}" $'workflows/plan-flow\tplan-flow' "manifest declares Codex workflow skill links"
-assert_contains "${codex_skills_out}" $'skills/trajectory-review\ttrajectory-review' "manifest declares Codex core skill links"
+for retired_skill in vibeguard agentsmd-audit trajectory-review plan-flow fixflow optflow plan-mode auto-optimize; do
+  assert_not_contains "${claude_skills_out}" $'\t'"${retired_skill}" "manifest retires Claude ${retired_skill} skill link"
+  assert_not_contains "${codex_skills_out}" $'\t'"${retired_skill}" "manifest retires Codex ${retired_skill} skill link"
+done
+assert_cmd "manifest declares no Codex skill links" test -z "${codex_skills_out}"
 command_paths_out="$(python3 - "${REPO_DIR}/schemas/install-modules.json" <<'PY'
 import json
 import sys
