@@ -144,6 +144,13 @@ rm "$extra_cell_outcome/README.md.bak"
 assert_exit "third cell cannot hide a blank archived outcome" 1 bash "$validator" "$extra_cell_outcome"
 assert_stderr_contains "extra-cell outcome is reported as malformed" "malformed archived packet row" bash "$validator" "$extra_cell_outcome"
 
+even_backslash_pipe="$(make_fixture even-backslash-pipe)"
+write_valid_index "$even_backslash_pipe"
+sed -i.bak 's/Fixture outcome/\\\\| Hidden evidence/' "$even_backslash_pipe/README.md"
+rm "$even_backslash_pipe/README.md.bak"
+assert_exit "pipe after paired backslashes remains a cell delimiter" 1 bash "$validator" "$even_backslash_pipe"
+assert_stderr_contains "paired-backslash extra cell is malformed" "malformed archived packet row" bash "$validator" "$even_backslash_pipe"
+
 compact_spacing="$(make_fixture compact-spacing)"
 write_valid_index "$compact_spacing"
 printf '%s\n' '|[GH999](https://github.com/majiayu000/vibeguard/issues/999)| Unexpected |' >> "$compact_spacing/README.md"

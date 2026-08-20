@@ -107,11 +107,26 @@ def table_cells(line: str) -> list[str] | None:
     stripped = line.strip()
     if "|" not in stripped:
         return None
-    if stripped.startswith("|"):
-        stripped = stripped[1:]
-    if stripped.endswith("|"):
-        stripped = stripped[:-1]
-    return [cell.strip() for cell in re.split(r"(?<!\\)\|", stripped)]
+    cells: list[str] = []
+    cell: list[str] = []
+    backslash_count = 0
+    for character in stripped:
+        if character == "\\":
+            cell.append(character)
+            backslash_count += 1
+            continue
+        if character == "|" and backslash_count % 2 == 0:
+            cells.append("".join(cell).strip())
+            cell = []
+        else:
+            cell.append(character)
+        backslash_count = 0
+    cells.append("".join(cell).strip())
+    if cells and not cells[0]:
+        cells.pop(0)
+    if cells and not cells[-1]:
+        cells.pop()
+    return cells
 
 
 def gfm_table_line_indexes(markdown_lines: list[tuple[int, str]]) -> set[int]:
