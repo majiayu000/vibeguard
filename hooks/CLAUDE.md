@@ -1,8 +1,11 @@
+<!-- Generated from docs/directory-guidance.md; do not edit directly. -->
+
 # hooks/ directory
 
-AI coding-agent hook scripts, automatically triggered around tool operations. Claude Code, Codex CLI, and the opt-in Gemini CLI BeforeTool adapter are supported.
+AI coding-agent hook scripts run around tool operations. Claude Code, Codex
+CLI, and the opt-in Gemini CLI BeforeTool adapter are supported.
 
-## File description
+## Hook inventory
 
 <!-- hooks-manifest-table:start -->
 | Documentation | Trigger Timing | Responsibilities | Codex |
@@ -26,13 +29,14 @@ AI coding-agent hook scripts, automatically triggered around tool operations. Cl
 | `git/pre-push` | git pre-push | Block non-fast-forward pushes, remote branch deletion, and force-like push options by default. | - |
 <!-- hooks-manifest-table:end -->
 
-**Codex column description**: `native` = deployed to `~/.codex/hooks.json`, `unsupported` = Codex does not expose the required native event/tool surface, `-` = not applicable.
+`native` means deployed to `~/.codex/hooks.json`; `unsupported` means Codex
+does not expose the needed event or tool surface; `-` means not applicable.
+Codex namespaced hook names resolve through `run-hook-codex.sh` to canonical
+hook files.
 
-Codex entries use namespaced hook script names (`vibeguard-*.sh`) and are resolved by `run-hook-codex.sh` to the actual local script files.
+## Host deployment
 
-## Host deployment architecture
-
-```
+```text
 Claude Code                 Codex CLI                  Gemini CLI (opt-in)
 ~/.claude/settings.json     ~/.codex/hooks.json        ~/.gemini/settings.json
   ↓                           ↓                          ↓
@@ -41,28 +45,13 @@ run-hook.sh                 run-hook-codex.sh          run-hook-gemini.sh
                     ~/.vibeguard/installed/hooks/*
 ```
 
-- Claude Code: hooks are registered in `settings.json` and distributed through `run-hook.sh`
-- Codex CLI: hooks are registered in `hooks.json`, distributed through `run-hook-codex.sh`, normalized for apply_patch payloads, and adapted to the output format
-- Gemini CLI: one managed synchronous BeforeTool group routes `run_shell_command`, `write_file`, and `replace` through `run-hook-gemini.sh`
-- All supported hosts share the same canonical hook script snapshot (`~/.vibeguard/installed/hooks/`)
+All supported hosts share the installed hook snapshot. Record hook decisions
+as `pass`, `warn`, `block`, `gate`, `escalate`, `correction`, or `complete`.
+Unknown/manual callers must use `client: "unknown"`; never silently attribute
+them to a supported host.
 
-## Decision type
-
-Hooks are logged to events.jsonl using the following decision types:
-`pass` / `warn` / `block` / `gate` / `escalate` / `correction` / `complete`
-
-Each event keeps the backward-compatible `cli` / `agent` fields and may include
-caller identity fields: `client`, `client_variant`, `wrapper`,
-`source_config`, `hook_protocol_version`, and `caller_evidence`. Unknown or
-manual callers must be recorded as `client: "unknown"` instead of being
-silently attributed to Claude, Codex, or Gemini.
-
-## Development specifications
-
-- All hooks must introduce shared functions in `source log.sh`
-- Use `vg_log` to record events instead of writing to files directly
-- Configured hook production paths must stay Python-free. Use `vibeguard-runtime`
-  for structured parsing, policy, and adapter logic; Python helpers are allowed
-  only for tests, CI, eval, install-support tooling, or deprecated compatibility
-  artifacts that are not called by configured hooks.
-- When adding a hook, synchronously check whether it can be deployed to Codex or Gemini (see each host's matcher support)
+Shared hook functions belong in `log.sh`, and events go through `vg_log`.
+Configured production hook paths must stay Python-free. Use the Rust runtime
+for structured parsing, policy, and adapters; Python is limited to tests, CI,
+evaluation, install support, and inactive compatibility tools. When adding a
+hook, check whether each host exposes the event and matcher needed to deploy it.

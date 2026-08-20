@@ -53,7 +53,9 @@ VibeGuard keeps runtime and installable source directories at the repository roo
 | `README.md`, `docs/README_CN.md` | Public product entrypoints. |
 | `docs/rule-reference.md`, `docs/reference/observability-harness.md` | Public generated rule/guard summary and local observability contract. |
 | `docs/how/`, `docs/reference/`, `docs/known-issues/` | Public or maintainer-facing explanations that describe current behavior. |
-| `docs/specs/` | Maintainer-facing specs for active implementation work with linked issues or PRs. |
+| `docs/specs/` | Maintained cross-cutting specs plus an outcome index for closed issue packets archived in Git history. |
+| `docs/directory-guidance.md` | Canonical source for generated repository-scoped `CLAUDE.md` files. |
+| `docs/reference/process-artifacts.md` | Policy separating committable product contracts from ignored session/process output. |
 | `docs/assets/` | Demo media and scripts used by public docs. |
 | `site/` | Static landing site deployed by GitHub Pages. |
 | `docs/internal/` | Research notes, historical specs, benchmark designs, and cross-session follow-ups. |
@@ -63,4 +65,6 @@ VibeGuard keeps runtime and installable source directories at the repository roo
 
 - Do not move product core or workflow surface directories without updating `schemas/install-modules.json`, setup targets, docs, and contract tests in the same change.
 - Prefer moving historical or research-only material under `docs/internal/` before changing public runtime paths.
+- Do not restore closed `docs/specs/GH*` packets; use their index entry and Git history.
+- Edit scoped Claude guidance in `docs/directory-guidance.md`, then regenerate it with `python3 scripts/generate_directory_guidance.py`.
 - After path changes, run the manifest and documentation validators before claiming completion.

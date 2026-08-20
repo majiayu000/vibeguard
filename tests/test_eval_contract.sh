@@ -67,6 +67,9 @@ assert_cmd "eval.samples package import works from repo root" bash -c "cd '${REP
 import eval.samples
 assert eval.samples.SAMPLES
 PY"
+default_runs_dir="$(PYTHONPATH="${REPO_DIR}/eval" python3 -c 'from artifacts import DEFAULT_RUNS_DIR; print(DEFAULT_RUNS_DIR.resolve().as_posix())')"
+assert_cmd "default eval artifact root uses the ignored artifacts tree" test "${default_runs_dir}" = "${REPO_DIR_RESOLVED}/artifacts/eval/runs"
+assert_cmd "default eval reports are ignored by Git" git -C "${REPO_DIR}" check-ignore --quiet "${default_runs_dir}/example/results.json"
 
 header "dry-run uses repository snapshot by default"
 dry_run_out="$(cd "${REPO_DIR}" && python3 eval/run_eval.py --dry-run)"

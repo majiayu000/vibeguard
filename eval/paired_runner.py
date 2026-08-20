@@ -57,7 +57,7 @@ from vibeguard_manifest import RULE_ID_HEADING_RE, RULE_ID_TABLE_RE  # noqa: E40
 DEFAULT_TARGET_DATASET = REPO_ROOT / "eval" / "datasets" / "v1.jsonl"
 DEFAULT_NON_TARGET_DATASET = REPO_ROOT / "eval" / "paired" / "non_target_v1.jsonl"
 DEFAULT_THRESHOLDS = REPO_ROOT / "eval" / "paired" / "thresholds.json"
-DEFAULT_ARTIFACT_ROOT = REPO_ROOT / "eval" / "paired" / "runs"
+DEFAULT_ARTIFACT_ROOT = REPO_ROOT / "artifacts" / "eval" / "paired" / "runs"
 NON_TARGET_STRING_FIELDS = {"id", "task", "input", "rubric"}
 NON_TARGET_FIELDS = NON_TARGET_STRING_FIELDS | {"excluded_rules"}
 RULE_ID_TOKEN_RE = re.compile(

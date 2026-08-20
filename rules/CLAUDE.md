@@ -1,34 +1,21 @@
+<!-- Generated from docs/directory-guidance.md; do not edit directly. -->
+
 # rules/ directory
 
-VibeGuard rule files define inspection standards for each language and domain.
+VibeGuard rule files define inspection standards by language and domain.
 
-## Rule ID naming convention
-
-| prefix | realm | example |
+| Prefix | Realm | Example |
 |------|------|------|
-| `U-XX` | General rules (applies to all languages) | U-11 hardcoded paths |
-| `RS-XX` | Rust-specific rules | RS-03 unwrap/expect |
-| `TS-XX` | TypeScript specific rules | TS-01 any abuse |
-| `PY-XX` | Python-specific rules | PY-01 naming convention |
-| `SEC-XX` | Security Rules | SEC-01 Key Disclosure |
+| `U-XX` | Universal | U-11 hardcoded paths |
+| `RS-XX` | Rust | RS-03 unwrap/expect |
+| `TS-XX` | TypeScript/JavaScript | TS-01 any abuse |
+| `PY-XX` | Python | PY-01 naming convention |
+| `GO-XX` | Go | GO-01 error handling |
+| `SEC-XX` | Security | SEC-01 key disclosure |
 
-## File structure
+`rules/claude-rules/**` is the canonical English source. Author rule changes
+there first. Top-level `rules/*.md` and `docs/rule-reference.md` are generated
+with `python3 scripts/generate_rule_docs.py`.
 
-- `rules/claude-rules/**` — canonical English rule source (author here first)
-- `universal.md` — generated common code-style, cross-entry, and workflow summary
-- `rust.md` — Rust language rules
-- `typescript.md` — TypeScript language rules
-- `python.md` — Python language rules
-- `security.md` — security related rules
-
-## Each rule contains
-
-1. ID and name
-2. Severity (critical/strict/high/medium/low/guideline)
-3. Description of inspection items
-4. Repair mode (specific code repair method)
-5. FIX/SKIP judgment matrix
-
-## Generation
-
-`rules/*.md` and `docs/rule-reference.md` are generated from `rules/claude-rules/**` via `python3 scripts/generate_rule_docs.py`.
+Each rule needs an ID and name, severity, inspection description, specific
+repair guidance, and a FIX/SKIP judgment matrix.

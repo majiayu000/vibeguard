@@ -5,8 +5,12 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -19,7 +23,12 @@ from skill_format import (  # noqa: E402
 )
 
 OUTCOMES = {"success", "failure"}
-DEFAULT_OUTPUT_DIR = ".vibeguard/skill-validate"
+
+
+def default_output_dir() -> Path:
+    configured_home = os.environ.get("VIBEGUARD_HOME")
+    state_root = Path(configured_home).expanduser() if configured_home else Path.home() / ".vibeguard"
+    return state_root / "artifacts" / "skill-validate"
 
 
 class SkillValidateError(Exception):
@@ -218,6 +227,34 @@ def slugify(value: str) -> str:
     return slug or "skill"
 
 
+def project_namespace(proposed_skill: Path) -> str:
+    project_root = proposed_skill.parent.resolve()
+    git_binary = shutil.which("git")
+    if git_binary is None:
+        identity = str(project_root)
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+        return f"{slugify(project_root.name)}-{digest}"
+    git_root = subprocess.run(
+        [git_binary, "-C", str(project_root), "rev-parse", "--show-toplevel"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=False,
+    )
+    if git_root.returncode == 0:
+        project_root = Path(git_root.stdout.strip()).resolve()
+    remote = subprocess.run(
+        [git_binary, "-C", str(project_root), "remote", "get-url", "origin"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=False,
+    )
+    identity = remote.stdout.strip() if remote.returncode == 0 else str(project_root)
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+    return f"{slugify(project_root.name)}-{digest}"
+
+
 def determine_verdict(
     counts: dict[str, int],
     stale_gaps: list[str],
@@ -329,7 +366,12 @@ def build_artifact(args: argparse.Namespace) -> tuple[dict[str, object], Path | 
     }
     artifact_path = None
     if not args.no_persist:
-        artifact_path = write_artifact(artifact, Path(args.output_dir), skill_name, as_of)
+        output_dir = (
+            Path(args.output_dir).expanduser()
+            if args.output_dir
+            else default_output_dir() / project_namespace(proposed_skill)
+        )
+        artifact_path = write_artifact(artifact, output_dir, skill_name, as_of)
         artifact["artifact_path"] = str(artifact_path)
     return artifact, artifact_path
 
@@ -341,7 +383,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--proposed-skill", help="Path to draft SKILL.md")
     parser.add_argument("--baseline-trajectories", help="JSONL with paired without/with outcomes")
     parser.add_argument("--held-out", help="Optional held-out JSONL used for the final verdict")
-    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Directory for verdict JSONL artifacts")
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Directory for verdict JSONL artifacts (defaults to a project-namespaced VibeGuard state directory)",
+    )
     parser.add_argument("--no-persist", action="store_true", help="Print only; do not write an artifact")
     parser.add_argument("--current-agent", help="Expected agent/model identifier for freshness checks")
     parser.add_argument("--max-age-days", type=int, default=90, help="Mark records stale after N days")

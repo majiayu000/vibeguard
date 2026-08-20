@@ -24,6 +24,17 @@ import run_paired_eval as paired
 
 
 class FinalReviewRegressionTest(unittest.TestCase):
+    def test_default_artifact_root_is_ignored(self):
+        expected = paired.REPO_ROOT / "artifacts" / "eval" / "paired" / "runs"
+        self.assertEqual(paired.DEFAULT_ARTIFACT_ROOT, expected)
+        report = expected / "candidate" / "run" / "report.json"
+        ignored = subprocess.run(
+            ["git", "check-ignore", "--quiet", str(report)],
+            cwd=paired.REPO_ROOT,
+            check=False,
+        )
+        self.assertEqual(ignored.returncode, 0)
+
     def test_paired_runner_pins_implementation_and_model_baseline(self):
         paths = {
             path.resolve()

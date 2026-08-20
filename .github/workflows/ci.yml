@@ -160,6 +160,14 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-generated-rule-docs.sh
 
+      - name: Validate generated directory guidance
+        shell: bash
+        run: bash scripts/ci/validate-generated-directory-guidance.sh
+
+      - name: Directory guidance regression tests
+        shell: bash
+        run: bash tests/test_directory_guidance.sh
+
       - name: Evidence provenance rule contract (W-21)
         if: runner.os != 'Windows'
         shell: bash

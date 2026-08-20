@@ -146,8 +146,8 @@ index), define which artifacts may ever be committed, and cut the number of
 Upstream retired the SpecRail control plane and removed its workflow, state,
 label, skill, and check files from main (see
 `plan/2026-07-29-remove-mandatory-specrail-gates.md`), so no boundary
-decision remains. Historical references live in `docs/specs/GH595/` under
-allowlisted historical entries.
+decision remains. The retired design is discoverable through the GH595 row in
+`docs/specs/README.md` and recoverable from Git history.
 
 ### Phase 7 — pre-write-guard latency (issue #755)
 
