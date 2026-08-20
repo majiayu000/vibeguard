@@ -121,6 +121,23 @@ class DirectoryGuidanceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "orphaned generated"):
                 generator.validate_output_inventory(root, set(), set())
 
+    def test_unlisted_handwritten_guidance_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            unlisted = root / "guards" / "nested" / "CLAUDE.md"
+            unlisted.parent.mkdir(parents=True)
+            unlisted.write_text("# Handwritten\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "scoped guidance outside canonical inventory",
+            ):
+                generator.validate_output_inventory(
+                    root,
+                    {"guards/CLAUDE.md"},
+                    set(),
+                )
+
     def test_symlinked_scoped_guidance_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

@@ -259,6 +259,9 @@ for index, line in candidate_rows:
             "validate-specs-index: archived packet row must be inside a GFM table: "
             + line
         )
+    cells = table_cells(line)
+    if cells is None or len(cells) != 2:
+        raise SystemExit(f"validate-specs-index: malformed archived packet row: {line}")
     match = row_pattern.fullmatch(line)
     if match is None:
         raise SystemExit(f"validate-specs-index: malformed archived packet row: {line}")

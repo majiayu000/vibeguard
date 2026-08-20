@@ -123,6 +123,13 @@ rm "$blank_outcome/README.md.bak"
 assert_exit "blank archived outcome fails" 1 bash "$validator" "$blank_outcome"
 assert_stderr_contains "blank outcome is reported as malformed" "malformed archived packet row" bash "$validator" "$blank_outcome"
 
+extra_cell_outcome="$(make_fixture extra-cell-outcome)"
+write_valid_index "$extra_cell_outcome"
+sed -i.bak 's/Fixture outcome/   | Hidden evidence/' "$extra_cell_outcome/README.md"
+rm "$extra_cell_outcome/README.md.bak"
+assert_exit "third cell cannot hide a blank archived outcome" 1 bash "$validator" "$extra_cell_outcome"
+assert_stderr_contains "extra-cell outcome is reported as malformed" "malformed archived packet row" bash "$validator" "$extra_cell_outcome"
+
 compact_spacing="$(make_fixture compact-spacing)"
 write_valid_index "$compact_spacing"
 printf '%s\n' '|[GH999](https://github.com/majiayu000/vibeguard/issues/999)| Unexpected |' >> "$compact_spacing/README.md"

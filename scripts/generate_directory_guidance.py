@@ -307,7 +307,10 @@ def validate_inventory_directory(
         if entry.name != "CLAUDE.md" or relative_path in expected_outputs:
             continue
         if not stat.S_ISREG(entry_stat.st_mode):
-            continue
+            raise ValueError(
+                "scoped guidance outside canonical inventory: "
+                f"{relative_path}"
+            )
         try:
             prefix = read_regular_output_at(
                 directory_descriptor,
@@ -320,6 +323,10 @@ def validate_inventory_directory(
             ) from error
         if prefix == GENERATED_HEADER:
             raise ValueError(f"orphaned generated directory guidance: {relative_path}")
+        raise ValueError(
+            "scoped guidance outside canonical inventory: "
+            f"{relative_path}"
+        )
 
 
 def validate_output_inventory(
