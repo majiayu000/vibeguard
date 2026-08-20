@@ -62,7 +62,7 @@ machine-readable completeness inventory checked against this table.
 | [GH687](https://github.com/majiayu000/vibeguard/issues/687) | W-21 evidence provenance and W-01 channel trust |
 | [GH699](https://github.com/majiayu000/vibeguard/issues/699) | Clone-free verified release payload installation |
 | [GH700](https://github.com/majiayu000/vibeguard/issues/700) | Released-binary benchmark command and paired corpus |
-| [GH701](https://github.com/majiayu000/vibeguard/issues/701) | Historical host-adapter roadmap; no adapter delivered |
+| [GH701](https://github.com/majiayu000/vibeguard/issues/701) | Historical generalized host-adapter roadmap not delivered; native Gemini BeforeTool adapter delivered later under [GH745](https://github.com/majiayu000/vibeguard/issues/745) |
 | [GH702](https://github.com/majiayu000/vibeguard/issues/702) | Historical guard-pack roadmap; no publish/install surface delivered |
 | [GH703](https://github.com/majiayu000/vibeguard/issues/703) | Historical unapproved weekly-value draft; no summary or share-export implementation delivered |
 | [GH704](https://github.com/majiayu000/vibeguard/issues/704) | Historical L2 semantic-defense research; no model runtime delivered |
