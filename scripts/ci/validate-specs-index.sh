@@ -102,7 +102,82 @@ def visible_markdown_lines(source_lines: list[str]) -> list[tuple[int, str]]:
     return visible
 
 
+def table_cells(line: str) -> list[str] | None:
+    stripped = line.strip()
+    if "|" not in stripped:
+        return None
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    return [cell.strip() for cell in re.split(r"(?<!\\)\|", stripped)]
+
+
+def gfm_table_line_indexes(markdown_lines: list[tuple[int, str]]) -> set[int]:
+    table_indexes: set[int] = set()
+    position = 1
+    while position < len(markdown_lines):
+        header_index, header = markdown_lines[position - 1]
+        delimiter_index, delimiter = markdown_lines[position]
+        header_cells = table_cells(header)
+        delimiter_cells = table_cells(delimiter)
+        is_delimiter = (
+            header_index + 1 == delimiter_index
+            and header_cells is not None
+            and delimiter_cells is not None
+            and len(header_cells) == len(delimiter_cells)
+            and all(
+                re.fullmatch(r":?-{3,}:?", cell) is not None
+                for cell in delimiter_cells
+            )
+        )
+        if not is_delimiter:
+            position += 1
+            continue
+
+        table_indexes.update({header_index, delimiter_index})
+        position += 1
+        previous_index = delimiter_index
+        while position < len(markdown_lines):
+            body_index, body = markdown_lines[position]
+            if (
+                body_index != previous_index + 1
+                or not body.strip()
+                or "|" not in body
+            ):
+                break
+            table_indexes.add(body_index)
+            previous_index = body_index
+            position += 1
+        continue
+    return table_indexes
+
+
+def is_thematic_break(line: str) -> bool:
+    stripped = line.strip()
+    return any(
+        re.fullmatch(rf"(?:{re.escape(marker)}[ \t]*){{3,}}", stripped) is not None
+        for marker in "*-_"
+    )
+
+
+def is_paragraph_line(line_index: int, line: str, table_indexes: set[int]) -> bool:
+    if line_index in table_indexes or re.match(r"^ {0,3}\S", line) is None:
+        return False
+    stripped = line.strip()
+    if re.match(r"^#{1,6}(?:[ \t]+|$)", stripped):
+        return False
+    if stripped.startswith((">", "<")):
+        return False
+    if re.match(r"^(?:[-+*]|[0-9]+[.)])(?:[ \t]+|$)", stripped):
+        return False
+    if re.match(r"^\[[^]\n]+\]:[ \t]*", stripped):
+        return False
+    return not is_thematic_break(line)
+
+
 visible_lines = visible_markdown_lines(lines)
+table_indexes = gfm_table_line_indexes(visible_lines)
 archive_heading_pattern = re.compile(
     r"^ {0,3}##[ \t]+Archived GitHub Packet Index(?:[ \t]+#+)?[ \t]*$"
 )
@@ -116,10 +191,37 @@ if len(archive_headings) != 1:
 
 archive_start = archive_headings[0]
 archive_end = len(lines)
-for index, line in visible_lines:
+for position, (index, line) in enumerate(visible_lines):
     if index > archive_start and re.match(r"^ {0,3}#{1,2}(?:[ \t]+|$)", line):
         archive_end = index
         break
+    if index <= archive_start or re.fullmatch(
+        r" {0,3}(?:=+|-+)[ \t]*",
+        line,
+    ) is None:
+        continue
+    if position == 0:
+        continue
+    heading_position = position - 1
+    heading_index, heading_line = visible_lines[heading_position]
+    if heading_index + 1 != index or not is_paragraph_line(
+        heading_index,
+        heading_line,
+        table_indexes,
+    ):
+        continue
+    while heading_position > 0:
+        previous_index, previous_line = visible_lines[heading_position - 1]
+        if (
+            previous_index <= archive_start
+            or previous_index + 1 != heading_index
+            or not is_paragraph_line(previous_index, previous_line, table_indexes)
+        ):
+            break
+        heading_position -= 1
+        heading_index = previous_index
+    archive_end = heading_index
+    break
 archive_lines = [
     line for index, line in visible_lines if archive_start < index < archive_end
 ]
@@ -136,7 +238,11 @@ row_pattern = re.compile(
     r"\(https://github\.com/majiayu000/vibeguard/issues/(?P<url>[0-9]+)\) "
     r"\| (?P<outcome>.*\S.*) \|$"
 )
-candidate_rows = [line for line in archive_lines if line.startswith("| [GH")]
+candidate_rows = [
+    line
+    for line in archive_lines
+    if re.match(r"^ {0,3}\|?[ \t]*\[GH[0-9]+\]", line)
+]
 if not candidate_rows:
     raise SystemExit("validate-specs-index: archived packet index has no GH issue rows")
 

@@ -159,28 +159,162 @@ def relative_entry_exists(root: Path, relative_path: str) -> bool:
         return False
 
 
+def read_regular_output_at(
+    parent_descriptor: int,
+    name: str,
+    relative_path: str,
+) -> str:
+    entry_stat = stat_entry_or_none(parent_descriptor, name)
+    if entry_stat is None:
+        raise FileNotFoundError(relative_path)
+    validate_regular_output(entry_stat, relative_path)
+    descriptor = os.open(name, FILE_READ_FLAGS, dir_fd=parent_descriptor)
+    try:
+        opened_stat = os.fstat(descriptor)
+        validate_regular_output(opened_stat, relative_path)
+        if (entry_stat.st_dev, entry_stat.st_ino) != (
+            opened_stat.st_dev,
+            opened_stat.st_ino,
+        ):
+            raise ValueError(
+                f"directory-guidance output changed while reading: {relative_path}"
+            )
+        with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+            descriptor = -1
+            return handle.read()
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def read_regular_output(root: Path, relative_path: str, *, missing_ok: bool) -> str:
     try:
         with open_parent_directory(root, relative_path) as (parent_descriptor, name):
-            entry_stat = stat_entry_or_none(parent_descriptor, name)
-            if entry_stat is None:
-                if missing_ok:
-                    return ""
-                raise FileNotFoundError(relative_path)
-            validate_regular_output(entry_stat, relative_path)
-            descriptor = os.open(name, FILE_READ_FLAGS, dir_fd=parent_descriptor)
-            try:
-                validate_regular_output(os.fstat(descriptor), relative_path)
-                with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
-                    descriptor = -1
-                    return handle.read()
-            finally:
-                if descriptor >= 0:
-                    os.close(descriptor)
+            return read_regular_output_at(parent_descriptor, name, relative_path)
     except FileNotFoundError:
         if missing_ok:
             return ""
         raise
+
+
+def same_entry(left: os.stat_result, right: os.stat_result) -> bool:
+    return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
+
+
+def validate_inventory_directory(
+    directory_descriptor: int,
+    relative_directory: str,
+    expected_outputs: set[str],
+) -> None:
+    try:
+        with os.scandir(directory_descriptor) as iterator:
+            entries = sorted(iterator, key=lambda entry: entry.name)
+    except OSError as error:
+        location = relative_directory or "."
+        raise ValueError(
+            f"cannot inspect directory-guidance inventory at {location}: {error}"
+        ) from error
+
+    for entry in entries:
+        if not relative_directory and entry.name == ".git":
+            continue
+        relative_path = (
+            f"{relative_directory}/{entry.name}"
+            if relative_directory
+            else entry.name
+        )
+        try:
+            entry_stat = os.stat(
+                entry.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except OSError as error:
+            raise ValueError(
+                f"cannot inspect directory-guidance inventory entry {relative_path}: {error}"
+            ) from error
+
+        if stat.S_ISLNK(entry_stat.st_mode):
+            try:
+                target_stat = os.stat(entry.name, dir_fd=directory_descriptor)
+            except FileNotFoundError:
+                target_stat = None
+            except OSError as error:
+                raise ValueError(
+                    f"cannot inspect directory-guidance symlink {relative_path}: {error}"
+                ) from error
+            if target_stat is not None and stat.S_ISDIR(target_stat.st_mode):
+                raise ValueError(
+                    "symlinked directory may hide scoped guidance outside "
+                    f"canonical inventory: {relative_path}"
+                )
+            if entry.name == "CLAUDE.md" and relative_path not in expected_outputs:
+                raise ValueError(
+                    "symlinked scoped guidance outside canonical inventory: "
+                    f"{relative_path}"
+                )
+            continue
+
+        if stat.S_ISDIR(entry_stat.st_mode):
+            try:
+                child_descriptor = os.open(
+                    entry.name,
+                    DIRECTORY_OPEN_FLAGS,
+                    dir_fd=directory_descriptor,
+                )
+            except OSError as error:
+                raise ValueError(
+                    f"cannot inspect directory-guidance inventory at {relative_path}: {error}"
+                ) from error
+            try:
+                opened_stat = os.fstat(child_descriptor)
+                if not same_entry(entry_stat, opened_stat):
+                    raise ValueError(
+                        "directory-guidance inventory changed while scanning: "
+                        f"{relative_path}"
+                    )
+                validate_inventory_directory(
+                    child_descriptor,
+                    relative_path,
+                    expected_outputs,
+                )
+                current_stat = os.stat(
+                    entry.name,
+                    dir_fd=directory_descriptor,
+                    follow_symlinks=False,
+                )
+                if not stat.S_ISDIR(current_stat.st_mode) or not same_entry(
+                    opened_stat,
+                    current_stat,
+                ):
+                    raise ValueError(
+                        "directory-guidance inventory changed while scanning: "
+                        f"{relative_path}"
+                    )
+            except OSError as error:
+                raise ValueError(
+                    f"cannot inspect directory-guidance inventory at {relative_path}: {error}"
+                ) from error
+            finally:
+                os.close(child_descriptor)
+            continue
+
+        if entry.name != "CLAUDE.md" or relative_path in expected_outputs:
+            continue
+        if not stat.S_ISREG(entry_stat.st_mode):
+            continue
+        try:
+            prefix = read_regular_output_at(
+                directory_descriptor,
+                entry.name,
+                relative_path,
+            )[: len(GENERATED_HEADER)]
+        except (OSError, UnicodeError, ValueError) as error:
+            raise ValueError(
+                f"cannot inspect potential generated guidance {relative_path}: {error}"
+            ) from error
+        if prefix == GENERATED_HEADER:
+            raise ValueError(f"orphaned generated directory guidance: {relative_path}")
 
 
 def validate_output_inventory(
@@ -195,24 +329,11 @@ def validate_output_inventory(
                 "remove it so parent guidance cannot be overridden"
             )
 
-    for candidate in root.rglob("CLAUDE.md"):
-        relative_path = candidate.relative_to(root).as_posix()
-        if relative_path in expected_outputs:
-            continue
-        if candidate.is_symlink():
-            raise ValueError(
-                f"symlinked scoped guidance outside canonical inventory: {relative_path}"
-            )
-        if not candidate.is_file():
-            continue
-        try:
-            prefix = read_regular_output(root, relative_path, missing_ok=False)[
-                : len(GENERATED_HEADER)
-            ]
-        except (OSError, UnicodeError) as error:
-            raise ValueError(f"cannot inspect potential generated guidance {relative_path}: {error}") from error
-        if prefix == GENERATED_HEADER:
-            raise ValueError(f"orphaned generated directory guidance: {relative_path}")
+    root_descriptor = os.open(root, DIRECTORY_OPEN_FLAGS)
+    try:
+        validate_inventory_directory(root_descriptor, "", expected_outputs)
+    finally:
+        os.close(root_descriptor)
 
 
 def check_outputs(sections: dict[str, str], root: Path = ROOT) -> int:

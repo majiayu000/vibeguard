@@ -7,6 +7,7 @@ import importlib.util
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -136,6 +137,49 @@ class DirectoryGuidanceTests(unittest.TestCase):
                     {"guards/CLAUDE.md"},
                     set(),
                 )
+
+    def test_symlinked_directory_that_hides_guidance_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with tempfile.TemporaryDirectory() as outside_directory:
+                root = Path(temporary_directory)
+                outside = Path(outside_directory)
+                (outside / "CLAUDE.md").write_text("# Hidden\n", encoding="utf-8")
+                (root / "linked").symlink_to(outside, target_is_directory=True)
+
+                with self.assertRaisesRegex(ValueError, "symlinked directory"):
+                    generator.validate_output_inventory(root, set(), set())
+
+    def test_directory_swap_to_symlink_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with tempfile.TemporaryDirectory() as outside_directory:
+                root = Path(temporary_directory)
+                scanned = root / "scanned"
+                scanned.mkdir()
+                outside = Path(outside_directory)
+                (outside / "CLAUDE.md").write_text("# Hidden\n", encoding="utf-8")
+                original_open = generator.os.open
+                swapped = False
+
+                def swap_before_open(
+                    path: str | bytes | int,
+                    flags: int,
+                    mode: int = 0o777,
+                    *,
+                    dir_fd: int | None = None,
+                ) -> int:
+                    nonlocal swapped
+                    if path == "scanned" and dir_fd is not None and not swapped:
+                        scanned.rename(root / "scanned-original")
+                        scanned.symlink_to(outside, target_is_directory=True)
+                        swapped = True
+                    return original_open(path, flags, mode, dir_fd=dir_fd)
+
+                with mock.patch.object(generator.os, "open", side_effect=swap_before_open):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "cannot inspect directory-guidance inventory",
+                    ):
+                        generator.validate_output_inventory(root, set(), set())
 
 
 if __name__ == "__main__":
