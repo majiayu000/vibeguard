@@ -252,6 +252,7 @@ assert_cmd "repo skill, workflow, and template format gate passes" \
 
 header "passing repair evidence"
 PASSING_JSONL="${TMP_DIR}/passing.jsonl"
+DEFAULT_TEST_HOME="${TMP_DIR}/default-state-user"
 cat > "${PASSING_JSONL}" <<'JSONL'
 {"scenario_id":"incident-1","scenario_type":"target","without_skill":{"outcome":"failure"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 {"scenario_id":"unrelated-1","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
@@ -259,7 +260,7 @@ cat > "${PASSING_JSONL}" <<'JSONL'
 JSONL
 passing_out="$(
   cd "${TMP_DIR}"
-  python3 "${SKILL_VALIDATE}" \
+  env -u VIBEGUARD_HOME HOME="${DEFAULT_TEST_HOME}" python3 "${SKILL_VALIDATE}" \
     --proposed-skill "${SKILL_DIR}/SKILL.md" \
     --baseline-trajectories "${PASSING_JSONL}" \
     --current-agent claude-opus-4-7 \
@@ -267,8 +268,17 @@ passing_out="$(
 )"
 assert_contains "${passing_out}" "verdict: pass" "pass verdict when repair beats regression"
 assert_contains "${passing_out}" "repair: 1" "pass output records repair count"
-assert_cmd "default output writes beneath artifacts" test -f "${TMP_DIR}/artifacts/skill-validate/demo-skill-2026-05-18.jsonl"
-assert_cmd "default skill-validation artifacts are ignored by Git" git -C "${REPO_DIR}" check-ignore --quiet "artifacts/skill-validate/demo-skill-2026-05-18.jsonl"
+assert_cmd "default output writes beneath the VibeGuard user state root" test -f "${DEFAULT_TEST_HOME}/.vibeguard/artifacts/skill-validate/demo-skill-2026-05-18.jsonl"
+assert_cmd "default output does not write into the target repository" test ! -e "${TMP_DIR}/artifacts/skill-validate/demo-skill-2026-05-18.jsonl"
+custom_state_out="$(
+  VIBEGUARD_HOME="${TMP_DIR}/custom-vibeguard" python3 "${SKILL_VALIDATE}" \
+    --proposed-skill "${SKILL_DIR}/SKILL.md" \
+    --baseline-trajectories "${PASSING_JSONL}" \
+    --current-agent claude-opus-4-7 \
+    --as-of 2026-05-18
+)"
+assert_contains "${custom_state_out}" "${TMP_DIR}/custom-vibeguard/artifacts/skill-validate/demo-skill-2026-05-18.jsonl" "VIBEGUARD_HOME controls the default artifact path"
+assert_cmd "custom VibeGuard state root receives the artifact" test -f "${TMP_DIR}/custom-vibeguard/artifacts/skill-validate/demo-skill-2026-05-18.jsonl"
 passing_json="$(
   python3 "${SKILL_VALIDATE}" \
     --proposed-skill "${SKILL_DIR}/SKILL.md" \

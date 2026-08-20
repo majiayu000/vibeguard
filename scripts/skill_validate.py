@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -19,7 +20,12 @@ from skill_format import (  # noqa: E402
 )
 
 OUTCOMES = {"success", "failure"}
-DEFAULT_OUTPUT_DIR = "artifacts/skill-validate"
+
+
+def default_output_dir() -> Path:
+    configured_home = os.environ.get("VIBEGUARD_HOME")
+    state_root = Path(configured_home).expanduser() if configured_home else Path.home() / ".vibeguard"
+    return state_root / "artifacts" / "skill-validate"
 
 
 class SkillValidateError(Exception):
@@ -341,7 +347,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--proposed-skill", help="Path to draft SKILL.md")
     parser.add_argument("--baseline-trajectories", help="JSONL with paired without/with outcomes")
     parser.add_argument("--held-out", help="Optional held-out JSONL used for the final verdict")
-    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Directory for verdict JSONL artifacts")
+    parser.add_argument(
+        "--output-dir",
+        default=default_output_dir(),
+        help="Directory for verdict JSONL artifacts (defaults to the VibeGuard user state directory)",
+    )
     parser.add_argument("--no-persist", action="store_true", help="Print only; do not write an artifact")
     parser.add_argument("--current-agent", help="Expected agent/model identifier for freshness checks")
     parser.add_argument("--max-age-days", type=int, default=90, help="Mark records stale after N days")

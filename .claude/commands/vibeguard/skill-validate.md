@@ -48,7 +48,7 @@ Each nonblank line in the baseline or held-out file is one scenario:
    - `advisory`: unrelated task regression exists; do not install as a hard instruction.
    - `stale`: evidence was scored against a different or too-old agent/model.
    - `fail`: no demonstrated repair, or regressions are greater than/equal to repairs.
-5. Attach the emitted artifact path from `artifacts/skill-validate/` to the PR or final answer.
+5. Attach the emitted artifact path from `${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/skill-validate/` to the PR or final answer.
 
 **Rules**
 - Do not accept a new or changed skill on senior judgment alone.

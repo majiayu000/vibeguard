@@ -59,7 +59,27 @@ def visible_markdown_lines(source_lines: list[str]) -> list[tuple[int, str]]:
     fence_character: str | None = None
     fence_length = 0
     in_html_comment = False
-    raw_html_tag: str | None = None
+    raw_html_end: re.Pattern[str] | None = None
+    raw_html_until_blank = False
+
+    block_tags = (
+        "address|article|aside|base|basefont|blockquote|body|caption|center|col|"
+        "colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|"
+        "footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|html|"
+        "iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|"
+        "option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|"
+        "title|tr|track|ul"
+    )
+    html_attribute = (
+        r"[A-Za-z_:][A-Za-z0-9_.:-]*"
+        r"(?:[ \t]*=[ \t]*(?:[^ \"'=<>`]+|'[^']*'|\"[^\"]*\"))?"
+    )
+    generic_html_tag = re.compile(
+        rf"^ {{0,3}}(?:"
+        rf"<[A-Za-z][A-Za-z0-9-]*(?:[ \t]+{html_attribute})*[ \t]*/?>|"
+        r"</[A-Za-z][A-Za-z0-9-]*[ \t]*>"
+        r")[ \t]*$"
+    )
 
     def strip_html_comments(line: str) -> str:
         nonlocal in_html_comment
@@ -84,14 +104,14 @@ def visible_markdown_lines(source_lines: list[str]) -> list[tuple[int, str]]:
         return "".join(fragments)
 
     for index, line in enumerate(source_lines):
-        if raw_html_tag is not None:
-            if re.search(
-                rf"</{re.escape(raw_html_tag)}[ \t]*>",
-                line,
-                re.IGNORECASE,
-            ):
-                raw_html_tag = None
+        if raw_html_end is not None:
+            if raw_html_end.search(line):
+                raw_html_end = None
             continue
+        if raw_html_until_blank:
+            if line.strip():
+                continue
+            raw_html_until_blank = False
         if fence_character is not None:
             closing_fence = re.fullmatch(
                 rf" {{0,3}}{re.escape(fence_character)}{{{fence_length},}}[ \t]*",
@@ -101,20 +121,45 @@ def visible_markdown_lines(source_lines: list[str]) -> list[tuple[int, str]]:
                 fence_character = None
                 fence_length = 0
             continue
-        visible_line = strip_html_comments(line)
-        raw_html_start = re.match(
-            r"^ {0,3}<(script|pre|style|textarea)(?:[ \t]|>|$)",
-            visible_line,
-            re.IGNORECASE,
-        )
+        raw_html_start = re.match(r"^ {0,3}<", line)
         if raw_html_start is not None:
-            tag = raw_html_start.group(1)
-            if re.search(
-                rf"</{re.escape(tag)}[ \t]*>",
-                visible_line,
+            end_pattern: re.Pattern[str] | None = None
+            tag_match = re.match(
+                r"^ {0,3}<(script|pre|style|textarea)(?:[ \t]|>|$)",
+                line,
                 re.IGNORECASE,
-            ) is None:
-                raw_html_tag = tag
+            )
+            if tag_match is not None:
+                end_pattern = re.compile(
+                    rf"</{re.escape(tag_match.group(1))}[ \t]*>", re.IGNORECASE
+                )
+            elif re.match(r"^ {0,3}<!--", line):
+                end_pattern = re.compile(r"-->")
+            elif re.match(r"^ {0,3}<\?", line):
+                end_pattern = re.compile(r"\?>")
+            elif re.match(r"^ {0,3}<![A-Z]", line):
+                end_pattern = re.compile(r">")
+            elif re.match(r"^ {0,3}<!\[CDATA\[", line):
+                end_pattern = re.compile(r"\]\]>")
+
+            if end_pattern is not None:
+                if end_pattern.search(line) is None:
+                    raw_html_end = end_pattern
+                continue
+
+            if re.match(
+                rf"^ {{0,3}}</?(?:{block_tags})(?:[ \t]|/?>|$)",
+                line,
+                re.IGNORECASE,
+            ):
+                raw_html_until_blank = True
+                continue
+            if generic_html_tag.fullmatch(line):
+                raw_html_until_blank = True
+                continue
+
+        visible_line = strip_html_comments(line)
+        if not visible_line and line:
             continue
         fence = re.match(r"^ {0,3}(`{3,}|~{3,})", visible_line)
         if fence is not None:

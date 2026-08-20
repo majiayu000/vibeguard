@@ -302,6 +302,71 @@ for raw_html_tag in script pre; do
   assert_stderr_contains "${raw_html_tag} block failure requires visible section" "expected exactly one visible" bash "$validator" "$raw_html_heading"
 done
 
+block_tag_heading="$(make_fixture raw-html-div)"
+printf '%s\n' \
+  '<div>' \
+  '## Archived GitHub Packet Index' \
+  '| Issue | Outcome |' \
+  '|---|---|' \
+  '| [GH100](https://github.com/majiayu000/vibeguard/issues/100) | Hidden |' \
+  '</div>' \
+  > "$block_tag_heading/README.md"
+printf '%s\n' 'GH100' > "$block_tag_heading/archived-issues.txt"
+assert_exit "archive section inside GFM block-tag HTML is ignored" 1 bash "$validator" "$block_tag_heading"
+assert_stderr_contains "block-tag HTML failure requires visible section" "expected exactly one visible" bash "$validator" "$block_tag_heading"
+
+declaration_heading="$(make_fixture raw-html-declaration)"
+printf '%s\n' \
+  '<!ARCHIVE' \
+  '## Archived GitHub Packet Index' \
+  '| Issue | Outcome |' \
+  '|---|---|' \
+  '| [GH100](https://github.com/majiayu000/vibeguard/issues/100) | Hidden |' \
+  '>' \
+  > "$declaration_heading/README.md"
+printf '%s\n' 'GH100' > "$declaration_heading/archived-issues.txt"
+assert_exit "archive section inside GFM declaration HTML is ignored" 1 bash "$validator" "$declaration_heading"
+assert_stderr_contains "declaration HTML failure requires visible section" "expected exactly one visible" bash "$validator" "$declaration_heading"
+
+processing_heading="$(make_fixture raw-html-processing)"
+printf '%s\n' \
+  '<?archive' \
+  '## Archived GitHub Packet Index' \
+  '| Issue | Outcome |' \
+  '|---|---|' \
+  '| [GH100](https://github.com/majiayu000/vibeguard/issues/100) | Hidden |' \
+  '?>' \
+  > "$processing_heading/README.md"
+printf '%s\n' 'GH100' > "$processing_heading/archived-issues.txt"
+assert_exit "archive section inside GFM processing instruction is ignored" 1 bash "$validator" "$processing_heading"
+assert_stderr_contains "processing instruction failure requires visible section" "expected exactly one visible" bash "$validator" "$processing_heading"
+
+cdata_heading="$(make_fixture raw-html-cdata)"
+printf '%s\n' \
+  '<![CDATA[' \
+  '## Archived GitHub Packet Index' \
+  '| Issue | Outcome |' \
+  '|---|---|' \
+  '| [GH100](https://github.com/majiayu000/vibeguard/issues/100) | Hidden |' \
+  ']]>' \
+  > "$cdata_heading/README.md"
+printf '%s\n' 'GH100' > "$cdata_heading/archived-issues.txt"
+assert_exit "archive section inside GFM CDATA HTML is ignored" 1 bash "$validator" "$cdata_heading"
+assert_stderr_contains "CDATA failure requires visible section" "expected exactly one visible" bash "$validator" "$cdata_heading"
+
+generic_tag_heading="$(make_fixture raw-html-generic-tag)"
+printf '%s\n' \
+  '<custom-element data-kind="archive">' \
+  '## Archived GitHub Packet Index' \
+  '| Issue | Outcome |' \
+  '|---|---|' \
+  '| [GH100](https://github.com/majiayu000/vibeguard/issues/100) | Hidden |' \
+  '</custom-element>' \
+  > "$generic_tag_heading/README.md"
+printf '%s\n' 'GH100' > "$generic_tag_heading/archived-issues.txt"
+assert_exit "archive section inside generic GFM HTML tag block is ignored" 1 bash "$validator" "$generic_tag_heading"
+assert_stderr_contains "generic tag block failure requires visible section" "expected exactly one visible" bash "$validator" "$generic_tag_heading"
+
 fake_closer="$(make_fixture fake-closer)"
 printf '%s\n' \
   '# Specs' \
