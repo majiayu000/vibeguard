@@ -28,6 +28,7 @@ These are cross-OS CI budgets, not ideal-machine optimization targets. Static pe
 |---------|------------|
 | `pre-edit-guard` | 300ms |
 | `pre-write-guard` | 500ms |
+| `pre-write-guard (5000)` | 500ms |
 | `pre-bash-guard` | 300ms |
 | `post-edit-guard (100)` | 500ms |
 | `post-write-guard (100)` | 400ms |

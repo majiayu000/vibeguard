@@ -70,7 +70,7 @@ fn detect_unverified_stop(ctx: &RuntimeContext, git_root: &Path, start: Instant)
         return Ok(());
     };
     let log_file = ctx.log_file.to_string_lossy();
-    let Ok(lines) = read_tail_lines(&log_file, STOP_VERIFY_HISTORY_LINES) else {
+    let Ok(lines) = read_tail_lines(log_file.as_ref(), STOP_VERIFY_HISTORY_LINES) else {
         return Ok(());
     };
     let mut edited: Vec<String> = Vec::new();

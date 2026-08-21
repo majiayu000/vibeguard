@@ -487,7 +487,7 @@ fn preserve_warning_after_append<E: std::fmt::Display>(
 
 pub(crate) fn read_post_edit_history_events(ctx: &RuntimeContext) -> std::io::Result<Vec<Value>> {
     let log_file = ctx.log_file.to_string_lossy();
-    let text = match read_tail_lines(&log_file, POST_EDIT_HISTORY_LINES) {
+    let text = match read_tail_lines(log_file.as_ref(), POST_EDIT_HISTORY_LINES) {
         Ok(text) => text,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(err) => return Err(err),

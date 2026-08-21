@@ -14,7 +14,7 @@ execution lane per phase; each phase is independently shippable and verified.
 | F3 | Configuration surface: 276 distinct `VIBEGUARD_*`/`VG_*` environment variables plus config.json/profile/language axes, with no layered config module | High |
 | F4 | Process artifacts tracked in git: four `artifacts/triage/issue-*.json` files (and `artifacts/` was not ignored); 40+ historical `docs/specs/GH*` packets on main | Medium |
 | F5 | A second product (specrail) shared the repo root without a documented boundary — resolved upstream: the SpecRail control plane was fully retired and its files removed from main before this plan executed | Medium (resolved) |
-| F6 | `pre-write-guard` P95 is 2065ms while other hooks are 200–400ms; latency contract exists but this hook exceeds interactive budget | Medium |
+| F6 | `pre-write-guard` latency concern; the 2065ms local cold-start sample was not reproducible, and the remaining full-log read was replaced with a bounded 500-line tail | Medium (resolved) |
 | F7 | README first screen leads with two unpublished install channels | Low |
 
 ## Phases
@@ -149,8 +149,14 @@ label, skill, and check files from main (see
 decision remains. The retired design is discoverable through the GH595 row in
 `docs/specs/README.md` and recoverable from Git history.
 
-### Phase 7 — pre-write-guard latency (issue #755)
+### Phase 7 — pre-write-guard latency (issue #755, resolved)
 
-Profile the 2065ms P95 (`bench-output` shows 10x the budget of sibling hooks).
-Likely cause: unindexed search-first scan on every new-file write. Candidate
-fix: cache the project file inventory keyed by git HEAD + dirty-file mtimes.
+Fresh release-runtime profiling measured `pre-write-guard` at P50 102ms and
+P95 107ms against its 500ms budget; the historical 2065ms local cold-start
+sample was not reproducible. The suspected project-tree scan does not exist on
+the pre-write path: same-name detection belongs to `post-write-guard`.
+
+The actual scaling risk was reminder-history lookup: it read the complete
+event log before considering only the newest 500 lines. The runtime now seeks
+and reads a bounded 500-line tail, and the latency harness includes a 5000-line
+pre-write fixture to keep that path under the existing P95 contract.
