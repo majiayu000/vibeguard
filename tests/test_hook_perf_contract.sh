@@ -321,6 +321,7 @@ assert_file_contains "${TMP_DIR}/slow.out" "hotspot=synthetic sleep fixture" "sl
 assert_file_contains "${TMP_DIR}/slow.out" "codex-wrapper pre-bash-guard" "latency gate includes Codex PreToolUse wrapper fixture"
 assert_file_contains "${TMP_DIR}/slow.out" "codex-wrapper post-edit-guard (100)" "latency gate includes Codex PostToolUse wrapper fixture"
 assert_file_contains "${TMP_DIR}/slow.out" "post-build-check (fake cargo)" "latency gate includes post-build fake command fixture"
+assert_file_contains "${TMP_DIR}/slow.out" "pre-write-guard (5000)" "latency gate includes pre-write large-log fixture"
 assert_file_contains "${TMP_DIR}/slow.out" "CONFIRMED-REGRESSION" "persistent slow hook reports confirmed regression"
 assert_cmd "persistent slow JSON preserves both batches" python3 -c 'import json, sys
 data = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -334,6 +335,13 @@ assert row["confirmation"]["p95"] > row["budget_ms"]
 assert_file_contains "${SLOW_ACTION_TEMP}" "e2e synthetic-slow-hook decision confirmed-regression" "persistent slow action output records confirmed decision"
 assert_file_contains "${SLOW_ACTION_TEMP}" "e2e synthetic-slow-hook confirmation P95" "persistent slow action output records confirmation P95"
 assert_file_contains "${SLOW_ACTION_TEMP}" "e2e synthetic-slow-hook budget" "persistent slow action output records budget"
+assert_cmd "pre-write large-log fixture enforces its normal budget" python3 -c 'import json, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+row = next(item for item in data["results"] if item["name"] == "pre-write-guard (5000)")
+assert row["budget_ms"] == 500
+assert row["decision"] == "normal_pass"
+assert row["p95"] <= row["budget_ms"]
+' "${SLOW_JSON_TEMP}"
 
 assert_success_contains "transient direct and wrapper outliers are cleared" "PASSED: All hooks within latency budget" "${TMP_DIR}/transient.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --confirmation-runs=1 --include-transient-fixtures --fail-on-regression --json-output="${TRANSIENT_JSON_TEMP}" --bench-action-output="${TRANSIENT_ACTION_TEMP}" --sla=100000
 assert_file_occurrences "${TMP_DIR}/transient.out" "confirming fixture after initial P95 breach" 2 "direct and wrapper fixtures each trigger exactly one confirmation batch"

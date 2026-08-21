@@ -1,11 +1,11 @@
 use serde_json::{Value, json};
-use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::circuit_breaker::{self, CircuitCheckOutcome, CircuitRecordBlockOutcome};
 use crate::event_schema::{decision, field, status, tool};
 use crate::hook_checks::common::{append_jsonl, nested_str, read_stdin, truncate_chars};
+use crate::hook_checks::history::read_tail_lines;
 use crate::hook_checks::{PreWriteCheck, evaluate_pre_write_input};
 use crate::hook_orchestrator::context::RuntimeContext;
 use crate::runtime_config::{runtime_config_int_value, runtime_config_str_value};
@@ -350,7 +350,7 @@ fn run_source_new(
         "5",
     );
     let prior_count = if threshold > 0 {
-        count_unheeded_source_new_reminders(ctx).unwrap_or(0)
+        count_unheeded_source_new_reminders(ctx)?
     } else {
         0
     };
@@ -544,7 +544,7 @@ fn breaker_config(ctx: &RuntimeContext, hook: &str) -> BreakerConfig {
 }
 
 fn count_unheeded_source_new_reminders(ctx: &RuntimeContext) -> Result<u64> {
-    let text = match fs::read_to_string(&ctx.log_file) {
+    let text = match read_tail_lines(&ctx.log_file, 500) {
         Ok(text) => text,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
         Err(err) => return Err(err.into()),

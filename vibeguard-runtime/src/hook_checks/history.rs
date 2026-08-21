@@ -251,7 +251,7 @@ fn current_project_root() -> String {
         })
 }
 
-pub(crate) fn read_tail_lines(path: &str, max_lines: usize) -> io::Result<String> {
+pub(crate) fn read_tail_lines(path: impl AsRef<Path>, max_lines: usize) -> io::Result<String> {
     let mut file = File::open(path)?;
     let mut pos = file.metadata()?.len();
     let mut buf = Vec::new();

@@ -233,7 +233,7 @@ budget_for() {
 
   case "$name" in
     pre-edit-guard|pre-bash-guard) printf '%s\n' 300 ;;
-    pre-write-guard) printf '%s\n' 500 ;;
+    pre-write-guard|pre-write-guard\ \(5000\)) printf '%s\n' 500 ;;
     post-edit-guard\ \(100\)) printf '%s\n' 500 ;;
     post-write-guard\ \(100\)) printf '%s\n' 400 ;;
     post-edit-guard\ \(5000\)|post-write-guard\ \(5000\)) printf '%s\n' 500 ;;
@@ -494,8 +494,9 @@ bench_codex_wrapper "codex-wrapper pre-bash-guard" "vibeguard-pre-bash-guard.sh"
 bench_codex_wrapper "codex-wrapper post-edit-guard (100)" "vibeguard-post-edit-guard.sh" "$TMPDIR_BENCH/codex-post-edit-input.json" "$TMPDIR_BENCH/events-100.jsonl"
 echo ""
 
-# --- Post-hooks with large log (stress test, should still be <200ms) ---
-echo "[PostToolUse hooks — 5000-line log]"
+# --- Hooks with large log (stress test, should still be <200ms) ---
+echo "[Hooks — 5000-line log]"
+bench_hook "pre-write-guard (5000)" "$HOOKS_DIR/pre-write-guard.sh" "$TMPDIR_BENCH/write-input.json" "$TMPDIR_BENCH/events-5000.jsonl"
 bench_hook "post-edit-guard (5000)" "$HOOKS_DIR/post-edit-guard.sh" "$TMPDIR_BENCH/edit-input.json" "$TMPDIR_BENCH/events-5000.jsonl"
 bench_hook "post-write-guard (5000)" "$HOOKS_DIR/post-write-guard.sh" "$TMPDIR_BENCH/write-input.json" "$TMPDIR_BENCH/events-5000.jsonl"
 echo ""
@@ -626,6 +627,7 @@ bench_action_name() {
   case "$1" in
     "pre-edit-guard") printf "pre-edit" ;;
     "pre-write-guard") printf "pre-write" ;;
+    "pre-write-guard (5000)") printf "pre-write 5000" ;;
     "pre-bash-guard") printf "pre-bash" ;;
     "post-edit-guard (100)") printf "post-edit 100" ;;
     "post-write-guard (100)") printf "post-write 100" ;;
