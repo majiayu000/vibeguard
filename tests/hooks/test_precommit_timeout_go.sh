@@ -83,6 +83,48 @@ assert_exit_zero "Pre-commit timeout can be explicitly downgraded to warn" bash 
 assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" '"decision": "warn"' "Pre-commit timeout downgrade writes warning log"
 rm -rf "$tmp_repo_precommit_timeout"
 
+tmp_repo_precommit_split_timeout="$(mktemp -d)"
+git -C "$tmp_repo_precommit_split_timeout" init -q
+mkdir -p "$tmp_repo_precommit_split_timeout/bin" "$tmp_repo_precommit_split_timeout/src"
+
+cat >"$tmp_repo_precommit_split_timeout/Cargo.toml" <<'EOF'
+[package]
+name = "vg-precommit-split-timeout-test"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+cat >"$tmp_repo_precommit_split_timeout/src/lib.rs" <<'EOF'
+pub fn ready() -> bool {
+    true
+}
+EOF
+
+cat >"$tmp_repo_precommit_split_timeout/bin/timeout" <<'EOF'
+#!/usr/bin/env bash
+budget="$1"
+shift
+case "$*" in
+  *"cargo check"*|*"cargo fmt"*) [[ "$budget" == "3" ]] || exit 124 ;;
+  *) [[ "$budget" == "1" ]] || exit 124 ;;
+esac
+exec "$@"
+EOF
+
+cat >"$tmp_repo_precommit_split_timeout/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "check" || "${1:-}" == "fmt" ]]; then
+  exit 0
+fi
+exit 1
+EOF
+
+chmod +x "$tmp_repo_precommit_split_timeout/bin/timeout" "$tmp_repo_precommit_split_timeout/bin/cargo"
+git -C "$tmp_repo_precommit_split_timeout" add Cargo.toml src/lib.rs
+
+assert_exit_zero "Build checks use their independent timeout budget" bash -c "cd '$tmp_repo_precommit_split_timeout' && PATH='$tmp_repo_precommit_split_timeout/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$REPO_DIR' VIBEGUARD_PRECOMMIT_TIMEOUT=1 VIBEGUARD_PRECOMMIT_BUILD_TIMEOUT=3 bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$tmp_repo_precommit_split_timeout"
+
 # Go projects should run Go guards (new _ = prevent commits when discarding error)
 tmp_repo_precommit_go="$(mktemp -d)"
 git -C "$tmp_repo_precommit_go" init -q
