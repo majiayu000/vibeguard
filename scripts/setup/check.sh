@@ -437,6 +437,11 @@ _check_execution_sources() {
   else
     red "[BROKEN] Runtime execution source missing: installed snapshot (${HOME}/.vibeguard/installed/bin/vibeguard-runtime)"
   fi
+  if [[ -x "${HOME}/.vibeguard/vibeguard-runtime" ]]; then
+    green "[OK] Runtime recovery source: ${HOME}/.vibeguard/vibeguard-runtime"
+  else
+    red "[BROKEN] Runtime recovery source missing: ${HOME}/.vibeguard/vibeguard-runtime (run: bash setup.sh --yes)"
+  fi
 }
 
 _check_git_hook() {

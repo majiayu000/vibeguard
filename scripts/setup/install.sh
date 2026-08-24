@@ -43,6 +43,7 @@ VIBEGUARD_SETUP_GEMINI="${VIBEGUARD_SETUP_GEMINI:-0}"
 VIBEGUARD_HOME="${HOME}/.vibeguard"
 _INSTALL_TMP=""
 _INSTALL_FINAL_TMP=""
+_INSTALL_RECOVERY_TMP=""
 RUNTIME_VERSION_OVERRIDE=""
 RUNTIME_VERSION_OVERRIDE_SET=0
 RUNTIME_PROVENANCE_STATUS=""
@@ -406,6 +407,9 @@ cleanup_install_temps() {
   if [[ -n "${_INSTALL_FINAL_TMP:-}" ]]; then
     rm -rf "${_INSTALL_FINAL_TMP}" 2>/dev/null || true
   fi
+  if [[ -n "${_INSTALL_RECOVERY_TMP:-}" ]]; then
+    rm -f "${_INSTALL_RECOVERY_TMP}" 2>/dev/null || true
+  fi
 }
 stage_install_snapshot() {
   if [[ -n "${_INSTALL_TMP}" ]]; then
@@ -434,6 +438,31 @@ stage_install_snapshot() {
   prepare_runtime_binary
   ln -s vibeguard-runtime "${_INSTALL_TMP}/bin/vibeguard"
   write_runtime_provenance_state "${_INSTALL_TMP}/runtime-provenance"
+}
+
+publish_recovery_runtime() {
+  local source="${_INSTALL_TMP}/bin/vibeguard-runtime"
+  local destination="${VIBEGUARD_HOME}/vibeguard-runtime"
+  if [[ -L "${destination}" || (-e "${destination}" && ! -f "${destination}") ]]; then
+    red "ERROR: recovery runtime destination must be a regular file or absent: ${destination}"
+    return 1
+  fi
+  if ! _INSTALL_RECOVERY_TMP="$(mktemp "${VIBEGUARD_HOME}/.vibeguard-runtime.next.XXXXXX")"; then
+    red "ERROR: failed to allocate recovery runtime staging file"
+    return 1
+  fi
+  if ! cp "${source}" "${_INSTALL_RECOVERY_TMP}" \
+    || ! chmod +x "${_INSTALL_RECOVERY_TMP}"; then
+    red "ERROR: failed to stage recovery runtime"
+    return 1
+  fi
+  verify_prepared_runtime_version "${_INSTALL_RECOVERY_TMP}" || return 1
+  if ! mv "${_INSTALL_RECOVERY_TMP}" "${destination}"; then
+    red "ERROR: failed to publish recovery runtime: ${destination}"
+    return 1
+  fi
+  _INSTALL_RECOVERY_TMP=""
+  green "  ~/.vibeguard/vibeguard-runtime recovery runtime ready"
 }
 echo "=============================="
 echo "VibeGuard Setup"
@@ -496,6 +525,8 @@ mkdir -p "${CLAUDE_DIR}"
 green "  ~/.claude/ ready"
 #Write repo path + install hook wrapper (compatible with all platforms, no symlink dependencies)
 mkdir -p "${VIBEGUARD_HOME}"
+stage_install_snapshot
+publish_recovery_runtime || exit 1
 printf '%s' "${REPO_DIR}" > "${VIBEGUARD_HOME}/repo-path"
 if [[ "${DEV_LINKED}" == "1" ]]; then
   printf '%s\n' "dev-linked-repo" > "${VIBEGUARD_HOME}/execution-mode"
@@ -575,6 +606,7 @@ fi
 # Initialize install state tracking
 state_init "$PROFILE" "$LANGUAGES"
 state_record_tree "${INSTALLED_DIR}" "installed"
+state_record_file "${VIBEGUARD_HOME}/vibeguard-runtime" "generated/recovery-runtime" "copy"
 state_record_file "${VIBEGUARD_HOME}/repo-path" "generated/repo-path" "copy"
 state_record_file "${VIBEGUARD_HOME}/execution-mode" "generated/execution-mode" "copy"
 state_record_file "${VIBEGUARD_HOME}/run-hook.sh" "hooks/run-hook.sh" "copy"
