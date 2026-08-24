@@ -701,7 +701,8 @@ recovery_profile="$(
     bash -c 'source "$1/scripts/lib/install-state.sh"; state_installed_profile' \
     _ "${recovery_state_fixture}"
 )"
-assert_eq "${recovery_profile}" "core" "install-state profile resolver uses recovery runtime when the installed runtime is missing"
+assert_cmd "install-state profile resolver uses recovery runtime when the installed runtime is missing" \
+  test "${recovery_profile}" = "core"
 no_python_clean_out="$(
   HOME="${no_python_home}" PATH="${no_python_path}" \
     VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=1 \
