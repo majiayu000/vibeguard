@@ -39,9 +39,22 @@ fi
 # Shell-quote GUARDS_DIR for safe embedding in "bash -c" strings (handles spaces in path)
 GUARDS_DIR_Q="$(printf '%q' "${GUARDS_DIR}")"
 
-GUARD_TIMEOUT="${VIBEGUARD_PRECOMMIT_TIMEOUT:-10}"
-BUILD_TIMEOUT="${VIBEGUARD_PRECOMMIT_BUILD_TIMEOUT:-60}"
+GUARD_TIMEOUT="${VIBEGUARD_PRECOMMIT_TIMEOUT-10}"
+BUILD_TIMEOUT="${VIBEGUARD_PRECOMMIT_BUILD_TIMEOUT-60}"
 TIMEOUT_BEHAVIOR="${VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR:-block}"
+
+validate_positive_timeout() {
+  local name="$1"
+  local value="$2"
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    printf 'VibeGuard Pre-Commit Guard: %s must be a positive integer\n' "$name" >&2
+    exit 2
+  fi
+}
+
+validate_positive_timeout "VIBEGUARD_PRECOMMIT_TIMEOUT" "$GUARD_TIMEOUT"
+validate_positive_timeout "VIBEGUARD_PRECOMMIT_BUILD_TIMEOUT" "$BUILD_TIMEOUT"
+
 TIMEOUT_CMD=""
 HAS_PYTHON3=0
 if command -v timeout >/dev/null 2>&1; then
