@@ -683,6 +683,25 @@ assert_not_contains "${no_python_check_out}" "python3 unexpectedly executed" "no
 rm -f "${no_python_home}/.vibeguard/installed/bin/vibeguard-runtime"
 printf '#!/usr/bin/env bash\nexit 127\n' > "${no_python_bin}/vibeguard-runtime"
 chmod +x "${no_python_bin}/vibeguard-runtime"
+set +e
+recovery_check_out="$(
+  HOME="${no_python_home}" PATH="${no_python_path}" \
+    VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=1 \
+    bash "${REPO_DIR}/setup.sh" --check --strict 2>&1
+)"
+recovery_check_rc=$?
+set -e
+assert_cmd "setup --check reaches normal health reporting through recovery runtime" test "${recovery_check_rc}" -eq 2
+assert_not_contains "${recovery_check_out}" "cannot determine installed profile" "setup --check resolves install state through recovery runtime"
+recovery_state_fixture="${TMP_HOME}/recovery-state-fixture"
+mkdir -p "${recovery_state_fixture}/scripts/lib"
+cp "${REPO_DIR}/scripts/lib/install-state.sh" "${recovery_state_fixture}/scripts/lib/install-state.sh"
+recovery_profile="$(
+  HOME="${no_python_home}" PATH="${no_python_path}" \
+    bash -c 'source "$1/scripts/lib/install-state.sh"; state_installed_profile' \
+    _ "${recovery_state_fixture}"
+)"
+assert_eq "${recovery_profile}" "core" "install-state profile resolver uses recovery runtime when the installed runtime is missing"
 no_python_clean_out="$(
   HOME="${no_python_home}" PATH="${no_python_path}" \
     VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=1 \

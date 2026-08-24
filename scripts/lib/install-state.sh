@@ -56,6 +56,7 @@ state_runtime_path() {
     "${VIBEGUARD_SETUP_RUNTIME:-}" \
     "${_INSTALL_TMP:-}/bin/vibeguard-runtime" \
     "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
+    "${HOME}/.vibeguard/vibeguard-runtime" \
     "${repo_root}/vibeguard-runtime/target/release/vibeguard-runtime" \
     "${repo_root}/vibeguard-runtime/target/debug/vibeguard-runtime" \
     "vibeguard-runtime"; do
