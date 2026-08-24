@@ -65,17 +65,64 @@ fn rejects_previous_only_state() {
 }
 
 #[test]
-fn rejects_incomplete_current_state() {
-    let home = temp_install_profile_home("incomplete");
+fn incomplete_upgrade_uses_previous_complete_profile() {
+    let home = temp_install_profile_home("incomplete_upgrade");
     write_state(&home, "install-state.json", &state(json!("full"), 2, false));
     write_state(
         &home,
         "install-state.previous.json",
         &state(json!("core"), 1, true),
     );
-    let error = installed_profile(&home).expect_err("incomplete state should fail");
-    assert!(error.contains("install-state is incomplete"));
+    assert_eq!(installed_profile(&home), Ok(Some("core".to_string())));
     fs::remove_dir_all(home).expect("temp home should be removed");
+}
+
+#[test]
+fn incomplete_first_install_uses_default_profile() {
+    let home = temp_install_profile_home("incomplete_first_install");
+    write_state(
+        &home,
+        "install-state.json",
+        &state(json!("strict"), 1, false),
+    );
+    assert_eq!(installed_profile(&home), Ok(None));
+    fs::remove_dir_all(home).expect("temp home should be removed");
+}
+
+#[test]
+fn rejects_incomplete_state_with_invalid_generation_relationship() {
+    for (name, current_generation, previous_generation, expected) in [
+        ("first_generation_two", 2, None, "must use generation 1"),
+        (
+            "skipped_generation",
+            4,
+            Some(2),
+            "exactly one generation newer",
+        ),
+        (
+            "repeated_generation",
+            2,
+            Some(2),
+            "exactly one generation newer",
+        ),
+    ] {
+        let home = temp_install_profile_home(name);
+        write_state(
+            &home,
+            "install-state.json",
+            &state(json!("full"), current_generation, false),
+        );
+        if let Some(previous_generation) = previous_generation {
+            write_state(
+                &home,
+                "install-state.previous.json",
+                &state(json!("core"), previous_generation, true),
+            );
+        }
+        let error = installed_profile(&home).expect_err("invalid generation should fail");
+        assert!(error.contains(expected), "unexpected error: {error}");
+        fs::remove_dir_all(home).expect("temp home should be removed");
+    }
 }
 
 #[test]

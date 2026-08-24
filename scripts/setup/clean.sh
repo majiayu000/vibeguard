@@ -122,6 +122,7 @@ clean_vibeguard_home() {
     "${vibeguard_home}/run-hook.sh" \
     "${vibeguard_home}/run-hook-codex.sh" \
     "${vibeguard_home}/run-hook-gemini.sh" \
+    "${vibeguard_home}/vibeguard-runtime" \
     "${vibeguard_home}/gemini-enabled" \
     "${vibeguard_home}/pre-commit" \
     "${vibeguard_home}/pre-push"

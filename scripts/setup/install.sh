@@ -43,6 +43,7 @@ VIBEGUARD_SETUP_GEMINI="${VIBEGUARD_SETUP_GEMINI:-0}"
 VIBEGUARD_HOME="${HOME}/.vibeguard"
 _INSTALL_TMP=""
 _INSTALL_FINAL_TMP=""
+_INSTALL_RECOVERY_TMP=""
 RUNTIME_VERSION_OVERRIDE=""
 RUNTIME_VERSION_OVERRIDE_SET=0
 RUNTIME_PROVENANCE_STATUS=""
@@ -400,12 +401,9 @@ validate_project_config_for_install() {
   echo
 }
 cleanup_install_temps() {
-  if [[ -n "${_INSTALL_TMP:-}" ]]; then
-    rm -rf "${_INSTALL_TMP}" 2>/dev/null || true
-  fi
-  if [[ -n "${_INSTALL_FINAL_TMP:-}" ]]; then
-    rm -rf "${_INSTALL_FINAL_TMP}" 2>/dev/null || true
-  fi
+  [[ -z "${_INSTALL_TMP:-}" ]] || rm -rf "${_INSTALL_TMP}" 2>/dev/null || true
+  [[ -z "${_INSTALL_FINAL_TMP:-}" ]] || rm -rf "${_INSTALL_FINAL_TMP}" 2>/dev/null || true
+  [[ -z "${_INSTALL_RECOVERY_TMP:-}" ]] || rm -f "${_INSTALL_RECOVERY_TMP}" 2>/dev/null || true
 }
 stage_install_snapshot() {
   if [[ -n "${_INSTALL_TMP}" ]]; then
@@ -490,12 +488,13 @@ if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
 fi
 # Staging may precede this gate; active install mutation may not.
 setup_preflight_and_lock || exit 1
-# 1. Make sure the directory exists
 echo "Step 1: Prepare directories"
 mkdir -p "${CLAUDE_DIR}"
 green "  ~/.claude/ ready"
 #Write repo path + install hook wrapper (compatible with all platforms, no symlink dependencies)
 mkdir -p "${VIBEGUARD_HOME}"
+stage_install_snapshot
+publish_recovery_runtime || exit 1
 printf '%s' "${REPO_DIR}" > "${VIBEGUARD_HOME}/repo-path"
 if [[ "${DEV_LINKED}" == "1" ]]; then
   printf '%s\n' "dev-linked-repo" > "${VIBEGUARD_HOME}/execution-mode"
@@ -575,6 +574,7 @@ fi
 # Initialize install state tracking
 state_init "$PROFILE" "$LANGUAGES"
 state_record_tree "${INSTALLED_DIR}" "installed"
+state_record_file "${VIBEGUARD_HOME}/vibeguard-runtime" "generated/recovery-runtime" "copy"
 state_record_file "${VIBEGUARD_HOME}/repo-path" "generated/repo-path" "copy"
 state_record_file "${VIBEGUARD_HOME}/execution-mode" "generated/execution-mode" "copy"
 state_record_file "${VIBEGUARD_HOME}/run-hook.sh" "hooks/run-hook.sh" "copy"

@@ -212,6 +212,39 @@ resolver_out="$(
 )"
 assert_contains "${resolver_out}" "${installed_wrapper_home}/.vibeguard/installed/bin/vibeguard-runtime" "runtime policy resolver prefers installed runtime for installed wrapper"
 
+header "runtime policy — missing installed runtime recovery"
+recovery_home="${WORK_DIR}/home-runtime-recovery"
+recovery_project="${WORK_DIR}/project-runtime-recovery"
+mkdir -p "${recovery_home}/.vibeguard/installed" "${recovery_project}"
+cp -R "${REPO_DIR}/hooks" "${recovery_home}/.vibeguard/installed/"
+cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${recovery_home}/.vibeguard/run-hook-codex.sh"
+cp "${RUNTIME_BIN}" "${recovery_home}/.vibeguard/vibeguard-runtime"
+chmod +x "${recovery_home}/.vibeguard/run-hook-codex.sh" "${recovery_home}/.vibeguard/vibeguard-runtime"
+printf '%s\n' "installed-snapshot" > "${recovery_home}/.vibeguard/execution-mode"
+printf '%s\n' '{"version":1,"generation":2,"complete":false,"profile":"full","files":{}}' \
+  > "${recovery_home}/.vibeguard/install-state.json"
+printf '%s\n' '{"version":1,"generation":1,"complete":true,"profile":"core","files":{}}' \
+  > "${recovery_home}/.vibeguard/install-state.previous.json"
+
+recovery_safe_out="$(
+  cd "${recovery_project}"
+  printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}' \
+    | env -u VIBEGUARD_POLICY_RUNTIME -u VIBEGUARD_RUNTIME \
+      HOME="${recovery_home}" VIBEGUARD_LOG_DIR="${recovery_home}/.vibeguard" \
+      bash "${recovery_home}/.vibeguard/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
+)"
+assert_empty_success 0 "${recovery_safe_out}" "recovery runtime avoids self-lock for a safe command"
+
+recovery_danger_out="$(
+  cd "${recovery_project}"
+  printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git clean -f"}}' \
+    | env -u VIBEGUARD_POLICY_RUNTIME -u VIBEGUARD_RUNTIME \
+      HOME="${recovery_home}" VIBEGUARD_LOG_DIR="${recovery_home}/.vibeguard" \
+      bash "${recovery_home}/.vibeguard/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
+)"
+assert_contains "${recovery_danger_out}" '"permissionDecision": "deny"' "recovery runtime keeps destructive commands fail-closed"
+assert_contains "${recovery_danger_out}" "Disable git clean -f" "recovery runtime preserves the normal policy reason"
+
 partial_runtime="${WORK_DIR}/partial-runtime"
 cat > "${partial_runtime}" <<'SH'
 #!/usr/bin/env bash

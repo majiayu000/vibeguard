@@ -25,15 +25,42 @@ pub(crate) fn installed_profile(home: &Path) -> Result<Option<String>, String> {
     let current_state = read_validated_state(&current)?;
     let (current_complete, current_generation) =
         state_generation(&current_state).map_err(|error| state_error(&current, error))?;
+    let previous_state = previous_exists
+        .then(|| read_validated_state(&previous))
+        .transpose()?;
+
     if !current_complete {
-        return Err(format!(
-            "VibeGuard policy error: install-state is incomplete: {}",
-            current.display()
-        ));
+        profile_from_state(&current, &current_state)?;
+        let Some(previous_state) = previous_state else {
+            if current_generation == 1 {
+                return Ok(None);
+            }
+            return Err(format!(
+                "VibeGuard policy error: incomplete first install-state must use generation 1: {}",
+                current.display()
+            ));
+        };
+        let (previous_complete, previous_generation) =
+            state_generation(&previous_state).map_err(|error| state_error(&previous, error))?;
+        if !previous_complete {
+            return Err(format!(
+                "VibeGuard policy error: previous install-state is incomplete: {}",
+                previous.display()
+            ));
+        }
+        let expected_generation = previous_generation.checked_add(1).ok_or_else(|| {
+            "VibeGuard policy error: previous install-state generation cannot advance".to_string()
+        })?;
+        if current_generation != expected_generation {
+            return Err(
+                "VibeGuard policy error: incomplete current install-state must be exactly one generation newer than previous snapshot"
+                    .to_string()
+            );
+        }
+        return profile_from_state(&previous, &previous_state).map(Some);
     }
 
-    if previous_exists {
-        let previous_state = read_validated_state(&previous)?;
+    if let Some(previous_state) = previous_state {
         let (previous_complete, previous_generation) =
             state_generation(&previous_state).map_err(|error| state_error(&previous, error))?;
         if !previous_complete {
@@ -50,13 +77,17 @@ pub(crate) fn installed_profile(home: &Path) -> Result<Option<String>, String> {
         }
     }
 
-    let profile = current_state
+    profile_from_state(&current, &current_state).map(Some)
+}
+
+fn profile_from_state(path: &Path, state: &serde_json::Value) -> Result<String, String> {
+    let profile = state
         .get("profile")
         .and_then(|value| value.as_str())
         .ok_or_else(|| {
             format!(
                 "VibeGuard policy error: install-state profile must be a string: {}",
-                current.display()
+                path.display()
             )
         })?;
     if !PROFILE_VALUES.contains(&profile) {
@@ -64,7 +95,7 @@ pub(crate) fn installed_profile(home: &Path) -> Result<Option<String>, String> {
             "VibeGuard policy error: unsupported install-state profile={profile} (expected minimal|core|full|strict)"
         ));
     }
-    Ok(Some(profile.to_string()))
+    Ok(profile.to_string())
 }
 
 fn ensure_optional_regular_file(path: &Path) -> Result<bool, String> {

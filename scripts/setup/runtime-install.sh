@@ -1,6 +1,31 @@
 #!/usr/bin/env bash
 # Runtime binary acquisition and provenance helpers for setup/install.sh.
 
+publish_recovery_runtime() {
+  local source="${_INSTALL_TMP}/bin/vibeguard-runtime"
+  local destination="${VIBEGUARD_HOME}/vibeguard-runtime"
+  if [[ -L "${destination}" || (-e "${destination}" && ! -f "${destination}") ]]; then
+    red "ERROR: recovery runtime destination must be a regular file or absent: ${destination}"
+    return 1
+  fi
+  if ! _INSTALL_RECOVERY_TMP="$(mktemp "${VIBEGUARD_HOME}/.vibeguard-runtime.next.XXXXXX")"; then
+    red "ERROR: failed to allocate recovery runtime staging file"
+    return 1
+  fi
+  if ! cp "${source}" "${_INSTALL_RECOVERY_TMP}" \
+    || ! chmod +x "${_INSTALL_RECOVERY_TMP}"; then
+    red "ERROR: failed to stage recovery runtime"
+    return 1
+  fi
+  verify_prepared_runtime_version "${_INSTALL_RECOVERY_TMP}" || return 1
+  if ! mv "${_INSTALL_RECOVERY_TMP}" "${destination}"; then
+    red "ERROR: failed to publish recovery runtime: ${destination}"
+    return 1
+  fi
+  _INSTALL_RECOVERY_TMP=""
+  green "  ~/.vibeguard/vibeguard-runtime recovery runtime ready"
+}
+
 runtime_release_target() {
   local os arch
   os="$(uname -s)"

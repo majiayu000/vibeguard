@@ -407,6 +407,39 @@ assert_cmd "invalid setup install does not write Codex run-hook wrapper" test ! 
 assert_cmd "invalid setup install does not seed runtime config" test ! -e "${invalid_project_install_home}/.vibeguard/config.json"
 assert_cmd "invalid setup install does not install snapshot" test ! -e "${invalid_project_install_home}/.vibeguard/installed"
 
+recovery_publish_failure_home="${TMP_HOME}/recovery-publish-failure-home"
+recovery_publish_failure_bin="${TMP_HOME}/recovery-publish-failure-bin"
+mkdir -p "${recovery_publish_failure_home}" "${recovery_publish_failure_bin}"
+recovery_publish_real_mv="$(command -v mv)"
+cat > "${recovery_publish_failure_bin}/mv" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+destination="${!#}"
+if [[ "${destination}" == "${VIBEGUARD_TEST_RECOVERY_DEST}" ]]; then
+  exit 91
+fi
+exec "${VIBEGUARD_TEST_REAL_MV}" "$@"
+SH
+chmod +x "${recovery_publish_failure_bin}/mv"
+set +e
+recovery_publish_failure_out="$(
+  HOME="${recovery_publish_failure_home}" \
+    PATH="${recovery_publish_failure_bin}:${PATH}" \
+    VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 \
+    VIBEGUARD_TEST_REAL_MV="${recovery_publish_real_mv}" \
+    VIBEGUARD_TEST_RECOVERY_DEST="${recovery_publish_failure_home}/.vibeguard/vibeguard-runtime" \
+    bash "${REPO_DIR}/setup.sh" --yes 2>&1
+)"
+recovery_publish_failure_rc=$?
+set -e
+assert_cmd "setup fails when recovery runtime publish rename fails" test "${recovery_publish_failure_rc}" -ne 0
+assert_contains "${recovery_publish_failure_out}" "failed to publish recovery runtime" "recovery runtime rename failure is explicit"
+assert_not_contains "${recovery_publish_failure_out}" "Setup complete! All components installed." "recovery runtime rename failure never reports install success"
+assert_cmd "failed recovery runtime publish leaves no active or staged recovery binary" bash -c \
+  'test ! -e "$1" && ! compgen -G "$2" >/dev/null' _ \
+  "${recovery_publish_failure_home}/.vibeguard/vibeguard-runtime" \
+  "${recovery_publish_failure_home}/.vibeguard/.vibeguard-runtime.next.*"
+
 runtime_key_project_config="${TMP_HOME}/runtime-key-vibeguard.json"
 cat > "${runtime_key_project_config}" <<'JSON'
 {
@@ -647,10 +680,38 @@ no_python_check_rc=$?
 set -e
 assert_cmd "no-Python setup --check --strict exits 0" test "${no_python_check_rc}" -eq 0
 assert_not_contains "${no_python_check_out}" "python3 unexpectedly executed" "no-Python setup --check does not execute python3"
-no_python_clean_out="$(HOME="${no_python_home}" PATH="${no_python_path}" bash "${REPO_DIR}/setup.sh" --clean 2>&1)"
-assert_contains "${no_python_clean_out}" "VibeGuard cleaned." "no-Python setup --clean succeeds"
+rm -f "${no_python_home}/.vibeguard/installed/bin/vibeguard-runtime"
+printf '#!/usr/bin/env bash\nexit 127\n' > "${no_python_bin}/vibeguard-runtime"
+chmod +x "${no_python_bin}/vibeguard-runtime"
+set +e
+recovery_check_out="$(
+  HOME="${no_python_home}" PATH="${no_python_path}" \
+    VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=1 \
+    bash "${REPO_DIR}/setup.sh" --check --strict 2>&1
+)"
+recovery_check_rc=$?
+set -e
+assert_cmd "setup --check reaches normal health reporting through recovery runtime" test "${recovery_check_rc}" -eq 2
+assert_not_contains "${recovery_check_out}" "cannot determine installed profile" "setup --check resolves install state through recovery runtime"
+recovery_state_fixture="${TMP_HOME}/recovery-state-fixture"
+mkdir -p "${recovery_state_fixture}/scripts/lib"
+cp "${REPO_DIR}/scripts/lib/install-state.sh" "${recovery_state_fixture}/scripts/lib/install-state.sh"
+recovery_profile="$(
+  HOME="${no_python_home}" PATH="${no_python_path}" \
+    bash -c 'source "$1/scripts/lib/install-state.sh"; state_installed_profile' \
+    _ "${recovery_state_fixture}"
+)"
+assert_cmd "install-state profile resolver uses recovery runtime when the installed runtime is missing" \
+  test "${recovery_profile}" = "core"
+no_python_clean_out="$(
+  HOME="${no_python_home}" PATH="${no_python_path}" \
+    VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=1 \
+    bash "${REPO_DIR}/setup.sh" --clean 2>&1
+)"
+assert_contains "${no_python_clean_out}" "VibeGuard cleaned." "no-Python setup --clean succeeds through recovery runtime when the installed runtime is missing"
 assert_not_contains "${no_python_clean_out}" "python3 unexpectedly executed" "no-Python setup --clean does not execute python3"
 assert_cmd "no-Python setup --clean removes install state" test ! -e "${no_python_home}/.vibeguard/install-state.json"
+assert_cmd "no-Python setup --clean removes recovery runtime" test ! -e "${no_python_home}/.vibeguard/vibeguard-runtime"
 
 install_out="$(VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${install_out}" "Setup complete! All components installed." "Default route to installation process"
@@ -667,6 +728,8 @@ assert_cmd "setup install removes tracked retired Claude skill" test ! -L "${HOM
 assert_cmd "setup install removes tracked retired Codex skill" test ! -L "${HOME}/.codex/skills/old-flow"
 assert_cmd "vg shortcut commands are installed after setup" test -L "${HOME}/.claude/commands/vg"
 assert_cmd "vibeguard-runtime binary installed after setup" test -x "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+assert_cmd "recovery runtime installed outside the replaceable snapshot" test -x "${HOME}/.vibeguard/vibeguard-runtime"
+assert_cmd "recovery runtime matches the installed runtime" cmp -s "${HOME}/.vibeguard/vibeguard-runtime" "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
 assert_cmd "vibeguard command installed after setup" test -x "${HOME}/.vibeguard/installed/bin/vibeguard"
 assert_cmd "vibeguard command targets the installed runtime" bash -c '
   [[ "$(readlink "$1")" == "vibeguard-runtime" ]]

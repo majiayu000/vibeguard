@@ -28,16 +28,24 @@ setup_runtime_physical_path() {
 }
 
 pin_setup_runtime_for_clean() {
-  local runtime managed_root physical_runtime tmp dest
+  local runtime managed_root recovery_runtime physical_runtime tmp dest
   runtime="$(setup_runtime_path)" || return 1
   managed_root="${HOME}/.vibeguard/installed"
-  [[ -d "${managed_root}" ]] || return 0
-  managed_root="$(cd -P "${managed_root}" && pwd)" || return 1
   physical_runtime="$(setup_runtime_physical_path "${runtime}")" || return 1
-  case "${physical_runtime}" in
-    "${managed_root}/"*) ;;
-    *) return 0 ;;
-  esac
+  recovery_runtime="${HOME}/.vibeguard/vibeguard-runtime"
+  if [[ -e "${recovery_runtime}" ]]; then
+    recovery_runtime="$(setup_runtime_physical_path "${recovery_runtime}")" || return 1
+  fi
+  if [[ -d "${managed_root}" ]]; then
+    managed_root="$(cd -P "${managed_root}" && pwd)" || return 1
+    case "${physical_runtime}" in
+      "${managed_root}/"*) ;;
+      "${recovery_runtime}") ;;
+      *) return 0 ;;
+    esac
+  elif [[ "${physical_runtime}" != "${recovery_runtime}" ]]; then
+    return 0
+  fi
 
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-runtime-clean_XXXXXX")"
   dest="${tmp}/vibeguard-runtime"
