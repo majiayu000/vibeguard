@@ -401,15 +401,9 @@ validate_project_config_for_install() {
   echo
 }
 cleanup_install_temps() {
-  if [[ -n "${_INSTALL_TMP:-}" ]]; then
-    rm -rf "${_INSTALL_TMP}" 2>/dev/null || true
-  fi
-  if [[ -n "${_INSTALL_FINAL_TMP:-}" ]]; then
-    rm -rf "${_INSTALL_FINAL_TMP}" 2>/dev/null || true
-  fi
-  if [[ -n "${_INSTALL_RECOVERY_TMP:-}" ]]; then
-    rm -f "${_INSTALL_RECOVERY_TMP}" 2>/dev/null || true
-  fi
+  [[ -z "${_INSTALL_TMP:-}" ]] || rm -rf "${_INSTALL_TMP}" 2>/dev/null || true
+  [[ -z "${_INSTALL_FINAL_TMP:-}" ]] || rm -rf "${_INSTALL_FINAL_TMP}" 2>/dev/null || true
+  [[ -z "${_INSTALL_RECOVERY_TMP:-}" ]] || rm -f "${_INSTALL_RECOVERY_TMP}" 2>/dev/null || true
 }
 stage_install_snapshot() {
   if [[ -n "${_INSTALL_TMP}" ]]; then
@@ -438,31 +432,6 @@ stage_install_snapshot() {
   prepare_runtime_binary
   ln -s vibeguard-runtime "${_INSTALL_TMP}/bin/vibeguard"
   write_runtime_provenance_state "${_INSTALL_TMP}/runtime-provenance"
-}
-
-publish_recovery_runtime() {
-  local source="${_INSTALL_TMP}/bin/vibeguard-runtime"
-  local destination="${VIBEGUARD_HOME}/vibeguard-runtime"
-  if [[ -L "${destination}" || (-e "${destination}" && ! -f "${destination}") ]]; then
-    red "ERROR: recovery runtime destination must be a regular file or absent: ${destination}"
-    return 1
-  fi
-  if ! _INSTALL_RECOVERY_TMP="$(mktemp "${VIBEGUARD_HOME}/.vibeguard-runtime.next.XXXXXX")"; then
-    red "ERROR: failed to allocate recovery runtime staging file"
-    return 1
-  fi
-  if ! cp "${source}" "${_INSTALL_RECOVERY_TMP}" \
-    || ! chmod +x "${_INSTALL_RECOVERY_TMP}"; then
-    red "ERROR: failed to stage recovery runtime"
-    return 1
-  fi
-  verify_prepared_runtime_version "${_INSTALL_RECOVERY_TMP}" || return 1
-  if ! mv "${_INSTALL_RECOVERY_TMP}" "${destination}"; then
-    red "ERROR: failed to publish recovery runtime: ${destination}"
-    return 1
-  fi
-  _INSTALL_RECOVERY_TMP=""
-  green "  ~/.vibeguard/vibeguard-runtime recovery runtime ready"
 }
 echo "=============================="
 echo "VibeGuard Setup"
@@ -519,7 +488,6 @@ if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
 fi
 # Staging may precede this gate; active install mutation may not.
 setup_preflight_and_lock || exit 1
-# 1. Make sure the directory exists
 echo "Step 1: Prepare directories"
 mkdir -p "${CLAUDE_DIR}"
 green "  ~/.claude/ ready"
