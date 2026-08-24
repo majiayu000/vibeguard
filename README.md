@@ -177,7 +177,7 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 | AI creates duplicate definitions after a new file write | `post-write-guard` | **Warn** — detect duplicate symbols and same-name files |
 | AI keeps reading/searching without acting | `analysis-paralysis-guard` | **Escalate** — force a concrete next step or blocker report |
 | AI edits code in `full` / `strict` profile | `post-build-check` | **Warn** — run language-appropriate build check |
-| `git commit` | `pre-commit-guard` | **Block** — quality + build checks (staged files only), 10s timeout |
+| `git commit` | `pre-commit-guard` | **Block** — staged-file quality checks use a 10s timeout; build checks use a separate 60s timeout |
 | AI tries to finish with unverified changes | `stop-guard` | **Signal** — logs a Stop reminder; the Stop hook exits 0 to avoid feedback loops |
 | Session ends in `full` / `strict` profile | `learn-evaluator` | **Evaluate** — collect metrics and detect correction signals |
 

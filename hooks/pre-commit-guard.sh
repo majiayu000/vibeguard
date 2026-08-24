@@ -39,8 +39,22 @@ fi
 # Shell-quote GUARDS_DIR for safe embedding in "bash -c" strings (handles spaces in path)
 GUARDS_DIR_Q="$(printf '%q' "${GUARDS_DIR}")"
 
-TIMEOUT="${VIBEGUARD_PRECOMMIT_TIMEOUT:-10}"
+GUARD_TIMEOUT="${VIBEGUARD_PRECOMMIT_TIMEOUT-10}"
+BUILD_TIMEOUT="${VIBEGUARD_PRECOMMIT_BUILD_TIMEOUT-60}"
 TIMEOUT_BEHAVIOR="${VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR:-block}"
+
+validate_positive_timeout() {
+  local name="$1"
+  local value="$2"
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    printf 'VibeGuard Pre-Commit Guard: %s must be a positive integer\n' "$name" >&2
+    exit 2
+  fi
+}
+
+validate_positive_timeout "VIBEGUARD_PRECOMMIT_TIMEOUT" "$GUARD_TIMEOUT"
+validate_positive_timeout "VIBEGUARD_PRECOMMIT_BUILD_TIMEOUT" "$BUILD_TIMEOUT"
+
 TIMEOUT_CMD=""
 HAS_PYTHON3=0
 if command -v timeout >/dev/null 2>&1; then
@@ -256,17 +270,18 @@ DETECTED_LANGS=$(echo "$DETECTED_LANGS" | xargs)
 # --- Timeout executor ---
 run_with_timeout() {
   local cmd="$1"
+  local timeout_seconds="${2:-$GUARD_TIMEOUT}"
   local code=0
 
   if [[ -n "${TIMEOUT_CMD}" ]]; then
-    "${TIMEOUT_CMD}" "${TIMEOUT}" bash -c "$cmd" 2>&1 && return 0
+    "${TIMEOUT_CMD}" "${timeout_seconds}" bash -c "$cmd" 2>&1 && return 0
     code=$?
     [[ $code -eq 124 ]] && return 124
     [[ $code -ne 127 ]] && return "$code"
   fi
 
   if [[ "${HAS_PYTHON3}" -eq 1 ]]; then
-    python3 - "${TIMEOUT}" "$cmd" <<'PY' && return 0
+    python3 - "${timeout_seconds}" "$cmd" <<'PY' && return 0
 import subprocess, sys
 try:
     proc = subprocess.run(["bash", "-c", sys.argv[2]], timeout=int(sys.argv[1]))
@@ -297,12 +312,12 @@ run_guard() {
   output=$(run_with_timeout "$cmd" 2>&1) || code=$?
   if [[ $code -eq 124 ]]; then
     if [[ "$TIMEOUT_BEHAVIOR" == "warn" ]]; then
-      vg_log "pre-commit-guard" "git-commit" "warn" "guard timeout (${label}) after ${TIMEOUT}s; allowed by VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR=warn" "$cmd"
+      vg_log "pre-commit-guard" "git-commit" "warn" "guard timeout (${label}) after ${GUARD_TIMEOUT}s; allowed by VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR=warn" "$cmd"
       return 0
     fi
     GUARD_FAIL=1
-    GUARD_OUTPUT="${GUARD_OUTPUT}\n[${label}]\nguard timeout after ${TIMEOUT}s (blocked)\n"
-    vg_log "pre-commit-guard" "git-commit" "block" "guard timeout (${label}) after ${TIMEOUT}s" "$cmd"
+    GUARD_OUTPUT="${GUARD_OUTPUT}\n[${label}]\nguard timeout after ${GUARD_TIMEOUT}s (blocked)\n"
+    vg_log "pre-commit-guard" "git-commit" "block" "guard timeout (${label}) after ${GUARD_TIMEOUT}s" "$cmd"
     return 0
   fi
 
@@ -379,14 +394,14 @@ run_build_check() {
   local code=0
   local output=""
 
-  output=$(run_with_timeout "$cmd" 2>&1) || code=$?
+  output=$(run_with_timeout "$cmd" "$BUILD_TIMEOUT" 2>&1) || code=$?
   if [[ $code -eq 124 ]]; then
     if [[ "$TIMEOUT_BEHAVIOR" == "warn" ]]; then
-      vg_log "pre-commit-guard" "git-commit" "warn" "build timeout after ${TIMEOUT}s; allowed by VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR=warn" "$fail_msg"
+      vg_log "pre-commit-guard" "git-commit" "warn" "build timeout after ${BUILD_TIMEOUT}s; allowed by VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR=warn" "$fail_msg"
       return 0
     fi
-    BUILD_FAILS="${BUILD_FAILS}  ${fail_msg} (timeout after ${TIMEOUT}s)\n"
-    vg_log "pre-commit-guard" "git-commit" "block" "build timeout after ${TIMEOUT}s" "$fail_msg"
+    BUILD_FAILS="${BUILD_FAILS}  ${fail_msg} (timeout after ${BUILD_TIMEOUT}s)\n"
+    vg_log "pre-commit-guard" "git-commit" "block" "build timeout after ${BUILD_TIMEOUT}s" "$fail_msg"
     return 0
   fi
   if [[ $code -ne 0 ]]; then

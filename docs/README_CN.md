@@ -94,7 +94,7 @@ Claude Code 的 `full` 和 `strict` profile 会把 `rules/claude-rules/` 中的�
 | AI 新建文件后出现重复定义或重名文件 | `post-write-guard` | **告警**，提示重复实现 |
 | AI 连续搜索/读取却迟迟不行动 | `analysis-paralysis-guard` | **升级**，要求明确下一步或说明阻塞 |
 | `full` / `strict` 档位下编辑源码 | `post-build-check` | **告警**，自动跑对应语言的构建检查 |
-| `git commit` | `pre-commit-guard` | **拦截**，只检查 staged 改动，10 秒硬超时 |
+| `git commit` | `pre-commit-guard` | **拦截**，staged-only 质量检查超时 10 秒；构建检查独立超时 60 秒 |
 | AI 想结束但还没有验证改动 | `stop-guard` | **信号**，记录 Stop 提醒；Stop hook 退出 0 以避免反馈循环 |
 | `full` / `strict` 档位下会话结束 | `learn-evaluator` | **评估**，收集指标并识别纠错信号 |
 
