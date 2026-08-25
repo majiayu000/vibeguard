@@ -124,11 +124,11 @@ def evidence_kind(sample: dict[str, Any]) -> str:
     expected_values = {
         assertion.get("equals")
         for assertion in expect.get("json", [])
-        if isinstance(assertion, dict)
+        if isinstance(assertion, dict) and isinstance(assertion.get("equals"), str)
     }
     if expected_values & intercept_values:
         return "intercept"
-    if expect.get("exit_code", 0) != 0:
+    if sample.get("runner") == "guard" and expect.get("exit_code", 0) == 1:
         return "intercept"
     if expect.get("stdout_empty") or expected_values & allow_values:
         return "allow"

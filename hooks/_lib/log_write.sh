@@ -295,7 +295,13 @@ vg_log() {
   esc_detail=$(vg_log_json_escape "$detail")
 
   _VG_LOG_RECORD_SEQUENCE=$(( ${_VG_LOG_RECORD_SEQUENCE:-0} + 1 ))
-  local record_id="VGR-$(date +%s)-$$-${_VG_LOG_RECORD_SEQUENCE}"
+  # $$ is inherited by Bash subshells. BASHPID identifies the active process;
+  # macOS Bash 3.2 lacks it, so use a short child shell's unique process ID.
+  local record_process_id="${BASHPID:-}"
+  if [[ -z "$record_process_id" ]]; then
+    record_process_id=$(sh -c 'printf "%s" "$$"')
+  fi
+  local record_id="VGR-$(date +%s)-${record_process_id}-${_VG_LOG_RECORD_SEQUENCE}"
   local json
   json="{\"schema_version\": 1, \"ts\": \"${ts}\", \"record_id\": \"${record_id}\", \"session\": \"${VIBEGUARD_SESSION_ID}\", \"hook\": \"${hook}\", \"tool\": \"${tool}\", \"decision\": \"${decision}\", \"status\": \"${decision}\", \"reason\": \"${esc_reason}\", \"detail\": \"${esc_detail}\""
   [[ -n "$duration_ms" ]] && json="${json}, \"duration_ms\": ${duration_ms}"

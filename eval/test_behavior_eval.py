@@ -80,6 +80,38 @@ class BehaviorEvalTest(unittest.TestCase):
             "allow",
         )
 
+    def test_evidence_kind_ignores_structured_json_values_for_classification(self) -> None:
+        self.assertEqual(
+            run_behavior_eval.evidence_kind({
+                "runner": "guard",
+                "expect": {
+                    "exit_code": 0,
+                    "json": [{"equals": []}, {"equals": {"status": "pass"}}],
+                },
+            }),
+            "allow",
+        )
+
+    def test_evidence_kind_rejects_error_exit_as_intercept_evidence(self) -> None:
+        self.assertEqual(
+            run_behavior_eval.evidence_kind(
+                {"runner": "guard", "expect": {"exit_code": 1}}
+            ),
+            "intercept",
+        )
+        self.assertEqual(
+            run_behavior_eval.evidence_kind(
+                {"runner": "guard", "expect": {"exit_code": 2}}
+            ),
+            "unknown",
+        )
+        self.assertEqual(
+            run_behavior_eval.evidence_kind(
+                {"runner": "claude_hook", "expect": {"exit_code": 1}}
+            ),
+            "unknown",
+        )
+
     def test_coverage_can_require_balanced_evidence(self) -> None:
         requirement = {
             "platform": "runtime",

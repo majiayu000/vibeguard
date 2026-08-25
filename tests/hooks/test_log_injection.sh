@@ -352,9 +352,10 @@ done
 for pid in "${pids[@]}"; do
   wait "$pid"
 done
-triage_concurrent_result=$(python3 - "$triage_concurrent_file" <<'PY'
+triage_concurrent_result=$(python3 - "$triage_concurrent_file" "$triage_concurrent_dir" <<'PY'
 import json
 import sys
+from pathlib import Path
 
 rows = []
 with open(sys.argv[1], encoding="utf-8") as fh:
@@ -362,10 +363,19 @@ with open(sys.argv[1], encoding="utf-8") as fh:
         rows.append(json.loads(line))
 assert len(rows) == 12, len(rows)
 assert {row["rule"] for row in rows} == {"U-16"}, rows
-print(f"lines={len(rows)}")
+
+events = []
+for path in Path(sys.argv[2]).glob("project-*/events.jsonl"):
+    with path.open(encoding="utf-8") as fh:
+        events.extend(json.loads(line) for line in fh if line.strip())
+record_ids = [event["record_id"] for event in events]
+assert len(record_ids) == 12, record_ids
+assert len(set(record_ids)) == 12, record_ids
+print(f"lines={len(rows)} unique_record_ids={len(set(record_ids))}")
 PY
 )
 assert_contains "$triage_concurrent_result" "lines=12" "Concurrent triage appends stay parseable and complete"
+assert_contains "$triage_concurrent_result" "unique_record_ids=12" "Concurrent log events receive unique record IDs"
 rm -rf "$triage_concurrent_dir"
 
 # =========================================================
