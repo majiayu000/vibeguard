@@ -10,6 +10,44 @@ use std::os::unix::fs::PermissionsExt;
 use std::process::Stdio;
 
 #[test]
+fn codex_diagnostics_redact_authorization_and_token_values() {
+    let root = unique_temp_dir("codex-diag-redaction");
+    fs::create_dir_all(&root).unwrap();
+    let diag_file = root.join("diagnostics.jsonl");
+    let out = bin()
+        .args([
+            "codex-diag",
+            diag_file.to_str().unwrap(),
+            "pre-bash-guard.sh",
+            "PreToolUse",
+            "token=fixture-diagnostic-token",
+            "Authorization: Basic fixture-diagnostic-basic",
+            "/fixture/repo",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let persisted = fs::read_to_string(&diag_file).unwrap();
+    assert!(persisted.contains("***REDACTED***"), "{persisted}");
+    assert!(
+        !persisted.contains("fixture-diagnostic-token"),
+        "{persisted}"
+    );
+    assert!(
+        !persisted.contains("fixture-diagnostic-basic"),
+        "{persisted}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn observe_export_prometheus_omits_raw_sensitive_labels() {
     let root = unique_temp_dir("observe-prometheus");
     fs::create_dir_all(&root).unwrap();
