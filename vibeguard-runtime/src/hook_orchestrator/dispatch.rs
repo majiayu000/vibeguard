@@ -685,6 +685,7 @@ fn append_event(
         field::HOOK_PROTOCOL_VERSION,
     );
 
+    crate::sensitive_redaction::redact_sensitive_values(&mut event);
     let line = serde_json::to_string(&event)?.replace("\":", "\": ");
     append_jsonl(&ctx.log_file, &line)?;
     let global_log = ctx.log_root.join("events.jsonl");

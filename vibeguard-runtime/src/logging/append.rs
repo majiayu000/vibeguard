@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use crate::hook_checks::common::{append_jsonl, read_stdin};
+use crate::sensitive_redaction::redact_sensitive_values;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -70,9 +71,20 @@ fn read_valid_jsonl_line(command_name: &str) -> Result<String> {
         return Err(format!("{command_name} input must be exactly one JSONL line").into());
     }
 
-    let value = serde_json::from_str::<serde_json::Value>(&line)?;
+    let mut value = serde_json::from_str::<serde_json::Value>(&line)?;
     if !value.is_object() {
         return Err(format!("{command_name} input must be a JSON object").into());
     }
-    Ok(line)
+    let original = value.clone();
+    redact_sensitive_values(&mut value);
+    if value == original {
+        return Ok(line);
+    }
+
+    let serialized = serde_json::to_string(&value)?;
+    if line.contains("\": ") {
+        Ok(serialized.replace("\":", "\": "))
+    } else {
+        Ok(serialized)
+    }
 }

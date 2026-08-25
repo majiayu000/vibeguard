@@ -207,6 +207,56 @@ fn hook_orchestrator_writes_project_and_global_events() {
 }
 
 #[test]
+fn hook_orchestrator_redacts_sensitive_command_values_before_persistence() {
+    let root = unique_temp_dir("hook-orchestrator-sensitive-command");
+    let repo = root.join("repo");
+    let log_root = root.join("logs");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+
+    let input = pre_bash_input(
+        "curl -H 'Authorization: Bearer fixture-bearer-value' \
+         'https://example.test?api_key=fixture-query-value' \
+         --token fixture-flag-value",
+    );
+    let out = run_hook(&repo, &log_root, "pre-bash", &input);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let event = first_project_event(&log_root);
+    let persisted = serde_json::to_string(&event).unwrap();
+    assert!(persisted.contains("***REDACTED***"), "{persisted}");
+    for secret in [
+        "fixture-bearer-value",
+        "fixture-query-value",
+        "fixture-flag-value",
+    ] {
+        assert!(
+            !persisted.contains(secret),
+            "persisted secret {secret}: {persisted}"
+        );
+    }
+
+    let global = fs::read_to_string(log_root.join("events.jsonl")).unwrap();
+    assert!(global.contains("***REDACTED***"), "{global}");
+    for secret in [
+        "fixture-bearer-value",
+        "fixture-query-value",
+        "fixture-flag-value",
+    ] {
+        assert!(
+            !global.contains(secret),
+            "persisted secret {secret}: {global}"
+        );
+    }
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn hook_orchestrator_honors_log_file_overrides() {
     let root = unique_temp_dir("hook-orchestrator-overrides");
     let repo = root.join("repo");

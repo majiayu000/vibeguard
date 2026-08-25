@@ -395,6 +395,7 @@ pub(crate) fn write_log_event(
             event[field_name] = serde_json::Value::String(value);
         }
     }
+    crate::sensitive_redaction::redact_sensitive_values(&mut event);
     let line = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
     append_jsonl(Path::new(log_file), &line)?;
 

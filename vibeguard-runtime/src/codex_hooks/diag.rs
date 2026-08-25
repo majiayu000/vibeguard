@@ -39,7 +39,8 @@ fn clean_hook_name(name: &str) -> String {
         .to_string()
 }
 
-fn append_codex_jsonl(path: &str, value: Value) -> Result {
+fn append_codex_jsonl(path: &str, mut value: Value) -> Result {
+    crate::sensitive_redaction::redact_sensitive_values(&mut value);
     append_jsonl(Path::new(path), &serde_json::to_string(&value)?)?;
     Ok(())
 }
