@@ -117,7 +117,11 @@ fn render_injected(
             &routing_contract,
         )
         .replace(RULE_COUNT_PLACEHOLDER, rule_count);
-    let original = std::fs::read_to_string(target_file).unwrap_or_default();
+    let original = match std::fs::read_to_string(target_file) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error.into()),
+    };
 
     if marker_range(&original).is_some() {
         let content = replace_managed_block(&original, &rules);
