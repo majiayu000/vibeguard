@@ -720,7 +720,10 @@ fn runtime_policy_argument_errors_are_visible() {
         .output()
         .expect("runtime helper should run");
     assert!(supports.status.success());
-    assert!(supports.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&supports.stdout),
+        "vibeguard-runtime-policy-v1\n"
+    );
     assert!(supports.stderr.is_empty());
 }
 

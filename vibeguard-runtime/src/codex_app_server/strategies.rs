@@ -5,9 +5,12 @@ use crate::codex_app_server::core::{
 use crate::codex_app_server::file_changes::{
     FileChangeApprovalStrategy, attach_vibeguard_feedback, params_thread_id, params_turn_id,
 };
-use crate::codex_app_server::policy::{HookPolicyDecision, evaluate_hook_policy};
+use crate::codex_app_server::policy::{
+    HookPolicyDecision, app_server_hook_catalog, evaluate_hook_policy,
+};
 use regex::Regex;
 use serde_json::{Value, json};
+use std::error::Error;
 use std::path::Path;
 use std::process::Command;
 
@@ -30,6 +33,7 @@ impl AnalysisParalysisStrategy {
 
     fn observe_command(
         &self,
+        hook_name: &str,
         command: &str,
         threshold: usize,
         thread_id: Option<&str>,
@@ -51,7 +55,7 @@ impl AnalysisParalysisStrategy {
             emit_warning(
                 write_to_server,
                 format!(
-                    "analysis-paralysis-guard: VIBEGUARD analysis paralysis warning: {} consecutive read-only commands without a file change. Start editing, or report the blocker and the exact missing evidence.",
+                    "{hook_name}: VIBEGUARD analysis paralysis warning: {} consecutive read-only commands without a file change. Start editing, or report the blocker and the exact missing evidence.",
                     thread.research_streak
                 ),
                 thread_id,
@@ -64,6 +68,8 @@ struct CommandApprovalStrategy {
     hooks: HookRunner,
     policy: GuardDecisionPolicy,
     analysis: AnalysisParalysisStrategy,
+    command_hook: String,
+    analysis_hook: String,
 }
 
 impl CommandApprovalStrategy {
@@ -103,8 +109,9 @@ impl CommandApprovalStrategy {
             (None, hook_env(None, None))
         };
 
+        let hook_name = self.command_hook.as_str();
         let result = self.hooks.run(
-            "pre-bash-guard.sh",
+            hook_name,
             &json!({"tool_input": {"command": command}}),
             cwd.as_deref(),
             &env,
@@ -112,14 +119,11 @@ impl CommandApprovalStrategy {
 
         if self.policy.should_block_pre_hook(&result) {
             write_to_server(json!({"id": msg_id, "result": {"decision": "decline"}}));
-            let text = primary_feedback_text(
-                "pre-bash-guard.sh",
-                &result,
-                "pre-bash hook blocked the command",
-            );
+            let text =
+                primary_feedback_text(hook_name, &result, "pre-bash hook blocked the command");
             emit_warning(
                 write_to_server,
-                format!("pre-bash-guard.sh: {text}"),
+                format!("{hook_name}: {text}"),
                 thread_id.as_deref(),
             );
             if result.decision == "hook_error" || result.failed {
@@ -134,7 +138,7 @@ impl CommandApprovalStrategy {
         }
 
         if result.decision == "warn" {
-            let text = primary_feedback_text("pre-bash-guard.sh", &result, "");
+            let text = primary_feedback_text(hook_name, &result, "");
             emit_warning(write_to_server, text, thread_id.as_deref());
             if self.observe_or_decline(
                 &msg_id,
@@ -151,7 +155,7 @@ impl CommandApprovalStrategy {
         }
 
         if result.decision == "skip" {
-            let text = primary_feedback_text("pre-bash-guard.sh", &result, "");
+            let text = primary_feedback_text(hook_name, &result, "");
             emit_warning(write_to_server, text, thread_id.as_deref());
             if self.observe_or_decline(
                 &msg_id,
@@ -179,7 +183,7 @@ impl CommandApprovalStrategy {
                 );
                 emit_warning(
                     write_to_server,
-                    format!("pre-bash-guard.sh: {text}"),
+                    format!("{hook_name}: {text}"),
                     thread_id.as_deref(),
                 );
                 eprintln!("[vibeguard-codex-wrapper] {text}: {command}");
@@ -188,7 +192,7 @@ impl CommandApprovalStrategy {
             emit_warning(
                 write_to_server,
                 format!(
-                    "pre-bash-guard.sh: unexpected decision {:?}; advisory mode left the request untouched",
+                    "{hook_name}: unexpected decision {:?}; advisory mode left the request untouched",
                     result.decision
                 ),
                 thread_id.as_deref(),
@@ -219,13 +223,13 @@ impl CommandApprovalStrategy {
 
         if matches!(result.decision.as_str(), "block" | "hook_error") {
             let text = primary_feedback_text(
-                "pre-bash-guard.sh",
+                hook_name,
                 &result,
                 "pre-bash hook would block in guarded mode",
             );
             emit_warning(
                 write_to_server,
-                format!("pre-bash-guard.sh: {text}"),
+                format!("{hook_name}: {text}"),
                 thread_id.as_deref(),
             );
         }
@@ -272,11 +276,11 @@ impl CommandApprovalStrategy {
         state: &mut SessionState,
         write_to_server: &mut WriteServer<'_>,
     ) -> Result<(), String> {
-        match evaluate_hook_policy("analysis-paralysis-guard.sh", cwd, env) {
+        match evaluate_hook_policy(&self.analysis_hook, cwd, env) {
             HookPolicyDecision::Run { .. } => {}
             HookPolicyDecision::Skip(_) => return Ok(()),
             HookPolicyDecision::Error(reason) => {
-                return Err(format!("analysis-paralysis-guard.sh: {reason}"));
+                return Err(format!("{}: {reason}", self.analysis_hook));
             }
         }
         let threshold = crate::runtime_config::runtime_config_int_value_for_cwd(
@@ -285,34 +289,40 @@ impl CommandApprovalStrategy {
             "7",
             cwd,
         )
-        .map_err(|error| format!("analysis-paralysis-guard.sh: {error}"))?;
+        .map_err(|error| format!("{}: {error}", self.analysis_hook))?;
         let threshold = usize::try_from(threshold).unwrap_or(usize::MAX);
         let thread = thread_id.map(|id| state.ensure_thread(id));
-        self.analysis
-            .observe_command(command, threshold, thread_id, thread, write_to_server);
+        self.analysis.observe_command(
+            &self.analysis_hook,
+            command,
+            threshold,
+            thread_id,
+            thread,
+            write_to_server,
+        );
         Ok(())
     }
 }
 
 struct PostTurnFeedbackStrategy {
     hooks: HookRunner,
+    hooks_at_turn_end: Vec<String>,
+    build_hook: String,
 }
 
 impl PostTurnFeedbackStrategy {
     fn collect(&self, cwd: &str, thread_id: &str, thread: &ThreadState) -> Option<Value> {
         let env = hook_env(Some(thread_id), Some(thread));
         let mut messages = Vec::new();
-        for hook_name in ["stop-guard.sh", "learn-evaluator.sh"] {
+        for hook_name in &self.hooks_at_turn_end {
             let result = self.hooks.run(hook_name, &json!({}), Some(cwd), &env);
             messages.extend(feedback_messages(hook_name, &result));
         }
         for rel in changed_files(cwd) {
             let payload =
                 json!({"tool_input": {"file_path": Path::new(cwd).join(rel).to_string_lossy()}});
-            let result = self
-                .hooks
-                .run("post-build-check.sh", &payload, Some(cwd), &env);
-            messages.extend(feedback_messages("post-build-check.sh", &result));
+            let result = self.hooks.run(&self.build_hook, &payload, Some(cwd), &env);
+            messages.extend(feedback_messages(&self.build_hook, &result));
         }
         if messages.is_empty() {
             return None;
@@ -361,19 +371,27 @@ pub struct VibeGuardGateStrategy {
 }
 
 impl VibeGuardGateStrategy {
-    pub fn new(repo_dir: impl AsRef<Path>, mode: Option<&str>) -> Result<Self, regex::Error> {
+    pub fn new(repo_dir: impl AsRef<Path>, mode: Option<&str>) -> Result<Self, Box<dyn Error>> {
+        let catalog = app_server_hook_catalog()?;
         let hooks = HookRunner::new(repo_dir);
         Ok(Self {
             command_strategy: CommandApprovalStrategy {
                 hooks: hooks.clone(),
                 policy: GuardDecisionPolicy::new(mode),
                 analysis: AnalysisParalysisStrategy::new()?,
+                command_hook: catalog.command_pre.clone(),
+                analysis_hook: catalog.analysis_observer.clone(),
             },
             file_change_strategy: FileChangeApprovalStrategy::new(
                 hooks.clone(),
                 GuardDecisionPolicy::new(mode),
+                catalog.clone(),
             ),
-            post_turn_strategy: PostTurnFeedbackStrategy { hooks },
+            post_turn_strategy: PostTurnFeedbackStrategy {
+                hooks,
+                hooks_at_turn_end: catalog.post_turn,
+                build_hook: catalog.post_turn_build,
+            },
         })
     }
 }

@@ -1,30 +1,16 @@
 mod common;
 
-use common::{bin, unique_temp_dir};
+use common::{
+    first_project_event, hook_command, pre_bash_input, read_first_json, run_hook,
+    run_pre_bash_case, run_pre_bash_with, unique_temp_dir,
+};
 use serde_json::Value;
 use std::fs;
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output, Stdio};
-
-fn run_hook(repo: &Path, log_root: &Path, hook: &str, input: &str) -> Output {
-    let mut child = hook_command(repo, log_root)
-        .args(["hook", hook])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .as_mut()
-        .unwrap()
-        .write_all(input.as_bytes())
-        .unwrap();
-    child.wait_with_output().unwrap()
-}
 
 fn run_hook_without_ci(repo: &Path, log_root: &Path, hook: &str, input: &str) -> Output {
     let mut command = hook_command(repo, log_root);
@@ -55,71 +41,6 @@ fn run_hook_without_ci(repo: &Path, log_root: &Path, hook: &str, input: &str) ->
     child.wait_with_output().unwrap()
 }
 
-fn hook_command(repo: &Path, log_root: &Path) -> Command {
-    let mut command = bin();
-    command
-        .current_dir(repo)
-        .env("VIBEGUARD_LOG_DIR", log_root)
-        .env("VIBEGUARD_CLI", "codex")
-        .env("VIBEGUARD_SESSION_ID", "session-test")
-        .env("VIBEGUARD_CALLER_EVIDENCE", "explicit-test")
-        .env("VIBEGUARD_WRAPPER", "test-wrapper")
-        .env("VIBEGUARD_SOURCE_CONFIG", "test-config")
-        .env("VIBEGUARD_HOOK_PROTOCOL_VERSION", "1");
-    command
-}
-
-fn run_pre_bash_with(
-    repo: &Path,
-    log_root: &Path,
-    input: &str,
-    configure: impl FnOnce(&mut Command),
-) -> Output {
-    let mut command = hook_command(repo, log_root);
-    configure(&mut command);
-    let mut child = command
-        .args(["hook", "pre-bash"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .as_mut()
-        .unwrap()
-        .write_all(input.as_bytes())
-        .unwrap();
-    child.wait_with_output().unwrap()
-}
-
-fn pre_bash_input(command: &str) -> String {
-    serde_json::json!({"tool_input": {"command": command}}).to_string()
-}
-
-fn run_pre_bash_case(
-    label: &str,
-    input: &str,
-    configure: impl FnOnce(&mut Command),
-) -> (PathBuf, PathBuf, Output) {
-    let root = unique_temp_dir(label);
-    let repo = root.join("repo");
-    let log_root = root.join("logs");
-    fs::create_dir_all(repo.join(".git")).unwrap();
-    let output = run_pre_bash_with(&repo, &log_root, input, configure);
-    (root, log_root, output)
-}
-
-fn first_project_event(log_root: &Path) -> Value {
-    let project_dir = fs::read_dir(log_root.join("projects"))
-        .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
-    read_first_json(&project_dir.join("events.jsonl"))
-}
-
 #[cfg(unix)]
 fn write_executable(path: &Path, body: &str) {
     fs::write(path, body).unwrap();
@@ -140,12 +61,6 @@ fn git(repo: &Path, args: &[&str]) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-}
-
-fn read_first_json(path: &Path) -> Value {
-    let text = fs::read_to_string(path).unwrap();
-    let first = text.lines().next().unwrap();
-    serde_json::from_str(first).unwrap()
 }
 
 #[test]
@@ -192,6 +107,12 @@ fn hook_orchestrator_writes_project_and_global_events() {
     assert_eq!(event["decision"], "pass");
     assert_eq!(event["status"], "pass");
     assert_eq!(event["session"], "session-test");
+    assert!(
+        event["record_id"]
+            .as_str()
+            .is_some_and(|record_id| record_id.starts_with("VGR-")),
+        "{event}"
+    );
     assert_eq!(event["cli"], "codex");
     assert_eq!(event["client"], "codex");
     assert_eq!(event["client_variant"], "codex-cli-hooks");
@@ -202,6 +123,49 @@ fn hook_orchestrator_writes_project_and_global_events() {
     assert_eq!(event["detail"], "git status");
     assert!(event["duration_ms"].as_u64().is_some(), "{event}");
     assert_eq!(event["project_hash"].as_str().unwrap().len(), 8);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn hook_orchestrator_writes_global_mirror_after_project_append_failure() {
+    let root = unique_temp_dir("hook-orchestrator-primary-log-failure");
+    let repo = root.join("repo");
+    let log_root = root.join("logs");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+
+    let first = run_hook(&repo, &log_root, "pre-bash", &pre_bash_input("echo first"));
+    assert_eq!(first.status.code(), Some(0));
+    let project_dir = fs::read_dir(log_root.join("projects"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let project_log = project_dir.join("events.jsonl");
+    fs::remove_file(log_root.join("events.jsonl")).unwrap();
+    fs::create_dir(format!("{}.lock.d", project_log.display())).unwrap();
+
+    let second = run_pre_bash_with(
+        &repo,
+        &log_root,
+        &pre_bash_input("echo second"),
+        |command| {
+            command
+                .env("VIBEGUARD_LOG_LOCK_ATTEMPTS", "1")
+                .env("VIBEGUARD_LOG_LOCK_SLEEP_SECONDS", "0");
+        },
+    );
+    assert_eq!(second.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&second.stderr).contains("primary JSONL append failed"),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let global_event = read_first_json(&log_root.join("events.jsonl"));
+    assert_eq!(global_event["detail"], "echo second");
+    assert!(global_event["record_id"].as_str().is_some());
+    assert_eq!(fs::read_to_string(&project_log).unwrap().lines().count(), 1);
 
     let _ = fs::remove_dir_all(root);
 }
@@ -433,9 +397,13 @@ fn hook_orchestrator_pre_bash_blocks_and_logs_reason() {
     let log_root = root.join("logs");
     fs::create_dir_all(repo.join(".git")).unwrap();
 
+    let command = "printf 'quote\":marker'; \
+                   curl -H 'Authorization: Bearer fixture-bearer-value' \
+                   'https://example.test?api_key=fixture-query-value' \
+                   --token fixture-flag-value; git checkout .";
     let input = serde_json::json!({
         "tool_input": {
-            "command": "git checkout ."
+            "command": command
         }
     })
     .to_string();
@@ -468,7 +436,30 @@ fn hook_orchestrator_pre_bash_blocks_and_logs_reason() {
             .contains("Disable git checkout/restore"),
         "{event}"
     );
-    assert_eq!(event["detail"], "git checkout .");
+    assert!(
+        event["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("quote\":marker")),
+        "{event}"
+    );
+    let persisted = serde_json::to_string(&event).unwrap();
+    assert!(persisted.contains("***REDACTED***"), "{persisted}");
+    for secret in [
+        "fixture-bearer-value",
+        "fixture-query-value",
+        "fixture-flag-value",
+    ] {
+        assert!(!persisted.contains(secret), "{persisted}");
+    }
+    let global = fs::read_to_string(log_root.join("events.jsonl")).unwrap();
+    assert!(global.contains("***REDACTED***"), "{global}");
+    for secret in [
+        "fixture-bearer-value",
+        "fixture-query-value",
+        "fixture-flag-value",
+    ] {
+        assert!(!global.contains(secret), "{global}");
+    }
 
     let _ = fs::remove_dir_all(root);
 }

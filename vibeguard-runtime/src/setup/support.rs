@@ -1,6 +1,6 @@
 use serde_json::Value;
 use std::collections::hash_map::DefaultHasher;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -24,19 +24,53 @@ pub fn read_json_object(
 }
 
 pub fn write_text_atomic(path: &Path, content: &str) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
+    write_text_atomic_with_mode(path, content, 0o666)
+}
+
+fn write_text_atomic_with_mode(path: &Path, content: &str, new_mode: u32) -> io::Result<()> {
+    let original_permissions = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{} must be a regular file", path.display()),
+            ));
+        }
+        Ok(metadata) => Some(metadata.permissions()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
+
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
     let tmp = temp_path_for(path);
+    let mut temp_created = false;
     let write_result = (|| {
-        let mut file = File::create(&tmp)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(new_mode);
+        }
+        #[cfg(not(unix))]
+        let _ = new_mode;
+
+        let mut file = options.open(&tmp)?;
+        temp_created = true;
+        if let Some(permissions) = original_permissions.clone() {
+            fs::set_permissions(&tmp, permissions)?;
+        }
         file.write_all(content.as_bytes())?;
         file.sync_all()?;
         fs::rename(&tmp, path)?;
         Ok::<(), io::Error>(())
     })();
     if let Err(error) = write_result {
-        if let Err(cleanup_error) = fs::remove_file(&tmp)
+        if temp_created
+            && let Err(cleanup_error) = fs::remove_file(&tmp)
             && cleanup_error.kind() != io::ErrorKind::NotFound
         {
             return Err(io::Error::new(
@@ -46,9 +80,7 @@ pub fn write_text_atomic(path: &Path, content: &str) -> io::Result<()> {
         }
         return Err(error);
     }
-    if let Some(parent) = path.parent() {
-        let _ = File::open(parent).and_then(|file| file.sync_all());
-    }
+    sync_directory(parent)?;
     Ok(())
 }
 
@@ -60,47 +92,18 @@ pub fn write_json_atomic(path: &Path, value: &Value) -> SetupResult<()> {
 
 #[cfg(unix)]
 pub fn write_json_atomic_private(path: &Path, value: &Value) -> SetupResult<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let original_mode = match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
-            return Err(format!("{} must be a regular file", path.display()).into());
-        }
-        Ok(metadata) => Some(metadata.permissions().mode() & 0o777),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error.into()),
-    };
     let text = serde_json::to_string_pretty(value)? + "\n";
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let tmp = temp_path_for(path);
-    let write_result = (|| {
-        let mut file = File::create(&tmp)?;
-        fs::set_permissions(
-            &tmp,
-            fs::Permissions::from_mode(original_mode.unwrap_or(0o600)),
-        )?;
-        file.write_all(text.as_bytes())?;
-        file.sync_all()?;
-        fs::rename(&tmp, path)?;
-        Ok::<(), io::Error>(())
-    })();
-    if let Err(error) = write_result {
-        if let Err(cleanup_error) = fs::remove_file(&tmp)
-            && cleanup_error.kind() != io::ErrorKind::NotFound
-        {
-            return Err(io::Error::new(
-                error.kind(),
-                format!("{error}; temporary-file cleanup failed: {cleanup_error}"),
-            )
-            .into());
-        }
-        return Err(error.into());
-    }
-    if let Some(parent) = path.parent() {
-        File::open(parent)?.sync_all()?;
-    }
+    write_text_atomic_with_mode(path, &text, 0o600)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> io::Result<()> {
+    File::open(path)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_path: &Path) -> io::Result<()> {
     Ok(())
 }
 

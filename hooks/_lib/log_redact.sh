@@ -45,7 +45,7 @@ vg_redact_sensitive() {
 
   if command -v perl &>/dev/null; then
     printf '%s' "$text" | perl -CS -0777 -pe '
-s/(\bAuthorization\s*:\s*Bearer\s+)[^\s"'\''`&;]+/${1}***REDACTED***/ig;
+s/(\bAuthorization\s*:\s*[A-Za-z][A-Za-z0-9_-]*\s+)[^\s"'\''`&;]+/${1}***REDACTED***/ig;
 s/(\bBearer\s+)[^\s"'\''`&;]+/${1}***REDACTED***/ig;
 s/(\s--?(?:api[_-]?key|password|passwd|secret|token)\s+)[^\s"'\''`&;]+/${1}***REDACTED***/ig;
 s/\b([A-Za-z0-9_:-]*(?:api[_-]?key|password|passwd|secret|token)[A-Za-z0-9_:-]*\s*[:=]\s*)("[^"]*"|'\''[^'\'']*'\''|[^\s"'\''`&;]+)/${1}***REDACTED***/ig;
@@ -54,7 +54,7 @@ s/\b([A-Za-z0-9_:-]*(?:api[_-]?key|password|passwd|secret|token)[A-Za-z0-9_:-]*\
   fi
 
   printf '%s' "$text" \
-    | sed -E 's/([Aa]uthorization[[:space:]]*:[[:space:]]*[Bb]earer[[:space:]]+)[^[:space:]"'\''`&;]+/\1***REDACTED***/g' \
+    | sed -E 's/([Aa]uthorization[[:space:]]*:[[:space:]]*[A-Za-z][A-Za-z0-9_-]*[[:space:]]+)[^[:space:]"'\''`&;]+/\1***REDACTED***/g' \
     | sed -E 's/([Bb]earer[[:space:]]+)[^[:space:]"'\''`&;]+/\1***REDACTED***/g' \
     | sed -E 's/([[:space:]]--?(api[_-]?key|password|passwd|secret|token)[[:space:]]+)[^[:space:]"'\''`&;]+/\1***REDACTED***/Ig' \
     | sed -E 's/([A-Za-z0-9_:-]*(api[_-]?key|password|passwd|secret|token)[A-Za-z0-9_:-]*[[:space:]]*[:=][[:space:]]*)[^[:space:]"'\''`&;]+/\1***REDACTED***/Ig'

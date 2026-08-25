@@ -28,7 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET_PATH = REPO_ROOT / "eval" / "behavior" / "datasets" / "v1.jsonl"
 DEFAULT_REQUIREMENTS_PATH = REPO_ROOT / "eval" / "behavior" / "requirements.json"
 DEFAULT_THRESHOLDS_PATH = REPO_ROOT / "eval" / "behavior" / "thresholds.json"
-SLICE_FIELDS = ("rule", "hook", "profile", "severity", "platform")
+SLICE_FIELDS = ("rule", "hook", "profile", "severity", "platform", "evidence")
 REQUIRED_SAMPLE_FIELDS = {
     "id",
     "description",
@@ -47,6 +47,12 @@ DEFAULT_THRESHOLDS = {
     "min_pass_rate": 100.0,
     "min_coverage_rate": 100.0,
     "slice_min_pass_rate": 100.0,
+}
+EVIDENCE_DECISION_PATHS = {
+    "decision",
+    "status",
+    "hookSpecificOutput.permissionDecision",
+    "hookSpecificOutput.decision.behavior",
 }
 
 
@@ -109,6 +115,41 @@ def validate_sample(sample: dict[str, Any], path: Path, line_number: int) -> Non
     for field in ("id", "platform", "hook", "profile", "severity", "rule"):
         if not isinstance(sample[field], str) or not sample[field].strip():
             raise BehaviorDatasetError(f"{path}:{line_number}: {field} must be a non-empty string")
+    if evidence_kind(sample) == "unknown":
+        raise BehaviorDatasetError(
+            f"{path}:{line_number}: expectations do not prove intercept or allow evidence"
+        )
+
+
+def evidence_kind(sample: dict[str, Any]) -> str:
+    expect = sample.get("expect", {})
+    if not isinstance(expect, dict):
+        return "unknown"
+    intercept_values = {"block", "deny", "warn", "gate", "escalate", "correction"}
+    allow_values = {"allow", "pass"}
+    expected_values = {
+        assertion.get("equals")
+        for assertion in expect.get("json", [])
+        if isinstance(assertion, dict)
+        and assertion.get("path") in EVIDENCE_DECISION_PATHS
+        and isinstance(assertion.get("equals"), str)
+    }
+    if expected_values & intercept_values:
+        return "intercept"
+    if sample.get("runner") == "guard" and expect.get("exit_code", 0) == 1:
+        return "intercept"
+    if expect.get("stdout_empty") or expected_values & allow_values:
+        return "allow"
+    if sample.get("runner") == "guard" and expect.get("exit_code", 0) == 0:
+        return "allow"
+    rule = sample.get("rule")
+    rule_marker = f"[{rule}]" if isinstance(rule, str) and rule else None
+    if rule_marker and any(
+        isinstance(fragment, str) and rule_marker in fragment
+        for fragment in expect.get("stdout_contains", [])
+    ):
+        return "intercept"
+    return "unknown"
 
 
 def load_json_array(path: Path, *, name: str) -> list[dict[str, Any]]:
@@ -122,6 +163,19 @@ def load_json_array(path: Path, *, name: str) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             raise BehaviorDatasetError(f"{path}: {name}[{index}] must be an object")
     return data
+
+
+def validate_requirements(requirements: list[dict[str, Any]], path: Path) -> None:
+    allowed_evidence = {"intercept", "allow"}
+    for index, requirement in enumerate(requirements):
+        evidence = requirement.get("evidence")
+        if evidence is None:
+            continue
+        values = evidence if isinstance(evidence, list) else [evidence]
+        if not values or not all(value in allowed_evidence for value in values):
+            raise BehaviorDatasetError(
+                f"{path}: coverage requirements[{index}].evidence must contain intercept and/or allow"
+            )
 
 
 def load_thresholds(path: Path) -> dict[str, float]:
@@ -331,6 +385,7 @@ def base_result(sample: dict[str, Any], started: float) -> dict[str, Any]:
         "profile": sample["profile"],
         "severity": sample["severity"],
         "rule": sample["rule"],
+        "evidence": evidence_kind(sample),
         "latency_seconds": round(time.time() - started, 3),
     }
 
@@ -468,7 +523,7 @@ def coverage_report(samples: list[dict[str, Any]], requirements: list[dict[str, 
     covered = []
     missing = []
     for requirement in requirements:
-        if any(matches_requirement(sample, requirement) for sample in samples):
+        if requirement_is_covered(samples, requirement):
             covered.append(requirement)
         else:
             missing.append(requirement)
@@ -483,7 +538,23 @@ def coverage_report(samples: list[dict[str, Any]], requirements: list[dict[str, 
 
 
 def matches_requirement(sample: dict[str, Any], requirement: dict[str, Any]) -> bool:
-    return all(sample.get(key) == value for key, value in requirement.items())
+    return all(
+        evidence_kind(sample) == value if key == "evidence" else sample.get(key) == value
+        for key, value in requirement.items()
+    )
+
+
+def requirement_is_covered(
+    samples: list[dict[str, Any]], requirement: dict[str, Any]
+) -> bool:
+    required_evidence = requirement.get("evidence")
+    if isinstance(required_evidence, list):
+        base = {key: value for key, value in requirement.items() if key != "evidence"}
+        return bool(required_evidence) and all(
+            any(matches_requirement(sample, base | {"evidence": kind}) for sample in samples)
+            for kind in required_evidence
+        )
+    return any(matches_requirement(sample, requirement) for sample in samples)
 
 
 def slice_report(results: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, Any]]]:
@@ -578,6 +649,7 @@ def run_behavior_eval(args: argparse.Namespace, baseline: ModelBaseline) -> int:
     try:
         samples = load_jsonl(dataset_path)
         requirements = load_json_array(requirements_path, name="coverage requirements")
+        validate_requirements(requirements, requirements_path)
         thresholds = load_thresholds(thresholds_path)
     except BehaviorDatasetError as exc:
         print(f"Invalid behavior eval config: {exc}", file=sys.stderr)
@@ -593,7 +665,7 @@ def run_behavior_eval(args: argparse.Namespace, baseline: ModelBaseline) -> int:
         "thresholds_source": str(thresholds_path),
         "thresholds": thresholds,
         "commit": current_commit(short=False),
-        "scorer_version": "behavior-e2e-v1",
+        "scorer_version": "behavior-e2e-v2",
     }
 
     if args.dry_run:

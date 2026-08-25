@@ -2,12 +2,50 @@ mod common;
 
 #[cfg(unix)]
 use common::file_mode;
-use common::{bin, unique_temp_dir};
+use common::{bin, run_runtime_with_stdin, unique_temp_dir};
 use std::fs;
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::process::Stdio;
+
+#[test]
+fn codex_diagnostics_redact_authorization_and_token_values() {
+    let root = unique_temp_dir("codex-diag-redaction");
+    fs::create_dir_all(&root).unwrap();
+    let diag_file = root.join("diagnostics.jsonl");
+    let out = bin()
+        .args([
+            "codex-diag",
+            diag_file.to_str().unwrap(),
+            "pre-bash-guard.sh",
+            "PreToolUse",
+            "token=fixture-diagnostic-token",
+            "Authorization: Basic fixture-diagnostic-basic",
+            "/fixture/repo",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let persisted = fs::read_to_string(&diag_file).unwrap();
+    assert!(persisted.contains("***REDACTED***"), "{persisted}");
+    assert!(
+        !persisted.contains("fixture-diagnostic-token"),
+        "{persisted}"
+    );
+    assert!(
+        !persisted.contains("fixture-diagnostic-basic"),
+        "{persisted}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
 
 #[test]
 fn observe_export_prometheus_omits_raw_sensitive_labels() {
@@ -319,6 +357,43 @@ fn append_jsonl_command_appends_one_line() {
     serde_json::from_str::<serde_json::Value>(content.trim_end()).unwrap();
     #[cfg(unix)]
     assert_eq!(file_mode(&log_file), 0o600);
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn append_jsonl_redacts_structured_credentials_without_changing_other_values() {
+    let dir = unique_temp_dir("append-jsonl-redaction");
+    fs::create_dir_all(&dir).unwrap();
+    let log_file = dir.join("events.jsonl");
+    let input = serde_json::json!({
+        "token": "fixture-structured-token",
+        "authorization": "Basic fixture-basic-credential",
+        "detail": "Authorization: Basic fixture-inline-credential",
+        "escaped_detail": r#"password="abc\"def secret" token='ghi\'jkl secret'"#,
+        "ordinary": "quote\":marker"
+    });
+    let out = run_runtime_with_stdin(
+        &["append-jsonl", log_file.to_str().unwrap()],
+        &format!("{input}\n"),
+    );
+
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let persisted: serde_json::Value =
+        serde_json::from_str(fs::read_to_string(&log_file).unwrap().trim()).unwrap();
+    assert_eq!(persisted["token"], "***REDACTED***");
+    assert_eq!(persisted["authorization"], "***REDACTED***");
+    assert_eq!(persisted["detail"], "Authorization: Basic ***REDACTED***");
+    assert_eq!(
+        persisted["escaped_detail"],
+        "password=***REDACTED*** token=***REDACTED***"
+    );
+    assert_eq!(persisted["ordinary"], "quote\":marker");
+
     let _ = fs::remove_dir_all(dir);
 }
 

@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use crate::hook_checks::common::{append_jsonl, read_stdin};
+use crate::hook_checks::common::read_stdin;
+use crate::hook_checks::jsonl::{append_jsonl, append_jsonl_mirror, serialize_jsonl_value};
+use crate::sensitive_redaction::redact_sensitive_values;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -26,32 +28,8 @@ pub fn run_mirror(args: &[String]) -> Result {
     let primary = Path::new(&args[0]);
     let mirror = Path::new(&args[1]);
 
-    let primary_result = append_jsonl(primary, &line).map_err(|err| {
-        format!(
-            "primary JSONL append failed for {}: {}",
-            primary.display(),
-            err
-        )
-    });
-
-    let mirror_result = if mirror != primary {
-        append_jsonl(mirror, &line).map_err(|err| {
-            format!(
-                "mirror JSONL append failed for {}: {}",
-                mirror.display(),
-                err
-            )
-        })
-    } else {
-        Ok(())
-    };
-
-    match (primary_result, mirror_result) {
-        (Ok(()), Ok(())) => Ok(()),
-        (Err(primary_err), Ok(())) => Err(primary_err.into()),
-        (Ok(()), Err(mirror_err)) => Err(mirror_err.into()),
-        (Err(primary_err), Err(mirror_err)) => Err(format!("{primary_err}; {mirror_err}").into()),
-    }
+    append_jsonl_mirror(primary, mirror, &line)?;
+    Ok(())
 }
 
 fn read_valid_jsonl_line(command_name: &str) -> Result<String> {
@@ -70,9 +48,15 @@ fn read_valid_jsonl_line(command_name: &str) -> Result<String> {
         return Err(format!("{command_name} input must be exactly one JSONL line").into());
     }
 
-    let value = serde_json::from_str::<serde_json::Value>(&line)?;
+    let mut value = serde_json::from_str::<serde_json::Value>(&line)?;
     if !value.is_object() {
         return Err(format!("{command_name} input must be a JSON object").into());
     }
-    Ok(line)
+    let original = value.clone();
+    redact_sensitive_values(&mut value);
+    if value == original {
+        return Ok(line);
+    }
+
+    Ok(serialize_jsonl_value(&value)?)
 }

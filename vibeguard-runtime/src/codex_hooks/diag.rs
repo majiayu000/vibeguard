@@ -3,7 +3,8 @@
 use crate::codex_hooks::adapter::adapt_output_for_event;
 use crate::codex_hooks::status_info_from_raw;
 use crate::codex_hooks::{deny_permission_payload, deny_pretool_payload, print_json};
-use crate::hook_checks::common::{append_jsonl, read_stdin, truncate_chars};
+use crate::hook_checks::common::{read_stdin, truncate_chars};
+use crate::hook_checks::jsonl::append_jsonl;
 use crate::time_utils::{format_unix_secs_utc, now_unix_secs};
 use serde_json::{Value, json};
 use std::path::Path;
@@ -39,7 +40,8 @@ fn clean_hook_name(name: &str) -> String {
         .to_string()
 }
 
-fn append_codex_jsonl(path: &str, value: Value) -> Result {
+fn append_codex_jsonl(path: &str, mut value: Value) -> Result {
+    crate::sensitive_redaction::redact_sensitive_values(&mut value);
     append_jsonl(Path::new(path), &serde_json::to_string(&value)?)?;
     Ok(())
 }

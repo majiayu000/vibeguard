@@ -955,6 +955,7 @@ dependencies = [
  "jsonschema",
  "libc",
  "regex",
+ "serde",
  "serde_json",
  "toml_edit",
 ]

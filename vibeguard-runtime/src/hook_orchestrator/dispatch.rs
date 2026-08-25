@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use crate::circuit_breaker::{self, CircuitCheckOutcome, CircuitRecordBlockOutcome};
 use crate::event_schema::{decision, field, status, tool};
-use crate::hook_checks::common::{append_jsonl, nested_str, read_stdin, truncate_chars};
+use crate::hook_checks::common::{append_jsonl_mirror, nested_str, read_stdin, truncate_chars};
 use crate::hook_checks::history::read_tail_lines;
 use crate::hook_checks::{PreWriteCheck, evaluate_pre_write_input};
 use crate::hook_orchestrator::context::RuntimeContext;
@@ -662,6 +662,7 @@ fn append_event(
     let mut event = json!({
         "schema_version": 1,
         field::TS: format_unix_secs_utc(now_unix_secs()),
+        field::RECORD_ID: crate::event_schema::next_record_id(),
         field::SESSION: ctx.session_id,
         field::HOOK: hook_name,
         field::TOOL: tool_name,
@@ -685,12 +686,10 @@ fn append_event(
         field::HOOK_PROTOCOL_VERSION,
     );
 
-    let line = serde_json::to_string(&event)?.replace("\":", "\": ");
-    append_jsonl(&ctx.log_file, &line)?;
+    crate::sensitive_redaction::redact_sensitive_values(&mut event);
+    let line = crate::hook_checks::jsonl::serialize_jsonl_value(&event)?;
     let global_log = ctx.log_root.join("events.jsonl");
-    if global_log != ctx.log_file {
-        append_jsonl(&global_log, &line)?;
-    }
+    append_jsonl_mirror(&ctx.log_file, &global_log, &line)?;
     Ok(())
 }
 

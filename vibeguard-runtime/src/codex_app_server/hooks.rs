@@ -83,10 +83,11 @@ impl HookRunner {
             HookPolicyDecision::Error(reason) => return HookResult::hook_error(reason),
         };
         if !hook_path.is_file() {
-            if let Some(reason) = required_hook_missing_message(hook_name, &hook_path) {
-                return HookResult::hook_error(reason);
+            match required_hook_missing_message(hook_name, &hook_path) {
+                Ok(Some(reason)) => return HookResult::hook_error(reason),
+                Ok(None) => return HookResult::pass(),
+                Err(reason) => return HookResult::hook_error(reason),
             }
-            return HookResult::pass();
         }
 
         let mut cmd = Command::new("bash");

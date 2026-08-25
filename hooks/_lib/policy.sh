@@ -13,9 +13,13 @@ vg_policy_user_config_file() {
 }
 
 vg_policy_runtime_path() {
+  vg_policy_resolve_runtime || return 1
+  printf '%s\n' "${VG_POLICY_RUNTIME_PATH_CACHE}"
+}
+
+vg_policy_resolve_runtime() {
   local helper_dir wrapper_dir candidate
   if [[ -n "${VG_POLICY_RUNTIME_PATH_CACHE:-}" && -x "${VG_POLICY_RUNTIME_PATH_CACHE}" ]]; then
-    printf '%s\n' "${VG_POLICY_RUNTIME_PATH_CACHE}"
     return 0
   fi
   helper_dir="${_VG_POLICY_LIB_DIR}"
@@ -24,7 +28,6 @@ vg_policy_runtime_path() {
     if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
       if vg_policy_runtime_supports "${candidate}" < /dev/null; then
         VG_POLICY_RUNTIME_PATH_CACHE="${candidate}"
-        printf '%s\n' "${candidate}"
         return 0
       fi
     fi
@@ -58,69 +61,10 @@ vg_policy_runtime_candidates() {
   fi
 }
 
-vg_policy_runtime_supports_cwd_json() {
-  local candidate="$1" probe_dir probe_output decision probe_cwd overlay_output overlay_source overlay_value
-  probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-policy-probe-cwd.XXXXXX")" || return 1
-  if ! printf '%s\n' '{"write_mode":"block"}' > "${probe_dir}/.vibeguard.json"; then
-    rm -rf "${probe_dir}" 2>/dev/null || true
-    return 1
-  fi
-  probe_output="$(
-    VIBEGUARD_PROJECT_CONFIG="" \
-      VG_INTERNAL_USER_CONFIG_FILE="" VIBEGUARD_USER_CONFIG_FILE="" \
-      "${candidate}" runtime-policy-check --cwd "${probe_dir}" __vibeguard_policy_probe__ 2>/dev/null
-  )" || {
-    rm -rf "${probe_dir}" 2>/dev/null || true
-    return 1
-  }
-  decision="$(printf '%s' "${probe_output}" | "${candidate}" json-field --strict decision 2>/dev/null)" || {
-    rm -rf "${probe_dir}" 2>/dev/null || true
-    return 1
-  }
-  probe_cwd="$(printf '%s' "${probe_output}" | "${candidate}" json-field --strict cwd 2>/dev/null)" || {
-    rm -rf "${probe_dir}" 2>/dev/null || true
-    return 1
-  }
-  overlay_output="$(
-    VG_INTERNAL_CONFIG_FILE="${probe_dir}/missing-user-config.json" \
-      VIBEGUARD_PROJECT_CONFIG="" VIBEGUARD_WRITE_MODE="" \
-      "${candidate}" config explain write_mode --cwd "${probe_dir}" --json 2>/dev/null
-  )" || {
-    rm -rf "${probe_dir}" 2>/dev/null || true
-    return 1
-  }
-  overlay_source="$(printf '%s' "${overlay_output}" | "${candidate}" json-field --strict source 2>/dev/null)" || {
-    rm -rf "${probe_dir}" 2>/dev/null || true
-    return 1
-  }
-  overlay_value="$(printf '%s' "${overlay_output}" | "${candidate}" json-field --strict value 2>/dev/null)" || {
-    rm -rf "${probe_dir}" 2>/dev/null || true
-    return 1
-  }
-  rm -rf "${probe_dir}" 2>/dev/null || true
-  [[ "${decision}" == "run" && "${probe_cwd}" == "${probe_dir}" \
-    && "${overlay_source}" == "project_config" && "${overlay_value}" == "block" ]]
-}
-
 vg_policy_runtime_supports() {
-  local candidate="$1" probe_diag downgrade_probe codex_probe
-  if ! "${candidate}" runtime-policy-supports >/dev/null 2>&1; then
-    return 1
-  fi
-  vg_policy_runtime_supports_cwd_json "${candidate}" || return 1
-  probe_diag="${TMPDIR:-/tmp}/vibeguard-policy-probe.$$.jsonl"
-  downgrade_probe="$(printf '{"decision":"block","reason":"probe"}' \
-    | "${candidate}" runtime-policy-downgrade-output 2>/dev/null)" || return 1
-  [[ "${downgrade_probe}" == *'"decision"'* && "${downgrade_probe}" == *'"warn"'* ]] || return 1
-  codex_probe="$(printf 'probe' \
-    | "${candidate}" runtime-policy-codex-error PreToolUse 2>/dev/null)" || return 1
-  [[ "${codex_probe}" == *'"permissionDecision"'* && "${codex_probe}" == *'"deny"'* ]] || return 1
-  rm -f "${probe_diag}" 2>/dev/null || true
-  printf 'probe' \
-    | "${candidate}" runtime-policy-diag "${probe_diag}" __vibeguard_policy_probe__ PreToolUse policy_error probe >/dev/null 2>&1 || return 1
-  [[ -s "${probe_diag}" ]] || return 1
-  rm -f "${probe_diag}" 2>/dev/null || true
-  return 0
+  local candidate="$1" handshake
+  handshake="$("${candidate}" runtime-policy-supports 2>/dev/null)" || return 1
+  [[ "${handshake}" == "vibeguard-runtime-policy-v1" ]]
 }
 
 vg_policy_json_field() {
@@ -248,11 +192,12 @@ vg_policy_check_hook() {
   export VIBEGUARD_POLICY_ENFORCEMENT="block"
   export VG_POLICY_OUTPUT_FILTER=0
 
-  if ! runtime_path="$(vg_policy_runtime_path)"; then
+  if ! vg_policy_resolve_runtime; then
     VG_POLICY_REASON="VibeGuard policy error: vibeguard-runtime is required for runtime policy checks."
     VG_POLICY_KIND="policy_error"
     return 20
   fi
+  runtime_path="${VG_POLICY_RUNTIME_PATH_CACHE}"
   VG_POLICY_RUNTIME_PATH="${runtime_path}"
   policy_cwd="$(vg_policy_resolve_cwd "${payload_ref}" "${runtime_path}")"
   VG_POLICY_CWD="${policy_cwd}"
@@ -347,10 +292,13 @@ vg_policy_downgrade_output() {
   fi
 
   runtime_path="${VG_POLICY_RUNTIME_PATH:-}"
-  if [[ -z "${runtime_path}" ]] && ! runtime_path="$(vg_policy_runtime_path)"; then
-    printf 'VibeGuard policy error: vibeguard-runtime is required for warn-mode output downgrade.\n' >&2
-    printf '%s\n' "${output}"
-    return 0
+  if [[ -z "${runtime_path}" ]]; then
+    if ! vg_policy_resolve_runtime; then
+      printf 'VibeGuard policy error: vibeguard-runtime is required for warn-mode output downgrade.\n' >&2
+      printf '%s\n' "${output}"
+      return 0
+    fi
+    runtime_path="${VG_POLICY_RUNTIME_PATH_CACHE}"
   fi
 
   local -a downgrade_args
@@ -382,8 +330,9 @@ vg_policy_diag() {
   mkdir -p "${diag_dir}" 2>/dev/null || return 0
   local runtime_path
   runtime_path="${VG_POLICY_RUNTIME_PATH:-}"
-  if [[ -z "${runtime_path}" ]] && ! runtime_path="$(vg_policy_runtime_path)"; then
-    return 0
+  if [[ -z "${runtime_path}" ]]; then
+    vg_policy_resolve_runtime || return 0
+    runtime_path="${VG_POLICY_RUNTIME_PATH_CACHE}"
   fi
   printf '%s' "${reason}" \
     | "${runtime_path}" runtime-policy-diag \
@@ -398,9 +347,12 @@ vg_policy_codex_error_output() {
   local event_name="$1" reason runtime_path
   reason="$(vg_policy_error_reason "${2:-}")"
   runtime_path="${VG_POLICY_RUNTIME_PATH:-}"
-  if [[ -z "${runtime_path}" ]] && ! runtime_path="$(vg_policy_runtime_path)"; then
-    vg_policy_codex_error_fallback "${event_name}"
-    return 0
+  if [[ -z "${runtime_path}" ]]; then
+    if ! vg_policy_resolve_runtime; then
+      vg_policy_codex_error_fallback "${event_name}"
+      return 0
+    fi
+    runtime_path="${VG_POLICY_RUNTIME_PATH_CACHE}"
   fi
   printf '%s' "${reason}" | "${runtime_path}" runtime-policy-codex-error "${event_name}" || {
     vg_policy_codex_error_fallback "${event_name}"

@@ -19,11 +19,13 @@ const ALLOW: i32 = 0;
 const SKIP: i32 = 10;
 const POLICY_ERROR: i32 = 20;
 const CONFIG_PARSE_ERROR: i32 = 30;
+const POLICY_PROTOCOL: &str = "vibeguard-runtime-policy-v1";
 
 pub fn runtime_policy_supports(args: &[String]) -> HandlerResult {
     if !args.is_empty() {
         return Err("Usage: vibeguard-runtime runtime-policy-supports".into());
     }
+    println!("{POLICY_PROTOCOL}");
     Ok(())
 }
 

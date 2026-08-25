@@ -1,6 +1,10 @@
 mod common;
 
 use common::{bin, run_runtime_with_stdin};
+use std::io::Write;
+use std::process::Stdio;
+use std::thread;
+use std::time::{Duration, Instant};
 
 #[test]
 fn no_args_exits_2() {
@@ -124,6 +128,46 @@ fn help_lists_all_commands() {
             "Codex hook help must advertise the optional profile: {contract}; {stderr}"
         );
     }
+}
+
+#[test]
+fn app_server_wrapper_exits_when_output_breaks_while_input_stays_open() {
+    let mut child = bin()
+        .args([
+            "codex-app-server-wrapper",
+            "--strategy",
+            "noop",
+            "--codex-command",
+            "sleep 0.2; printf 'plain output\\n'; sleep 30",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take());
+    let mut stdin = child.stdin.take().unwrap();
+    let input_writer = thread::spawn(move || {
+        let mut input = vec![b'x'; 1024 * 1024];
+        input.push(b'\n');
+        stdin.write_all(&input)
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("app-server wrapper hung after its output pipe broke");
+        }
+        thread::sleep(Duration::from_millis(20));
+    };
+
+    assert_eq!(status.code(), Some(1));
+    drop(input_writer.join().unwrap());
 }
 
 #[test]

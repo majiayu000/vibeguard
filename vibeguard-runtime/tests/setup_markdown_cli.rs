@@ -432,3 +432,77 @@ fn markdown_read_and_write_errors_are_visible_without_success_output() {
     assert_visible_failure(&read_error, None);
     fixture.cleanup();
 }
+
+#[test]
+fn inject_rejects_invalid_utf8_without_replacing_existing_bytes() {
+    let fixture = Fixture::new("invalid-utf8-target");
+    let rules = fixture.write("rules.md", RULES);
+    let target = fixture.path("AGENTS.md");
+    let original = vec![0xff, 0xfe, b'\n'];
+    fs::write(&target, &original).unwrap();
+
+    let output = run(
+        &fixture,
+        "setup-md-inject",
+        &[&target, &rules],
+        &["/repo", "1"],
+    );
+
+    assert_visible_failure(&output, None);
+    assert_eq!(fs::read(&target).unwrap(), original);
+    fixture.cleanup();
+}
+
+#[cfg(unix)]
+#[test]
+fn inject_rejects_symlink_targets_without_replacing_the_link() {
+    use std::os::unix::fs::symlink;
+
+    let fixture = Fixture::new("symlink-target");
+    let rules = fixture.write("rules.md", RULES);
+    let victim = fixture.write("victim.md", "user content\n");
+    let target = fixture.path("AGENTS.md");
+    symlink(&victim, &target).unwrap();
+
+    let output = run(
+        &fixture,
+        "setup-md-inject",
+        &[&target, &rules],
+        &["/repo", "1"],
+    );
+
+    assert_visible_failure(&output, Some("must be a regular file"));
+    assert!(
+        fs::symlink_metadata(&target)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read_to_string(&victim).unwrap(), "user content\n");
+    fixture.cleanup();
+}
+
+#[cfg(unix)]
+#[test]
+fn inject_preserves_existing_target_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = Fixture::new("preserve-mode");
+    let rules = fixture.write("rules.md", RULES);
+    let target = fixture.write("AGENTS.md", "user content\n");
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o640)).unwrap();
+
+    let output = run(
+        &fixture,
+        "setup-md-inject",
+        &[&target, &rules],
+        &["/repo", "1"],
+    );
+
+    assert_success(&output, "APPENDED\n");
+    assert_eq!(
+        fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+    fixture.cleanup();
+}

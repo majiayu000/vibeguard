@@ -6,6 +6,7 @@ description = "VibeGuard runtime — fast JSON/JSONL ops, hook metrics, and Code
 license = "MIT"
 
 [dependencies]
+serde = "1"
 serde_json = "1"
 regex = "1"
 libc = "0.2"

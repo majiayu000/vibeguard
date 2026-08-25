@@ -5,6 +5,7 @@ pub mod bash;
 pub mod common;
 pub mod history;
 pub mod js;
+pub mod jsonl;
 pub mod scan;
 pub mod write;
 pub mod write_scan;

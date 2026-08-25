@@ -157,14 +157,13 @@ resolver_out="$(
   bash -c '
     source hooks/_lib/policy.sh
     vg_policy_runtime_path
+    vg_policy_runtime_path
   '
 )"
-assert_contains "${resolver_out}" "${optimized_runtime}" "runtime policy resolver accepts support probe with cwd JSON protocol"
+assert_contains "${resolver_out}" "${optimized_runtime}" "runtime policy resolver accepts the versioned policy handshake"
 assert_contains "$(cat "${optimized_probe_log}")" "supports" "runtime policy resolver calls support probe"
-assert_contains "$(cat "${optimized_probe_log}")" "check:runtime-policy-check --cwd" "runtime policy resolver probes runtime-policy-check --cwd"
-assert_contains "$(cat "${optimized_probe_log}")" "json-field:--strict decision" "runtime policy resolver validates structured decision JSON"
-assert_contains "$(cat "${optimized_probe_log}")" "json-field:--strict cwd" "runtime policy resolver validates structured cwd JSON"
-assert_contains "$(cat "${optimized_probe_log}")" "config:explain write_mode --cwd" "runtime policy resolver probes project runtime overlays"
+assert_occurrences "$(cat "${optimized_probe_log}")" "supports" "1" "runtime policy resolver uses one handshake process and caches it"
+assert_occurrences "${resolver_out}" "${optimized_runtime}" "2" "runtime policy resolver returns the cached path on repeated lookup"
 
 stale_protocol_runtime="${WORK_DIR}/stale-protocol-runtime"
 hook_test_write_policy_runtime_probe_stub "${stale_protocol_runtime}"
@@ -178,7 +177,7 @@ resolver_out="$(
     vg_policy_runtime_path
   '
 )"
-assert_not_contains "${resolver_out}" "${stale_protocol_runtime}" "runtime policy resolver rejects stale support probe without cwd JSON protocol"
+assert_not_contains "${resolver_out}" "${stale_protocol_runtime}" "runtime policy resolver rejects a stale protocol handshake"
 assert_contains "${resolver_out}" "${RUNTIME_BIN}" "runtime policy resolver falls through after stale support probe"
 
 resolver_home="${WORK_DIR}/home-resolver"

@@ -21,6 +21,7 @@ mod pkg_rewrite;
 mod project_config;
 mod runtime_config;
 mod runtime_policy;
+mod sensitive_redaction;
 mod session_metrics;
 mod setup;
 mod time_utils;

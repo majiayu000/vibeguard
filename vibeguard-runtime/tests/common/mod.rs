@@ -84,3 +84,91 @@ pub fn run_runtime_with_stdin(args: &[&str], input: &str) -> std::process::Outpu
         .unwrap();
     child.wait_with_output().unwrap()
 }
+
+pub fn hook_command(repo: &Path, log_root: &Path) -> Command {
+    let mut command = bin();
+    command
+        .current_dir(repo)
+        .env("VIBEGUARD_LOG_DIR", log_root)
+        .env("VIBEGUARD_CLI", "codex")
+        .env("VIBEGUARD_SESSION_ID", "session-test")
+        .env("VIBEGUARD_CALLER_EVIDENCE", "explicit-test")
+        .env("VIBEGUARD_WRAPPER", "test-wrapper")
+        .env("VIBEGUARD_SOURCE_CONFIG", "test-config")
+        .env("VIBEGUARD_HOOK_PROTOCOL_VERSION", "1");
+    command
+}
+
+pub fn run_hook(repo: &Path, log_root: &Path, hook: &str, input: &str) -> Output {
+    let mut child = hook_command(repo, log_root)
+        .args(["hook", hook])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+pub fn run_pre_bash_with(
+    repo: &Path,
+    log_root: &Path,
+    input: &str,
+    configure: impl FnOnce(&mut Command),
+) -> Output {
+    let mut command = hook_command(repo, log_root);
+    configure(&mut command);
+    let mut child = command
+        .args(["hook", "pre-bash"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+pub fn pre_bash_input(command: &str) -> String {
+    serde_json::json!({"tool_input": {"command": command}}).to_string()
+}
+
+pub fn run_pre_bash_case(
+    label: &str,
+    input: &str,
+    configure: impl FnOnce(&mut Command),
+) -> (PathBuf, PathBuf, Output) {
+    let root = unique_temp_dir(label);
+    let repo = root.join("repo");
+    let log_root = root.join("logs");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+    let output = run_pre_bash_with(&repo, &log_root, input, configure);
+    (root, log_root, output)
+}
+
+pub fn read_first_json(path: &Path) -> Value {
+    let text = fs::read_to_string(path).unwrap();
+    let first = text.lines().next().unwrap();
+    serde_json::from_str(first).unwrap()
+}
+
+pub fn first_project_event(log_root: &Path) -> Value {
+    let project_dir = fs::read_dir(log_root.join("projects"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    read_first_json(&project_dir.join("events.jsonl"))
+}

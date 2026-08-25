@@ -66,6 +66,113 @@ class BehaviorEvalTest(unittest.TestCase):
         self.assertFalse(empty_check["passed"])
         self.assertEqual(empty_check["actual"], stdout)
 
+    def test_evidence_kind_distinguishes_intercepts_and_allows(self) -> None:
+        self.assertEqual(
+            run_behavior_eval.evidence_kind(
+                {
+                    "runner": "claude_hook",
+                    "expect": {"json": [{"path": "decision", "equals": "block"}]},
+                }
+            ),
+            "intercept",
+        )
+        self.assertEqual(
+            run_behavior_eval.evidence_kind(
+                {"runner": "guard", "expect": {"exit_code": 0}}
+            ),
+            "allow",
+        )
+
+    def test_evidence_kind_ignores_structured_json_values_for_classification(self) -> None:
+        self.assertEqual(
+            run_behavior_eval.evidence_kind({
+                "runner": "guard",
+                "expect": {
+                    "exit_code": 0,
+                    "json": [{"equals": []}, {"equals": {"status": "pass"}}],
+                },
+            }),
+            "allow",
+        )
+
+    def test_evidence_kind_uses_only_documented_decision_paths(self) -> None:
+        self.assertEqual(
+            run_behavior_eval.evidence_kind({
+                "runner": "claude_hook",
+                "expect": {
+                    "json": [
+                        {"path": "decision", "equals": "allow"},
+                        {"path": "metadata.previous_decision", "equals": "block"},
+                    ]
+                },
+            }),
+            "allow",
+        )
+
+    def test_evidence_kind_requires_rule_specific_stdout_signal(self) -> None:
+        self.assertEqual(
+            run_behavior_eval.evidence_kind({
+                "runner": "claude_hook",
+                "rule": "L1",
+                "expect": {"exit_code": 0, "stdout_contains": ["usage: hook"]},
+            }),
+            "unknown",
+        )
+        self.assertEqual(
+            run_behavior_eval.evidence_kind({
+                "runner": "claude_hook",
+                "rule": "L1",
+                "expect": {"exit_code": 0, "stdout_contains": ["[L1] advisory"]},
+            }),
+            "intercept",
+        )
+
+    def test_evidence_kind_rejects_error_exit_as_intercept_evidence(self) -> None:
+        self.assertEqual(
+            run_behavior_eval.evidence_kind(
+                {"runner": "guard", "expect": {"exit_code": 1}}
+            ),
+            "intercept",
+        )
+        self.assertEqual(
+            run_behavior_eval.evidence_kind(
+                {"runner": "guard", "expect": {"exit_code": 2}}
+            ),
+            "unknown",
+        )
+        self.assertEqual(
+            run_behavior_eval.evidence_kind(
+                {"runner": "claude_hook", "expect": {"exit_code": 1}}
+            ),
+            "unknown",
+        )
+
+    def test_coverage_can_require_balanced_evidence(self) -> None:
+        requirement = {
+            "platform": "runtime",
+            "rule": "RS-03",
+            "evidence": ["intercept", "allow"],
+        }
+        positive = {
+            "platform": "runtime",
+            "rule": "RS-03",
+            "runner": "guard",
+            "expect": {"exit_code": 1},
+        }
+        negative = positive | {"expect": {"exit_code": 0}}
+
+        self.assertFalse(run_behavior_eval.requirement_is_covered([positive], requirement))
+        self.assertTrue(
+            run_behavior_eval.requirement_is_covered([positive, negative], requirement)
+        )
+
+    def test_requirement_validation_rejects_unknown_evidence(self) -> None:
+        with self.assertRaises(run_behavior_eval.BehaviorDatasetError):
+            run_behavior_eval.validate_requirements(
+                [{"platform": "runtime", "evidence": ["intercept", "unknown"]}],
+                Path("requirements.json"),
+            )
+
     def test_timeout_stream_text_decodes_bytes(self) -> None:
         self.assertEqual(run_behavior_eval.timeout_stream_text(b"partial\n"), "partial\n")
         self.assertEqual(run_behavior_eval.timeout_stream_text(None), "")

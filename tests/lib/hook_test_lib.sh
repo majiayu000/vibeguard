@@ -140,6 +140,7 @@ case "$command" in
     printf 'VIBEGUARD_SESSION_ID=%s\n' "$session_id"
     ;;
   runtime-policy-supports)
+    printf '%s\n' 'vibeguard-runtime-policy-v1'
     ;;
   runtime-policy-check)
     cwd=""
@@ -328,6 +329,11 @@ log_probe() {
 case "$command" in
   runtime-policy-supports)
     log_probe "supports"
+    if [[ "${VG_STUB_STALE_PROTOCOL:-0}" == "1" ]]; then
+      printf '%s\n' 'vibeguard-runtime-policy-v0'
+    else
+      printf '%s\n' 'vibeguard-runtime-policy-v1'
+    fi
     ;;
   runtime-policy-check)
     if [[ "${VG_STUB_STALE_PROTOCOL:-0}" == "1" ]]; then
