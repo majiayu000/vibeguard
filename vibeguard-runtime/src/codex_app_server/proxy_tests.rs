@@ -11,50 +11,53 @@ fn shared_noop() -> SharedSession {
 
 #[test]
 fn stdout_drain_waits_for_in_flight_request() {
-    let (tx, rx) = mpsc::channel();
-    tx.send(StdoutSignal::RequestStarted).unwrap();
-    let finish_tx = tx.clone();
-    let handle = thread::spawn(move || {
-        thread::sleep(Duration::from_millis(30));
-        finish_tx.send(StdoutSignal::RequestFinished).unwrap();
-    });
     let started = Instant::now();
+    let mut drain = DrainState::new(started);
+    drain.observe_stdout(StdoutSignal::RequestStarted, started);
+    drain.observe_stdin_done(started);
 
-    assert!(!wait_for_stdout_drain(
-        &rx,
+    assert!(!drain.should_close_stdin(
+        started + Duration::from_millis(30),
         Duration::from_millis(5),
         Duration::from_secs(5),
     ));
-    assert!(started.elapsed() >= Duration::from_millis(25));
-    handle.join().unwrap();
+    drain.observe_stdout(
+        StdoutSignal::RequestFinished,
+        started + Duration::from_millis(30),
+    );
+    assert!(!drain.should_close_stdin(
+        started + Duration::from_millis(34),
+        Duration::from_millis(5),
+        Duration::from_secs(5),
+    ));
+    assert!(drain.should_close_stdin(
+        started + Duration::from_millis(35),
+        Duration::from_millis(5),
+        Duration::from_secs(5),
+    ));
 }
 
 #[test]
 fn stdout_drain_finishes_when_stdout_is_done() {
-    let (tx, rx) = mpsc::channel();
-    tx.send(StdoutSignal::Done).unwrap();
+    let started = Instant::now();
+    let mut drain = DrainState::new(started);
+    drain.observe_stdout(StdoutSignal::Done, started);
 
-    assert!(wait_for_stdout_drain(
-        &rx,
-        Duration::from_millis(5),
-        Duration::from_secs(5),
-    ));
+    assert!(drain.should_close_stdin(started, Duration::from_millis(5), Duration::from_secs(5),));
 }
 
 #[test]
-fn stdout_drain_returns_false_when_request_never_finishes() {
-    let (tx, rx) = mpsc::channel();
-    tx.send(StdoutSignal::RequestStarted).unwrap();
-    let _keep_alive = tx;
+fn stdout_drain_times_out_when_request_never_finishes() {
     let started = Instant::now();
+    let mut drain = DrainState::new(started);
+    drain.observe_stdout(StdoutSignal::RequestStarted, started);
+    drain.observe_stdin_done(started);
 
-    assert!(!wait_for_stdout_drain(
-        &rx,
+    assert!(drain.should_close_stdin(
+        started + Duration::from_millis(50),
         Duration::from_millis(5),
-        Duration::from_millis(50),
+        Duration::from_millis(50)
     ));
-    assert!(started.elapsed() >= Duration::from_millis(45));
-    assert!(started.elapsed() < Duration::from_secs(2));
 }
 
 #[test]
@@ -125,9 +128,7 @@ fn poisoned_session_lock_fails_closed() {
 
 #[test]
 fn worker_panics_are_returned() {
-    let worker = thread::spawn(|| -> WorkerResult { panic!("worker fixture") });
-
-    let err = join_worker(worker, "fixture").unwrap_err();
+    let err = run_worker("fixture", || -> WorkerResult { panic!("worker fixture") }).unwrap_err();
 
     assert!(err.to_string().contains("fixture worker panicked"));
 }

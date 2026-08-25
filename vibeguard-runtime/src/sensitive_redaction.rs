@@ -9,7 +9,7 @@ fn patterns() -> &'static [Regex] {
     static PATTERNS: OnceLock<Vec<Regex>> = OnceLock::new();
     PATTERNS.get_or_init(|| {
         [
-            r#"(?i)(\bAuthorization\s*:\s*Bearer\s+)[^\s\"'`&;]+"#,
+            r#"(?i)(\bAuthorization\s*:\s*[A-Za-z][A-Za-z0-9_-]*\s+)[^\s\"'`&;]+"#,
             r#"(?i)(\bBearer\s+)[^\s\"'`&;]+"#,
             r#"(?i)(\s--?(?:api[_-]?key|password|passwd|secret|token)\s+)[^\s\"'`&;]+"#,
             r#"(?i)\b([A-Za-z0-9_:-]*(?:api[_-]?key|password|passwd|secret|token)[A-Za-z0-9_:-]*\s*[:=]\s*)(\"[^\"]*\"|'[^']*'|[^\s\"'`&;]+)"#,
@@ -52,9 +52,32 @@ pub(crate) fn redact_sensitive_values(value: &mut Value) {
     match value {
         Value::String(text) => *text = redact_sensitive(text),
         Value::Array(values) => values.iter_mut().for_each(redact_sensitive_values),
-        Value::Object(fields) => fields.values_mut().for_each(redact_sensitive_values),
+        Value::Object(fields) => fields.iter_mut().for_each(|(key, value)| {
+            if sensitive_key(key)
+                && let Value::String(text) = value
+            {
+                *text = REDACTED.to_string();
+                return;
+            }
+            redact_sensitive_values(value);
+        }),
         Value::Null | Value::Bool(_) | Value::Number(_) => {}
     }
+}
+
+fn sensitive_key(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+
+    normalized == "authorization"
+        || normalized.ends_with("apikey")
+        || normalized.ends_with("password")
+        || normalized.ends_with("passwd")
+        || normalized.ends_with("secret")
+        || normalized.ends_with("token")
 }
 
 #[cfg(test)]
@@ -83,6 +106,9 @@ mod tests {
         let mut value = json!({
             "detail": "token=top-secret",
             "nested": ["Bearer nested-secret", 7, true],
+            "token": "opaque-token-value",
+            "client_secret": "opaque-client-secret",
+            "token_count": "ordinary-count-label",
             "ordinary": "cargo test"
         });
 
@@ -91,6 +117,17 @@ mod tests {
         assert_eq!(value["detail"], "token=***REDACTED***");
         assert_eq!(value["nested"][0], "Bearer ***REDACTED***");
         assert_eq!(value["nested"][1], 7);
+        assert_eq!(value["token"], "***REDACTED***");
+        assert_eq!(value["client_secret"], "***REDACTED***");
+        assert_eq!(value["token_count"], "ordinary-count-label");
         assert_eq!(value["ordinary"], "cargo test");
+    }
+
+    #[test]
+    fn redacts_basic_authorization_headers() {
+        assert_eq!(
+            redact_sensitive("Authorization: Basic Zml4dHVyZTpwYXNzd29yZA=="),
+            "Authorization: Basic ***REDACTED***"
+        );
     }
 }

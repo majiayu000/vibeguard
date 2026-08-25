@@ -58,10 +58,5 @@ fn read_valid_jsonl_line(command_name: &str) -> Result<String> {
         return Ok(line);
     }
 
-    let serialized = serde_json::to_string(&value)?;
-    if line.contains("\": ") {
-        Ok(serialized.replace("\":", "\": "))
-    } else {
-        Ok(serialized)
-    }
+    Ok(serde_json::to_string(&value)?)
 }

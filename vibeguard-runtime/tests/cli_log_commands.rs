@@ -2,7 +2,7 @@ mod common;
 
 #[cfg(unix)]
 use common::file_mode;
-use common::{bin, unique_temp_dir};
+use common::{bin, run_runtime_with_stdin, unique_temp_dir};
 use std::fs;
 use std::io::Write;
 #[cfg(unix)]
@@ -319,6 +319,38 @@ fn append_jsonl_command_appends_one_line() {
     serde_json::from_str::<serde_json::Value>(content.trim_end()).unwrap();
     #[cfg(unix)]
     assert_eq!(file_mode(&log_file), 0o600);
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn append_jsonl_redacts_structured_credentials_without_changing_other_values() {
+    let dir = unique_temp_dir("append-jsonl-redaction");
+    fs::create_dir_all(&dir).unwrap();
+    let log_file = dir.join("events.jsonl");
+    let input = serde_json::json!({
+        "token": "fixture-structured-token",
+        "authorization": "Basic fixture-basic-credential",
+        "detail": "Authorization: Basic fixture-inline-credential",
+        "ordinary": "quote\":marker"
+    });
+    let out = run_runtime_with_stdin(
+        &["append-jsonl", log_file.to_str().unwrap()],
+        &format!("{input}\n"),
+    );
+
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let persisted: serde_json::Value =
+        serde_json::from_str(fs::read_to_string(&log_file).unwrap().trim()).unwrap();
+    assert_eq!(persisted["token"], "***REDACTED***");
+    assert_eq!(persisted["authorization"], "***REDACTED***");
+    assert_eq!(persisted["detail"], "Authorization: Basic ***REDACTED***");
+    assert_eq!(persisted["ordinary"], "quote\":marker");
+
     let _ = fs::remove_dir_all(dir);
 }
 
