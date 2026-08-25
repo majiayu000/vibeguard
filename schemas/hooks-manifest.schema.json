@@ -58,9 +58,35 @@
           "items": {"enum": ["pass", "warn", "block", "gate", "escalate", "correction", "complete"]},
           "uniqueItems": true
         },
+        "app_server": {"$ref": "#/$defs/app_server"},
         "claude": {"$ref": "#/$defs/claude_platform"},
         "codex": {"$ref": "#/$defs/codex_platform"}
       }
+    },
+    "app_server": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["role", "tool"],
+          "additionalProperties": false,
+          "properties": {
+            "role": {"enum": ["file_pre", "file_post"]},
+            "tool": {"enum": ["Edit", "Write"]},
+            "required": {"type": "boolean"}
+          }
+        },
+        {
+          "type": "object",
+          "required": ["role"],
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "enum": ["command_pre", "analysis_observer", "post_turn_build", "post_turn"]
+            },
+            "required": {"type": "boolean"}
+          }
+        }
+      ]
     },
     "claude_platform": {
       "type": "object",
