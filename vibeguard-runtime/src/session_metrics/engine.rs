@@ -1,11 +1,11 @@
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::fs::OpenOptions;
 use std::io::{self, BufRead, Write};
 
 use crate::event_schema::{
     SESSION_METRICS_SCHEMA_VERSION, UNKNOWN, decision, field, hook, metric_field, tool,
 };
+use crate::hook_checks::jsonl::append_jsonl;
 
 use super::signals::build_signals;
 use super::time::{
@@ -48,10 +48,7 @@ pub(super) fn run_inner(
 
     let mut events: Vec<Value> = Vec::new();
     for line in stdin.lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
+        let line = line?;
         let line = line.trim().to_string();
         if line.is_empty() {
             continue;
@@ -175,13 +172,8 @@ pub(super) fn run_inner(
     );
     let metrics = Value::Object(metrics_map);
 
-    if let Ok(mut f) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&metrics_path)
-    {
-        let _ = writeln!(f, "{}", serde_json::to_string(&metrics)?);
-    }
+    let metrics_line = serde_json::to_string(&metrics)?;
+    append_jsonl(std::path::Path::new(&metrics_path), &metrics_line)?;
 
     // Output
     if !signals.is_empty() {
@@ -265,5 +257,29 @@ mod tests {
             !metrics_path.exists(),
             "only two valid session events remain, so metrics should not be written"
         );
+    }
+
+    #[test]
+    fn run_inner_reports_metrics_persistence_failure() {
+        let dir = tmp_dir_for_test("write-failure");
+        let not_a_directory = dir.join("not-a-directory");
+        std::fs::write(&not_a_directory, "occupied").unwrap();
+        let input = concat!(
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+        );
+        let mut out = Vec::<u8>::new();
+
+        let result = run_inner(
+            &make_args(not_a_directory.to_str().unwrap()),
+            io::Cursor::new(input),
+            &mut out,
+            0,
+        );
+
+        assert!(result.is_err());
+        assert!(out.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

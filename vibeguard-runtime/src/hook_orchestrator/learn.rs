@@ -14,25 +14,30 @@ use crate::session_metrics;
 use crate::wrapper_env::env_nonempty;
 
 pub(crate) fn run(input: &str, start: Instant) -> Result {
-    if learn_is_ci() || learn_stop_hook_active(input) || current_git_root_by_marker().is_none() {
+    if learn_is_ci() || learn_stop_hook_active(input)? || current_git_root_by_marker().is_none() {
         return Ok(());
     }
 
-    let ctx = match RuntimeContext::collect() {
-        Ok(ctx) => ctx,
-        Err(err) => {
-            eprintln!("VIBEGUARD: failed to collect context for learn-evaluator event: {err}");
-            return Ok(());
-        }
-    };
+    let ctx = RuntimeContext::collect()
+        .map_err(|err| format!("failed to collect context for learn-evaluator event: {err}"))?;
 
     let tail_bytes = runtime_config_int_value(
         "VIBEGUARD_LEARN_METRICS_TAIL_BYTES",
         "learn.metrics_tail_bytes",
         "5242880",
     ) as usize;
-    log_truncation_once(&ctx, tail_bytes, start);
-    let events = recent_log_text(&ctx.log_file, tail_bytes).unwrap_or_default();
+    log_truncation_once(&ctx, tail_bytes, start)?;
+    let events = match recent_log_text(&ctx.log_file, tail_bytes) {
+        Ok(events) => events,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(err) => {
+            return Err(format!(
+                "failed to read learn-evaluator events from {}: {err}",
+                ctx.log_file.display()
+            )
+            .into());
+        }
+    };
     let metrics_output = session_metrics::run_text(
         &ctx.session_id,
         &ctx.log_file
@@ -41,7 +46,7 @@ pub(crate) fn run(input: &str, start: Instant) -> Result {
             .to_string_lossy(),
         &events,
     )
-    .unwrap_or_default();
+    .map_err(|err| format!("failed to calculate or persist session metrics: {err}"))?;
     let mut lines = metrics_output
         .lines()
         .map(str::trim)
@@ -84,37 +89,55 @@ fn learn_is_ci() -> bool {
         || learn_truthy_env("TF_BUILD")
 }
 
-fn learn_stop_hook_active(input: &str) -> bool {
-    serde_json::from_str::<Value>(input)
-        .ok()
-        .and_then(|data| data.get("stop_hook_active").and_then(Value::as_bool))
-        .unwrap_or(false)
+fn learn_stop_hook_active(input: &str) -> Result<bool> {
+    let data = serde_json::from_str::<Value>(input)
+        .map_err(|err| format!("invalid learn-evaluator Stop input: {err}"))?;
+    Ok(data
+        .get("stop_hook_active")
+        .and_then(Value::as_bool)
+        .unwrap_or(false))
 }
 
-fn log_truncation_once(ctx: &RuntimeContext, tail_bytes: usize, start: Instant) {
+fn log_truncation_once(ctx: &RuntimeContext, tail_bytes: usize, start: Instant) -> Result {
     if tail_bytes == 0 {
-        return;
+        return Ok(());
     }
-    let Ok(metadata) = fs::metadata(&ctx.log_file) else {
-        return;
+    let metadata = match fs::metadata(&ctx.log_file) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => {
+            return Err(format!(
+                "failed to inspect learn-evaluator log {}: {err}",
+                ctx.log_file.display()
+            )
+            .into());
+        }
     };
     if metadata.len() <= tail_bytes as u64 {
-        return;
+        return Ok(());
     }
     let session_key = sanitize_session_key(&ctx.session_id);
     let flag_file = ctx
         .log_root
         .join(format!(".learn_metrics_truncated_{session_key}"));
-    if flag_file.exists() {
-        return;
+    if flag_file.try_exists().map_err(|err| {
+        format!(
+            "failed to inspect learn-evaluator truncation marker {}: {err}",
+            flag_file.display()
+        )
+    })? {
+        return Ok(());
     }
-    if fs::write(&flag_file, b"").is_err() {
-        return;
-    }
+    fs::write(&flag_file, b"").map_err(|err| {
+        format!(
+            "failed to write learn-evaluator truncation marker {}: {err}",
+            flag_file.display()
+        )
+    })?;
     let reason = format!(
         "metrics input truncated to {tail_bytes} bytes before 30-minute filter; increase VIBEGUARD_LEARN_METRICS_TAIL_BYTES for very busy sessions"
     );
-    let _ = append_hook_event(
+    append_hook_event(
         ctx,
         HookKind::Learn,
         decision::WARN,
@@ -122,7 +145,8 @@ fn log_truncation_once(ctx: &RuntimeContext, tail_bytes: usize, start: Instant) 
         &reason,
         &ctx.log_file.to_string_lossy(),
         elapsed_ms(start),
-    );
+    )?;
+    Ok(())
 }
 
 fn sanitize_session_key(value: &str) -> String {
@@ -159,9 +183,9 @@ mod tests {
 
     #[test]
     fn stop_hook_active_is_read_from_hook_input() {
-        assert!(learn_stop_hook_active(r#"{"stop_hook_active":true}"#));
-        assert!(!learn_stop_hook_active(r#"{"stop_hook_active":false}"#));
-        assert!(!learn_stop_hook_active("{"));
+        assert!(learn_stop_hook_active(r#"{"stop_hook_active":true}"#).unwrap());
+        assert!(!learn_stop_hook_active(r#"{"stop_hook_active":false}"#).unwrap());
+        assert!(learn_stop_hook_active("{").is_err());
     }
 
     #[test]
@@ -184,6 +208,21 @@ mod tests {
         assert_eq!(recent_log_text(&path, 0)?, "0123456789");
 
         fs::remove_file(path).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn recent_log_text_reports_non_file_inputs() -> std::result::Result<(), Box<dyn Error>> {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let path = env::temp_dir().join(format!("vibeguard-learn-dir-{unique}"));
+        fs::create_dir(&path)?;
+
+        assert!(recent_log_text(&path, 0).is_err());
+
+        fs::remove_dir(path)?;
         Ok(())
     }
 }

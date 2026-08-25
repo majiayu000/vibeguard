@@ -396,7 +396,12 @@ pub(crate) fn write_log_event(
         }
     }
     crate::sensitive_redaction::redact_sensitive_values(&mut event);
-    let line = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
+    let line = serde_json::to_string(&event).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("failed to serialize hook event: {err}"),
+        )
+    })?;
     let primary = Path::new(log_file);
     let mirror = env::var("VIBEGUARD_LOG_DIR")
         .map(|log_dir| Path::new(&log_dir).join("events.jsonl"))
