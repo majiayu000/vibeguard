@@ -53,13 +53,11 @@ pub(crate) fn redact_sensitive_values(value: &mut Value) {
         Value::String(text) => *text = redact_sensitive(text),
         Value::Array(values) => values.iter_mut().for_each(redact_sensitive_values),
         Value::Object(fields) => fields.iter_mut().for_each(|(key, value)| {
-            if sensitive_key(key)
-                && let Value::String(text) = value
-            {
-                *text = REDACTED.to_string();
-                return;
+            if sensitive_key(key) {
+                *value = Value::String(REDACTED.to_string());
+            } else {
+                redact_sensitive_values(value);
             }
-            redact_sensitive_values(value);
         }),
         Value::Null | Value::Bool(_) | Value::Number(_) => {}
     }
@@ -78,6 +76,9 @@ fn sensitive_key(key: &str) -> bool {
         || normalized.ends_with("passwd")
         || normalized.ends_with("secret")
         || normalized.ends_with("token")
+        || normalized.ends_with("credential")
+        || normalized.ends_with("credentials")
+        || normalized.ends_with("privatekey")
 }
 
 #[cfg(test)]
@@ -108,6 +109,10 @@ mod tests {
             "nested": ["Bearer nested-secret", 7, true],
             "token": "opaque-token-value",
             "client_secret": "opaque-client-secret",
+            "authorization": {"scheme": "Basic", "value": "opaque-auth-value"},
+            "credentials": {"user": "fixture", "value": "opaque-credential-value"},
+            "ssh_private_key": ["opaque-private-key"],
+            "retry_token": 7,
             "token_count": "ordinary-count-label",
             "ordinary": "cargo test"
         });
@@ -119,6 +124,10 @@ mod tests {
         assert_eq!(value["nested"][1], 7);
         assert_eq!(value["token"], "***REDACTED***");
         assert_eq!(value["client_secret"], "***REDACTED***");
+        assert_eq!(value["authorization"], "***REDACTED***");
+        assert_eq!(value["credentials"], "***REDACTED***");
+        assert_eq!(value["ssh_private_key"], "***REDACTED***");
+        assert_eq!(value["retry_token"], "***REDACTED***");
         assert_eq!(value["token_count"], "ordinary-count-label");
         assert_eq!(value["ordinary"], "cargo test");
     }

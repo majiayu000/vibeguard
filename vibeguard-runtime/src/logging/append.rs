@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::hook_checks::common::read_stdin;
-use crate::hook_checks::jsonl::{append_jsonl, append_jsonl_mirror};
+use crate::hook_checks::jsonl::{append_jsonl, append_jsonl_mirror, serialize_jsonl_value};
 use crate::sensitive_redaction::redact_sensitive_values;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -58,5 +58,5 @@ fn read_valid_jsonl_line(command_name: &str) -> Result<String> {
         return Ok(line);
     }
 
-    Ok(serde_json::to_string(&value)?)
+    Ok(serialize_jsonl_value(&value)?)
 }

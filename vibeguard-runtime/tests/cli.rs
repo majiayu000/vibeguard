@@ -1,6 +1,7 @@
 mod common;
 
 use common::{bin, run_runtime_with_stdin};
+use std::io::Write;
 use std::process::Stdio;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -137,7 +138,7 @@ fn app_server_wrapper_exits_when_output_breaks_while_input_stays_open() {
             "--strategy",
             "noop",
             "--codex-command",
-            "printf 'plain output\\n'; read line",
+            "sleep 0.2; printf 'plain output\\n'; sleep 30",
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -145,6 +146,12 @@ fn app_server_wrapper_exits_when_output_breaks_while_input_stays_open() {
         .spawn()
         .unwrap();
     drop(child.stdout.take());
+    let mut stdin = child.stdin.take().unwrap();
+    let input_writer = thread::spawn(move || {
+        let mut input = vec![b'x'; 1024 * 1024];
+        input.push(b'\n');
+        stdin.write_all(&input)
+    });
     let deadline = Instant::now() + Duration::from_secs(5);
 
     let status = loop {
@@ -160,6 +167,7 @@ fn app_server_wrapper_exits_when_output_breaks_while_input_stays_open() {
     };
 
     assert_eq!(status.code(), Some(1));
+    drop(input_writer.join().unwrap());
 }
 
 #[test]

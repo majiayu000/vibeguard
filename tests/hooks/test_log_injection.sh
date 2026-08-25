@@ -103,10 +103,11 @@ result=$(
     "Bash" \
     "warn" \
     'Authorization: Bearer sk-reason-secret token=reason-token TOKEN=upper-token SECRET=upper-secret PASSWORD=upper-password apiKey=camel-key' \
-    'curl -H "Authorization: Bearer sk-detail-secret" https://example.test?api_key=detail-key password=hunter2 --token cli-token --password cli-password TOKEN=detail-token SECRET=detail-secret PASSWORD=detail-password apiKey=detail-camel-key'
+    'curl -H "Authorization: Basic fixture-basic-secret" -H "Authorization: Bearer sk-detail-secret" https://example.test?api_key=detail-key password=hunter2 --token cli-token --password cli-password TOKEN=detail-token SECRET=detail-secret PASSWORD=detail-password apiKey=detail-camel-key'
   cat "$VIBEGUARD_LOG_FILE"
 )
 assert_contains "$result" 'Bearer ***REDACTED***' "Bearer tokens are redacted in event logs"
+assert_contains "$result" 'Basic ***REDACTED***' "Basic authorization credentials are redacted in event logs"
 assert_contains "$result" 'api_key=***REDACTED***' "API keys are redacted in event logs"
 assert_contains "$result" 'apiKey=***REDACTED***' "CamelCase API keys are redacted in event logs"
 assert_contains "$result" 'password=***REDACTED***' "Password assignments are redacted in event logs"
@@ -117,6 +118,7 @@ assert_contains "$result" ' --token ***REDACTED***' "Token flags are redacted in
 assert_contains "$result" ' --password ***REDACTED***' "Password flags are redacted in event logs"
 assert_not_contains "$result" "sk-reason-secret" "Reason bearer secret is not persisted"
 assert_not_contains "$result" "sk-detail-secret" "Detail bearer secret is not persisted"
+assert_not_contains "$result" "fixture-basic-secret" "Basic authorization secret is not persisted"
 assert_not_contains "$result" "detail-key" "API key value is not persisted"
 assert_not_contains "$result" "hunter2" "Password value is not persisted"
 assert_not_contains "$result" "upper-token" "Uppercase token value is not persisted"
@@ -275,7 +277,7 @@ stale_mirror_result=$(
   export VIBEGUARD_SESSION_ID="stale-runtime-mirror-test"
   export VIBEGUARD_RUNTIME="$stale_mirror_runtime_bin"
   source hooks/log.sh
-  vg_log "test" "Tool" "pass" "stale mirror" "fallback" 2>"$stale_mirror_runtime_stderr"
+  vg_log "test" "Tool" "pass" "stale mirror" "Authorization: Basic stale-basic-secret" 2>"$stale_mirror_runtime_stderr"
   printf 'rc=%s primary=%s global=%s' \
     "$?" \
     "$(wc -l < "$VIBEGUARD_LOG_FILE" | tr -d ' ')" \
@@ -286,6 +288,8 @@ set -e
 assert_contains "$stale_mirror_result" "rc=0" "Stale runtime without append-jsonl-mirror falls back for mirrored vg_log"
 assert_contains "$stale_mirror_result" "primary=1" "Stale runtime mirror fallback writes the primary log"
 assert_contains "$stale_mirror_result" "global=1" "Stale runtime mirror fallback writes the global log"
+assert_not_contains "$(cat "${stale_mirror_runtime_test_dir}/project/events.jsonl")" "stale-basic-secret" "Stale runtime shell fallback redacts Basic authorization"
+assert_contains "$(cat "${stale_mirror_runtime_test_dir}/project/events.jsonl")" "Basic ***REDACTED***" "Stale runtime shell fallback preserves the authorization scheme"
 assert_not_contains "$(cat "$stale_mirror_runtime_stderr")" "runtime mirrored JSONL append failed" "Stale runtime mirror fallback does not report runtime mirror failure"
 rm -rf "$stale_mirror_runtime_test_dir"
 

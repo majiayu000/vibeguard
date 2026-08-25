@@ -263,7 +263,8 @@ fn hook_orchestrator_redacts_sensitive_command_values_before_persistence() {
     fs::create_dir_all(repo.join(".git")).unwrap();
 
     let input = pre_bash_input(
-        "curl -H 'Authorization: Bearer fixture-bearer-value' \
+        "printf 'quote\":marker'; \
+         curl -H 'Authorization: Bearer fixture-bearer-value' \
          'https://example.test?api_key=fixture-query-value' \
          --token fixture-flag-value",
     );
@@ -276,6 +277,13 @@ fn hook_orchestrator_redacts_sensitive_command_values_before_persistence() {
     );
 
     let event = first_project_event(&log_root);
+    assert!(
+        event["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("quote\":marker")),
+        "{}",
+        event["detail"]
+    );
     let persisted = serde_json::to_string(&event).unwrap();
     assert!(persisted.contains("***REDACTED***"), "{persisted}");
     for secret in [

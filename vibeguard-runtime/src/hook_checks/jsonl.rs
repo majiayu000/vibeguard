@@ -8,6 +8,28 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use serde::Serialize;
+use serde_json::Value;
+use serde_json::ser::{Formatter, Serializer};
+
+struct JsonlFormatter;
+
+impl Formatter for JsonlFormatter {
+    fn begin_object_value<W>(&mut self, writer: &mut W) -> io::Result<()>
+    where
+        W: ?Sized + Write,
+    {
+        writer.write_all(b": ")
+    }
+}
+
+pub(crate) fn serialize_jsonl_value(value: &Value) -> io::Result<String> {
+    let mut output = Vec::new();
+    let mut serializer = Serializer::with_formatter(&mut output, JsonlFormatter);
+    value.serialize(&mut serializer).map_err(io::Error::other)?;
+    String::from_utf8(output).map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
+}
+
 pub(crate) fn append_jsonl(path: &Path, line: &str) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -182,10 +204,19 @@ fn set_owner_only(_path: &Path) {}
 
 #[cfg(test)]
 mod tests {
-    use super::append_jsonl;
-    use serde_json::Value;
+    use super::{append_jsonl, serialize_jsonl_value};
+    use serde_json::{Value, json};
     use std::fs;
     use std::path::PathBuf;
+
+    #[test]
+    fn jsonl_formatter_preserves_string_content_and_compatibility_spacing() {
+        let value = json!({"detail": "quote\":marker", "nested": {"ok": true}});
+        let line = serialize_jsonl_value(&value).unwrap();
+
+        assert!(line.contains("\"detail\": \"quote\\\":marker\""), "{line}");
+        assert_eq!(serde_json::from_str::<Value>(&line).unwrap(), value);
+    }
 
     #[test]
     fn append_jsonl_keeps_concurrent_records_parseable() {

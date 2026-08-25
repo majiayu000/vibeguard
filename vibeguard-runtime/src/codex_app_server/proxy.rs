@@ -96,14 +96,13 @@ pub(super) fn run_proxy(
             &stdout_writer,
             &stdout_event_tx,
         );
-        combine_io_results(
-            result,
+        result.and_then(|()| {
             stdout_event_tx
                 .send(ProxyEvent::Stdout(StdoutSignal::Done))
                 .map_err(|_| {
                     io::Error::new(io::ErrorKind::BrokenPipe, "stdout drain receiver closed")
-                }),
-        )
+                })
+        })
     });
 
     let _stderr_worker = spawn_worker(WorkerKind::Stderr, event_tx.clone(), move || {
@@ -419,12 +418,6 @@ fn abort_proxy(
     writer: &ChildInput,
     mut failures: Vec<String>,
 ) -> Result<(), Box<dyn Error>> {
-    record_failure(
-        &mut failures,
-        "close child stdin after worker failure",
-        close_child_stdin(writer),
-    );
-
     let status = match child.try_wait() {
         Ok(Some(status)) => Some(status),
         Ok(None) => {
@@ -449,6 +442,11 @@ fn abort_proxy(
             }
         }
     };
+    record_failure(
+        &mut failures,
+        "close child stdin after worker failure",
+        close_child_stdin(writer),
+    );
     if let Some(status) = status
         && !status.success()
     {
