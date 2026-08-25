@@ -12,7 +12,7 @@ fn patterns() -> &'static [Regex] {
             r#"(?i)(\bAuthorization\s*:\s*[A-Za-z][A-Za-z0-9_-]*\s+)[^\s\"'`&;]+"#,
             r#"(?i)(\bBearer\s+)[^\s\"'`&;]+"#,
             r#"(?i)(\s--?(?:api[_-]?key|password|passwd|secret|token)\s+)[^\s\"'`&;]+"#,
-            r#"(?i)\b([A-Za-z0-9_:-]*(?:api[_-]?key|password|passwd|secret|token)[A-Za-z0-9_:-]*\s*[:=]\s*)(\"[^\"]*\"|'[^']*'|[^\s\"'`&;]+)"#,
+            r#"(?i)\b([A-Za-z0-9_:-]*(?:api[_-]?key|password|passwd|secret|token)[A-Za-z0-9_:-]*\s*[:=]\s*)(\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\s\"'`&;]+)"#,
         ]
         .into_iter()
         .map(|pattern| Regex::new(pattern).expect("sensitive redaction regex must compile"))
@@ -137,6 +137,16 @@ mod tests {
         assert_eq!(
             redact_sensitive("Authorization: Basic Zml4dHVyZTpwYXNzd29yZA=="),
             "Authorization: Basic ***REDACTED***"
+        );
+    }
+
+    #[test]
+    fn redacts_quoted_credentials_with_escaped_quotes() {
+        let text = r#"password="abc\"def secret" token='ghi\'jkl secret'"#;
+
+        assert_eq!(
+            redact_sensitive(text),
+            "password=***REDACTED*** token=***REDACTED***"
         );
     }
 }

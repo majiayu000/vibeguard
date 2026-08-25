@@ -69,7 +69,10 @@ class BehaviorEvalTest(unittest.TestCase):
     def test_evidence_kind_distinguishes_intercepts_and_allows(self) -> None:
         self.assertEqual(
             run_behavior_eval.evidence_kind(
-                {"runner": "claude_hook", "expect": {"json": [{"equals": "block"}]}}
+                {
+                    "runner": "claude_hook",
+                    "expect": {"json": [{"path": "decision", "equals": "block"}]},
+                }
             ),
             "intercept",
         )
@@ -87,6 +90,20 @@ class BehaviorEvalTest(unittest.TestCase):
                 "expect": {
                     "exit_code": 0,
                     "json": [{"equals": []}, {"equals": {"status": "pass"}}],
+                },
+            }),
+            "allow",
+        )
+
+    def test_evidence_kind_uses_only_documented_decision_paths(self) -> None:
+        self.assertEqual(
+            run_behavior_eval.evidence_kind({
+                "runner": "claude_hook",
+                "expect": {
+                    "json": [
+                        {"path": "decision", "equals": "allow"},
+                        {"path": "metadata.previous_decision", "equals": "block"},
+                    ]
                 },
             }),
             "allow",

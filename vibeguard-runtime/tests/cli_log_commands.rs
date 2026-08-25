@@ -369,6 +369,7 @@ fn append_jsonl_redacts_structured_credentials_without_changing_other_values() {
         "token": "fixture-structured-token",
         "authorization": "Basic fixture-basic-credential",
         "detail": "Authorization: Basic fixture-inline-credential",
+        "escaped_detail": r#"password="abc\"def secret" token='ghi\'jkl secret'"#,
         "ordinary": "quote\":marker"
     });
     let out = run_runtime_with_stdin(
@@ -387,6 +388,10 @@ fn append_jsonl_redacts_structured_credentials_without_changing_other_values() {
     assert_eq!(persisted["token"], "***REDACTED***");
     assert_eq!(persisted["authorization"], "***REDACTED***");
     assert_eq!(persisted["detail"], "Authorization: Basic ***REDACTED***");
+    assert_eq!(
+        persisted["escaped_detail"],
+        "password=***REDACTED*** token=***REDACTED***"
+    );
     assert_eq!(persisted["ordinary"], "quote\":marker");
 
     let _ = fs::remove_dir_all(dir);

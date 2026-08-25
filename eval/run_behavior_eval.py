@@ -48,6 +48,12 @@ DEFAULT_THRESHOLDS = {
     "min_coverage_rate": 100.0,
     "slice_min_pass_rate": 100.0,
 }
+EVIDENCE_DECISION_PATHS = {
+    "decision",
+    "status",
+    "hookSpecificOutput.permissionDecision",
+    "hookSpecificOutput.decision.behavior",
+}
 
 
 class BehaviorDatasetError(ValueError):
@@ -124,7 +130,9 @@ def evidence_kind(sample: dict[str, Any]) -> str:
     expected_values = {
         assertion.get("equals")
         for assertion in expect.get("json", [])
-        if isinstance(assertion, dict) and isinstance(assertion.get("equals"), str)
+        if isinstance(assertion, dict)
+        and assertion.get("path") in EVIDENCE_DECISION_PATHS
+        and isinstance(assertion.get("equals"), str)
     }
     if expected_values & intercept_values:
         return "intercept"
