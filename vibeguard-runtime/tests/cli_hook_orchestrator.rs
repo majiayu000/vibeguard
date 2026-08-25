@@ -192,6 +192,12 @@ fn hook_orchestrator_writes_project_and_global_events() {
     assert_eq!(event["decision"], "pass");
     assert_eq!(event["status"], "pass");
     assert_eq!(event["session"], "session-test");
+    assert!(
+        event["record_id"]
+            .as_str()
+            .is_some_and(|record_id| record_id.starts_with("VGR-")),
+        "{event}"
+    );
     assert_eq!(event["cli"], "codex");
     assert_eq!(event["client"], "codex");
     assert_eq!(event["client_variant"], "codex-cli-hooks");
@@ -202,6 +208,49 @@ fn hook_orchestrator_writes_project_and_global_events() {
     assert_eq!(event["detail"], "git status");
     assert!(event["duration_ms"].as_u64().is_some(), "{event}");
     assert_eq!(event["project_hash"].as_str().unwrap().len(), 8);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn hook_orchestrator_writes_global_mirror_after_project_append_failure() {
+    let root = unique_temp_dir("hook-orchestrator-primary-log-failure");
+    let repo = root.join("repo");
+    let log_root = root.join("logs");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+
+    let first = run_hook(&repo, &log_root, "pre-bash", &pre_bash_input("echo first"));
+    assert_eq!(first.status.code(), Some(0));
+    let project_dir = fs::read_dir(log_root.join("projects"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let project_log = project_dir.join("events.jsonl");
+    fs::remove_file(log_root.join("events.jsonl")).unwrap();
+    fs::create_dir(format!("{}.lock.d", project_log.display())).unwrap();
+
+    let second = run_pre_bash_with(
+        &repo,
+        &log_root,
+        &pre_bash_input("echo second"),
+        |command| {
+            command
+                .env("VIBEGUARD_LOG_LOCK_ATTEMPTS", "1")
+                .env("VIBEGUARD_LOG_LOCK_SLEEP_SECONDS", "0");
+        },
+    );
+    assert_eq!(second.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&second.stderr).contains("primary JSONL append failed"),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let global_event = read_first_json(&log_root.join("events.jsonl"));
+    assert_eq!(global_event["detail"], "echo second");
+    assert!(global_event["record_id"].as_str().is_some());
+    assert_eq!(fs::read_to_string(&project_log).unwrap().lines().count(), 1);
 
     let _ = fs::remove_dir_all(root);
 }

@@ -294,8 +294,10 @@ vg_log() {
   esc_reason=$(vg_log_json_escape "$reason")
   esc_detail=$(vg_log_json_escape "$detail")
 
+  _VG_LOG_RECORD_SEQUENCE=$(( ${_VG_LOG_RECORD_SEQUENCE:-0} + 1 ))
+  local record_id="VGR-$(date +%s)-$$-${_VG_LOG_RECORD_SEQUENCE}"
   local json
-  json="{\"schema_version\": 1, \"ts\": \"${ts}\", \"session\": \"${VIBEGUARD_SESSION_ID}\", \"hook\": \"${hook}\", \"tool\": \"${tool}\", \"decision\": \"${decision}\", \"status\": \"${decision}\", \"reason\": \"${esc_reason}\", \"detail\": \"${esc_detail}\""
+  json="{\"schema_version\": 1, \"ts\": \"${ts}\", \"record_id\": \"${record_id}\", \"session\": \"${VIBEGUARD_SESSION_ID}\", \"hook\": \"${hook}\", \"tool\": \"${tool}\", \"decision\": \"${decision}\", \"status\": \"${decision}\", \"reason\": \"${esc_reason}\", \"detail\": \"${esc_detail}\""
   [[ -n "$duration_ms" ]] && json="${json}, \"duration_ms\": ${duration_ms}"
   json="$(vg_log_append_string_field "$json" "cli" "${VIBEGUARD_CLI:-}")"
   json="$(vg_log_append_string_field "$json" "agent" "${VIBEGUARD_AGENT_TYPE:-}")"

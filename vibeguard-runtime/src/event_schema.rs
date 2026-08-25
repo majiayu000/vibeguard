@@ -6,8 +6,22 @@
 pub const UNKNOWN: &str = "unknown";
 pub const SESSION_METRICS_SCHEMA_VERSION: u64 = 1;
 
+static NEXT_RECORD_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+pub(crate) fn next_record_id() -> String {
+    use std::sync::atomic::Ordering;
+
+    let sequence = NEXT_RECORD_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!(
+        "VGR-{}-{}-{sequence}",
+        crate::time_utils::now_unix_millis(),
+        std::process::id()
+    )
+}
+
 pub mod field {
     pub const TS: &str = "ts";
+    pub const RECORD_ID: &str = "record_id";
     pub const SESSION: &str = "session";
     pub const EVENT: &str = "event";
     #[allow(dead_code)]
@@ -115,7 +129,21 @@ pub mod metric_field {
 
 #[cfg(test)]
 mod tests {
-    use super::tool;
+    use super::{next_record_id, tool};
+
+    #[test]
+    fn record_ids_are_unique_and_schema_compatible() {
+        let first = next_record_id();
+        let second = next_record_id();
+
+        assert_ne!(first, second);
+        for record_id in [first, second] {
+            let parts = record_id.split('-').collect::<Vec<_>>();
+            assert_eq!(parts.len(), 4, "{record_id}");
+            assert_eq!(parts[0], "VGR");
+            assert!(parts[1..].iter().all(|part| part.parse::<u64>().is_ok()));
+        }
+    }
 
     #[test]
     fn tool_groups_keep_analysis_paralysis_boundaries() {

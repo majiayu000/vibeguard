@@ -9,6 +9,11 @@
   "properties": {
     "schema_version": { "const": 1 },
     "ts": { "type": "string", "minLength": 1 },
+    "record_id": {
+      "type": "string",
+      "pattern": "^VGR-[0-9]+-[0-9]+-[0-9]+$",
+      "description": "Producer-generated identifier for correlating and deduplicating mirrored copies of one event row."
+    },
     "session": { "type": "string" },
     "event": { "type": "string" },
     "event_id": {

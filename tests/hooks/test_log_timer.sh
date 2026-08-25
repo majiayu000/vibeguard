@@ -21,6 +21,7 @@ _timer_result=$(
 rm -rf "$_timer_log"
 assert_contains "$_timer_result" '"duration_ms":' "vg_start_timer: duration_ms field written to events.jsonl"
 assert_contains "$_timer_result" '"schema_version": 1' "vg_log: events.jsonl includes schema_version"
+assert_contains "$_timer_result" '"record_id": "VGR-' "vg_log: events.jsonl includes a mirror correlation id"
 
 header "log.sh — caller identity fields"
 
