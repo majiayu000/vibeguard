@@ -3,16 +3,26 @@ use crate::codex_app_server::core::{
     capabilities, emit_feedback_warnings, emit_warning, feedback_messages, file_change_key,
     hook_env, primary_feedback_text, resolve_tool_path, split_unified_diff, unified_diff_hunks,
 };
+use crate::codex_app_server::policy::AppServerHookCatalog;
 use serde_json::{Value, json};
 
 pub(crate) struct FileChangeApprovalStrategy {
     hooks: HookRunner,
     policy: GuardDecisionPolicy,
+    catalog: AppServerHookCatalog,
 }
 
 impl FileChangeApprovalStrategy {
-    pub(crate) fn new(hooks: HookRunner, policy: GuardDecisionPolicy) -> Self {
-        Self { hooks, policy }
+    pub(crate) fn new(
+        hooks: HookRunner,
+        policy: GuardDecisionPolicy,
+        catalog: AppServerHookCatalog,
+    ) -> Self {
+        Self {
+            hooks,
+            policy,
+            catalog,
+        }
     }
 
     pub(crate) fn handle(
@@ -227,23 +237,27 @@ impl FileChangeApprovalStrategy {
         let mut results = Vec::new();
         match patch.normalized_kind() {
             "add" => {
+                let pre_hook = self.catalog.file_pre_write.as_str();
+                let post_hook = self.catalog.file_post_write.as_str();
                 let content = patch
                     .content
                     .clone()
                     .unwrap_or_else(|| split_unified_diff(&patch.diff).1);
                 let payload = json!({"tool_input": {"file_path": path, "content": content}});
-                let pre = self.hooks.run("pre-write-guard.sh", &payload, cwd, env);
+                let pre = self.hooks.run(pre_hook, &payload, cwd, env);
                 let blocked = self.is_blocking_pre_result(&pre);
-                results.push(("pre-write-guard.sh".into(), "pre", pre));
+                results.push((pre_hook.into(), "pre", pre));
                 if !blocked && run_post_hooks {
                     results.push((
-                        "post-write-guard.sh".into(),
+                        post_hook.into(),
                         "post",
-                        self.hooks.run("post-write-guard.sh", &payload, cwd, env),
+                        self.hooks.run(post_hook, &payload, cwd, env),
                     ));
                 }
             }
             "update" => {
+                let pre_hook = self.catalog.file_pre_edit.as_str();
+                let post_hook = self.catalog.file_post_edit.as_str();
                 for hunk in unified_diff_hunks(&patch.diff) {
                     let pre_payload = json!({
                         "tool_input": {
@@ -252,9 +266,9 @@ impl FileChangeApprovalStrategy {
                             "new_string": hunk.new_string,
                         }
                     });
-                    let pre = self.hooks.run("pre-edit-guard.sh", &pre_payload, cwd, env);
+                    let pre = self.hooks.run(pre_hook, &pre_payload, cwd, env);
                     let blocked = self.is_blocking_pre_result(&pre);
-                    results.push(("pre-edit-guard.sh".into(), "pre", pre));
+                    results.push((pre_hook.into(), "pre", pre));
                     if blocked {
                         break;
                     }
@@ -267,15 +281,15 @@ impl FileChangeApprovalStrategy {
                             }
                         });
                         results.push((
-                            "post-edit-guard.sh".into(),
+                            post_hook.into(),
                             "post",
-                            self.hooks
-                                .run("post-edit-guard.sh", &post_payload, cwd, env),
+                            self.hooks.run(post_hook, &post_payload, cwd, env),
                         ));
                     }
                 }
             }
             "delete" => {
+                let pre_hook = self.catalog.file_pre_edit.as_str();
                 let old_string = patch
                     .content
                     .clone()
@@ -288,9 +302,9 @@ impl FileChangeApprovalStrategy {
                     }
                 });
                 results.push((
-                    "pre-edit-guard.sh".into(),
+                    pre_hook.into(),
                     "pre",
-                    self.hooks.run("pre-edit-guard.sh", &payload, cwd, env),
+                    self.hooks.run(pre_hook, &payload, cwd, env),
                 ));
             }
             other => results.push((
@@ -311,19 +325,22 @@ impl FileChangeApprovalStrategy {
         let path = resolve_tool_path(&patch.path, cwd);
         match patch.normalized_kind() {
             "add" => {
+                let post_hook = self.catalog.file_post_write.as_str();
                 let content = patch
                     .content
                     .clone()
                     .unwrap_or_else(|| split_unified_diff(&patch.diff).1);
                 let payload = json!({"tool_input": {"file_path": path, "content": content}});
                 vec![(
-                    "post-write-guard.sh".into(),
-                    self.hooks.run("post-write-guard.sh", &payload, cwd, env),
+                    post_hook.into(),
+                    self.hooks.run(post_hook, &payload, cwd, env),
                 )]
             }
-            "update" => unified_diff_hunks(&patch.diff)
-                .into_iter()
-                .map(|hunk| {
+            "update" => {
+                let post_hook = self.catalog.file_post_edit.as_str();
+                unified_diff_hunks(&patch.diff)
+                    .into_iter()
+                    .map(|hunk| {
                     let payload = json!({
                         "tool_input": {
                             "file_path": path.clone(),
@@ -332,11 +349,12 @@ impl FileChangeApprovalStrategy {
                         }
                     });
                     (
-                        "post-edit-guard.sh".into(),
-                        self.hooks.run("post-edit-guard.sh", &payload, cwd, env),
+                        post_hook.into(),
+                        self.hooks.run(post_hook, &payload, cwd, env),
                     )
                 })
-                .collect(),
+                    .collect()
+            }
             "delete" => Vec::new(),
             _ => Vec::new(),
         }

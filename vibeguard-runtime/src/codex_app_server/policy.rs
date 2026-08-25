@@ -2,12 +2,159 @@ use crate::installed_profile::installed_profile;
 use crate::project_config::{load_project_config, project_config_path};
 use crate::setup::support::home_dir;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
+use std::sync::OnceLock;
 
 const HOOKS_MANIFEST_JSON: &str = include_str!("../../../hooks/manifest.json");
-const PROFILE_VALUES: &[&str] = &["minimal", "core", "full", "strict"];
 const DEFAULT_PROFILE: &str = "core";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AppServerHookCatalog {
+    pub command_pre: String,
+    pub file_pre_edit: String,
+    pub file_pre_write: String,
+    pub file_post_edit: String,
+    pub file_post_write: String,
+    pub analysis_observer: String,
+    pub post_turn_build: String,
+    pub post_turn: Vec<String>,
+    required: BTreeSet<String>,
+}
+
+pub(crate) fn app_server_hook_catalog() -> Result<AppServerHookCatalog, String> {
+    static CATALOG: OnceLock<Result<AppServerHookCatalog, String>> = OnceLock::new();
+    CATALOG
+        .get_or_init(|| parse_app_server_hook_catalog(HOOKS_MANIFEST_JSON))
+        .clone()
+}
+
+fn parse_app_server_hook_catalog(json: &str) -> Result<AppServerHookCatalog, String> {
+    let manifest = serde_json::from_str::<Value>(json)
+        .map_err(|err| format!("hooks/manifest.json invalid JSON: {err}"))?;
+    let hooks = manifest
+        .get("hooks")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "hooks/manifest.json missing hooks array".to_string())?;
+    let mut roles = BTreeMap::<(String, Option<String>), Vec<String>>::new();
+    let mut required = BTreeSet::new();
+
+    for hook in hooks {
+        let Some(app_server) = hook.get("app_server") else {
+            continue;
+        };
+        let app_server = app_server
+            .as_object()
+            .ok_or_else(|| "hooks/manifest.json app_server entry must be an object".to_string())?;
+        let name = hook
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "hooks/manifest.json hook entry missing string name".to_string())?;
+        let script = hook
+            .get("script")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("hooks/manifest.json hook {name} missing string script"))?;
+        if Path::new(script)
+            .file_name()
+            .and_then(|value| value.to_str())
+            != Some(script)
+            || !script.ends_with(".sh")
+        {
+            return Err(format!(
+                "hooks/manifest.json hook {name} app_server script must be a .sh basename"
+            ));
+        }
+        let role = app_server
+            .get("role")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("hooks/manifest.json hook {name} missing app_server.role"))?;
+        if !matches!(
+            role,
+            "command_pre"
+                | "file_pre"
+                | "file_post"
+                | "analysis_observer"
+                | "post_turn_build"
+                | "post_turn"
+        ) {
+            return Err(format!(
+                "hooks/manifest.json hook {name} has unsupported app_server.role {role}"
+            ));
+        }
+        let tool = app_server
+            .get("tool")
+            .map(|value| {
+                value.as_str().map(str::to_string).ok_or_else(|| {
+                    format!("hooks/manifest.json hook {name} app_server.tool must be a string")
+                })
+            })
+            .transpose()?;
+        if matches!(role, "file_pre" | "file_post") != tool.is_some() {
+            return Err(format!(
+                "hooks/manifest.json hook {name} app_server.tool must be set only for file roles"
+            ));
+        }
+        roles
+            .entry((role.to_string(), tool))
+            .or_default()
+            .push(script.to_string());
+        if app_server.get("required").and_then(Value::as_bool) == Some(true) {
+            required.insert(script.to_string());
+        }
+    }
+
+    let catalog = AppServerHookCatalog {
+        command_pre: take_single_role(&mut roles, "command_pre", None)?,
+        file_pre_edit: take_single_role(&mut roles, "file_pre", Some("Edit"))?,
+        file_pre_write: take_single_role(&mut roles, "file_pre", Some("Write"))?,
+        file_post_edit: take_single_role(&mut roles, "file_post", Some("Edit"))?,
+        file_post_write: take_single_role(&mut roles, "file_post", Some("Write"))?,
+        analysis_observer: take_single_role(&mut roles, "analysis_observer", None)?,
+        post_turn_build: take_single_role(&mut roles, "post_turn_build", None)?,
+        post_turn: take_many_role(&mut roles, "post_turn")?,
+        required,
+    };
+    if !roles.is_empty() {
+        return Err(format!(
+            "hooks/manifest.json contains unused app_server role/tool mappings: {:?}",
+            roles.keys().collect::<Vec<_>>()
+        ));
+    }
+    Ok(catalog)
+}
+
+fn take_single_role(
+    roles: &mut BTreeMap<(String, Option<String>), Vec<String>>,
+    role: &str,
+    tool: Option<&str>,
+) -> Result<String, String> {
+    let key = (role.to_string(), tool.map(str::to_string));
+    let entries = roles.remove(&key).unwrap_or_default();
+    if entries.len() != 1 {
+        return Err(format!(
+            "hooks/manifest.json app_server role {role} tool={} must resolve to exactly one hook, found {}",
+            tool.unwrap_or("<none>"),
+            entries.len()
+        ));
+    }
+    entries
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("hooks/manifest.json app_server role {role} disappeared"))
+}
+
+fn take_many_role(
+    roles: &mut BTreeMap<(String, Option<String>), Vec<String>>,
+    role: &str,
+) -> Result<Vec<String>, String> {
+    let entries = roles.remove(&(role.to_string(), None)).unwrap_or_default();
+    if entries.is_empty() {
+        return Err(format!(
+            "hooks/manifest.json app_server role {role} must resolve to at least one hook"
+        ));
+    }
+    Ok(entries)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HookPolicyDecision {
@@ -125,26 +272,28 @@ fn runtime_profile_from_sources(
             None => DEFAULT_PROFILE.to_string(),
         },
     };
-    if PROFILE_VALUES.contains(&profile.as_str()) {
+    let profiles = manifest_profiles()?;
+    if profiles.iter().any(|value| value == &profile) {
         Ok(profile)
     } else {
         Err(format!(
-            "VibeGuard policy error: unsupported VIBEGUARD_PROFILE={profile} (expected minimal|core|full|strict)"
+            "VibeGuard policy error: unsupported VIBEGUARD_PROFILE={profile} (expected {})",
+            profiles.join("|")
         ))
     }
 }
 
-pub fn required_hook_missing_message(hook_name: &str, hook_path: &Path) -> Option<String> {
-    if matches!(
-        app_server_canonical_hook_name(hook_name).as_str(),
-        "pre-bash-guard" | "pre-edit-guard" | "pre-write-guard"
-    ) {
-        return Some(format!(
+pub fn required_hook_missing_message(
+    hook_name: &str,
+    hook_path: &Path,
+) -> Result<Option<String>, String> {
+    if app_server_hook_catalog()?.required.contains(hook_name) {
+        return Ok(Some(format!(
             "VIBEGUARD install incomplete: missing required hook {hook_name} at {}",
             hook_path.display()
-        ));
+        )));
     }
-    None
+    Ok(None)
 }
 
 fn app_server_canonical_hook_name(hook_name: &str) -> String {
@@ -170,7 +319,6 @@ fn manifest_profile_allows_hook(profile: &str, hook_name: &str) -> Result<bool, 
     Ok(profiles.iter().any(|candidate| candidate == profile))
 }
 
-#[cfg(test)]
 fn manifest_profiles() -> Result<Vec<String>, String> {
     let manifest = serde_json::from_str::<Value>(HOOKS_MANIFEST_JSON)
         .map_err(|err| format!("hooks/manifest.json invalid JSON: {err}"))?;
@@ -248,6 +396,41 @@ mod tests {
         ));
         fs::create_dir_all(&root).expect("temp dir should be created");
         root
+    }
+
+    #[test]
+    fn app_server_catalog_resolves_every_strategy_role_from_manifest() {
+        let catalog = parse_app_server_hook_catalog(HOOKS_MANIFEST_JSON)
+            .unwrap_or_else(|err| panic!("app-server catalog should parse: {err}"));
+
+        assert_eq!(catalog.command_pre, "pre-bash-guard.sh");
+        assert_eq!(catalog.file_pre_edit, "pre-edit-guard.sh");
+        assert_eq!(catalog.file_pre_write, "pre-write-guard.sh");
+        assert_eq!(catalog.file_post_edit, "post-edit-guard.sh");
+        assert_eq!(catalog.file_post_write, "post-write-guard.sh");
+        assert_eq!(catalog.analysis_observer, "analysis-paralysis-guard.sh");
+        assert_eq!(catalog.post_turn_build, "post-build-check.sh");
+        assert_eq!(catalog.post_turn, ["stop-guard.sh", "learn-evaluator.sh"]);
+        assert_eq!(
+            catalog.required,
+            [
+                "pre-bash-guard.sh".to_string(),
+                "pre-edit-guard.sh".to_string(),
+                "pre-write-guard.sh".to_string(),
+            ]
+            .into_iter()
+            .collect()
+        );
+    }
+
+    #[test]
+    fn app_server_catalog_rejects_unknown_roles() {
+        let error = parse_app_server_hook_catalog(
+            r#"{"hooks":[{"name":"bad","script":"bad.sh","app_server":{"role":"unknown"}}]}"#,
+        )
+        .expect_err("unknown app-server role should fail");
+
+        assert!(error.contains("unsupported app_server.role unknown"));
     }
 
     #[test]

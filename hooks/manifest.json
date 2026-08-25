@@ -52,6 +52,7 @@
       "trigger": "PreToolUse(Bash)",
       "responsibilities": "Intercept destructive local cleanup commands: dangerous rm -rf paths, git clean -f, and batch git checkout/restore .; force-push protection lives in the git pre-push hook.",
       "decision_types": ["pass", "warn", "block", "correction"],
+      "app_server": {"role": "command_pre", "required": true},
       "claude": {
         "enabled": true,
         "event": "PreToolUse",
@@ -78,6 +79,7 @@
       "trigger": "PreToolUse(Edit)",
       "responsibilities": "Block editing of non-existent files (anti-hallucination).",
       "decision_types": ["pass", "block"],
+      "app_server": {"role": "file_pre", "tool": "Edit", "required": true},
       "claude": {
         "enabled": true,
         "event": "PreToolUse",
@@ -104,6 +106,7 @@
       "trigger": "PreToolUse(Write)",
       "responsibilities": "Remind you to search for existing implementation before creating a new source code file.",
       "decision_types": ["pass", "warn", "block", "escalate"],
+      "app_server": {"role": "file_pre", "tool": "Write", "required": true},
       "claude": {
         "enabled": true,
         "event": "PreToolUse",
@@ -130,6 +133,7 @@
       "trigger": "PostToolUse(Edit)",
       "responsibilities": "Detect quality problems after editing: unwrap, console.log, hard-coded path, Go error discard, oversized diff, repeated editing of the same file (churn), W-15 consecutive same-file edit loop.",
       "decision_types": ["pass", "warn", "escalate", "correction"],
+      "app_server": {"role": "file_post", "tool": "Edit"},
       "claude": {
         "enabled": true,
         "event": "PostToolUse",
@@ -154,6 +158,7 @@
       "trigger": "PostToolUse(Write)",
       "responsibilities": "Detect duplicate definitions and files with the same name after creating a new file.",
       "decision_types": ["pass", "warn"],
+      "app_server": {"role": "file_post", "tool": "Write"},
       "claude": {
         "enabled": true,
         "event": "PostToolUse",
@@ -178,6 +183,7 @@
       "trigger": "PostToolUse(Read|Glob|Grep)",
       "responsibilities": "Detect excessive exploration without progress and prompt the agent to act.",
       "decision_types": ["pass", "warn"],
+      "app_server": {"role": "analysis_observer"},
       "claude": {
         "enabled": true,
         "event": "PostToolUse",
@@ -212,6 +218,7 @@
       "trigger": "PostToolUse(Edit/Write)",
       "responsibilities": "Automatically run the build check corresponding to the language after editing.",
       "decision_types": ["pass", "warn", "escalate"],
+      "app_server": {"role": "post_turn_build"},
       "claude": {
         "enabled": true,
         "event": "PostToolUse",
@@ -248,6 +255,7 @@
       "trigger": "Stop",
       "responsibilities": "Record uncommitted source code changes as a non-blocking Stop signal; emit a W-16 advisory when the session edited source files but ran no verification command.",
       "decision_types": ["pass", "gate"],
+      "app_server": {"role": "post_turn"},
       "claude": {
         "enabled": true,
         "event": "Stop",
@@ -272,6 +280,7 @@
       "trigger": "Stop",
       "responsibilities": "Collect metrics at the end of session, detect corrective signals, and suggest /learn when signals exist.",
       "decision_types": ["pass", "warn", "complete"],
+      "app_server": {"role": "post_turn"},
       "claude": {
         "enabled": true,
         "event": "Stop",
