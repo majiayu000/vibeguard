@@ -3,42 +3,49 @@
     "platform": "claude",
     "hook": "pre-bash-guard",
     "profile": "default",
-    "severity": "critical"
+    "severity": "critical",
+    "evidence": ["intercept", "allow"]
   },
   {
     "platform": "codex",
     "hook": "pre-bash-guard",
     "profile": "default",
-    "severity": "critical"
+    "severity": "critical",
+    "evidence": ["intercept", "allow"]
   },
   {
     "platform": "claude",
     "hook": "pre-edit-guard",
     "profile": "default",
-    "severity": "high"
+    "severity": "high",
+    "evidence": ["intercept", "allow"]
   },
   {
     "platform": "codex",
     "hook": "pre-edit-guard",
     "profile": "default",
-    "severity": "high"
+    "severity": "high",
+    "evidence": ["intercept", "allow"]
   },
   {
     "platform": "claude",
     "hook": "pre-write-guard",
     "profile": "default",
-    "severity": "medium"
+    "severity": "medium",
+    "evidence": ["intercept", "allow"]
   },
   {
     "platform": "codex",
     "hook": "pre-write-guard",
     "profile": "default",
-    "severity": "medium"
+    "severity": "medium",
+    "evidence": ["intercept", "allow"]
   },
   {
     "platform": "runtime",
     "hook": "guard-scan",
-    "rule": "RS-03"
+    "rule": "RS-03",
+    "evidence": ["intercept", "allow"]
   },
   {
     "platform": "runtime",
@@ -78,7 +85,8 @@
   {
     "platform": "runtime",
     "hook": "guard-scan",
-    "rule": "GO-01"
+    "rule": "GO-01",
+    "evidence": ["intercept", "allow"]
   },
   {
     "platform": "runtime",
@@ -93,7 +101,8 @@
   {
     "platform": "runtime",
     "hook": "guard-scan",
-    "rule": "TS-01"
+    "rule": "TS-01",
+    "evidence": ["intercept", "allow"]
   },
   {
     "platform": "runtime",
