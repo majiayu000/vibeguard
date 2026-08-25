@@ -142,7 +142,12 @@ def evidence_kind(sample: dict[str, Any]) -> str:
         return "allow"
     if sample.get("runner") == "guard" and expect.get("exit_code", 0) == 0:
         return "allow"
-    if expect.get("stdout_contains"):
+    rule = sample.get("rule")
+    rule_marker = f"[{rule}]" if isinstance(rule, str) and rule else None
+    if rule_marker and any(
+        isinstance(fragment, str) and rule_marker in fragment
+        for fragment in expect.get("stdout_contains", [])
+    ):
         return "intercept"
     return "unknown"
 

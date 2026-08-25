@@ -109,6 +109,24 @@ class BehaviorEvalTest(unittest.TestCase):
             "allow",
         )
 
+    def test_evidence_kind_requires_rule_specific_stdout_signal(self) -> None:
+        self.assertEqual(
+            run_behavior_eval.evidence_kind({
+                "runner": "claude_hook",
+                "rule": "L1",
+                "expect": {"exit_code": 0, "stdout_contains": ["usage: hook"]},
+            }),
+            "unknown",
+        )
+        self.assertEqual(
+            run_behavior_eval.evidence_kind({
+                "runner": "claude_hook",
+                "rule": "L1",
+                "expect": {"exit_code": 0, "stdout_contains": ["[L1] advisory"]},
+            }),
+            "intercept",
+        )
+
     def test_evidence_kind_rejects_error_exit_as_intercept_evidence(self) -> None:
         self.assertEqual(
             run_behavior_eval.evidence_kind(
