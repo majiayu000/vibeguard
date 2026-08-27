@@ -70,10 +70,9 @@ type_out "$ bash ${VG}/guards/universal/check_code_slop.sh ${DEMO_DIR}"
 bash "${VG}/guards/universal/check_code_slop.sh" "${DEMO_DIR}" 2>&1 || true
 pause 1
 
-section "3. Block destructive git operations"
-type_out '$ # AI tries: git push --force'
-echo -e '\033[1;31m✗ git pre-push hook: blocked non-fast-forward push\033[0m'
-echo '  → history rewrites require explicit human approval'
+section "3. Block a destructive command before execution"
+type_out '$ bash setup.sh demo safe-bash'
+bash "${VG}/setup.sh" demo safe-bash
 pause 1
 
 section "4. Every finding ships with a fix instruction"

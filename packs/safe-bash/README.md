@@ -23,5 +23,7 @@ Non-dry-run install is a registration step only. It first requires audit READY,
 then writes `~/.vibeguard/guard-packs/safe-bash/<target>/receipt.json`; it
 does not edit agent hook/config files.
 
-The demo is side-effect free. It prints a deterministic transcript and never
-executes the blocked example command.
+The demo invokes the real `pre-bash-guard` against a temporary `HOME`, submits
+the blocked example through the `PreToolUse(Bash)` JSON contract, and verifies
+the sandbox marker remains intact. The dangerous command is never handed to a
+shell executor; any non-block or malformed hook result fails closed.

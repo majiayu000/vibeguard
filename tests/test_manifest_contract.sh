@@ -459,9 +459,16 @@ assert_contains "${safe_bash_dry_run_out}" "writes=0" "safe-bash dry-run receipt
 safe_bash_receipt_out="$(python3 "${GUARD_PACKS_HELPER}" receipt safe-bash --target claude-code)"
 assert_contains "${safe_bash_receipt_out}" '"rollback_plan": [' "safe-bash receipt includes rollback plan"
 assert_contains "${safe_bash_receipt_out}" '"check_ids": [' "safe-bash receipt includes audit check ids"
-safe_bash_demo_out="$(python3 "${GUARD_PACKS_HELPER}" demo safe-bash)"
-assert_contains "${safe_bash_demo_out}" "No command is executed" "safe-bash demo is side-effect free"
-assert_contains "${safe_bash_demo_out}" "Expected decision: block" "safe-bash demo shows block decision"
+demo_runtime="${TMP_DIR}/demo-vibeguard-runtime"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'cat >/dev/null' \
+  'printf '\''%s\n'\'' '\''{"decision":"block","reason":"VIBEGUARD interception: Prohibit rm -rf dangerous paths"}'\''' \
+  >"${demo_runtime}"
+chmod +x "${demo_runtime}"
+safe_bash_demo_out="$(VIBEGUARD_RUNTIME="${demo_runtime}" python3 "${GUARD_PACKS_HELPER}" demo safe-bash)"
+assert_contains "${safe_bash_demo_out}" "VibeGuard live interception demo" "safe-bash demo runs the live hook"
+assert_contains "${safe_bash_demo_out}" "DENIED: decision=block" "safe-bash demo shows the real block decision"
 assert_cmd_fail "guard pack explain rejects unknown pack" python3 "${GUARD_PACKS_HELPER}" explain missing-pack
 
 header "workflow contracts"

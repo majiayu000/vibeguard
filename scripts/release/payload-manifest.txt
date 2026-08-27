@@ -30,6 +30,7 @@ scripts/hook-health.sh
 scripts/install-systemd.sh
 scripts/learn/analyze.py
 scripts/lib/file_ops.py
+scripts/lib/guard_pack_demo.py
 scripts/lib/guard_pack_receipts.py
 scripts/lib/guard_packs.py
 scripts/lib/hook_config_model.py

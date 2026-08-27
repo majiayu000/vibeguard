@@ -58,11 +58,16 @@ and do not get git hooks from this command.
 
 ## 4. Run One Intercepted Demo
 
-Start with the side-effect-free demo:
+Start with the live, fail-closed interception demo:
 
 ```bash
 bash ~/vibeguard/setup.sh demo safe-bash
 ```
+
+This creates a temporary `HOME`, submits `rm -rf $HOME` through the real
+`PreToolUse(Bash)` hook, and verifies that the hook returns `block` while a
+sandbox marker remains intact. The dangerous command is never handed to a
+shell executor; malformed, failed, or non-block hook results stop the demo.
 
 Then try one live agent action in a disposable branch or scratch project:
 
