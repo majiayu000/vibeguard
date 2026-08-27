@@ -192,12 +192,12 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path
 ## 可观测性与学习闭环
 
 ```bash
-bash ~/vibeguard/scripts/quality-grader.sh
-bash ~/vibeguard/scripts/stats.sh
-bash ~/vibeguard/scripts/hook-health.sh 24
-bash ~/vibeguard/scripts/doctors/codex-doctor.sh
-bash ~/vibeguard/scripts/metrics/metrics-exporter.sh
-bash ~/vibeguard/scripts/verify/doc-freshness-check.sh
+export PATH="$HOME/.vibeguard/installed/bin:$PATH"
+vibeguard observe summary
+vibeguard observe health
+vibeguard observe summary --scope global
+vibeguard observe export prometheus
+bash ~/vibeguard/setup.sh doctor
 ```
 
 Doctor 是现有防御系统之上的只读诊断入口，不替代 hooks 或 guards。它负责汇总安装状态、能力差异、噪声 hook、最近事件和修复命令；真正的拦截/告警仍然发生在 hook 和 guard 执行层。

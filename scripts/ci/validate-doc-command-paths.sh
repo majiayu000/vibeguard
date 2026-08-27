@@ -42,6 +42,9 @@ stale_public_commands = [
     re.compile(r"\bbash\s+install\.sh\b"),
     re.compile(r"\brun install\.sh\b", re.IGNORECASE),
 ]
+hardcoded_release_pin = re.compile(
+    r"install\.sh.*--version\s+v?\d+\.\d+\.\d+"
+)
 
 path_pattern = re.compile(r"~/vibeguard/([A-Za-z0-9_./-]+)")
 failures = []
@@ -81,6 +84,11 @@ for md_file in renamed_targets:
                 failures.append(
                     f"{display_path(md_file)}:{idx} stale public install command; use setup.sh"
                 )
+        if hardcoded_release_pin.search(line):
+            failures.append(
+                f"{display_path(md_file)}:{idx} hardcoded release version in public install command; "
+                "use an X.Y.Z placeholder and link the latest release"
+            )
 
 
 def command_output(args: list[str]) -> str:

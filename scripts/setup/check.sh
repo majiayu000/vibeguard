@@ -440,7 +440,7 @@ _check_execution_sources() {
   if [[ -x "${HOME}/.vibeguard/vibeguard-runtime" ]]; then
     green "[OK] Runtime recovery source: ${HOME}/.vibeguard/vibeguard-runtime"
   else
-    red "[BROKEN] Runtime recovery source missing: ${HOME}/.vibeguard/vibeguard-runtime (run: bash setup.sh --yes)"
+    yellow "[WARN] Runtime recovery source missing: current protection can still run, but repair and uninstall recovery are unavailable (run: bash setup.sh --yes)"
   fi
 }
 

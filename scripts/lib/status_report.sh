@@ -21,7 +21,7 @@
 #
 # Exit-code policy
 #   0 — no [WARN]/[DRIFT]/[FAIL]/[BROKEN]/[MISSING]
-#   1 — only [WARN] (degraded but functional)
+#   1 — only [WARN] or optional [MISSING] (degraded but functional)
 #   2 — at least one [DRIFT]/[FAIL]/[BROKEN]/required [MISSING] (broken — needs repair)
 #
 # Per the VibeGuard "no silent degradation" rule (U-29), [INFO] is treated
@@ -97,7 +97,9 @@ status_optional_missing_line() {
   plain="$(status_plain_line "$line")"
   case "$plain" in
     *"agents not in ~/.claude/agents/"*|\
-    *"context profiles not in ~/.claude/context-profiles/"*)
+    *"context profiles not in ~/.claude/context-profiles/"*|\
+    *"eval-harness skill not in ~/.claude/skills/"*|\
+    *"iterative-retrieval skill not in ~/.claude/skills/"*)
       return 0
       ;;
     *)
@@ -116,6 +118,61 @@ status_required_missing_count() {
     fi
   done < "${_VG_STATUS_BUFFER}"
   printf '%d\n' "$required"
+}
+
+status_optional_missing_count() {
+  local required
+  required="$(status_required_missing_count)"
+  printf '%d\n' "$((_VG_STATUS_MISSING - required))"
+}
+
+status_install_required_warning_line() {
+  local line="$1"
+  local plain
+  plain="$(status_plain_line "$line")"
+  case "$plain" in
+    "[WARN] Runtime recovery source missing:"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+status_install_required_warning_count() {
+  local required=0 line level
+  [[ -n "${_VG_STATUS_BUFFER}" && -f "${_VG_STATUS_BUFFER}" ]] || { printf '0\n'; return 0; }
+  while IFS= read -r line; do
+    level="$(status_classify_line "$line")"
+    if [[ "$level" == "WARN" ]] && status_install_required_warning_line "$line"; then
+      required=$((required + 1))
+    fi
+  done < "${_VG_STATUS_BUFFER}"
+  printf '%d\n' "$required"
+}
+
+status_first_attention_message() {
+  local wanted="$1" line level plain
+  [[ -n "${_VG_STATUS_BUFFER}" && -f "${_VG_STATUS_BUFFER}" ]] || return 0
+  while IFS= read -r line; do
+    level="$(status_classify_line "$line")"
+    case "$wanted:$level" in
+      broken:DRIFT|broken:FAIL|broken:BROKEN)
+        ;;
+      broken:MISSING)
+        status_optional_missing_line "$line" && continue
+        ;;
+      degraded:WARN)
+        ;;
+      degraded:MISSING)
+        status_optional_missing_line "$line" || continue
+        ;;
+      *)
+        continue
+        ;;
+    esac
+    plain="$(status_plain_line "$line")"
+    plain="${plain#*] }"
+    printf '%s\n' "$plain"
+    return 0
+  done < "${_VG_STATUS_BUFFER}"
 }
 
 # status_record_buffer
@@ -167,8 +224,11 @@ status_filter_problems() {
 status_print_summary() {
   local quiet=0
   [[ "${1:-}" == "--quiet" ]] && quiet=1
-  local total_problems=$((_VG_STATUS_DRIFT + _VG_STATUS_FAIL + _VG_STATUS_BROKEN + _VG_STATUS_MISSING))
-  local total_warnings=${_VG_STATUS_WARN}
+  local required_missing optional_missing total_problems total_warnings attention
+  required_missing="$(status_required_missing_count)"
+  optional_missing="$(status_optional_missing_count)"
+  total_problems=$((_VG_STATUS_DRIFT + _VG_STATUS_FAIL + _VG_STATUS_BROKEN + required_missing))
+  total_warnings=$((_VG_STATUS_WARN + optional_missing))
 
   if [[ "${quiet}" -eq 1 ]] && (( total_problems + total_warnings > 0 )); then
     printf '\nProblems\n'
@@ -189,9 +249,13 @@ status_print_summary() {
 
   printf '\nVerdict : '
   if (( total_problems > 0 )); then
-    printf '\033[31mBROKEN\033[0m (run: bash setup.sh)\n'
+    attention="$(status_first_attention_message broken)"
+    printf '\033[31mBROKEN\033[0m (%d required issue(s); first: %s; run: bash setup.sh)\n' \
+      "${total_problems}" "${attention:-see Problems above}"
   elif (( total_warnings > 0 )); then
-    printf '\033[33mDEGRADED\033[0m (functional, optional features missing)\n'
+    attention="$(status_first_attention_message degraded)"
+    printf '\033[33mDEGRADED\033[0m (%d recovery/optional issue(s); first: %s)\n' \
+      "${total_warnings}" "${attention:-see Problems above}"
   else
     printf '\033[32mHEALTHY\033[0m\n'
   fi
@@ -201,11 +265,13 @@ status_print_summary() {
 #   Emit a stable JSON document with counts, verdict, and the full event
 #   list. Designed for CI consumers and the /vibeguard:check skill.
 status_emit_json() {
-  local total_problems=$((_VG_STATUS_DRIFT + _VG_STATUS_FAIL + _VG_STATUS_BROKEN + _VG_STATUS_MISSING))
+  local required_missing total_problems
+  required_missing="$(status_required_missing_count)"
+  total_problems=$((_VG_STATUS_DRIFT + _VG_STATUS_FAIL + _VG_STATUS_BROKEN + required_missing))
   local verdict
   if (( total_problems > 0 )); then
     verdict="broken"
-  elif (( _VG_STATUS_WARN > 0 )); then
+  elif (( _VG_STATUS_WARN + _VG_STATUS_MISSING > 0 )); then
     verdict="degraded"
   else
     verdict="healthy"
@@ -287,10 +353,12 @@ PY
 
 # status_exit_code — echo 0|1|2 per the policy at top of file.
 status_exit_code() {
-  local total_problems=$((_VG_STATUS_DRIFT + _VG_STATUS_FAIL + _VG_STATUS_BROKEN + _VG_STATUS_MISSING))
+  local required_missing total_problems
+  required_missing="$(status_required_missing_count)"
+  total_problems=$((_VG_STATUS_DRIFT + _VG_STATUS_FAIL + _VG_STATUS_BROKEN + required_missing))
   if (( total_problems > 0 )); then
     printf '2\n'
-  elif (( _VG_STATUS_WARN > 0 )); then
+  elif (( _VG_STATUS_WARN + _VG_STATUS_MISSING > 0 )); then
     printf '1\n'
   else
     printf '0\n'
@@ -301,9 +369,10 @@ status_exit_code() {
 # WARN rows are allowed here because optional integrations can be degraded
 # without making the freshly written required runtime unusable.
 status_install_exit_code() {
-  local required_missing
+  local required_missing required_warning
   required_missing="$(status_required_missing_count)"
-  local total_problems=$((_VG_STATUS_DRIFT + _VG_STATUS_FAIL + _VG_STATUS_BROKEN + required_missing))
+  required_warning="$(status_install_required_warning_count)"
+  local total_problems=$((_VG_STATUS_DRIFT + _VG_STATUS_FAIL + _VG_STATUS_BROKEN + required_missing + required_warning))
   if (( total_problems > 0 )); then
     printf '2\n'
   else

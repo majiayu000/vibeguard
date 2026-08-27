@@ -98,10 +98,10 @@ Use the smallest surface that answers the question.
 
 | Question | Surface |
 |---|---|
-| What happened in this project? | `bash ~/vibeguard/scripts/stats.sh` or `vibeguard-runtime hook-status --mode focused` |
-| What happened globally? | `bash ~/vibeguard/scripts/stats.sh --scope global` |
+| What happened in this project? | `vibeguard observe summary` |
+| What happened globally? | `vibeguard observe summary --scope global` |
 | Why did this session have friction? | `session-metrics.jsonl` and `correction_signals` |
-| Which hook is slow? | `vibeguard-runtime hook-status --mode full --slow-ms 2000` or `bash ~/vibeguard/scripts/hook-health.sh 24` |
+| Which hook is slow? | `vibeguard observe health --slow-ms 2000` |
 | Did eval quality regress? | `python3 eval/run_behavior_eval.py --fail-on-threshold` and `python3 eval/summarize_runs.py` |
 
 `docs/reference/codex-hook-status.md` documents the focused hook-status surface.
@@ -162,7 +162,7 @@ is local evidence without background network egress, credential setup, or
 sensitive-label risk. Local logs also preserve deterministic repro data without
 depending on a remote collector.
 
-`scripts/metrics/metrics-exporter.sh` is a manual bridge for Prometheus-format
+`vibeguard observe export prometheus` is the manual bridge for Prometheus-format
 experiments. Do not schedule or enable remote push by default until the emitted
 series satisfy the metric label contract above. In particular, raw diagnostic
 labels must be removed or reduced to bounded categories before default external
