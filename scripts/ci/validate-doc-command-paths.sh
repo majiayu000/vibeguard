@@ -32,8 +32,16 @@ renamed_targets = [
     repo_root / "scripts" / "setup" / "install.sh",
     repo_root / "scripts" / "project-init.sh",
 ]
+renamed_targets.extend(
+    sorted(
+        path
+        for path in (repo_root / "docs").rglob("*.md")
+        if "internal" not in path.relative_to(repo_root / "docs").parts
+    )
+)
 renamed_targets.extend(sorted((repo_root / "workflows").rglob("*.md")))
 renamed_targets.extend(command_doc_targets)
+renamed_targets = sorted(set(renamed_targets))
 
 renamed_command_paths = {
     "scripts/compliance_check.sh": "scripts/verify/compliance_check.sh",
@@ -43,7 +51,7 @@ stale_public_commands = [
     re.compile(r"\brun install\.sh\b", re.IGNORECASE),
 ]
 hardcoded_release_pin = re.compile(
-    r"install\.sh.*--version\s+v?\d+\.\d+\.\d+"
+    r"install\.sh.*--version(?:\s+|=)v?\d+\.\d+\.\d+"
 )
 
 path_pattern = re.compile(r"~/vibeguard/([A-Za-z0-9_./-]+)")

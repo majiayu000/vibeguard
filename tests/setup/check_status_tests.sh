@@ -455,6 +455,15 @@ doctor_out="$(bash "${SETUP_SCRIPT}" doctor 2>&1 || true)"
 assert_contains "$doctor_out" "VibeGuard Installation Status" "doctor: legacy header preserved"
 assert_contains "$doctor_out" "Summary" "doctor: summary block present"
 
+BROKEN_HOME="$(mktemp -d)"
+broken_runtime_out="$(HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" --check 2>&1 || true)"
+assert_contains "$broken_runtime_out" \
+  "Runtime recovery source missing: installed runtime is unavailable; repair is required" \
+  "missing runtimes: recovery warning requires repair"
+assert_not_contains "$broken_runtime_out" \
+  "Runtime recovery source missing: current protection can still run" \
+  "missing runtimes: recovery warning does not claim protection can run"
+
 AWK_PORTABILITY_FIXTURE="${REPO_DIR}/guards/universal/vg-test-non-posix-awk.sh"
 cat > "${AWK_PORTABILITY_FIXTURE}" <<'SH'
 #!/usr/bin/env bash

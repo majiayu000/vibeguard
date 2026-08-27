@@ -56,7 +56,7 @@ export PATH="$HOME/.vibeguard/installed/bin:$PATH"
 bash ~/vibeguard/setup.sh doctor
 bash ~/vibeguard/setup.sh verify-install
 bash ~/vibeguard/setup.sh demo safe-bash
-vibeguard observe health
+vibeguard observe health --limit all
 ```
 
 To protect another repository after VibeGuard is installed:
@@ -276,7 +276,7 @@ bounded helper. They are not an automatic coordinator/reviewer pipeline:
 ```bash
 export PATH="$HOME/.vibeguard/installed/bin:$PATH"
 vibeguard observe summary                    # Project trigger summary (7 days)
-vibeguard observe health                     # Project health snapshot (24 hours)
+vibeguard observe health --limit all         # Project health snapshot (24 hours)
 vibeguard observe summary --scope global     # Global trigger summary
 vibeguard observe export prometheus          # Prometheus text export
 bash ~/vibeguard/setup.sh doctor             # Installation and host diagnosis
@@ -397,7 +397,7 @@ and derives the expected README numerators and denominators from the report.
 bash ~/vibeguard/setup.sh                              # Install (default: core profile)
 bash ~/vibeguard/setup.sh --profile minimal           # Minimal: Bash/file gates + file post-hooks
 bash ~/vibeguard/setup.sh --profile full              # Full: adds Stop signal + Build Check + learning
-bash ~/vibeguard/setup.sh --profile strict            # Strict: full hooks + Claude Code session constraint budget
+bash ~/vibeguard/setup.sh --profile strict            # Strict: full hooks + Claude Code U-32 SessionStart constraint budget
 
 # Language selection (only install rules/guards for specified languages)
 bash ~/vibeguard/setup.sh --languages rust,python
@@ -436,7 +436,7 @@ Migration: `--check --strict` remains supported and maps to `verify-project`;
 | `minimal` | pre-write, pre-edit, pre-bash + post-edit, post-write | Lightweight Bash/file protection |
 | `core` (default) | minimal + Claude Code analysis-paralysis (unsupported by native Codex hooks) | Standard development |
 | `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
-| `strict` | full + Claude Code session-start constraint counting; Codex native hooks remain full | Maximum enforcement |
+| `strict` | full + Claude Code count-active-constraints (SessionStart/U-32); Codex native hooks remain full | Maximum enforcement |
 
 `setup.sh` also prepares the shared pre-commit wrapper at `~/.vibeguard/pre-commit` and installs this repository's git `pre-commit` and `pre-push` hooks during setup. The git `pre-push` hook owns force-push / branch-deletion protection; `pre-bash-guard` does not regex-match `git push --force`. To attach the wrapper to another repository, use `scripts/project-init.sh` or that repository's own install step.
 
