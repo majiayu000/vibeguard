@@ -241,6 +241,7 @@ degraded_buf=$'[OK] base\n[WARN] something optional\n'
 deg_summary="$(run_with_buffer "$degraded_buf" 'status_print_summary')"
 assert_contains "$deg_summary" "WARN    : 1"  "degraded: warn count"
 assert_contains "$deg_summary" "DEGRADED"     "degraded: verdict is DEGRADED"
+assert_contains "$deg_summary" "first: something optional" "degraded: verdict names the first issue"
 deg_rc="$(run_with_buffer "$degraded_buf" 'status_exit_code')"
 assert_eq "$deg_rc" "1" "degraded: exit code 1"
 
@@ -251,6 +252,7 @@ assert_contains "$broken_summary" "BROKEN  : 1"  "broken: broken count"
 assert_contains "$broken_summary" "FAIL    : 1"  "broken: fail count"
 assert_contains "$broken_summary" "MISSING : 1"  "broken: missing count"
 assert_contains "$broken_summary" "BROKEN"       "broken: verdict is BROKEN"
+assert_contains "$broken_summary" "first: hook wrapper missing" "broken: verdict names the first required issue"
 broken_rc="$(run_with_buffer "$broken_buf" 'status_exit_code')"
 assert_eq "$broken_rc" "2" "broken: exit code 2"
 
@@ -264,9 +266,29 @@ assert_eq "$drift_rc" "2" "drift: strict exit code 2"
 drift_install_rc="$(run_with_buffer "$drift_buf" 'status_install_exit_code')"
 assert_eq "$drift_install_rc" "2" "drift: install exit code 2"
 
-optional_missing_buf=$'[OK] base\n[MISSING] agents not in ~/.claude/agents/\n[MISSING] context profiles not in ~/.claude/context-profiles/\n'
-optional_install_rc="$(run_with_buffer "$optional_missing_buf" 'status_install_exit_code')"
-assert_eq "$optional_install_rc" "0" "install mode: optional missing rows do not fail"
+PROFILE="minimal"
+managed_skill_missing_buf=$'[OK] base\n[MISSING] eval-harness skill not in ~/.claude/skills/\n[MISSING] iterative-retrieval skill not in ~/.claude/skills/\n'
+managed_skill_missing_summary="$(run_with_buffer "$managed_skill_missing_buf" 'status_print_summary')"
+assert_contains "$managed_skill_missing_summary" "BROKEN" "minimal profile: missing installed skills is broken"
+assert_contains "$managed_skill_missing_summary" "first: eval-harness skill not in ~/.claude/skills/" "missing installed skill: verdict names the first issue"
+managed_skill_missing_rc="$(run_with_buffer "$managed_skill_missing_buf" 'status_exit_code')"
+assert_eq "$managed_skill_missing_rc" "2" "minimal profile: missing installed skills fails strict check"
+managed_skill_install_rc="$(run_with_buffer "$managed_skill_missing_buf" 'status_install_exit_code')"
+assert_eq "$managed_skill_install_rc" "2" "minimal install mode: missing installed skills fails"
+managed_assets_missing_buf=$'[OK] base\n[MISSING] 1/2 VibeGuard agent(s) missing in ~/.claude/agents/: reviewer.md\n[MISSING] context profiles not in ~/.claude/context-profiles/\n'
+managed_assets_install_rc="$(run_with_buffer "$managed_assets_missing_buf" 'status_install_exit_code')"
+assert_eq "$managed_assets_install_rc" "2" "minimal install mode: missing installed agents/profiles fails"
+PROFILE="core"
+core_skill_install_rc="$(run_with_buffer "$managed_skill_missing_buf" 'status_install_exit_code')"
+assert_eq "$core_skill_install_rc" "2" "core install mode: missing required skills fail"
+core_integration_install_rc="$(run_with_buffer "$managed_assets_missing_buf" 'status_install_exit_code')"
+assert_eq "$core_integration_install_rc" "2" "core install mode: missing required agents/profiles fail"
+recovery_missing_buf=$'[OK] installed runtime active\n[WARN] Runtime recovery source missing: current protection can still run, but repair and uninstall recovery are unavailable (run: bash setup.sh --yes)\n'
+recovery_missing_summary="$(run_with_buffer "$recovery_missing_buf" 'status_print_summary')"
+assert_contains "$recovery_missing_summary" "DEGRADED" "recovery missing: human verdict is degraded"
+assert_contains "$recovery_missing_summary" "first: Runtime recovery source missing" "recovery missing: verdict names the recovery gap"
+recovery_install_rc="$(run_with_buffer "$recovery_missing_buf" 'status_install_exit_code')"
+assert_eq "$recovery_install_rc" "2" "recovery missing: install verification still fails"
 codex_required_missing_buf=$'[OK] base\n[MISSING] Codex hooks.json not installed\n[MISSING] Codex hook wrapper not installed\n[MISSING] hooks feature not enabled in ~/.codex/config.toml\n'
 codex_required_install_rc="$(run_with_buffer "$codex_required_missing_buf" 'status_install_exit_code')"
 assert_eq "$codex_required_install_rc" "2" "install mode: Codex missing rows fail"
@@ -334,6 +356,9 @@ disabled_json="$(run_with_buffer "$disabled_buf" 'status_emit_json')"
 assert_json_path "$disabled_json" 'd["counts"]["disabled"]' "1" "json: disabled count"
 assert_json_path "$disabled_json" 'd["verdict"]' "healthy" "json: disabled verdict"
 assert_json_path "$disabled_json" 'd["events"][1]["level"]' "DISABLED" "json: disabled event level"
+PROFILE="minimal"
+managed_skill_missing_json="$(run_with_buffer "$managed_skill_missing_buf" 'status_emit_json')"
+assert_json_path "$managed_skill_missing_json" 'd["verdict"]' "broken" "json: missing installed skill verdict is broken"
 
 # JSON must be parseable.
 TOTAL=$((TOTAL + 1))
@@ -436,6 +461,29 @@ assert_not_contains "$default_out" "check_test_weakening.sh:118" "default: test 
 doctor_out="$(bash "${SETUP_SCRIPT}" doctor 2>&1 || true)"
 assert_contains "$doctor_out" "VibeGuard Installation Status" "doctor: legacy header preserved"
 assert_contains "$doctor_out" "Summary" "doctor: summary block present"
+
+BROKEN_HOME="$(mktemp -d)"
+broken_runtime_out="$(HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" --check 2>&1 || true)"
+assert_contains "$broken_runtime_out" \
+  "Runtime recovery source missing: installed runtime is unavailable; repair is required" \
+  "missing runtimes: recovery warning requires repair"
+assert_not_contains "$broken_runtime_out" \
+  "Runtime recovery source missing: current protection can still run" \
+  "missing runtimes: recovery warning does not claim protection can run"
+
+mkdir -p "${BROKEN_HOME}/.vibeguard/installed/bin"
+cat > "${BROKEN_HOME}/.vibeguard/installed/bin/vibeguard-runtime" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+chmod +x "${BROKEN_HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+broken_executable_runtime_out="$(HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" --check 2>&1 || true)"
+assert_contains "$broken_executable_runtime_out" \
+  "Runtime recovery source missing: installed runtime is unavailable; repair is required" \
+  "broken executable runtime: recovery warning requires repair"
+assert_not_contains "$broken_executable_runtime_out" \
+  "Runtime recovery source missing: current protection can still run" \
+  "broken executable runtime: recovery warning does not claim protection can run"
 
 AWK_PORTABILITY_FIXTURE="${REPO_DIR}/guards/universal/vg-test-non-posix-awk.sh"
 cat > "${AWK_PORTABILITY_FIXTURE}" <<'SH'

@@ -123,9 +123,9 @@ state before enabling it across a team.
 ## Observability
 
 ```bash
-bash ~/vibeguard/scripts/stats.sh
-bash ~/vibeguard/scripts/hook-health.sh 24
-~/.vibeguard/installed/bin/vibeguard-runtime hook-status --mode focused
+export PATH="$HOME/.vibeguard/installed/bin:$PATH"
+vibeguard observe summary --limit all
+vibeguard observe health --limit all
 ```
 
 Use [Observability Harness Contract](../reference/observability-harness.md) for

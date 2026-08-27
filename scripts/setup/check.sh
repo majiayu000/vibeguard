@@ -390,6 +390,17 @@ _execution_source_label() {
   fi
 }
 
+_installed_runtime_is_healthy() {
+  local runtime_path="${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+  local expected actual
+  [[ -x "${runtime_path}" ]] || return 1
+  expected="$(setup_runtime_expected_version 2>/dev/null)" || return 1
+  actual="$("${runtime_path}" version 2>/dev/null)" || return 1
+  actual="${actual%%$'\n'*}"
+  actual="${actual//$'\r'/}"
+  [[ "${actual}" == "${expected}" ]]
+}
+
 _check_execution_source_dir() {
   local surface="$1" rel_path="$2"
   local path
@@ -439,8 +450,10 @@ _check_execution_sources() {
   fi
   if [[ -x "${HOME}/.vibeguard/vibeguard-runtime" ]]; then
     green "[OK] Runtime recovery source: ${HOME}/.vibeguard/vibeguard-runtime"
+  elif _installed_runtime_is_healthy; then
+    yellow "[WARN] Runtime recovery source missing: current protection can still run, but repair and uninstall recovery are unavailable (run: bash setup.sh --yes)"
   else
-    red "[BROKEN] Runtime recovery source missing: ${HOME}/.vibeguard/vibeguard-runtime (run: bash setup.sh --yes)"
+    yellow "[WARN] Runtime recovery source missing: installed runtime is unavailable; repair is required (run: bash setup.sh --yes)"
   fi
 }
 

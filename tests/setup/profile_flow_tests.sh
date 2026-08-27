@@ -81,6 +81,80 @@ assert_contains "${project_init_out}" "pre-commit hook installed" "project-init 
 assert_contains "${project_init_out}" "pre-push hook installed" "project-init installs tracked pre-push hook"
 assert_cmd "project-init pre-commit hook targets VibeGuard wrapper" bash -c "[[ \"\$(readlink '${project_init_target}/.git/hooks/pre-commit')\" == '${HOME}/.vibeguard/pre-commit' ]]"
 assert_cmd "install-state records project-init hooks" bash -c "grep -q '${project_init_target}/.git/hooks/pre-commit' '${HOME}/.vibeguard/install-state.json'"
+
+project_init_relative_target="${TMP_HOME}/project-init-relative-target"
+mkdir -p "${project_init_relative_target}"
+cat > "${project_init_relative_target}/Cargo.toml" <<'TOML'
+[package]
+name = "project-init-relative-target"
+version = "0.1.0"
+edition = "2021"
+TOML
+project_init_relative_out="$(
+  cd "${REPO_DIR}" && bash scripts/project-init.sh "${project_init_relative_target}" 2>&1
+)"
+assert_contains "${project_init_relative_out}" "Language detected: rust" "project-init resolves a relative script path before entering the target"
+
+project_init_node_target="${TMP_HOME}/project-init-node-target"
+mkdir -p "${project_init_node_target}"
+cat > "${project_init_node_target}/package.json" <<'JSON'
+{
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}
+JSON
+printf '%s\n' '{"compilerOptions":{"strict":true}}' > "${project_init_node_target}/tsconfig.json"
+project_init_node_out="$(bash "${REPO_DIR}/scripts/project-init.sh" "${project_init_node_target}" 2>&1)"
+assert_contains "${project_init_node_out}" '- `pnpm run check`' "project-init uses the declared package-manager check script"
+assert_contains "${project_init_node_out}" '- `pnpm test`' "project-init uses the declared package-manager test script"
+assert_not_contains "${project_init_node_out}" 'npx tsc --noEmit' "project-init does not invent a TypeScript build command"
+assert_not_contains "${project_init_node_out}" '- `npm test`' "project-init does not replace the declared package manager"
+
+project_init_bun_target="${TMP_HOME}/project-init-bun-target"
+mkdir -p "${project_init_bun_target}"
+cat > "${project_init_bun_target}/package.json" <<'JSON'
+{
+  "packageManager": "bun@1.2.0",
+  "scripts": {
+    "test": "vitest run"
+  }
+}
+JSON
+project_init_bun_out="$(bash "${REPO_DIR}/scripts/project-init.sh" "${project_init_bun_target}" 2>&1)"
+assert_contains "${project_init_bun_out}" '- `bun run test`' "project-init runs Bun's declared test script"
+
+project_init_worktree_base="${TMP_HOME}/project-init-worktree-base"
+project_init_worktree_target="${TMP_HOME}/project-init-worktree-target"
+mkdir -p "${project_init_worktree_base}"
+git -C "${project_init_worktree_base}" init >/dev/null
+cat > "${project_init_worktree_base}/Cargo.toml" <<'TOML'
+[package]
+name = "project-init-worktree-target"
+version = "0.1.0"
+edition = "2021"
+TOML
+git -C "${project_init_worktree_base}" add Cargo.toml
+git -C "${project_init_worktree_base}" \
+  -c user.name='VibeGuard Test' -c user.email='vibeguard@example.invalid' \
+  commit -m 'test fixture' >/dev/null
+git -C "${project_init_worktree_base}" worktree add --detach "${project_init_worktree_target}" HEAD >/dev/null
+project_init_worktree_hooks="${project_init_worktree_base}/.git/hooks"
+project_init_worktree_out="$(
+  GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0=core.hooksPath \
+    GIT_CONFIG_VALUE_0="${project_init_worktree_hooks}" \
+    bash "${REPO_DIR}/scripts/project-init.sh" "${project_init_worktree_target}" 2>&1
+)"
+assert_contains "${project_init_worktree_out}" "pre-commit hook installed" "project-init recognizes a linked Git worktree"
+assert_cmd "project-init installs hooks through Git's resolved hook directory" \
+  test -L "${project_init_worktree_hooks}/pre-commit"
 upgrade_retired_skill="${HOME}/.codex/skills/plan-flow"
 mkdir -p "${upgrade_retired_skill}"
 printf 'managed before retirement\n' > "${upgrade_retired_skill}/SKILL.md"

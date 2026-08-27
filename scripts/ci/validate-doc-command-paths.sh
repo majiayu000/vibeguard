@@ -32,8 +32,16 @@ renamed_targets = [
     repo_root / "scripts" / "setup" / "install.sh",
     repo_root / "scripts" / "project-init.sh",
 ]
+renamed_targets.extend(
+    sorted(
+        path
+        for path in (repo_root / "docs").rglob("*.md")
+        if "internal" not in path.relative_to(repo_root / "docs").parts
+    )
+)
 renamed_targets.extend(sorted((repo_root / "workflows").rglob("*.md")))
 renamed_targets.extend(command_doc_targets)
+renamed_targets = sorted(set(renamed_targets))
 
 renamed_command_paths = {
     "scripts/compliance_check.sh": "scripts/verify/compliance_check.sh",
@@ -42,6 +50,9 @@ stale_public_commands = [
     re.compile(r"\bbash\s+install\.sh\b"),
     re.compile(r"\brun install\.sh\b", re.IGNORECASE),
 ]
+hardcoded_release_pin = re.compile(
+    r"install\.sh.*--version(?:\s+|=)[\"']?v?\d+\.\d+\.\d+[\"']?"
+)
 
 path_pattern = re.compile(r"~/vibeguard/([A-Za-z0-9_./-]+)")
 failures = []
@@ -50,6 +61,40 @@ checked = 0
 
 def display_path(path: Path) -> str:
     return path.relative_to(repo_root).as_posix()
+
+
+def logical_command_lines(lines: list[str]):
+    start_line = 0
+    parts = []
+    fence_marker = None
+    in_shell_fence = False
+    for idx, line in enumerate(lines, 1):
+        fence = re.match(r"^\s*(```+|~~~+)\s*([A-Za-z0-9_-]*)\s*$", line)
+        if fence:
+            marker = fence.group(1)[0]
+            language = fence.group(2).lower()
+            if fence_marker == marker:
+                fence_marker = None
+                in_shell_fence = False
+            elif fence_marker is None:
+                fence_marker = marker
+                in_shell_fence = language in {"bash", "sh", "shell", "zsh"}
+            yield idx, line
+            continue
+        if not parts:
+            start_line = idx
+        stripped = line.rstrip()
+        if stripped.endswith("\\"):
+            parts.append(stripped[:-1])
+            continue
+        if in_shell_fence and stripped.endswith(("|", "|&", "&&")):
+            parts.append(stripped)
+            continue
+        parts.append(line)
+        yield start_line, " ".join(parts)
+        parts = []
+    if parts:
+        yield start_line, " ".join(parts)
 
 
 for md_file in targets:
@@ -70,7 +115,8 @@ for md_file in targets:
 for md_file in renamed_targets:
     if not md_file.exists():
         continue
-    for idx, line in enumerate(md_file.read_text(encoding="utf-8").splitlines(), 1):
+    lines = md_file.read_text(encoding="utf-8").splitlines()
+    for idx, line in enumerate(lines, 1):
         for old_path, new_path in renamed_command_paths.items():
             if old_path in line:
                 failures.append(
@@ -81,6 +127,12 @@ for md_file in renamed_targets:
                 failures.append(
                     f"{display_path(md_file)}:{idx} stale public install command; use setup.sh"
                 )
+    for idx, command in logical_command_lines(lines):
+        if hardcoded_release_pin.search(command):
+            failures.append(
+                f"{display_path(md_file)}:{idx} hardcoded release version in public install command; "
+                "use an X.Y.Z placeholder and link the latest release"
+            )
 
 
 def command_output(args: list[str]) -> str:

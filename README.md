@@ -52,11 +52,11 @@ These commands prove the install is active before changing another project;
 expected outputs are documented in [Quickstart](docs/how/quickstart.md):
 
 ```bash
+export PATH="$HOME/.vibeguard/installed/bin:$PATH"
 bash ~/vibeguard/setup.sh doctor
 bash ~/vibeguard/setup.sh verify-install
-bash ~/vibeguard/scripts/doctors/codex-doctor.sh
 bash ~/vibeguard/setup.sh demo safe-bash
-bash ~/vibeguard/scripts/hook-health.sh 24
+vibeguard observe health --limit all
 ```
 
 To protect another repository after VibeGuard is installed:
@@ -107,7 +107,7 @@ For repository layout ownership, see [Directory Map](docs/directory-map.md).
 
 Real Codex hook output:
 
-![Codex L1 duplicate path interception](docs/assets/codex-l1-duplicate-path-blocked.png)
+![Codex duplicate path interception](docs/assets/codex-l1-duplicate-path-blocked.png)
 
 ```text
 You:  "Add a login endpoint"
@@ -181,7 +181,7 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 | AI tries to finish with unverified changes | `stop-guard` | **Signal** — logs a Stop reminder; the Stop hook exits 0 to avoid feedback loops |
 | Session ends in `full` / `strict` profile | `learn-evaluator` | **Evaluate** — collect metrics and detect correction signals |
 
-U-16 file-size enforcement applies to non-test source files with `.rs`, `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, or `.go` extensions. The default typical-size advisory starts above 400 lines (`u16.warn_limit` in `~/.vibeguard/config.json` / `VG_U16_WARN_LIMIT`), while the hard limit remains 800 lines (`u16.limit` in `~/.vibeguard/config.json` / `VG_U16_LIMIT`). For Codex, `apply_patch Add File` and `apply_patch Update File` are both normalized before the file hook runs. U-16 is baseline-aware: new oversized files, files crossing the hard limit, and legacy oversized files that grow are blocked; legacy oversized files that stay the same size or shrink are allowed with a `U16_LEGACY_DEBT` advisory until they fall below the hard limit. The git pre-commit guard and CI changed-file check call the same runtime decision so oversized imports outside AI tool hooks are caught before submission.
+The source-file size guard advises above 400 lines and blocks new growth above 800 lines while still allowing an oversized legacy file to shrink. Hook, pre-commit, and CI checks share that decision; configuration keys and the canonical rule summary are in the [Rule Reference](docs/rule-reference.md).
 
 ### Static Guards — Run Anytime
 
@@ -193,8 +193,8 @@ bash ~/vibeguard/guards/universal/check_code_slop.sh /path/to/project     # AI c
 python3 ~/vibeguard/guards/universal/check_dependency_layers.py /path      # dependency direction
 python3 ~/vibeguard/guards/universal/check_circular_deps.py /path          # circular deps
 bash ~/vibeguard/guards/universal/check_test_integrity.sh /path            # test shadowing / integrity issues
-bash ~/vibeguard/guards/universal/check_dependency_changes.sh --base origin/main --head HEAD  # SEC-11 dependency review
-bash ~/vibeguard/guards/universal/check_test_weakening.sh --base origin/main --head HEAD      # SEC-11/W-12 test weakening
+bash ~/vibeguard/guards/universal/check_dependency_changes.sh --base origin/main --head HEAD  # dependency security review
+bash ~/vibeguard/guards/universal/check_test_weakening.sh --base origin/main --head HEAD      # test-integrity review
 
 # Rust
 bash ~/vibeguard/guards/rust/check_unwrap_in_prod.sh /path                 # unwrap/expect in prod
@@ -274,16 +274,15 @@ bounded helper. They are not an automatic coordinator/reviewer pipeline:
 ## Observability
 
 ```bash
-bash ~/vibeguard/scripts/quality-grader.sh              # Quality grade (A/B/C/D)
-bash ~/vibeguard/scripts/stats.sh                       # Project hook trigger stats (7 days)
-bash ~/vibeguard/scripts/hook-health.sh 24              # Project hook health snapshot
-bash ~/vibeguard/scripts/stats.sh --scope global        # Global hook trigger stats
-bash ~/vibeguard/scripts/doctors/codex-doctor.sh        # Codex install + hook capability diagnosis
-bash ~/vibeguard/scripts/metrics/metrics-exporter.sh    # Prometheus metrics export
-bash ~/vibeguard/scripts/verify/doc-freshness-check.sh  # Rule-guard coverage check
+export PATH="$HOME/.vibeguard/installed/bin:$PATH"
+vibeguard observe summary --limit all        # Project trigger summary (7 days)
+vibeguard observe health --limit all         # Project health snapshot (24 hours)
+vibeguard observe summary --scope global --limit all # Global trigger summary
+vibeguard observe export prometheus          # Prometheus text export
+bash ~/vibeguard/setup.sh doctor             # Installation and host diagnosis
 ```
 
-Doctors are read-only diagnosis wrappers over the existing defense system. They summarize installation state, capability gaps, noisy hooks, recent events, and repair commands; hooks and guards remain the enforcement layer that blocks or warns during real tool execution.
+`vibeguard observe` is the stable day-to-day command surface; underlying scripts remain available for specialized maintainer diagnostics. Doctor is read-only and summarizes installation state, capability gaps, and repair commands; hooks and guards remain the enforcement layer.
 
 Hook latency is also a product contract. See [Hook Latency Contract](docs/reference/hook-latency-contract.md) for per-hook P95 budgets, hotspot attribution, and the static gates that block expensive hook patterns.
 
@@ -321,19 +320,19 @@ Extracts non-obvious solutions as structured Skill files for future reuse.
 
 ### One-command no-clone install
 
-On supported macOS and Linux targets, the hosted seed downloads one exact
-release payload, verifies its checksum, and delegates to the canonical
-no-clone bootstrap contained in that verified payload:
+On supported macOS and Linux targets, the hosted seed downloads one exact release
+payload, verifies its checksum, and delegates to the canonical no-clone bootstrap. Replace `X.Y.Z` with the
+version shown on the [latest release](https://github.com/majiayu000/vibeguard/releases/latest):
 
 ```bash
-bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- --version 1.1.15'
+bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- --version X.Y.Z'
 ```
 
 Require GitHub release attestation verification and forward `setup.sh` options
 after the second `--`:
 
 ```bash
-bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- --version 1.1.15 --require-provenance -- --profile full --with-scheduler'
+bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- --version X.Y.Z --require-provenance -- --profile full --with-scheduler'
 ```
 
 Then verify:
@@ -423,7 +422,8 @@ bash ~/vibeguard/setup.sh --clean                     # Uninstall
 
 `doctor` / `--check` reports a structured rollup (OK / INFO / WARN / FAIL /
 BROKEN / MISSING) plus a final `Verdict` line of `HEALTHY`, `DEGRADED`, or
-`BROKEN`. It always exits 0 for backwards compatibility unless the checker
+`BROKEN`. Recovery-only and explicitly optional gaps produce `DEGRADED`, and the Verdict names the first issue.
+`doctor` always exits 0 for backwards compatibility unless the checker
 itself cannot run. CI should use `verify-install` for post-install health gates
 or `verify-project --json` when it needs machine-readable strict project output.
 
@@ -486,7 +486,7 @@ the native Codex path. Use Claude Code when read-only exploration gating is
 required; the optional app-server wrapper is only for external orchestrators
 that already require `codex app-server`.
 
-Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` -> Codex deny payloads). Codex sends `apply_patch` as a patch command, so the wrapper normalizes that payload into Edit/Write-shaped inputs before calling the existing VibeGuard file hooks. For `Update File` patches, the wrapper also passes the line delta so `pre-edit-guard.sh` can enforce U-16 before Codex mutates the file. When a hook suggests `updatedInput`, the Codex CLI wrapper cannot apply it automatically, so VibeGuard emits an explicit note with the suggested replacement command instead of silently dropping it.
+Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` -> Codex deny payloads). Codex sends `apply_patch` as a patch command, so the wrapper normalizes that payload into Edit/Write-shaped inputs before calling the existing VibeGuard file hooks. For `Update File` patches, the wrapper also passes the line delta so the source-file size guard can run before Codex mutates the file. When a hook suggests `updatedInput`, the Codex CLI wrapper cannot apply it automatically, so VibeGuard emits an explicit note with the suggested replacement command instead of silently dropping it.
 
 Hook status is a separate human diagnostics surface. Use `vibeguard-runtime hook-status --mode focused` inside a git repository to inspect the matching project log, or add `--scope global` for `~/.vibeguard/events.jsonl`. `--log-file PATH` always wins for explicit fixtures or one-off diagnosis. The command reports recent `pass`, `skipped`, `slow`, `timeout`, and adapter-error states without adding successful hook summaries to the model context. Only actionable `warn` / `block` results should continue through `hookSpecificOutput.additionalContext`. See `docs/reference/codex-hook-status.md`.
 
