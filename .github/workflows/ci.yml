@@ -223,6 +223,10 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-doc-command-paths.sh
 
+      - name: Doc command path regression tests
+        shell: bash
+        run: bash tests/test_doc_command_paths.sh
+
       - name: Doc path allowlist regression tests
         shell: bash
         run: bash tests/test_doc_path_allowlist.sh
@@ -561,6 +565,9 @@ jobs:
 
       - name: Validate doc command paths
         run: bash scripts/ci/validate-doc-command-paths.sh
+
+      - name: Doc command path regression tests
+        run: bash tests/test_doc_command_paths.sh
 
       - name: Doc path allowlist regression tests
         run: bash tests/test_doc_path_allowlist.sh

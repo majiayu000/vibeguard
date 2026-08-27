@@ -19,6 +19,7 @@ targets, offline installs, explicit `--build-from-source` runs, or unreleased
 ## 2. Verify
 
 ```bash
+export PATH="$HOME/.vibeguard/installed/bin:$PATH"
 bash ~/vibeguard/setup.sh doctor
 bash ~/vibeguard/setup.sh verify-install
 ```
@@ -77,11 +78,9 @@ before assuming protection is active.
 ## 5. Inspect Recent Hook Status
 
 ```bash
-bash ~/vibeguard/scripts/hook-health.sh 24
-~/.vibeguard/installed/bin/vibeguard-runtime hook-status --mode focused
+vibeguard observe health --limit all
 ```
 
-`hook-health.sh` summarizes recent local hook events. `hook-status` shows the
-project-scoped hook log for the current git repository; see
+This summarizes recent local hook events for the current project. See
 [Codex Hook Status](../reference/codex-hook-status.md) for JSON and global-scope
 diagnostics.

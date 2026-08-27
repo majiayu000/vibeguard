@@ -67,6 +67,7 @@ HOME="${LOCAL_CONTRACT_HOME}" run_check "validate-hooks" "$REPO_DIR/scripts/ci/v
 run_check "validate-rules"           "$REPO_DIR/scripts/ci/validate-rules.sh"           "true"
 run_check "validate-doc-paths"       "$REPO_DIR/scripts/ci/validate-doc-paths.sh"       "false"
 run_check "validate-doc-command-paths" "$REPO_DIR/scripts/ci/validate-doc-command-paths.sh" "false"
+run_check "test-doc-command-paths" "$REPO_DIR/tests/test_doc_command_paths.sh" "false"
 run_check "validate-generated-directory-guidance" "$REPO_DIR/scripts/ci/validate-generated-directory-guidance.sh" "false"
 run_check "test-directory-guidance" "$REPO_DIR/tests/test_directory_guidance.sh" "false"
 run_check "validate-no-personal-paths" "$REPO_DIR/scripts/ci/validate-no-personal-paths.sh" "false"
