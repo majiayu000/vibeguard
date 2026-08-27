@@ -73,6 +73,9 @@ def logical_command_lines(lines: list[str]):
         if stripped.endswith("\\"):
             parts.append(stripped[:-1])
             continue
+        if stripped.endswith(("|", "|&", "&&")):
+            parts.append(stripped)
+            continue
         parts.append(line)
         yield start_line, " ".join(parts)
         parts = []
