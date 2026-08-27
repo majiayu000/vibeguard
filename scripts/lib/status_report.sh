@@ -21,8 +21,8 @@
 #
 # Exit-code policy
 #   0 — no [WARN]/[DRIFT]/[FAIL]/[BROKEN]/[MISSING]
-#   1 — only [WARN] or optional [MISSING] (degraded but functional)
-#   2 — at least one [DRIFT]/[FAIL]/[BROKEN]/required [MISSING] (broken — needs repair)
+#   1 — only [WARN] (degraded but functional)
+#   2 — at least one [DRIFT]/[FAIL]/[BROKEN]/[MISSING] (broken — needs repair)
 #
 # Per the VibeGuard "no silent degradation" rule (U-29), [INFO] is treated
 # as neutral and never affects exit code or verdict.
@@ -91,42 +91,16 @@ status_classify_line() {
   esac
 }
 
-status_optional_missing_line() {
-  local line="$1"
-  local plain
-  # The minimal profile intentionally omits Claude agents, skills, and
-  # context profiles. Every other supported profile installs them.
-  [[ "${PROFILE:-core}" == "minimal" ]] || return 1
-  plain="$(status_plain_line "$line")"
-  case "$plain" in
-    *"VibeGuard agent(s) missing in ~/.claude/agents/:"*|\
-    *"context profiles not in ~/.claude/context-profiles/"*|\
-    *"eval-harness skill not in ~/.claude/skills/"*|\
-    *"iterative-retrieval skill not in ~/.claude/skills/"*)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
 status_required_missing_count() {
   local required=0 line level
   [[ -n "${_VG_STATUS_BUFFER}" && -f "${_VG_STATUS_BUFFER}" ]] || { printf '0\n'; return 0; }
   while IFS= read -r line; do
     level="$(status_classify_line "$line")"
-    if [[ "$level" == "MISSING" ]] && ! status_optional_missing_line "$line"; then
+    if [[ "$level" == "MISSING" ]]; then
       required=$((required + 1))
     fi
   done < "${_VG_STATUS_BUFFER}"
   printf '%d\n' "$required"
-}
-
-status_optional_missing_count() {
-  local required
-  required="$(status_required_missing_count)"
-  printf '%d\n' "$((_VG_STATUS_MISSING - required))"
 }
 
 status_install_required_warning_line() {
@@ -160,12 +134,11 @@ status_first_attention_message() {
       broken:DRIFT|broken:FAIL|broken:BROKEN)
         ;;
       broken:MISSING)
-        status_optional_missing_line "$line" && continue
         ;;
       degraded:WARN)
         ;;
       degraded:MISSING)
-        status_optional_missing_line "$line" || continue
+        continue
         ;;
       *)
         continue
@@ -227,11 +200,10 @@ status_filter_problems() {
 status_print_summary() {
   local quiet=0
   [[ "${1:-}" == "--quiet" ]] && quiet=1
-  local required_missing optional_missing total_problems total_warnings attention
+  local required_missing total_problems total_warnings attention
   required_missing="$(status_required_missing_count)"
-  optional_missing="$(status_optional_missing_count)"
   total_problems=$((_VG_STATUS_DRIFT + _VG_STATUS_FAIL + _VG_STATUS_BROKEN + required_missing))
-  total_warnings=$((_VG_STATUS_WARN + optional_missing))
+  total_warnings="${_VG_STATUS_WARN}"
 
   if [[ "${quiet}" -eq 1 ]] && (( total_problems + total_warnings > 0 )); then
     printf '\nProblems\n'

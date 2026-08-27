@@ -267,21 +267,21 @@ drift_install_rc="$(run_with_buffer "$drift_buf" 'status_install_exit_code')"
 assert_eq "$drift_install_rc" "2" "drift: install exit code 2"
 
 PROFILE="minimal"
-optional_missing_buf=$'[OK] base\n[MISSING] eval-harness skill not in ~/.claude/skills/\n[MISSING] iterative-retrieval skill not in ~/.claude/skills/\n'
-optional_missing_summary="$(run_with_buffer "$optional_missing_buf" 'status_print_summary')"
-assert_contains "$optional_missing_summary" "DEGRADED" "optional missing: verdict is degraded"
-assert_contains "$optional_missing_summary" "first: eval-harness skill not in ~/.claude/skills/" "optional missing: verdict names the first issue"
-optional_missing_rc="$(run_with_buffer "$optional_missing_buf" 'status_exit_code')"
-assert_eq "$optional_missing_rc" "1" "optional missing: strict exit code is degraded"
-optional_install_rc="$(run_with_buffer "$optional_missing_buf" 'status_install_exit_code')"
-assert_eq "$optional_install_rc" "0" "install mode: optional missing rows do not fail"
-optional_integration_buf=$'[OK] base\n[MISSING] 1/2 VibeGuard agent(s) missing in ~/.claude/agents/: reviewer.md\n[MISSING] context profiles not in ~/.claude/context-profiles/\n'
-optional_integration_rc="$(run_with_buffer "$optional_integration_buf" 'status_install_exit_code')"
-assert_eq "$optional_integration_rc" "0" "install mode: optional agent/profile rows do not fail"
+managed_skill_missing_buf=$'[OK] base\n[MISSING] eval-harness skill not in ~/.claude/skills/\n[MISSING] iterative-retrieval skill not in ~/.claude/skills/\n'
+managed_skill_missing_summary="$(run_with_buffer "$managed_skill_missing_buf" 'status_print_summary')"
+assert_contains "$managed_skill_missing_summary" "BROKEN" "minimal profile: missing installed skills is broken"
+assert_contains "$managed_skill_missing_summary" "first: eval-harness skill not in ~/.claude/skills/" "missing installed skill: verdict names the first issue"
+managed_skill_missing_rc="$(run_with_buffer "$managed_skill_missing_buf" 'status_exit_code')"
+assert_eq "$managed_skill_missing_rc" "2" "minimal profile: missing installed skills fails strict check"
+managed_skill_install_rc="$(run_with_buffer "$managed_skill_missing_buf" 'status_install_exit_code')"
+assert_eq "$managed_skill_install_rc" "2" "minimal install mode: missing installed skills fails"
+managed_assets_missing_buf=$'[OK] base\n[MISSING] 1/2 VibeGuard agent(s) missing in ~/.claude/agents/: reviewer.md\n[MISSING] context profiles not in ~/.claude/context-profiles/\n'
+managed_assets_install_rc="$(run_with_buffer "$managed_assets_missing_buf" 'status_install_exit_code')"
+assert_eq "$managed_assets_install_rc" "2" "minimal install mode: missing installed agents/profiles fails"
 PROFILE="core"
-core_skill_install_rc="$(run_with_buffer "$optional_missing_buf" 'status_install_exit_code')"
+core_skill_install_rc="$(run_with_buffer "$managed_skill_missing_buf" 'status_install_exit_code')"
 assert_eq "$core_skill_install_rc" "2" "core install mode: missing required skills fail"
-core_integration_install_rc="$(run_with_buffer "$optional_integration_buf" 'status_install_exit_code')"
+core_integration_install_rc="$(run_with_buffer "$managed_assets_missing_buf" 'status_install_exit_code')"
 assert_eq "$core_integration_install_rc" "2" "core install mode: missing required agents/profiles fail"
 recovery_missing_buf=$'[OK] installed runtime active\n[WARN] Runtime recovery source missing: current protection can still run, but repair and uninstall recovery are unavailable (run: bash setup.sh --yes)\n'
 recovery_missing_summary="$(run_with_buffer "$recovery_missing_buf" 'status_print_summary')"
@@ -357,8 +357,8 @@ assert_json_path "$disabled_json" 'd["counts"]["disabled"]' "1" "json: disabled 
 assert_json_path "$disabled_json" 'd["verdict"]' "healthy" "json: disabled verdict"
 assert_json_path "$disabled_json" 'd["events"][1]["level"]' "DISABLED" "json: disabled event level"
 PROFILE="minimal"
-optional_missing_json="$(run_with_buffer "$optional_missing_buf" 'status_emit_json')"
-assert_json_path "$optional_missing_json" 'd["verdict"]' "degraded" "json: optional missing verdict is degraded"
+managed_skill_missing_json="$(run_with_buffer "$managed_skill_missing_buf" 'status_emit_json')"
+assert_json_path "$managed_skill_missing_json" 'd["verdict"]' "broken" "json: missing installed skill verdict is broken"
 
 # JSON must be parseable.
 TOTAL=$((TOTAL + 1))
