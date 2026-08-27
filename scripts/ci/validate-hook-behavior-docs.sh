@@ -194,6 +194,10 @@ require_present "docs/README_CN.md" 'vibeguard observe summary --limit all' \
   "Chinese README project summary must preserve the complete event window"
 require_present "docs/README_CN.md" 'vibeguard observe summary --scope global --limit all' \
   "Chinese README global summary must preserve the complete event window"
+require_absent "docs/README_CN.md" '噪声 hook、最近事件' \
+  "Chinese README must not claim setup doctor reports event-level diagnostics"
+require_present "docs/README_CN.md" '它负责汇总安装状态、能力差异和修复命令' \
+  "Chinese README must describe setup doctor installation diagnostics accurately"
 require_present "docs/reference/observability-harness.md" '`vibeguard observe summary --limit all`' \
   "observability guide project summary must preserve the complete event window"
 require_present "docs/reference/observability-harness.md" '`vibeguard observe summary --scope global --limit all`' \

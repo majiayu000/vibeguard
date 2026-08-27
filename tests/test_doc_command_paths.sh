@@ -63,6 +63,20 @@ assert_fails_with "equals-form numeric release pin fails" \
   "README.md:2 hardcoded release version" \
   bash "${VALIDATOR}" "${equals_fixture}"
 
+quoted_equals_fixture="$(new_fixture quoted-equals-form)"
+printf '%s\n' 'curl -fsSL https://example.test/install.sh | bash -s -- --version="1.2.3"' \
+  >> "${quoted_equals_fixture}/README.md"
+assert_fails_with "quoted equals-form numeric release pin fails" \
+  "README.md:2 hardcoded release version" \
+  bash "${VALIDATOR}" "${quoted_equals_fixture}"
+
+quoted_separate_fixture="$(new_fixture quoted-separate-form)"
+printf '%s\n' "curl -fsSL https://example.test/install.sh | bash -s -- --version '1.2.3'" \
+  >> "${quoted_separate_fixture}/README.md"
+assert_fails_with "quoted separate numeric release pin fails" \
+  "README.md:2 hardcoded release version" \
+  bash "${VALIDATOR}" "${quoted_separate_fixture}"
+
 public_docs_fixture="$(new_fixture public-docs)"
 printf '%s\n' 'curl -fsSL https://example.test/install.sh | bash -s -- --version 1.2.3' \
   > "${public_docs_fixture}/docs/how/quickstart.md"

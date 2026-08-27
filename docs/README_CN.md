@@ -200,7 +200,7 @@ vibeguard observe export prometheus
 bash ~/vibeguard/setup.sh doctor
 ```
 
-Doctor 是现有防御系统之上的只读诊断入口，不替代 hooks 或 guards。它负责汇总安装状态、能力差异、噪声 hook、最近事件和修复命令；真正的拦截/告警仍然发生在 hook 和 guard 执行层。
+Doctor 是现有防御系统之上的只读诊断入口，不替代 hooks 或 guards。它负责汇总安装状态、能力差异和修复命令；真正的拦截/告警仍然发生在 hook 和 guard 执行层。
 
 学习系统分两种模式：
 

@@ -51,7 +51,7 @@ stale_public_commands = [
     re.compile(r"\brun install\.sh\b", re.IGNORECASE),
 ]
 hardcoded_release_pin = re.compile(
-    r"install\.sh.*--version(?:\s+|=)v?\d+\.\d+\.\d+"
+    r"install\.sh.*--version(?:\s+|=)[\"']?v?\d+\.\d+\.\d+[\"']?"
 )
 
 path_pattern = re.compile(r"~/vibeguard/([A-Za-z0-9_./-]+)")
