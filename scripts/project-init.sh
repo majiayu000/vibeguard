@@ -6,11 +6,22 @@
 # Usage: bash project-init.sh [project_root]
 set -euo pipefail
 
+# Resolve the script before entering the target repository. A relative $0 must
+# remain valid after cd, and symlinked entrypoints should resolve consistently
+# with setup.sh.
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [[ -L "${SCRIPT_PATH}" ]]; do
+  SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
+  SCRIPT_PATH="$(readlink "${SCRIPT_PATH}")"
+  [[ "${SCRIPT_PATH}" == /* ]] || SCRIPT_PATH="${SCRIPT_DIR}/${SCRIPT_PATH}"
+done
+SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
+VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+
 PROJECT_ROOT="${1:-$(pwd)}"
 cd "$PROJECT_ROOT" || { echo "ERROR: Unable to enter directory $PROJECT_ROOT"; exit 1; }
 PROJECT_ROOT_ABS="$(pwd -P)"
 
-VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 if [[ -f "${VIBEGUARD_DIR}/scripts/lib/install-state.sh" ]]; then
   # shellcheck source=scripts/lib/install-state.sh
   source "${VIBEGUARD_DIR}/scripts/lib/install-state.sh"
@@ -28,6 +39,83 @@ FRAMEWORKS=()
 BUILD_CMDS=()
 TEST_CMDS=()
 
+package_json_string() {
+  local path="$1"
+  node -e '
+const fs = require("fs");
+const document = JSON.parse(fs.readFileSync("package.json", "utf8"));
+const value = process.argv[1].split(".").reduce(
+  (current, key) => current && typeof current === "object" ? current[key] : undefined,
+  document,
+);
+if (typeof value === "string" && value.trim() !== "") process.stdout.write(value.trim());
+' "${path}"
+}
+
+package_has_dependency() {
+  local dependency="$1"
+  node -e '
+const fs = require("fs");
+const document = JSON.parse(fs.readFileSync("package.json", "utf8"));
+const name = process.argv[1];
+const groups = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
+process.exit(groups.some((group) => document[group] && document[group][name] !== undefined) ? 0 : 1);
+' "${dependency}"
+}
+
+detect_package_manager() {
+  local declared manager
+  declared="$(package_json_string packageManager)"
+  if [[ -n "${declared}" ]]; then
+    manager="${declared%%@*}"
+    case "${manager}" in
+      npm|pnpm|yarn|bun) printf '%s\n' "${manager}"; return 0 ;;
+      *)
+        echo "ERROR: unsupported packageManager in package.json: ${declared}" >&2
+        return 2
+        ;;
+    esac
+  fi
+  if [[ -f pnpm-lock.yaml ]]; then
+    printf '%s\n' pnpm
+  elif [[ -f yarn.lock ]]; then
+    printf '%s\n' yarn
+  elif [[ -f bun.lock || -f bun.lockb ]]; then
+    printf '%s\n' bun
+  elif [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
+    printf '%s\n' npm
+  else
+    return 1
+  fi
+}
+
+append_package_commands() {
+  local manager="$1" script
+  for script in check typecheck build; do
+    if [[ -n "$(package_json_string "scripts.${script}")" ]]; then
+      BUILD_CMDS+=("${manager} run ${script}")
+    fi
+  done
+  if [[ -n "$(package_json_string scripts.test)" ]]; then
+    if [[ "${manager}" == "bun" ]]; then
+      TEST_CMDS+=("bun run test")
+    else
+      TEST_CMDS+=("${manager} test")
+    fi
+  fi
+}
+
+if [[ -f package.json ]]; then
+  if ! command -v node >/dev/null 2>&1; then
+    echo "ERROR: node is required to read project commands from package.json" >&2
+    exit 1
+  fi
+  if ! node -e 'JSON.parse(require("fs").readFileSync("package.json", "utf8"))' 2>/dev/null; then
+    echo "ERROR: package.json is malformed; refusing to invent project commands" >&2
+    exit 1
+  fi
+fi
+
 if [[ -f "Cargo.toml" ]]; then
   LANGS+=("rust")
   BUILD_CMDS+=("cargo check")
@@ -39,21 +127,32 @@ fi
 
 if [[ -f "tsconfig.json" ]]; then
   LANGS+=("typescript")
-  BUILD_CMDS+=("npx tsc --noEmit")
   if [[ -f "package.json" ]]; then
-    if grep -q '"test"' package.json 2>/dev/null; then
-      TEST_CMDS+=("npm test")
+    package_manager_rc=0
+    package_manager="$(detect_package_manager)" || package_manager_rc=$?
+    if [[ "${package_manager_rc}" -eq 0 ]]; then
+      append_package_commands "${package_manager}"
+    elif [[ "${package_manager_rc}" -eq 2 ]]; then
+      exit 1
+    else
+      echo "INFO: package manager not detected; package.json commands were not suggested." >&2
     fi
-    if grep -q "next" package.json 2>/dev/null; then
+    if package_has_dependency next; then
       FRAMEWORKS+=("nextjs")
-    elif grep -q "react" package.json 2>/dev/null; then
+    elif package_has_dependency react; then
       FRAMEWORKS+=("react")
     fi
   fi
 elif [[ -f "package.json" ]]; then
   LANGS+=("javascript")
-  if grep -q '"test"' package.json 2>/dev/null; then
-    TEST_CMDS+=("npm test")
+  package_manager_rc=0
+  package_manager="$(detect_package_manager)" || package_manager_rc=$?
+  if [[ "${package_manager_rc}" -eq 0 ]]; then
+    append_package_commands "${package_manager}"
+  elif [[ "${package_manager_rc}" -eq 2 ]]; then
+    exit 1
+  else
+    echo "INFO: package manager not detected; package.json commands were not suggested." >&2
   fi
 fi
 
@@ -65,7 +164,6 @@ fi
 
 if [[ -f "pyproject.toml" ]] || [[ -f "requirements.txt" ]]; then
   LANGS+=("python")
-  TEST_CMDS+=("pytest")
 fi
 
 if [[ ${#LANGS[@]} -eq 0 ]]; then
@@ -161,14 +259,22 @@ echo '```markdown'
 echo "# project constraints"
 echo
 echo "## build command"
-for cmd in "${BUILD_CMDS[@]}"; do
-  echo "- \`$cmd\`"
-done
+if [[ ${#BUILD_CMDS[@]} -eq 0 ]]; then
+  echo "- No verified build command detected; add the repository-provided command."
+else
+  for cmd in "${BUILD_CMDS[@]}"; do
+    echo "- \`$cmd\`"
+  done
+fi
 echo
 echo "## test command"
-for cmd in "${TEST_CMDS[@]}"; do
-  echo "- \`$cmd\`"
-done
+if [[ ${#TEST_CMDS[@]} -eq 0 ]]; then
+  echo "- No verified test command detected; add the repository-provided command."
+else
+  for cmd in "${TEST_CMDS[@]}"; do
+    echo "- \`$cmd\`"
+  done
+fi
 echo
 
 #monorepo detection
@@ -187,7 +293,14 @@ echo
 echo "--- Git Hooks ---"
 PRE_COMMIT_WRAPPER="${HOME}/.vibeguard/pre-commit"
 PRE_PUSH_WRAPPER="${HOME}/.vibeguard/pre-push"
-GIT_HOOKS_DIR="${PROJECT_ROOT_ABS}/.git/hooks"
+GIT_HOOKS_DIR=""
+if git -C "${PROJECT_ROOT_ABS}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if ! GIT_HOOKS_DIR="$(git -C "${PROJECT_ROOT_ABS}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)" \
+    || [[ -z "${GIT_HOOKS_DIR}" ]]; then
+    echo "ERROR: unable to resolve Git hooks directory for ${PROJECT_ROOT_ABS}" >&2
+    exit 1
+  fi
+fi
 record_project_hook_install() {
   local hook_name="$1" hook_path="$2" hook_dir abs_hook_path
   hook_dir="$(dirname "${hook_path}")"
@@ -197,7 +310,7 @@ record_project_hook_install() {
   fi
 }
 
-if [[ -d "${PROJECT_ROOT_ABS}/.git" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
+if [[ -n "${GIT_HOOKS_DIR}" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
   mkdir -p "$GIT_HOOKS_DIR"
   if [[ -f "$GIT_HOOKS_DIR/pre-commit" ]]; then
     echo ".git/hooks/pre-commit already exists, skip (manual override: ln -sf $PRE_COMMIT_WRAPPER $GIT_HOOKS_DIR/pre-commit)"
@@ -217,7 +330,7 @@ if [[ -d "${PROJECT_ROOT_ABS}/.git" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
   else
     echo " ~/.vibeguard/pre-push does not exist, please run setup.sh first"
   fi
-elif [[ ! -d "${PROJECT_ROOT_ABS}/.git" ]]; then
+elif [[ -z "${GIT_HOOKS_DIR}" ]]; then
   echo "Non-git repository, skip"
 elif [[ ! -f "$PRE_COMMIT_WRAPPER" ]]; then
   echo " ~/.vibeguard/pre-commit does not exist, please run setup.sh first"
