@@ -98,8 +98,8 @@ Use the smallest surface that answers the question.
 
 | Question | Surface |
 |---|---|
-| What happened in this project? | `vibeguard observe summary` |
-| What happened globally? | `vibeguard observe summary --scope global` |
+| What happened in this project? | `vibeguard observe summary --limit all` |
+| What happened globally? | `vibeguard observe summary --scope global --limit all` |
 | Why did this session have friction? | `session-metrics.jsonl` and `correction_signals` |
 | Which hook is slow? | `vibeguard-runtime hook-status --mode full --slow-ms 2000` |
 | Did eval quality regress? | `python3 eval/run_behavior_eval.py --fail-on-threshold` and `python3 eval/summarize_runs.py` |

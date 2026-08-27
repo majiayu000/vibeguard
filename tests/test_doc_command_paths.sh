@@ -81,12 +81,24 @@ assert_fails_with "numeric release pin in a continued command fails" \
 
 pipeline_fixture="$(new_fixture pipeline-continuation)"
 cat > "${pipeline_fixture}/docs/how/quickstart.md" <<'MD'
+```bash
 curl -fsSL https://example.test/install.sh |
   bash -s -- --version=1.2.3
+```
 MD
 assert_fails_with "numeric release pin in a continued pipeline fails" \
-  "docs/how/quickstart.md:1 hardcoded release version" \
+  "docs/how/quickstart.md:2 hardcoded release version" \
   bash "${VALIDATOR}" "${pipeline_fixture}"
+
+table_fixture="$(new_fixture markdown-table)"
+cat > "${table_fixture}/docs/how/quickstart.md" <<'MD'
+| Field | Example |
+|---|---|
+| Installer | `install.sh` |
+| Version syntax | `--version=1.2.3` |
+MD
+assert_cmd "Markdown table rows are not folded into a command" \
+  bash "${VALIDATOR}" "${table_fixture}"
 
 placeholder_fixture="$(new_fixture placeholder)"
 printf '%s\n' 'curl -fsSL https://example.test/install.sh | bash -s -- --version=X.Y.Z' \

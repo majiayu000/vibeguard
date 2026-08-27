@@ -124,7 +124,7 @@ state before enabling it across a team.
 
 ```bash
 export PATH="$HOME/.vibeguard/installed/bin:$PATH"
-vibeguard observe summary
+vibeguard observe summary --limit all
 vibeguard observe health --limit all
 ```
 

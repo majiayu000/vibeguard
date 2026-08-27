@@ -66,14 +66,28 @@ def display_path(path: Path) -> str:
 def logical_command_lines(lines: list[str]):
     start_line = 0
     parts = []
+    fence_marker = None
+    in_shell_fence = False
     for idx, line in enumerate(lines, 1):
+        fence = re.match(r"^\s*(```+|~~~+)\s*([A-Za-z0-9_-]*)\s*$", line)
+        if fence:
+            marker = fence.group(1)[0]
+            language = fence.group(2).lower()
+            if fence_marker == marker:
+                fence_marker = None
+                in_shell_fence = False
+            elif fence_marker is None:
+                fence_marker = marker
+                in_shell_fence = language in {"bash", "sh", "shell", "zsh"}
+            yield idx, line
+            continue
         if not parts:
             start_line = idx
         stripped = line.rstrip()
         if stripped.endswith("\\"):
             parts.append(stripped[:-1])
             continue
-        if stripped.endswith(("|", "|&", "&&")):
+        if in_shell_fence and stripped.endswith(("|", "|&", "&&")):
             parts.append(stripped)
             continue
         parts.append(line)

@@ -94,6 +94,9 @@ status_classify_line() {
 status_optional_missing_line() {
   local line="$1"
   local plain
+  # The minimal profile intentionally omits Claude agents, skills, and
+  # context profiles. Every other supported profile installs them.
+  [[ "${PROFILE:-core}" == "minimal" ]] || return 1
   plain="$(status_plain_line "$line")"
   case "$plain" in
     *"VibeGuard agent(s) missing in ~/.claude/agents/:"*|\

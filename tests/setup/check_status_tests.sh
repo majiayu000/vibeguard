@@ -266,6 +266,7 @@ assert_eq "$drift_rc" "2" "drift: strict exit code 2"
 drift_install_rc="$(run_with_buffer "$drift_buf" 'status_install_exit_code')"
 assert_eq "$drift_install_rc" "2" "drift: install exit code 2"
 
+PROFILE="minimal"
 optional_missing_buf=$'[OK] base\n[MISSING] eval-harness skill not in ~/.claude/skills/\n[MISSING] iterative-retrieval skill not in ~/.claude/skills/\n'
 optional_missing_summary="$(run_with_buffer "$optional_missing_buf" 'status_print_summary')"
 assert_contains "$optional_missing_summary" "DEGRADED" "optional missing: verdict is degraded"
@@ -277,6 +278,11 @@ assert_eq "$optional_install_rc" "0" "install mode: optional missing rows do not
 optional_integration_buf=$'[OK] base\n[MISSING] 1/2 VibeGuard agent(s) missing in ~/.claude/agents/: reviewer.md\n[MISSING] context profiles not in ~/.claude/context-profiles/\n'
 optional_integration_rc="$(run_with_buffer "$optional_integration_buf" 'status_install_exit_code')"
 assert_eq "$optional_integration_rc" "0" "install mode: optional agent/profile rows do not fail"
+PROFILE="core"
+core_skill_install_rc="$(run_with_buffer "$optional_missing_buf" 'status_install_exit_code')"
+assert_eq "$core_skill_install_rc" "2" "core install mode: missing required skills fail"
+core_integration_install_rc="$(run_with_buffer "$optional_integration_buf" 'status_install_exit_code')"
+assert_eq "$core_integration_install_rc" "2" "core install mode: missing required agents/profiles fail"
 recovery_missing_buf=$'[OK] installed runtime active\n[WARN] Runtime recovery source missing: current protection can still run, but repair and uninstall recovery are unavailable (run: bash setup.sh --yes)\n'
 recovery_missing_summary="$(run_with_buffer "$recovery_missing_buf" 'status_print_summary')"
 assert_contains "$recovery_missing_summary" "DEGRADED" "recovery missing: human verdict is degraded"
@@ -350,6 +356,7 @@ disabled_json="$(run_with_buffer "$disabled_buf" 'status_emit_json')"
 assert_json_path "$disabled_json" 'd["counts"]["disabled"]' "1" "json: disabled count"
 assert_json_path "$disabled_json" 'd["verdict"]' "healthy" "json: disabled verdict"
 assert_json_path "$disabled_json" 'd["events"][1]["level"]' "DISABLED" "json: disabled event level"
+PROFILE="minimal"
 optional_missing_json="$(run_with_buffer "$optional_missing_buf" 'status_emit_json')"
 assert_json_path "$optional_missing_json" 'd["verdict"]' "degraded" "json: optional missing verdict is degraded"
 
@@ -463,6 +470,20 @@ assert_contains "$broken_runtime_out" \
 assert_not_contains "$broken_runtime_out" \
   "Runtime recovery source missing: current protection can still run" \
   "missing runtimes: recovery warning does not claim protection can run"
+
+mkdir -p "${BROKEN_HOME}/.vibeguard/installed/bin"
+cat > "${BROKEN_HOME}/.vibeguard/installed/bin/vibeguard-runtime" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+chmod +x "${BROKEN_HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+broken_executable_runtime_out="$(HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" --check 2>&1 || true)"
+assert_contains "$broken_executable_runtime_out" \
+  "Runtime recovery source missing: installed runtime is unavailable; repair is required" \
+  "broken executable runtime: recovery warning requires repair"
+assert_not_contains "$broken_executable_runtime_out" \
+  "Runtime recovery source missing: current protection can still run" \
+  "broken executable runtime: recovery warning does not claim protection can run"
 
 AWK_PORTABILITY_FIXTURE="${REPO_DIR}/guards/universal/vg-test-non-posix-awk.sh"
 cat > "${AWK_PORTABILITY_FIXTURE}" <<'SH'

@@ -275,9 +275,9 @@ bounded helper. They are not an automatic coordinator/reviewer pipeline:
 
 ```bash
 export PATH="$HOME/.vibeguard/installed/bin:$PATH"
-vibeguard observe summary                    # Project trigger summary (7 days)
+vibeguard observe summary --limit all        # Project trigger summary (7 days)
 vibeguard observe health --limit all         # Project health snapshot (24 hours)
-vibeguard observe summary --scope global     # Global trigger summary
+vibeguard observe summary --scope global --limit all # Global trigger summary
 vibeguard observe export prometheus          # Prometheus text export
 bash ~/vibeguard/setup.sh doctor             # Installation and host diagnosis
 ```
