@@ -125,7 +125,7 @@ state before enabling it across a team.
 ```bash
 export PATH="$HOME/.vibeguard/installed/bin:$PATH"
 vibeguard observe summary
-vibeguard observe health
+vibeguard observe health --limit all
 ```
 
 Use [Observability Harness Contract](../reference/observability-harness.md) for

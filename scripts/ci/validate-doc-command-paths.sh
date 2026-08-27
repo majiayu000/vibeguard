@@ -63,6 +63,23 @@ def display_path(path: Path) -> str:
     return path.relative_to(repo_root).as_posix()
 
 
+def logical_command_lines(lines: list[str]):
+    start_line = 0
+    parts = []
+    for idx, line in enumerate(lines, 1):
+        if not parts:
+            start_line = idx
+        stripped = line.rstrip()
+        if stripped.endswith("\\"):
+            parts.append(stripped[:-1])
+            continue
+        parts.append(line)
+        yield start_line, " ".join(parts)
+        parts = []
+    if parts:
+        yield start_line, " ".join(parts)
+
+
 for md_file in targets:
     if not md_file.exists():
         continue
@@ -81,7 +98,8 @@ for md_file in targets:
 for md_file in renamed_targets:
     if not md_file.exists():
         continue
-    for idx, line in enumerate(md_file.read_text(encoding="utf-8").splitlines(), 1):
+    lines = md_file.read_text(encoding="utf-8").splitlines()
+    for idx, line in enumerate(lines, 1):
         for old_path, new_path in renamed_command_paths.items():
             if old_path in line:
                 failures.append(
@@ -92,7 +110,8 @@ for md_file in renamed_targets:
                 failures.append(
                     f"{display_path(md_file)}:{idx} stale public install command; use setup.sh"
                 )
-        if hardcoded_release_pin.search(line):
+    for idx, command in logical_command_lines(lines):
+        if hardcoded_release_pin.search(command):
             failures.append(
                 f"{display_path(md_file)}:{idx} hardcoded release version in public install command; "
                 "use an X.Y.Z placeholder and link the latest release"

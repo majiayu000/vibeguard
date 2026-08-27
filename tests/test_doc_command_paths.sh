@@ -70,6 +70,15 @@ assert_fails_with "numeric release pin in docs/how fails" \
   "docs/how/quickstart.md:1 hardcoded release version" \
   bash "${VALIDATOR}" "${public_docs_fixture}"
 
+continued_fixture="$(new_fixture continued-command)"
+cat > "${continued_fixture}/docs/how/quickstart.md" <<'MD'
+curl -fsSL https://example.test/install.sh \
+  | bash -s -- --version=1.2.3
+MD
+assert_fails_with "numeric release pin in a continued command fails" \
+  "docs/how/quickstart.md:1 hardcoded release version" \
+  bash "${VALIDATOR}" "${continued_fixture}"
+
 placeholder_fixture="$(new_fixture placeholder)"
 printf '%s\n' 'curl -fsSL https://example.test/install.sh | bash -s -- --version=X.Y.Z' \
   > "${placeholder_fixture}/docs/how/quickstart.md"

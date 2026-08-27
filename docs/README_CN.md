@@ -194,7 +194,7 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path
 ```bash
 export PATH="$HOME/.vibeguard/installed/bin:$PATH"
 vibeguard observe summary
-vibeguard observe health
+vibeguard observe health --limit all
 vibeguard observe summary --scope global
 vibeguard observe export prometheus
 bash ~/vibeguard/setup.sh doctor

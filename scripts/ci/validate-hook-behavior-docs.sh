@@ -172,12 +172,18 @@ require_present "README.md" '| `strict` | full + Claude Code count-active-constr
   "README strict profile table must describe the strict-only U-32 hook"
 require_present "README.md" 'vibeguard observe health --limit all         # Project health snapshot (24 hours)' \
   "README project health command must preserve the complete 24-hour event window"
+require_present "docs/how/quickstart.md" 'vibeguard observe health --limit all' \
+  "quickstart project health command must preserve the complete event window"
+require_present "docs/how/team-rollout.md" 'vibeguard observe health --limit all' \
+  "team rollout project health command must preserve the complete event window"
 require_absent "docs/README_CN.md" '与 `full` 相同 hook 集合' \
   "Chinese README strict profile table must not hide the strict-only U-32 hook"
 require_absent "docs/README_CN.md" '与 full 相同 hook 集合' \
   "Chinese README strict profile table must not hide the old unquoted strict wording"
 require_present "docs/README_CN.md" '`full` + Claude Code `count-active-constraints` (SessionStart/U-32)；Codex 原生 hooks 仍为 `full`' \
   "Chinese README strict profile table must describe the strict-only U-32 hook"
+require_present "docs/README_CN.md" 'vibeguard observe health --limit all' \
+  "Chinese README project health command must preserve the complete event window"
 require_present "docs/reference/observability-harness.md" '| Which hook is slow? | `vibeguard-runtime hook-status --mode full --slow-ms 2000` |' \
   "observability guide must use a duration-reporting slow-hook command"
 require_absent "schemas/install-modules.json" 'same hook set as full' \

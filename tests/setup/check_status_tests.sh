@@ -274,7 +274,7 @@ optional_missing_rc="$(run_with_buffer "$optional_missing_buf" 'status_exit_code
 assert_eq "$optional_missing_rc" "1" "optional missing: strict exit code is degraded"
 optional_install_rc="$(run_with_buffer "$optional_missing_buf" 'status_install_exit_code')"
 assert_eq "$optional_install_rc" "0" "install mode: optional missing rows do not fail"
-optional_integration_buf=$'[OK] base\n[MISSING] agents not in ~/.claude/agents/\n[MISSING] context profiles not in ~/.claude/context-profiles/\n'
+optional_integration_buf=$'[OK] base\n[MISSING] 1/2 VibeGuard agent(s) missing in ~/.claude/agents/: reviewer.md\n[MISSING] context profiles not in ~/.claude/context-profiles/\n'
 optional_integration_rc="$(run_with_buffer "$optional_integration_buf" 'status_install_exit_code')"
 assert_eq "$optional_integration_rc" "0" "install mode: optional agent/profile rows do not fail"
 recovery_missing_buf=$'[OK] installed runtime active\n[WARN] Runtime recovery source missing: current protection can still run, but repair and uninstall recovery are unavailable (run: bash setup.sh --yes)\n'

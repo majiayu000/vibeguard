@@ -96,7 +96,7 @@ status_optional_missing_line() {
   local plain
   plain="$(status_plain_line "$line")"
   case "$plain" in
-    *"agents not in ~/.claude/agents/"*|\
+    *"VibeGuard agent(s) missing in ~/.claude/agents/:"*|\
     *"context profiles not in ~/.claude/context-profiles/"*|\
     *"eval-harness skill not in ~/.claude/skills/"*|\
     *"iterative-retrieval skill not in ~/.claude/skills/"*)

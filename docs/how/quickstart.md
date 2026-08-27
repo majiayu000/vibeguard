@@ -78,7 +78,7 @@ before assuming protection is active.
 ## 5. Inspect Recent Hook Status
 
 ```bash
-vibeguard observe health
+vibeguard observe health --limit all
 ```
 
 This summarizes recent local hook events for the current project. See
