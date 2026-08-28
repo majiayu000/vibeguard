@@ -16,6 +16,14 @@ fn fixture_log() -> PathBuf {
             "\"decision\":\"warn\",\"reason\":\"constraints=31\",",
             "\"detail\":\"project AGENTS.md=31\",\"client\":\"codex\"}\n",
             "{\"ts\":\"2026-06-01T00:00:02Z\",\"session\":\"s1\",",
+            "\"hook\":\"post-edit-guard\",\"tool\":\"Edit\",\"decision\":\"warn\",",
+            "\"reason\":\"w14 overlap recent session s2 agent codex\",",
+            "\"detail\":\"src/lib.rs\",\"client\":\"codex\"}\n",
+            "{\"ts\":\"2026-06-01T00:00:03Z\",\"session\":\"s1\",",
+            "\"hook\":\"post-edit-guard\",\"tool\":\"Edit\",\"decision\":\"warn\",",
+            "\"reason\":\"w15 shrinking radius 12>8>3\",",
+            "\"detail\":\"src/lib.rs\",\"client\":\"codex\"}\n",
+            "{\"ts\":\"2026-06-01T00:00:04Z\",\"session\":\"s1\",",
             "\"hook\":\"custom-hook\",\"tool\":\"Edit\",\"decision\":\"warn\",",
             "\"reason\":\"custom policy hit\",\"detail\":\"src/lib.rs\",",
             "\"client\":\"codex\"}\n"
@@ -52,12 +60,24 @@ fn summary_and_health_translate_rule_reasons_without_hiding_unknown_reasons() {
         "U-32: Keep the effective constraint set for a single agent task at 15 or fewer items. ",
         "(constraints=31)"
     );
+    let legacy_w14 = concat!(
+        "W-14: At most one writable session may operate on a repository; ",
+        "parallel helpers must remain read-only."
+    );
+    let legacy_w15 = concat!(
+        "W-15: If the information gain shrinks for three consecutive rounds, ",
+        "stop that direction and report it."
+    );
 
     let summary = observe("summary", "--days", &log_path);
     let health = observe("health", "--hours", &log_path);
 
     assert!(summary.contains(expected), "summary output:\n{summary}");
     assert!(health.contains(expected), "health output:\n{health}");
+    assert!(summary.contains(legacy_w14), "summary output:\n{summary}");
+    assert!(health.contains(legacy_w14), "health output:\n{health}");
+    assert!(summary.contains(legacy_w15), "summary output:\n{summary}");
+    assert!(health.contains(legacy_w15), "health output:\n{health}");
     assert!(
         summary.contains("custom policy hit"),
         "summary output:\n{summary}"

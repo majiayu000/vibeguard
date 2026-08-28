@@ -80,6 +80,22 @@ fn rule_id_for_event(event: &Value, reason: &str) -> Option<String> {
         return Some(rule_id);
     }
     let hook = observe_string_field(event, field::HOOK);
+    if hook == "post-edit-guard" {
+        if let Some(rule_id) = legacy_post_edit_rule_id(reason) {
+            return Some(rule_id.to_string());
+        }
+    }
     (hook == "count-active-constraints" && reason.starts_with("constraints="))
         .then(|| "U-32".to_string())
+}
+
+fn legacy_post_edit_rule_id(reason: &str) -> Option<&'static str> {
+    let token = reason.split_ascii_whitespace().next()?;
+    if token.eq_ignore_ascii_case("w14") {
+        Some("W-14")
+    } else if token.eq_ignore_ascii_case("w15") {
+        Some("W-15")
+    } else {
+        None
+    }
 }
