@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use crate::event_schema::field;
 
 use super::Result;
-use super::aggregate::{observe_extract_rule_ids, observe_string_field};
+use super::aggregate::observe_string_field;
 
 const CATALOG_JSON: &str = include_str!("../../../rules/rule-descriptions.json");
 const CATALOG_SCHEMA_VERSION: u64 = 1;
@@ -51,7 +51,7 @@ impl RuleDescriptions {
 
     pub(super) fn human_reason(&self, event: &Value) -> String {
         let raw_reason = observe_string_field(event, field::REASON);
-        let Some(rule_id) = rule_id_for_event(event, &raw_reason) else {
+        let Some(rule_id) = self.rule_id_for_event(event, &raw_reason) else {
             return raw_reason;
         };
         let Some(description) = self.descriptions.get(&rule_id) else {
@@ -69,24 +69,28 @@ impl RuleDescriptions {
             format!("{rule_id}: {description} ({detail})")
         }
     }
-}
 
-fn rule_id_for_event(event: &Value, reason: &str) -> Option<String> {
-    let structured = observe_string_field(event, field::RULE_ID).to_ascii_uppercase();
-    if !structured.is_empty() {
-        return Some(structured);
+    fn rule_id_for_event(&self, event: &Value, reason: &str) -> Option<String> {
+        let structured = observe_string_field(event, field::RULE_ID).to_ascii_uppercase();
+        if !structured.is_empty() {
+            return Some(structured);
+        }
+        if let Some(rule_id) = reason
+            .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '-'))
+            .map(str::to_ascii_uppercase)
+            .find(|candidate| self.descriptions.contains_key(candidate.as_str()))
+        {
+            return Some(rule_id);
+        }
+        let hook = observe_string_field(event, field::HOOK);
+        if hook == "post-edit-guard"
+            && let Some(rule_id) = legacy_post_edit_rule_id(reason)
+        {
+            return Some(rule_id.to_string());
+        }
+        (hook == "count-active-constraints" && reason.starts_with("constraints="))
+            .then(|| "U-32".to_string())
     }
-    if let Some(rule_id) = observe_extract_rule_ids(reason).into_iter().next() {
-        return Some(rule_id);
-    }
-    let hook = observe_string_field(event, field::HOOK);
-    if hook == "post-edit-guard"
-        && let Some(rule_id) = legacy_post_edit_rule_id(reason)
-    {
-        return Some(rule_id.to_string());
-    }
-    (hook == "count-active-constraints" && reason.starts_with("constraints="))
-        .then(|| "U-32".to_string())
 }
 
 fn legacy_post_edit_rule_id(reason: &str) -> Option<&'static str> {
