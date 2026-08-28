@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -15,11 +16,51 @@ class DemoError(ValueError):
     """User-visible live demo failure."""
 
 
+def _resolve_bash() -> Path:
+    configured_bash = os.environ.get("VIBEGUARD_BASH")
+    if configured_bash:
+        bash = Path(configured_bash).expanduser().resolve()
+        if not bash.is_file() or not os.access(bash, os.X_OK):
+            raise DemoError(f"configured VIBEGUARD_BASH is not executable: {bash}")
+        return bash
+
+    if os.name == "nt":
+        candidates: list[Path] = []
+        git = shutil.which("git")
+        if git:
+            git_path = Path(git).resolve()
+            for parent in list(git_path.parents)[:5]:
+                candidates.extend(
+                    (
+                        parent / "bin" / "bash.exe",
+                        parent / "usr" / "bin" / "bash.exe",
+                    )
+                )
+        path_bash = shutil.which("bash.exe") or shutil.which("bash")
+        if path_bash and any(part.lower() == "git" for part in Path(path_bash).parts):
+            candidates.append(Path(path_bash))
+        for candidate in candidates:
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return candidate.resolve()
+        raise DemoError(
+            "Git Bash not found for live demo. Install Git for Windows or set "
+            "VIBEGUARD_BASH to bash.exe."
+        )
+
+    bash_path = shutil.which("bash")
+    if not bash_path:
+        raise DemoError("bash not found for live demo")
+    bash = Path(bash_path).resolve()
+    if not bash.is_file() or not os.access(bash, os.X_OK):
+        raise DemoError(f"resolved bash is not executable: {bash}")
+    return bash
+
+
 def _resolve_runtime_and_hook(root: Path) -> tuple[Path, Path, str]:
     source_hook = root / "hooks" / "pre-bash-guard.sh"
     configured_runtime = os.environ.get("VIBEGUARD_RUNTIME")
     if configured_runtime:
-        runtime = Path(configured_runtime).expanduser()
+        runtime = Path(configured_runtime).expanduser().resolve()
         if not runtime.is_file() or not os.access(runtime, os.X_OK):
             raise DemoError(
                 f"configured VIBEGUARD_RUNTIME is not executable: {runtime}"
@@ -56,6 +97,7 @@ def run_live_bash_demo(pack: dict[str, Any], root: Path) -> tuple[str, str, str]
     if expected_decision != "block":
         raise DemoError("live Bash interception demos must require a block decision")
     runtime, hook, source = _resolve_runtime_and_hook(root)
+    bash = _resolve_bash()
     payload = json.dumps(
         {
             "hook_event_name": "PreToolUse",
@@ -71,10 +113,16 @@ def run_live_bash_demo(pack: dict[str, Any], root: Path) -> tuple[str, str, str]
         marker = sandbox_home / "VIBEGUARD_DEMO_MARKER"
         marker.write_text("The guarded command did not run.\n", encoding="utf-8")
         env = os.environ.copy()
+        for inherited_log_key in (
+            "VIBEGUARD_PROJECT_HASH",
+            "VIBEGUARD_PROJECT_LOG_DIR",
+            "VIBEGUARD_LOG_FILE",
+        ):
+            env.pop(inherited_log_key, None)
         env.update(
             {
                 "HOME": str(sandbox_home),
-                "VIBEGUARD_RUNTIME": str(runtime),
+                "VIBEGUARD_RUNTIME": runtime.as_posix(),
                 "VIBEGUARD_LOG_DIR": str(sandbox / "logs"),
                 "VIBEGUARD_CLIENT": "unknown",
                 "VIBEGUARD_CLIENT_VARIANT": "safe-bash-demo",
@@ -84,7 +132,7 @@ def run_live_bash_demo(pack: dict[str, Any], root: Path) -> tuple[str, str, str]
 
         try:
             completed = subprocess.run(
-                ["bash", str(hook)],
+                [str(bash), hook.as_posix()],
                 input=payload,
                 cwd=root,
                 env=env,

@@ -72,7 +72,11 @@ pause 1
 
 section "3. Block a destructive command before execution"
 type_out '$ bash setup.sh demo safe-bash'
-bash "${VG}/setup.sh" demo safe-bash
+demo_status=0
+bash "${VG}/setup.sh" demo safe-bash || demo_status=$?
+if [[ "${demo_status}" -ne 0 ]]; then
+  exit "${demo_status}"
+fi
 pause 1
 
 section "4. Every finding ships with a fix instruction"
