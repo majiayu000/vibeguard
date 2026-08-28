@@ -305,7 +305,7 @@ JSON
 )"
 assert_contains "${hook_warn_out}" "hookSpecificOutput" "hook emits additional context on warning"
 assert_contains "${hook_warn_out}" "effective task constraints=16" "hook warning includes constraint count"
-
+assert_exit_zero "hook warning log carries the U-32 rule id" python3 -c 'import json, pathlib, sys; events = [json.loads(line) for path in pathlib.Path(sys.argv[1]).rglob("events.jsonl") for line in path.read_text(encoding="utf-8").splitlines()]; raise SystemExit(not events or events[-1].get("reason") != "U-32 constraints=16")' "${TMP_ROOT}/logs-warn"
 # GH-683: without a strict profile, exceeding the block budget must surface as
 # injected context (exit 0), not a failed hook — core/full users still see it.
 hook_softblock_out="$(env "${hook_no_ci_env[@]}" HOME="${BLOCK_HOME}" VIBEGUARD_PROJECT_ROOT="${BLOCK_REPO}" VIBEGUARD_LOG_DIR="${TMP_ROOT}/logs-softblock" bash "${HOOK}" <<'JSON'
@@ -340,7 +340,6 @@ hook_override_out="$(env "${hook_no_ci_env[@]}" HOME="${BLOCK_HOME}" VIBEGUARD_U
 JSON
 )"
 assert_contains "${hook_override_out}" "hookSpecificOutput" "VIBEGUARD_U32_STRICT=0 downgrades strict block to context"
-
 header "GH-541 rule-delivery budget (compact core default vs full-tree opt-in)"
 # The default (core/minimal) Claude profile injects only the shared compact core
 # plus Claude host guidance into ~/.claude/CLAUDE.md; the full rules/claude-rules

@@ -165,7 +165,7 @@ When changing rules, guards, hooks, or script paths, update matching docs in the
 
 - Canonical rule source: `rules/claude-rules/**` is the only canonical rule text. Keep it English-only.
 - Localized docs: translations such as `docs/README_CN.md` belong in the docs layer only. Do not add localized copies of canonical rules.
-- Derived rule docs: `rules/*.md` and `docs/rule-reference.md` are generated artifacts. Do not hand-edit them; regenerate them with `python3 scripts/generate_rule_docs.py`.
+- Derived rule outputs: `rules/*.md`, `rules/rule-descriptions.json`, and `docs/rule-reference.md` are generated artifacts. Do not hand-edit them; regenerate them with `python3 scripts/generate_rule_docs.py` and `python3 scripts/generate_rule_descriptions.py`.
 - Scoped Claude guidance: repository `CLAUDE.md` files are generated from `docs/directory-guidance.md`. Regenerate them with `python3 scripts/generate_directory_guidance.py` instead of editing an output directly.
 - Script moves or renames: update command examples in `README.md`, `docs/README_CN.md`, and any contributor docs that mention them.
 - Canonical rule checks: run `bash scripts/ci/validate-canonical-rule-language.sh` to ensure no CJK text or malformed headings leak into `rules/claude-rules/**`.
@@ -257,7 +257,7 @@ Before requesting review, verify:
 - [ ] Precision / scoring checks were run when the change affects detection quality (`bash tests/run_precision.sh --all --csv`, `bash tests/test_precision_tracker.sh`)
 - [ ] All CI validation scripts pass (see [Running Validation and Tests](#running-validation-and-tests))
 - [ ] New guard scripts have regression coverage in `tests/unit/` and, when appropriate, higher-level suites in `tests/`
-- [ ] New or changed canonical rules stay in `rules/claude-rules/**` only, and regenerated artifacts in `rules/*.md` and `docs/rule-reference.md` are up to date
+- [ ] New or changed canonical rules stay in `rules/claude-rules/**` only, and regenerated artifacts in `rules/*.md`, `rules/rule-descriptions.json`, and `docs/rule-reference.md` are up to date
 - [ ] Doc freshness passes (`bash scripts/verify/doc-freshness-check.sh --strict`)
 - [ ] Doc paths and shell command paths are valid (`validate-doc-paths.sh` and `validate-doc-command-paths.sh`)
 - [ ] Canonical rule language and generated rule docs checks pass
@@ -304,9 +304,14 @@ scripts.
 
 ### Step 1: Define the rule
 
-Add or update the canonical rule in `rules/claude-rules/**` first. Keep canonical rule text in English. After editing the canonical source, regenerate the derived rule docs with `python3 scripts/generate_rule_docs.py`.
+Add or update the canonical rule in `rules/claude-rules/**` first. Keep canonical rule text in English. After editing the canonical source, regenerate the derived outputs:
 
-Do not hand-edit `rules/*.md` or `docs/rule-reference.md`; they are generated outputs.
+```bash
+python3 scripts/generate_rule_docs.py
+python3 scripts/generate_rule_descriptions.py
+```
+
+Do not hand-edit `rules/*.md`, `rules/rule-descriptions.json`, or `docs/rule-reference.md`; they are generated outputs.
 
 ```markdown
 ## RS-14: Arc<Mutex<Option<T>>> anti-pattern (medium)

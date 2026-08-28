@@ -70,13 +70,13 @@ _vg_u32_strict_default() {
 }
 
 if [[ "${STATUS}" == "block" ]]; then
-  vg_log "count-active-constraints" "${HOOK_EVENT}" "block" "constraints=${TOTAL}" "${SUMMARY}"
+  vg_log "count-active-constraints" "${HOOK_EVENT}" "block" "U-32 constraints=${TOTAL}" "${SUMMARY}"
   if [[ "${VIBEGUARD_U32_STRICT:-$(_vg_u32_strict_default)}" == "1" ]]; then
     printf '%s\n' "[BLOCKED] ${MESSAGE}" >&2
     exit 2
   fi
 else
-  vg_log "count-active-constraints" "${HOOK_EVENT}" "warn" "constraints=${TOTAL}" "${SUMMARY}"
+  vg_log "count-active-constraints" "${HOOK_EVENT}" "warn" "U-32 constraints=${TOTAL}" "${SUMMARY}"
 fi
 
 printf '%s' "${MESSAGE}" | "$_VIBEGUARD_RUNTIME" hook-context "${HOOK_EVENT}"

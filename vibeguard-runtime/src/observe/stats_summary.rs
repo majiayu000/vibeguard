@@ -13,11 +13,13 @@ use super::render::{
     observe_blank_as_unknown, observe_count_by, observe_decision_count, observe_increment,
     observe_sorted_counts, observe_truncate,
 };
+use super::rule_descriptions::RuleDescriptions;
 
 pub(super) fn render_stats_summary(
     options: &ObserveOptions,
     log_events: &LogEvents,
     aggregate: &ObserveAggregate,
+    rule_descriptions: &RuleDescriptions,
 ) -> Result<String> {
     if aggregate.event_count == 0 {
         if !log_events.source_exists {
@@ -40,10 +42,10 @@ pub(super) fn render_stats_summary(
         observe_non_empty_or(observe_string_field(event, field::CLI), UNKNOWN)
     });
     let block_reasons = stats_count_by_matching(&log_events.events, decision::BLOCK, |event| {
-        observe_non_empty_or(observe_string_field(event, field::REASON), "Unknown")
+        observe_non_empty_or(rule_descriptions.human_reason(event), "Unknown")
     });
     let warn_reasons = stats_count_by_matching(&log_events.events, decision::WARN, |event| {
-        observe_non_empty_or(observe_string_field(event, field::REASON), "Unknown")
+        observe_non_empty_or(rule_descriptions.human_reason(event), "Unknown")
     });
 
     let mut output = String::new();
@@ -93,14 +95,14 @@ pub(super) fn render_stats_summary(
     if !block_reasons.is_empty() {
         output.push_str("\nInterception reasons Top 5:\n");
         for (reason, count) in observe_sorted_counts(&block_reasons).into_iter().take(5) {
-            output.push_str(&format!("  {count}x  {}\n", observe_truncate(&reason, 60)));
+            output.push_str(&format!("  {count}x  {}\n", observe_truncate(&reason, 180)));
         }
     }
 
     if !warn_reasons.is_empty() {
         output.push_str("\nWarning reasons Top 5:\n");
         for (reason, count) in observe_sorted_counts(&warn_reasons).into_iter().take(5) {
-            output.push_str(&format!("  {count}x  {}\n", observe_truncate(&reason, 60)));
+            output.push_str(&format!("  {count}x  {}\n", observe_truncate(&reason, 180)));
         }
     }
 
@@ -405,6 +407,13 @@ mod tests {
         values.iter().map(|value| (*value).to_string()).collect()
     }
 
+    fn rule_descriptions() -> RuleDescriptions {
+        match RuleDescriptions::load() {
+            Ok(descriptions) => descriptions,
+            Err(error) => panic!("rule descriptions should load: {error}"),
+        }
+    }
+
     #[test]
     fn stats_summary_includes_analysis_sections() {
         let events = vec![
@@ -460,7 +469,8 @@ mod tests {
         };
         let aggregate = aggregate_events(&log_events.events, 2_000);
 
-        let output = match render_stats_summary(&options, &log_events, &aggregate) {
+        let descriptions = rule_descriptions();
+        let output = match render_stats_summary(&options, &log_events, &aggregate, &descriptions) {
             Ok(output) => output,
             Err(error) => panic!("stats summary should render: {error}"),
         };
@@ -532,7 +542,8 @@ mod tests {
         };
         let aggregate = aggregate_events(&log_events.events, 2_000);
 
-        let output = match render_stats_summary(&options, &log_events, &aggregate) {
+        let descriptions = rule_descriptions();
+        let output = match render_stats_summary(&options, &log_events, &aggregate, &descriptions) {
             Ok(output) => output,
             Err(error) => panic!("stats summary should render: {error}"),
         };
