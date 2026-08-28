@@ -80,10 +80,10 @@ fn rule_id_for_event(event: &Value, reason: &str) -> Option<String> {
         return Some(rule_id);
     }
     let hook = observe_string_field(event, field::HOOK);
-    if hook == "post-edit-guard" {
-        if let Some(rule_id) = legacy_post_edit_rule_id(reason) {
-            return Some(rule_id.to_string());
-        }
+    if hook == "post-edit-guard"
+        && let Some(rule_id) = legacy_post_edit_rule_id(reason)
+    {
+        return Some(rule_id.to_string());
     }
     (hook == "count-active-constraints" && reason.starts_with("constraints="))
         .then(|| "U-32".to_string())
