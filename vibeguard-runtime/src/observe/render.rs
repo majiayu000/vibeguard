@@ -14,12 +14,14 @@ use super::aggregate::{
 };
 use super::model::{ObserveCommand, ObserveOptions, TimeWindow};
 use super::read::LogEvents;
+use super::rule_descriptions::RuleDescriptions;
 use super::stats_summary;
 
 pub(super) fn render_summary(
     options: &ObserveOptions,
     log_events: &LogEvents,
     aggregate: &ObserveAggregate,
+    rule_descriptions: &RuleDescriptions,
 ) -> Result<String> {
     if options.json {
         return Ok(format!(
@@ -27,13 +29,14 @@ pub(super) fn render_summary(
             serde_json::to_string_pretty(&observe_summary_json(options, log_events, aggregate))?
         ));
     }
-    stats_summary::render_stats_summary(options, log_events, aggregate)
+    stats_summary::render_stats_summary(options, log_events, aggregate, rule_descriptions)
 }
 
 pub(super) fn render_health(
     options: &ObserveOptions,
     log_events: &LogEvents,
     aggregate: &ObserveAggregate,
+    rule_descriptions: &RuleDescriptions,
 ) -> Result<String> {
     let attention_states = observe_recent_events_json(
         &log_events.events,
@@ -54,13 +57,14 @@ pub(super) fn render_health(
         output["diagnostics"] = Value::Array(diagnostics);
         return Ok(format!("{}\n", serde_json::to_string_pretty(&output)?));
     }
-    render_health_human(options, log_events, aggregate)
+    render_health_human(options, log_events, aggregate, rule_descriptions)
 }
 
 fn render_health_human(
     options: &ObserveOptions,
     log_events: &LogEvents,
     aggregate: &ObserveAggregate,
+    rule_descriptions: &RuleDescriptions,
 ) -> Result<String> {
     if aggregate.event_count == 0 {
         if !log_events.source_exists {
@@ -155,12 +159,12 @@ fn render_health_human(
                 client,
                 observe_non_empty_or(observe_string_field(event, field::SESSION), "?")
             ));
-            let reason = observe_clean_detail(&observe_string_field(event, field::REASON));
+            let reason = observe_clean_detail(&rule_descriptions.human_reason(event));
             let detail = observe_clean_detail(&observe_string_field(event, field::DETAIL));
             if !reason.is_empty() {
                 output.push_str(&format!(
                     "     reason: {}\n",
-                    observe_truncate(&reason, 100)
+                    observe_truncate(&reason, 180)
                 ));
             }
             if !detail.is_empty() {

@@ -1,0 +1,71 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+fn fixture_log() -> PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "vibeguard-rule-descriptions-{}-{}.jsonl",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    fs::write(
+        &path,
+        concat!(
+            "{\"ts\":\"2026-06-01T00:00:01Z\",\"session\":\"s1\",",
+            "\"hook\":\"count-active-constraints\",\"tool\":\"SessionStart\",",
+            "\"decision\":\"warn\",\"reason\":\"constraints=31\",",
+            "\"detail\":\"project AGENTS.md=31\",\"client\":\"codex\"}\n",
+            "{\"ts\":\"2026-06-01T00:00:02Z\",\"session\":\"s1\",",
+            "\"hook\":\"custom-hook\",\"tool\":\"Edit\",\"decision\":\"warn\",",
+            "\"reason\":\"custom policy hit\",\"detail\":\"src/lib.rs\",",
+            "\"client\":\"codex\"}\n"
+        ),
+    )
+    .expect("fixture log should be writable");
+    path
+}
+
+fn observe(command: &str, window_flag: &str, log_path: &Path) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_vibeguard-runtime"))
+        .args([
+            "observe",
+            command,
+            window_flag,
+            "all",
+            "--log-file",
+            log_path.to_str().expect("fixture path should be UTF-8"),
+        ])
+        .output()
+        .expect("observe command should run");
+    assert!(
+        output.status.success(),
+        "observe {command} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("observe output should be UTF-8")
+}
+
+#[test]
+fn summary_and_health_translate_rule_reasons_without_hiding_unknown_reasons() {
+    let log_path = fixture_log();
+    let expected = concat!(
+        "U-32: Keep the effective constraint set for a single agent task at 15 or fewer items. ",
+        "(constraints=31)"
+    );
+
+    let summary = observe("summary", "--days", &log_path);
+    let health = observe("health", "--hours", &log_path);
+
+    assert!(summary.contains(expected), "summary output:\n{summary}");
+    assert!(health.contains(expected), "health output:\n{health}");
+    assert!(
+        summary.contains("custom policy hit"),
+        "summary output:\n{summary}"
+    );
+    assert!(
+        health.contains("custom policy hit"),
+        "health output:\n{health}"
+    );
+
+    fs::remove_file(log_path).expect("fixture log should be removable");
+}

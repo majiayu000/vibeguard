@@ -5,6 +5,7 @@ mod model;
 mod prometheus;
 mod read;
 mod render;
+mod rule_descriptions;
 mod stats_summary;
 
 use crate::event_schema::field;
@@ -23,6 +24,7 @@ pub fn run(args: &[String]) -> Result {
     }
 
     let options = model::parse_observe_args(args)?;
+    let rule_descriptions = rule_descriptions::RuleDescriptions::load()?;
     let mut log_events = read::read_log_events(&options)?;
     let cutoff_secs = options.window.cutoff_secs(now_unix_secs());
     log_events
@@ -44,8 +46,12 @@ pub fn run(args: &[String]) -> Result {
 
     let aggregate = aggregate::aggregate_events(&log_events.events, options.slow_ms);
     let output = match options.command {
-        model::ObserveCommand::Summary => render::render_summary(&options, &log_events, &aggregate),
-        model::ObserveCommand::Health => render::render_health(&options, &log_events, &aggregate),
+        model::ObserveCommand::Summary => {
+            render::render_summary(&options, &log_events, &aggregate, &rule_descriptions)
+        }
+        model::ObserveCommand::Health => {
+            render::render_health(&options, &log_events, &aggregate, &rule_descriptions)
+        }
         model::ObserveCommand::Session => render::render_session(&options, &log_events, &aggregate),
     }?;
     print!("{output}");

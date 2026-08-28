@@ -305,6 +305,20 @@ JSON
 )"
 assert_contains "${hook_warn_out}" "hookSpecificOutput" "hook emits additional context on warning"
 assert_contains "${hook_warn_out}" "effective task constraints=16" "hook warning includes constraint count"
+hook_warn_reason="$(python3 - "${TMP_ROOT}/logs-warn" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+events = [
+    json.loads(line)
+    for path in Path(sys.argv[1]).rglob("events.jsonl")
+    for line in path.read_text(encoding="utf-8").splitlines()
+]
+print(events[-1]["reason"])
+PY
+)"
+assert_exit_zero "hook warning log carries the U-32 rule id" test "${hook_warn_reason}" = "U-32 constraints=16"
 
 # GH-683: without a strict profile, exceeding the block budget must surface as
 # injected context (exit 0), not a failed hook — core/full users still see it.

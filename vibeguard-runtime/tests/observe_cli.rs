@@ -406,7 +406,10 @@ fn summary_human_and_json_render_deterministic_counts_and_durations() {
         "pre-bash-guard: 2 times",
         "codex: 2 times",
         "1x  force push denied",
-        "1x  U-16 file too large",
+        concat!(
+            "1x  U-16: Keep file size under control: 200-400 lines typical, 800 lines hard ",
+            "ceiling. Files above 800 must be split. (file too large)"
+        ),
     ] {
         assert!(
             human_text.contains(expected),
@@ -503,8 +506,12 @@ fn health_human_renders_risk_distributions_unknowns_and_truncation() {
         text.contains("Risk Hook Top 5:\n  beta: 2\n  unknown: 1\n"),
         "{text}"
     );
-    let cleaned = format!("U-16 {} secret", "x".repeat(120));
-    let expected_reason = format!("{}...", cleaned.chars().take(97).collect::<String>());
+    let cleaned = format!(
+        "U-16: Keep file size under control: 200-400 lines typical, 800 lines hard ceiling. \
+         Files above 800 must be split. ({} secret)",
+        "x".repeat(120)
+    );
+    let expected_reason = format!("{}...", cleaned.chars().take(177).collect::<String>());
     assert!(
         text.contains(&format!("reason: {expected_reason}")),
         "{text}"

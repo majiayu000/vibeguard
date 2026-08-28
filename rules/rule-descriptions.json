@@ -1,0 +1,641 @@
+{
+  "schema_version": 1,
+  "generated_from": "rules/claude-rules/**",
+  "rules": {
+    "GO-01": {
+      "name": "Unchecked error return values",
+      "severity": "High",
+      "description": "Errors are assigned to `_` and discarded."
+    },
+    "PY-01": {
+      "name": "Mutable default parameters",
+      "severity": "High",
+      "description": "`def f(x=[])` shares state across calls."
+    },
+    "RS-01": {
+      "name": "Nested `RwLock` / `Mutex` acquisition",
+      "severity": "High",
+      "description": "Holding multiple locks at once creates deadlock risk."
+    },
+    "SEC-01": {
+      "name": "SQL / NoSQL / OS command injection",
+      "severity": "Critical",
+      "description": "No SQL / NoSQL / OS command injection: use parameterized queries and array argument lists."
+    },
+    "TS-01": {
+      "name": "`any` type escape",
+      "severity": "Medium",
+      "description": "Function parameters or return values use `any`."
+    },
+    "U-01": {
+      "name": "Do not change public API signatures",
+      "severity": "Strict",
+      "description": "Unless the user explicitly requests a breaking change and accepts a MAJOR version bump, do not change public function signatures."
+    },
+    "W-01": {
+      "name": "No fixes without root cause",
+      "severity": "Strict",
+      "description": "No fixes without root cause: reproduce first, then form one hypothesis, then fix."
+    },
+    "GO-02": {
+      "name": "Goroutine leak",
+      "severity": "High",
+      "description": "`go func()` launches work without an exit path."
+    },
+    "PY-02": {
+      "name": "Bare `except` blocks",
+      "severity": "Medium",
+      "description": "`except:` or `except Exception` without logging or re-raising."
+    },
+    "RS-02": {
+      "name": "TOCTOU — `get()` followed by `insert()`",
+      "severity": "High",
+      "description": "The lock is released between read and write, which creates a race."
+    },
+    "SEC-02": {
+      "name": "Hardcoded keys / credentials / API tokens",
+      "severity": "Critical",
+      "description": "No hardcoded keys, credentials, or API tokens. Load from env / secret manager."
+    },
+    "TS-02": {
+      "name": "Unhandled Promise rejections",
+      "severity": "High",
+      "description": "Async calls lack error handling."
+    },
+    "U-02": {
+      "name": "Do not extract abstractions for code that appears only once",
+      "severity": "Strict",
+      "description": "Three lines of duplication are better than one premature abstraction."
+    },
+    "W-02": {
+      "name": "Back off after 3 consecutive failures",
+      "severity": "Strict",
+      "description": "After 3 consecutive failed fixes on the same problem, stop and challenge the hypothesis or architecture."
+    },
+    "GO-03": {
+      "name": "Data race",
+      "severity": "High",
+      "description": "Shared variables are accessed without a mutex or channel protection."
+    },
+    "PY-03": {
+      "name": "`await` inside loops without `gather()` / `TaskGroup`",
+      "severity": "Medium",
+      "description": "Serial waiting wastes time."
+    },
+    "RS-03": {
+      "name": "`unwrap()` in non-test code",
+      "severity": "Medium",
+      "description": "`unwrap()` creates panic risk."
+    },
+    "SEC-03": {
+      "name": "Unescaped user input rendered directly into HTML",
+      "severity": "High",
+      "description": "This creates an XSS vulnerability."
+    },
+    "TS-03": {
+      "name": "`==` instead of `===`",
+      "severity": "Medium",
+      "description": "Loose equality is used outside explicit null checks."
+    },
+    "U-03": {
+      "name": "Do not replace readable duplication with macros",
+      "severity": "Strict",
+      "description": "Macros reduce readability and IDE support."
+    },
+    "W-03": {
+      "name": "Verify before claiming completion",
+      "severity": "Strict",
+      "description": "Verify before claiming completion: produce fresh command output proving the claim."
+    },
+    "GO-04": {
+      "name": "Interface is declared on the implementation side instead of the consumer side",
+      "severity": "Medium",
+      "description": "Interface is declared on the implementation side instead of the consumer side"
+    },
+    "PY-04": {
+      "name": "God class larger than 500 lines",
+      "severity": "Medium",
+      "description": "More than 10 public methods."
+    },
+    "RS-04": {
+      "name": "Multiple `Signal` / `Arc` objects manage the same logical state",
+      "severity": "Medium",
+      "description": "Converge them into a single `Signal<State>` so one structure owns the whole state."
+    },
+    "SEC-04": {
+      "name": "API endpoints missing authentication or authorization checks",
+      "severity": "High",
+      "description": "Unprotected API endpoints."
+    },
+    "TS-04": {
+      "name": "Oversized component larger than 300 lines",
+      "severity": "Medium",
+      "description": "React component is too large."
+    },
+    "U-04": {
+      "name": "Do not add features the user did not ask for",
+      "severity": "Strict",
+      "description": "Keep bug-fix scope tight."
+    },
+    "W-04": {
+      "name": "Test first",
+      "severity": "Guideline",
+      "description": "For new features, prefer writing the failing test first, then writing the minimum implementation needed to pass it."
+    },
+    "GO-05": {
+      "name": "Repeated error-wrapping patterns across multiple places",
+      "severity": "Medium",
+      "description": "Repeated error-wrapping patterns across multiple places"
+    },
+    "PY-05": {
+      "name": "Repeated try/except patterns across many locations",
+      "severity": "Medium",
+      "description": "Repeated try/except patterns across many locations"
+    },
+    "RS-05": {
+      "name": "Same name, different meaning types",
+      "severity": "Medium",
+      "description": "For example, two different `RenderHandle` types."
+    },
+    "SEC-05": {
+      "name": "Dependencies with known CVEs",
+      "severity": "High",
+      "description": "Dependencies with known CVEs"
+    },
+    "TS-05": {
+      "name": "Repeated fetch / API call patterns across the codebase",
+      "severity": "Medium",
+      "description": "Repeated fetch / API call patterns across the codebase"
+    },
+    "U-05": {
+      "name": "Do not delete code that merely looks unused without confirming first",
+      "severity": "Strict",
+      "description": "It may be a work-in-progress feature."
+    },
+    "W-05": {
+      "name": "Sub-agent context isolation",
+      "severity": "Guideline",
+      "description": "When using sub-agents, give each child only the minimum context required for its task."
+    },
+    "GO-06": {
+      "name": "`append` in loops without preallocated capacity",
+      "severity": "Low",
+      "description": "`append` in loops without preallocated capacity"
+    },
+    "PY-06": {
+      "name": "Rebuilding regexes inside loops",
+      "severity": "Low",
+      "description": "Rebuilding regexes inside loops"
+    },
+    "RS-06": {
+      "name": "The same match arm is duplicated across multiple methods",
+      "severity": "Medium",
+      "description": "The same match arm is duplicated across multiple methods"
+    },
+    "SEC-06": {
+      "name": "Weak cryptographic algorithms",
+      "severity": "High",
+      "description": "Using MD5 or SHA1 for password hashing."
+    },
+    "TS-06": {
+      "name": "`useEffect` has missing or overly broad dependencies",
+      "severity": "Medium",
+      "description": "`useEffect` has missing or overly broad dependencies"
+    },
+    "U-06": {
+      "name": "Do not add dependencies for problems the standard library can solve",
+      "severity": "Strict",
+      "description": "Use the standard library first."
+    },
+    "GO-07": {
+      "name": "String concatenation with `+` instead of `strings.Builder`",
+      "severity": "Low",
+      "description": "String concatenation with `+` instead of `strings.Builder`"
+    },
+    "PY-07": {
+      "name": "String concatenation inside loops",
+      "severity": "Low",
+      "description": "String concatenation inside loops"
+    },
+    "RS-07": {
+      "name": "Manual field-by-field copying",
+      "severity": "Low",
+      "description": "Use merge or apply methods instead."
+    },
+    "SEC-07": {
+      "name": "File paths are not validated",
+      "severity": "Medium",
+      "description": "Path traversal risk."
+    },
+    "TS-07": {
+      "name": "Large arrays are mapped during render without memoization",
+      "severity": "Low",
+      "description": "Large arrays are mapped during render without memoization"
+    },
+    "U-07": {
+      "name": "Do not change code style while fixing behavior",
+      "severity": "Strict",
+      "description": "Style-only edits should be a separate commit."
+    },
+    "GO-08": {
+      "name": "`defer` inside loops",
+      "severity": "High",
+      "description": "This risks resource leaks because deferred calls wait until the function returns."
+    },
+    "PY-08": {
+      "name": "Use of `eval()`, `exec()`, or `__import__()`",
+      "severity": "High",
+      "description": "This dynamically executes untrusted code."
+    },
+    "RS-08": {
+      "name": "Unnecessary `clone()` calls",
+      "severity": "Low",
+      "description": "Often appears on `Copy` types or values that could be borrowed."
+    },
+    "SEC-08": {
+      "name": "Server-side requests allow arbitrary target addresses",
+      "severity": "Medium",
+      "description": "SSRF risk."
+    },
+    "TS-08": {
+      "name": "Bypassing type checks with `as any` or `@ts-ignore`",
+      "severity": "High",
+      "description": "Bypassing type checks with `as any` or `@ts-ignore`"
+    },
+    "U-08": {
+      "name": "Do not skip verification steps",
+      "severity": "Strict",
+      "description": "See W-03 and W-16 for canonical verification guidance."
+    },
+    "GO-09": {
+      "name": "Functions longer than 80 lines",
+      "severity": "Medium",
+      "description": "Functions longer than 80 lines"
+    },
+    "PY-09": {
+      "name": "Functions longer than 50 lines",
+      "severity": "Medium",
+      "description": "Functions longer than 50 lines"
+    },
+    "RS-09": {
+      "name": "`format!()` allocation in hot paths",
+      "severity": "Low",
+      "description": "`format!()` allocation in hot paths"
+    },
+    "SEC-09": {
+      "name": "Unsafe deserialization",
+      "severity": "Medium",
+      "description": "Examples include `pickle` and `yaml.load`."
+    },
+    "TS-09": {
+      "name": "Functions with more than 4 parameters",
+      "severity": "Medium",
+      "description": "Functions with more than 4 parameters"
+    },
+    "U-09": {
+      "name": "Do not bundle unrelated fixes into one commit",
+      "severity": "Strict",
+      "description": "Keep commits atomic so they are easy to review and revert."
+    },
+    "GO-10": {
+      "name": "Package-level `init()` has side effects",
+      "severity": "Medium",
+      "description": "Network or file I/O happens in `init()`."
+    },
+    "PY-10": {
+      "name": "Nesting deeper than 4 levels",
+      "severity": "Medium",
+      "description": "Nesting deeper than 4 levels"
+    },
+    "RS-10": {
+      "name": "Meaningful `Result`s are silently discarded",
+      "severity": "High",
+      "description": "Patterns like `let _ =`, `.ok()`, or `.unwrap_or_default()` swallow errors."
+    },
+    "SEC-10": {
+      "name": "Logs contain sensitive information",
+      "severity": "Medium",
+      "description": "Passwords or tokens appear in logs."
+    },
+    "TS-10": {
+      "name": "Callback nesting deeper than 3 levels",
+      "severity": "Medium",
+      "description": "Callback nesting deeper than 3 levels"
+    },
+    "U-10": {
+      "name": "Do not guess user intent",
+      "severity": "Strict",
+      "description": "If the intent is unclear, mark it as DEFER or ask the user to clarify."
+    },
+    "W-10": {
+      "name": "Require four confirmations before publish, deletion, or remote deploy",
+      "severity": "Strict",
+      "description": "Before any irreversible or high-risk action, confirm four items with the user and wait for explicit approval."
+    },
+    "GO-11": {
+      "name": "`context.Background()` is used outside entry points",
+      "severity": "Medium",
+      "description": "`context.Background()` is used outside entry points"
+    },
+    "PY-11": {
+      "name": "File operations without a `with` context manager",
+      "severity": "Medium",
+      "description": "File operations without a `with` context manager"
+    },
+    "RS-11": {
+      "name": "Different modules use different infrastructure for the same system",
+      "severity": "Medium",
+      "description": "Logging, config paths, or DB connection strategies drift across modules."
+    },
+    "SEC-11": {
+      "name": "AI-generated code security defect baseline",
+      "severity": "Strict",
+      "description": "AI-generated code carries higher security risk; mandatory human review for auth, payments, secrets, `innerHTML` / `eval` / `exec`."
+    },
+    "TS-11": {
+      "name": "Unhandled `null` / `undefined`",
+      "severity": "Medium",
+      "description": "Missing optional chaining or null guards."
+    },
+    "U-11": {
+      "name": "Inconsistent default DB/cache paths across binaries",
+      "severity": "High",
+      "description": "Different entry points hardcode different data paths, which splits user data."
+    },
+    "W-11": {
+      "name": "LLM output must separate facts, inferences, and suggestions",
+      "severity": "Strict",
+      "description": "When an agent produces an analysis report, technical judgment, or architecture recommendation, it must label the source of confidence for..."
+    },
+    "GO-12": {
+      "name": "Struct fields are not ordered by size",
+      "severity": "Low",
+      "description": "This wastes memory due to alignment padding."
+    },
+    "PY-12": {
+      "name": "Repeated calls to `len()`, `keys()`, or `values()` inside loops",
+      "severity": "Low",
+      "description": "Repeated calls to `len()`, `keys()`, or `values()` inside loops"
+    },
+    "RS-12": {
+      "name": "Two systems coexist for one responsibility",
+      "severity": "High",
+      "description": "For example, `Todo*` and `TaskManagement*` both handle task state."
+    },
+    "SEC-12": {
+      "name": "Silent drift in MCP tool descriptions",
+      "severity": "Strict",
+      "description": "The description field of an MCP tool is effectively an instruction fed to the LLM."
+    },
+    "TS-12": {
+      "name": "Passing full objects as component props instead of only required fields",
+      "severity": "Low",
+      "description": "Passing full objects as component props instead of only required fields"
+    },
+    "U-12": {
+      "name": "Shared-data fallback creates the wrong file on first boot",
+      "severity": "High",
+      "description": "Fallback logic can create a split file during first startup."
+    },
+    "W-12": {
+      "name": "Protect test integrity",
+      "severity": "Strict",
+      "description": "Protect test integrity: fix production code, never weaken assertions or tamper with test infrastructure."
+    },
+    "PY-13": {
+      "name": "Dead compatibility shim",
+      "severity": "Medium",
+      "description": "A file that only re-exports symbols from another module and adds no behavior should be removed after migration is complete."
+    },
+    "RS-13": {
+      "name": "Action-named functions lack state side effects",
+      "severity": "High",
+      "description": "A function like `mark_done` only returns text but does not persist state."
+    },
+    "SEC-13": {
+      "name": "High-context file integrity protection",
+      "severity": "Strict",
+      "description": "High-context files (`AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, hooks) must not be silently modified by dependencies or generators."
+    },
+    "TS-13": {
+      "name": "Duplicate component or hook behavior under different names",
+      "severity": "High",
+      "description": "Multiple files define React components or hooks with equivalent behavior but different names."
+    },
+    "U-13": {
+      "name": "Environment variable names diverge across entry points",
+      "severity": "Medium",
+      "description": "For example, `SERVER_DB_PATH` and `DESKTOP_DB_PATH` point at different defaults."
+    },
+    "W-13": {
+      "name": "Analysis paralysis guard",
+      "severity": "Strict",
+      "description": "If there are 7+ consecutive read-only actions (Read / Glob / Grep) with no write action, you must either act or report a blocker."
+    },
+    "RS-14": {
+      "name": "Declaration-execution gap",
+      "severity": "High",
+      "description": "Configs, traits, or persistence layers are declared but never integrated into startup."
+    },
+    "SEC-14": {
+      "name": "MCP tool descriptions must reject authority-claim and override language",
+      "severity": "Strict",
+      "description": "A tool description that claims \"absolute authority\", \"supersedes user requests\", or asks the agent to \"ignore prior instructions\" is func..."
+    },
+    "TS-14": {
+      "name": "Test mocks drift from the real module shape",
+      "severity": "High",
+      "description": "`vi.mock()` and `jest.mock()` factory functions often return `any`, so TypeScript cannot tell when the mock shape drifts from the real mo..."
+    },
+    "U-14": {
+      "name": "CLI default path uses a different base directory than GUI/server",
+      "severity": "Medium",
+      "description": "Different entry points use different base directories."
+    },
+    "W-14": {
+      "name": "Single-writer repository ownership",
+      "severity": "Strict",
+      "description": "At most one writable session may operate on a repository; parallel helpers must remain read-only."
+    },
+    "U-15": {
+      "name": "Prefer immutability",
+      "severity": "Guideline",
+      "description": "Create new objects instead of mutating existing ones."
+    },
+    "W-15": {
+      "name": "Low-information loop detection",
+      "severity": "Strict",
+      "description": "If the information gain shrinks for three consecutive rounds, stop that direction and report it."
+    },
+    "SEC-16": {
+      "name": "CWE-stratified AI patch safety policy",
+      "severity": "Strict",
+      "description": "AI-generated security patches do not have a uniform safety profile."
+    },
+    "U-16": {
+      "name": "Keep file size under control",
+      "severity": "Guideline",
+      "description": "Keep file size under control: 200-400 lines typical, 800 lines hard ceiling. Files above 800 must be split."
+    },
+    "W-16": {
+      "name": "Verification commands must come from this session",
+      "severity": "Strict",
+      "description": "Verification commands must come from this session. \"Earlier passed\" / \"should work\" do not count."
+    },
+    "SEC-17": {
+      "name": "Third-party agent skills require source review, local rebuild, and default-deny controls before enable",
+      "severity": "Strict",
+      "description": "Third-party agent skills are persistent instruction and execution surfaces."
+    },
+    "U-17": {
+      "name": "Handle errors completely",
+      "severity": "Strict",
+      "description": "Handle errors completely. Do not swallow exceptions silently."
+    },
+    "W-17": {
+      "name": "Fewer smarter gates beat more mechanical gates",
+      "severity": "Strict",
+      "description": "When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one mor..."
+    },
+    "SEC-18": {
+      "name": "External agent input safety requires semantic scoring, not keyword filters alone",
+      "severity": "Strict",
+      "description": "External content that reaches an agent can be malicious even when it contains no obvious override keywords."
+    },
+    "U-18": {
+      "name": "Validate inputs",
+      "severity": "Guideline",
+      "description": "Validate all user input at system boundaries."
+    },
+    "W-18": {
+      "name": "Evaluations must validate path, not only output",
+      "severity": "Strict",
+      "description": "Output-only evaluations miss systemic failures."
+    },
+    "U-19": {
+      "name": "Use the Repository pattern",
+      "severity": "Guideline",
+      "description": "Encapsulate data access in a Repository layer."
+    },
+    "W-19": {
+      "name": "AGENTS.md / CLAUDE.md sustainable size and pairing",
+      "severity": "Strict",
+      "description": "Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when they grow past sustainable size, accumulate unpaired prohi..."
+    },
+    "RS-20": {
+      "name": "After changing struct fields or enum variants, inspect the full chain",
+      "severity": "Strict",
+      "description": "If you add, remove, rename, or retag a struct field or enum variant, \"it compiles\" is not enough."
+    },
+    "U-20": {
+      "name": "Keep API response shapes consistent",
+      "severity": "Guideline",
+      "description": "Use a standard envelope such as `{ data, error, meta }`."
+    },
+    "W-20": {
+      "name": "Long tasks must pin runtime, tools, and rules",
+      "severity": "Strict",
+      "description": "Long-running agent tasks must freeze the execution surface at the start of the task so a mid-flight runtime, tool, or rule change cannot..."
+    },
+    "U-21": {
+      "name": "Commit messages must follow the Lore protocol",
+      "severity": "Strict",
+      "description": "Record why the change exists, not just what changed."
+    },
+    "W-21": {
+      "name": "Evidence must be provably executed, not merely cited",
+      "severity": "Strict",
+      "description": "Evidence must be provably executed, not merely cited. Verify \"decisive\" claims through an out-of-session channel before naming a mechanism."
+    },
+    "U-22": {
+      "name": "Test coverage",
+      "severity": "Strict",
+      "description": "New code minimum 80% line coverage; critical paths 100%."
+    },
+    "U-23": {
+      "name": "No silent degradation",
+      "severity": "Strict",
+      "description": "See U-29 for canonical no-silent-degradation guidance."
+    },
+    "U-24": {
+      "name": "No aliases",
+      "severity": "Strict",
+      "description": "Do not keep function, type, command, or directory aliases."
+    },
+    "U-25": {
+      "name": "Fix build failures first",
+      "severity": "Strict",
+      "description": "Fix build failures first before any other edit; do not add new code while build is red."
+    },
+    "U-26": {
+      "name": "Declaration-execution completeness",
+      "severity": "Strict",
+      "description": "Declaration-execution completeness: declared Config / Trait / persistence layers must be wired into startup."
+    },
+    "U-29": {
+      "name": "Error-driven downgrade paths must be observable at error level",
+      "severity": "Strict",
+      "description": "No silent degradation: errors causing user-visible missing data or wrong output must `error` or raise, not `warning` + fallback."
+    },
+    "U-30": {
+      "name": "Cross-boundary Pydantic models must use `extra=\"allow\"`",
+      "severity": "Strict",
+      "description": "Any Pydantic model that receives external or cross-boundary data must set `extra=\"allow\"` so `model_validate()` does not silently drop un..."
+    },
+    "W-30": {
+      "name": "Harness audits must measure boundary, fidelity, and stability",
+      "severity": "Strict",
+      "description": "Agent harness evaluation must audit the trajectory, not only final task completion."
+    },
+    "U-31": {
+      "name": "Cache keys must include code version",
+      "severity": "Strict",
+      "description": "When builder or generation logic changes, old cache entries must invalidate automatically."
+    },
+    "U-32": {
+      "name": "Rule overload threshold + absolute-language detection",
+      "severity": "Strict",
+      "description": "Keep the effective constraint set for a single agent task at 15 or fewer items."
+    },
+    "U-33": {
+      "name": "Code search defaults to glob/grep; large codebases require structural navigation",
+      "severity": "Strict",
+      "description": "For agent code retrieval, plain glob/grep driven by the model remains the default for small and medium single-repository work."
+    },
+    "W-37": {
+      "name": "Agent learning must draw from successful and failed trajectories",
+      "severity": "Strict",
+      "description": "An agent memory or experience layer that feeds future inference must learn from both successful and failed trajectories."
+    },
+    "W-38": {
+      "name": "Tool-need recognition and tool-call execution are separate metrics",
+      "severity": "Strict",
+      "description": "Tool-use evals must distinguish whether an agent recognized that a tool was needed from whether it actually called the tool."
+    },
+    "W-41": {
+      "name": "Long-term vibe coding production should expose five invariants",
+      "severity": "Guideline",
+      "description": "Long-term production workflows that rely on vibe-coding style agent iteration should make five risk-control invariants visible before tre..."
+    },
+    "W-42": {
+      "name": "Long-horizon artifact workflows must measure fidelity at checkpoints",
+      "severity": "Strict",
+      "description": "Agent workflows that repeatedly modify and hand off the same artifact must measure semantic fidelity at fixed checkpoints."
+    },
+    "TASTE-ANSI": {
+      "name": "Hardcoded ANSI escape sequences",
+      "severity": "Medium",
+      "description": "Use a crate like `colored` or `termcolor` instead of hardcoding `\\x1b[` sequences."
+    },
+    "TASTE-ASYNC-UNWRAP": {
+      "name": "`.unwrap()` inside `async fn`",
+      "severity": "Medium",
+      "description": "Async code should propagate errors with `?` instead of panicking with `unwrap()`."
+    },
+    "TASTE-PANIC-MSG": {
+      "name": "`panic!()` without a meaningful message",
+      "severity": "Medium",
+      "description": "`panic!()` or `panic!(\"\")` lacks context."
+    }
+  }
+}

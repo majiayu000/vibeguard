@@ -255,7 +255,7 @@ fn observe_diagnostic_kind(event: &Value, slow_ms: u64) -> &'static str {
     "none"
 }
 
-fn observe_extract_rule_ids(text: &str) -> Vec<String> {
+pub(super) fn observe_extract_rule_ids(text: &str) -> Vec<String> {
     text.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '-'))
         .filter_map(|token| {
             let token = token.to_ascii_uppercase();
