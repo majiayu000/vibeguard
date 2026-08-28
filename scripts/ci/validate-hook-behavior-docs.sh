@@ -232,18 +232,20 @@ require_absent "docs/assets/demo-scenario.sh" 'pre-bash-guard: blocked `git push
   "demo script must not show force-push as pre-bash behavior"
 require_absent "docs/assets/demo-scenario.sh" 'use --force-with-lease only after explicit intent' \
   "demo script must not suggest force-with-lease, which pre-push still blocks"
-require_present "docs/assets/demo-scenario.sh" 'git pre-push hook: blocked non-fast-forward push' \
-  "demo script must show force-push as git pre-push behavior"
-require_present "docs/assets/demo-scenario.sh" 'history rewrites require explicit human approval' \
-  "demo script must describe the required human approval path"
+require_present "docs/assets/demo-scenario.sh" 'bash "${VG}/setup.sh" demo safe-bash' \
+  "demo script must run the live safe-bash interception"
+require_absent "docs/assets/demo-scenario.sh" 'echo -e '\''\033[1;31m✗' \
+  "demo script must not print a fabricated block decision"
 require_absent "docs/assets/demo.cast" 'pre-bash-guard: blocked `git push --force`' \
   "demo cast must not show force-push as pre-bash behavior"
 require_absent "docs/assets/demo.cast" 'use --force-with-lease only after explicit intent' \
   "demo cast must not suggest force-with-lease, which pre-push still blocks"
-require_present "docs/assets/demo.cast" 'git pre-push hook: blocked non-fast-forward push' \
-  "demo cast must show force-push as git pre-push behavior"
-require_present "docs/assets/demo.cast" 'history rewrites require explicit human approval' \
-  "demo cast must describe the required human approval path"
+require_present "docs/assets/demo.cast" 'VibeGuard live interception demo: safe-bash' \
+  "demo cast must contain the live safe-bash run"
+require_present "docs/assets/demo.cast" 'DENIED: decision=block' \
+  "demo cast must show the real block decision"
+require_present "docs/assets/demo.cast" 'shell executor was never started' \
+  "demo cast must prove the destructive command was not executed"
 
 require_present "scripts/setup/targets/claude-home.sh" 'Stop signal + Build check + Learn evaluator' \
   "setup status must avoid the old Stop gate wording"

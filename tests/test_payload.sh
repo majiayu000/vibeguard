@@ -188,6 +188,7 @@ for required in \
   scripts/setup/bootstrap.sh \
   scripts/setup/bootstrap-lib.sh \
   scripts/setup/install.sh \
+  scripts/lib/guard_pack_demo.py \
   scripts/lib/install-state.sh \
   scripts/release/payload-manifest.txt; do
   [[ -e "${WORK}/unpacked/${required}" ]] || { echo "missing: ${required}" >&2; rc=1; }
@@ -484,6 +485,26 @@ if [[ "${rc}" -ne 0 ]]; then
   printf '%s\n' "${verify_out}" >&2
 fi
 check "verify-install reports an explicit installation verdict" "${rc}"
+
+set +e
+demo_out="$(
+  cd "${WORK}/unpacked" \
+    && HOME="${WORK}/payload-home" \
+      CODEX_HOME="${WORK}/payload-home/.codex" \
+      PATH="${WORK}/fake-bin:${PATH}" \
+      VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
+      bash setup.sh demo safe-bash 2>&1
+)"
+rc=$?
+set -e
+if [[ "${rc}" -ne 0 ]]; then
+  printf '%s\n' "${demo_out}" >&2
+fi
+check "payload runs the live safe-bash interception demo" "${rc}"
+rc=0
+grep -q 'DENIED: decision=block' <<< "${demo_out}" || rc=1
+grep -q 'temporary HOME marker remains intact' <<< "${demo_out}" || rc=1
+check "payload demo proves block decision and sandbox preservation" "${rc}"
 
 rc=0
 [[ -x "${WORK}/payload-home/.vibeguard/installed/bin/vibeguard-runtime" ]] || rc=1

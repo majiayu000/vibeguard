@@ -589,9 +589,59 @@ assert_cmd "uninstalling one target keeps the other target receipt" test -f "${c
 python3 "${GUARD_PACKS_HELPER}" uninstall safe-bash --target codex --home "${codex_ready_home}" >/dev/null
 
 header "demo"
-safe_bash_demo_out="$(python3 "${GUARD_PACKS_HELPER}" demo safe-bash)"
-assert_contains "${safe_bash_demo_out}" "No command is executed" "safe-bash demo is side-effect free"
-assert_contains "${safe_bash_demo_out}" "Expected decision: block" "safe-bash demo shows block decision"
+demo_runtime="${TMP_DIR}/demo-vibeguard-runtime"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'cat >/dev/null' \
+  'printf '\''%s\n'\'' '\''{"decision":"block","reason":"VIBEGUARD interception: Prohibit rm -rf dangerous paths"}'\''' \
+  >"${demo_runtime}"
+chmod +x "${demo_runtime}"
+safe_bash_demo_out="$(VIBEGUARD_RUNTIME="${demo_runtime}" python3 "${GUARD_PACKS_HELPER}" demo safe-bash)"
+assert_contains "${safe_bash_demo_out}" "VibeGuard live interception demo" "safe-bash demo runs the live hook"
+assert_contains "${safe_bash_demo_out}" "DENIED: decision=block" "safe-bash demo shows the real block decision"
+assert_contains "${safe_bash_demo_out}" "shell executor was never started" "safe-bash demo keeps the dangerous command unexecuted"
+assert_contains "${safe_bash_demo_out}" "temporary HOME marker remains intact" "safe-bash demo verifies its sandbox marker"
+assert_cmd_fail "safe-bash demo fails visibly when configured runtime is missing" env VIBEGUARD_RUNTIME="${TMP_DIR}/missing-runtime" python3 "${GUARD_PACKS_HELPER}" demo safe-bash
+assert_cmd_fail "safe-bash demo fails visibly when configured Bash is missing" env VIBEGUARD_BASH="${TMP_DIR}/missing-bash" VIBEGUARD_RUNTIME="${demo_runtime}" python3 "${GUARD_PACKS_HELPER}" demo safe-bash
+
+relative_runtime_dir="${TMP_DIR}/relative-runtime"
+mkdir -p "${relative_runtime_dir}/bin"
+relative_runtime_marker="${TMP_DIR}/relative-runtime-used"
+cat >"${relative_runtime_dir}/bin/demo-vibeguard-runtime" <<SH
+#!/usr/bin/env bash
+printf 'used\n' >"${relative_runtime_marker}"
+cat >/dev/null
+printf '%s\n' '{"decision":"block","reason":"VIBEGUARD interception: Prohibit rm -rf dangerous paths"}'
+SH
+chmod +x "${relative_runtime_dir}/bin/demo-vibeguard-runtime"
+assert_cmd "safe-bash demo resolves configured runtime from caller cwd" bash -c "cd '${relative_runtime_dir}' && VIBEGUARD_RUNTIME='bin/demo-vibeguard-runtime' python3 '${GUARD_PACKS_HELPER}' demo safe-bash >/dev/null"
+assert_cmd "safe-bash demo uses the resolved configured runtime" test -f "${relative_runtime_marker}"
+
+external_demo_log="${TMP_DIR}/external-demo-events.jsonl"
+log_probe_runtime="${TMP_DIR}/log-probe-vibeguard-runtime"
+cat >"${log_probe_runtime}" <<'SH'
+#!/usr/bin/env bash
+if [[ -n "${VIBEGUARD_LOG_FILE:-}" ]]; then
+  printf 'polluted\n' >>"${VIBEGUARD_LOG_FILE}"
+fi
+cat >/dev/null
+printf '%s\n' '{"decision":"block","reason":"VIBEGUARD interception: Prohibit rm -rf dangerous paths"}'
+SH
+chmod +x "${log_probe_runtime}"
+VIBEGUARD_PROJECT_LOG_DIR="${TMP_DIR}/external-project-logs" \
+VIBEGUARD_LOG_FILE="${external_demo_log}" \
+VIBEGUARD_RUNTIME="${log_probe_runtime}" \
+  python3 "${GUARD_PACKS_HELPER}" demo safe-bash >/dev/null
+assert_cmd "safe-bash demo does not write inherited project logs" test ! -e "${external_demo_log}"
+
+allow_runtime="${TMP_DIR}/allow-vibeguard-runtime"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'cat >/dev/null' \
+  'printf '\''%s\n'\'' '\''{"decision":"pass","reason":"allowed"}'\''' \
+  >"${allow_runtime}"
+chmod +x "${allow_runtime}"
+assert_cmd_fail "safe-bash demo fails closed when the hook does not block" env VIBEGUARD_RUNTIME="${allow_runtime}" python3 "${GUARD_PACKS_HELPER}" demo safe-bash
 
 header "setup routes"
 setup_packs_out="$(bash "${REPO_DIR}/setup.sh" packs list)"
@@ -610,8 +660,18 @@ setup_pack_install_live_out="$(bash "${REPO_DIR}/setup.sh" install --target clau
 assert_contains "${setup_pack_install_live_out}" "INSTALLED: guard pack safe-bash registered for claude-code" "setup install --pack registers receipt"
 setup_pack_uninstall_out="$(bash "${REPO_DIR}/setup.sh" packs uninstall safe-bash --target claude-code --home "${audit_ready_home}")"
 assert_contains "${setup_pack_uninstall_out}" "UNINSTALLED: guard pack safe-bash receipt removed" "setup packs uninstall removes receipt"
-setup_pack_demo_out="$(bash "${REPO_DIR}/setup.sh" demo safe-bash)"
-assert_contains "${setup_pack_demo_out}" "No command is executed" "setup demo route is side-effect free"
+setup_pack_demo_out="$(VIBEGUARD_RUNTIME="${demo_runtime}" bash "${REPO_DIR}/setup.sh" demo safe-bash)"
+assert_contains "${setup_pack_demo_out}" "DENIED: decision=block" "setup demo route runs the live interception"
+
+fast_demo_bin="${TMP_DIR}/fast-demo-bin"
+mkdir -p "${fast_demo_bin}"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"${fast_demo_bin}/sleep"
+chmod +x "${fast_demo_bin}/sleep"
+assert_cmd_fail "recording scenario propagates live demo failure" env \
+  PATH="${fast_demo_bin}:${PATH}" \
+  VG="${REPO_DIR}" \
+  VIBEGUARD_RUNTIME="${TMP_DIR}/missing-scenario-runtime" \
+  bash "${REPO_DIR}/docs/assets/demo-scenario.sh"
 
 echo
 echo "=============================="

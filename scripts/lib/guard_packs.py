@@ -17,6 +17,7 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
+from guard_pack_demo import DemoError, run_live_bash_demo
 from guard_pack_receipts import (
     ReceiptError,
     assert_receipt_path_safe,
@@ -713,12 +714,16 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 def cmd_demo(args: argparse.Namespace) -> int:
     _, pack = load_pack(args.pack, Path(args.packs_dir))
     demo = pack["demo"]
-    print(f"VibeGuard demo: {pack['id']}")
-    print("No command is executed; this is a deterministic demo transcript.")
-    print(f"Blocked example: {demo['blocked_example']}")
-    print(f"Expected decision: {demo['expected_decision']}")
-    print(f"Expected reason contains: {demo['expected_reason_contains']}")
-    print(f"Run after install: {demo['command']}")
+    decision, reason, source = run_live_bash_demo(pack, ROOT)
+    print(f"VibeGuard live interception demo: {pack['id']}")
+    print(f"Hook source: {source}")
+    print("AI requests Bash:")
+    print(f"  $ {demo['blocked_example']}")
+    print("\n-> PreToolUse(Bash) -> pre-bash-guard.sh")
+    print(f"DENIED: decision={decision}")
+    print(f"Reason: {reason}")
+    print("\nOK: shell executor was never started")
+    print("OK: temporary HOME marker remains intact")
     return 0
 
 
@@ -757,7 +762,7 @@ def build_guard_pack_parser() -> argparse.ArgumentParser:
     audit.add_argument("--home", default=str(Path.home()))
     audit.add_argument("--json", action="store_true")
 
-    demo = sub.add_parser("demo", help="Show a no-side-effect Guard Pack demo")
+    demo = sub.add_parser("demo", help="Run a live, fail-closed Guard Pack interception demo")
     demo.add_argument("pack")
     return parser
 
@@ -782,7 +787,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_audit(args)
         if args.command == "demo":
             return cmd_demo(args)
-    except (PackError, ReceiptError) as exc:
+    except (DemoError, PackError, ReceiptError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     parser.error("unknown command")
