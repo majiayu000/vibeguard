@@ -363,9 +363,9 @@ with open(path, "w", encoding="utf-8") as f:
         f.write(json.dumps(event) + "\n")
 PY
 
-stats_sections_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/stats-sections-log" bash "${SCRIPT}" --scope global 7 2>&1)"
-assert_contains "${stats_sections_out}" "== Warn compliance rate analysis ==" "Warn compliance section is preserved"
-assert_contains "${stats_sections_out}" "pre-bash-guard: warn=1 pass=1 compliance rate=50% [LOW]" "Warn compliance computes pass ratio"
+stats_sections_out="$(VIBEGUARD_RUNTIME="${RUNTIME}" VIBEGUARD_LOG_DIR="${TMP_DIR}/stats-sections-log" bash "${SCRIPT}" --scope global 7 2>&1)"
+assert_not_contains "${stats_sections_out}" "Warn compliance rate analysis" "Summary omits warn-compliance proxy"
+assert_not_contains "${stats_sections_out}" "upgrade to block" "Summary omits automatic block-upgrade recommendation"
 assert_contains "${stats_sections_out}" "Distributed by file type:" "File type section is preserved"
 assert_contains "${stats_sections_out}" ".rs: 2 times" "File type distribution counts details"
 assert_contains "${stats_sections_out}" "Distributed by time period:" "Time period section is preserved"
@@ -373,7 +373,7 @@ assert_contains "${stats_sections_out}" "working time (09-18): 2 times (50%)" "W
 assert_contains "${stats_sections_out}" "== Performance analysis ==" "Performance section is preserved"
 assert_contains "${stats_sections_out}" "Total number of sessions: 2" "Session count is preserved"
 assert_contains "${stats_sections_out}" "Average triggers per session: 2.0 times" "Average trigger count is preserved"
-assert_contains "${stats_sections_out}" "Deterministic node estimated savings: ~2K tokens" "Token savings estimate is preserved"
+assert_not_contains "${stats_sections_out}" "estimated savings" "Summary omits token-savings proxy"
 assert_contains "${stats_sections_out}" "Conversations with the most questions Top 3:" "Problem sessions section is preserved"
 assert_contains "${stats_sections_out}" "session-b: 2 issues / 2 triggers" "Problem sessions are ranked"
 

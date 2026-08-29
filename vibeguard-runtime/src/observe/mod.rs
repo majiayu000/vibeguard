@@ -7,6 +7,7 @@ mod read;
 mod render;
 mod rule_descriptions;
 mod stats_summary;
+mod value;
 
 use crate::event_schema::field;
 use crate::time_utils::now_unix_secs;
@@ -53,6 +54,7 @@ pub fn run(args: &[String]) -> Result {
             render::render_health(&options, &log_events, &aggregate, &rule_descriptions)
         }
         model::ObserveCommand::Session => render::render_session(&options, &log_events, &aggregate),
+        model::ObserveCommand::Value => value::render(&options, &log_events, &aggregate),
     }?;
     print!("{output}");
     Ok(())

@@ -12,6 +12,7 @@ Executable schema sources:
 - `schemas/command-learn-output.schema.json`
 - `schemas/event-log.schema.json`
 - `schemas/session-metrics.schema.json`
+- `schemas/observe-output.schema.json`
 
 ## observability JSONL Schemas
 
@@ -19,6 +20,7 @@ Runtime observability rows are validated one JSONL row at a time:
 
 - `schemas/event-log.schema.json` describes `events.jsonl` hook events.
 - `schemas/session-metrics.schema.json` describes `session-metrics.jsonl` rows emitted by `vibeguard-runtime session-metrics`.
+- `schemas/observe-output.schema.json` describes the common `observe` envelope and the bounded `value` evidence object.
 
 Schema v1 requires current event-log rows to include `schema_version`, `ts`,
 `session`, `hook`, `tool`, `decision`, and `status`. Rows may also include

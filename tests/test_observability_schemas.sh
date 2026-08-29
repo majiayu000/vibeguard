@@ -68,6 +68,8 @@ schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
 if mode == "utf8_lossy_hex":
     raw_lines = [bytes.fromhex(fixture_path.read_text(encoding="ascii").strip())]
+elif mode == "single_json":
+    raw_lines = [fixture_path.read_bytes()]
 else:
     raw_lines = fixture_path.read_bytes().splitlines()
 
@@ -120,6 +122,14 @@ assert_cmd "malformed UTF-8 is recovered before schema validation" \
 header "session metrics schema"
 assert_cmd "current session metrics rows validate" \
   run_schema_check "schemas/session-metrics.schema.json" "${FIXTURES_DIR}/session-metrics-current.jsonl"
+
+header "observe value output schema"
+assert_cmd "current observe value output validates" \
+  run_schema_check "schemas/observe-output.schema.json" "${FIXTURES_DIR}/observe-value-current.json" "single_json"
+assert_fails "invalid observe value evidence tier fails validation" \
+  run_schema_check "schemas/observe-output.schema.json" "${FIXTURES_DIR}/observe-value-invalid-tier.json" "single_json"
+assert_fails "missing observe value evidence tier fails validation" \
+  run_schema_check "schemas/observe-output.schema.json" "${FIXTURES_DIR}/observe-value-missing-tier.json" "single_json"
 
 printf '\n'
 if [[ "$FAIL" -eq 0 ]]; then

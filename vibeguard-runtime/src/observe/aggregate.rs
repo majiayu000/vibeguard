@@ -106,6 +106,7 @@ pub(super) fn observe_event_json(event: &Value, slow_ms: u64) -> Value {
         field::STATUS: observe_normalized_status(event, slow_ms),
         field::REASON: observe_string_field(event, field::REASON),
         field::DETAIL: observe_string_field(event, field::DETAIL),
+        field::RECORD_ID: observe_string_field(event, field::RECORD_ID),
         field::DURATION_MS: observe_effective_duration_ms(event),
         "client": observe_client_name(event),
         "diagnostic": observe_diagnostic_kind(event, slow_ms),
@@ -128,7 +129,7 @@ pub(super) fn observe_numeric_field(value: &Value, key: &str) -> Option<u64> {
         .and_then(|raw| raw.as_u64().or_else(|| raw.as_str()?.parse::<u64>().ok()))
 }
 
-fn observe_effective_duration_ms(event: &Value) -> Option<u64> {
+pub(super) fn observe_effective_duration_ms(event: &Value) -> Option<u64> {
     observe_numeric_field(event, field::DURATION_MS)
         .or_else(|| observe_numeric_field(event, field::ELAPSED_MS))
 }
@@ -165,7 +166,7 @@ pub(super) fn observe_normalized_decision(event: &Value) -> String {
     observe_string_field(event, field::STATUS).to_ascii_lowercase()
 }
 
-fn observe_normalized_status(event: &Value, slow_ms: u64) -> String {
+pub(super) fn observe_normalized_status(event: &Value, slow_ms: u64) -> String {
     let explicit = observe_string_field(event, field::STATUS).to_ascii_lowercase();
     if !explicit.is_empty() {
         return observe_canonical_status(&explicit);

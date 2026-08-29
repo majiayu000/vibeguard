@@ -9,6 +9,7 @@ pub(super) enum ObserveCommand {
     Summary,
     Health,
     Session,
+    Value,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -54,7 +55,7 @@ pub(super) struct ObserveOptions {
 impl ObserveOptions {
     fn new(command: ObserveCommand) -> Self {
         let window = match command {
-            ObserveCommand::Summary => TimeWindow::Days(7),
+            ObserveCommand::Summary | ObserveCommand::Value => TimeWindow::Days(7),
             ObserveCommand::Health => TimeWindow::Hours(24),
             ObserveCommand::Session => TimeWindow::All,
         };
@@ -81,6 +82,7 @@ pub(super) fn parse_observe_args(args: &[String]) -> Result<ObserveOptions> {
     match command_name.as_str() {
         "summary" => parse_command(ObserveCommand::Summary, None, &args[1..]),
         "health" => parse_command(ObserveCommand::Health, None, &args[1..]),
+        "value" => parse_command(ObserveCommand::Value, None, &args[1..]),
         "session" => {
             let session = args
                 .get(1)
@@ -200,7 +202,7 @@ fn parse_hours_window(value: &str) -> Result<TimeWindow> {
 }
 
 fn usage() -> &'static str {
-    "Usage: vibeguard-runtime observe <summary|health|session|export prometheus> [--json] [--scope project|global] [--project PATH_OR_HASH] [--log-file PATH] [--days N|all] [--hours N|all] [--limit N|all] [--slow-ms MS] [--top N]"
+    "Usage: vibeguard-runtime observe <summary|health|session|value|export prometheus> [--json] [--scope project|global] [--project PATH_OR_HASH] [--log-file PATH] [--days N|all] [--hours N|all] [--limit N|all] [--slow-ms MS] [--top N]"
 }
 
 #[cfg(test)]
@@ -220,6 +222,17 @@ mod tests {
 
         assert!(matches!(options.command, ObserveCommand::Summary));
         assert!(!options.json);
+        assert_eq!(options.window.label(), "last 7 days");
+    }
+
+    #[test]
+    fn value_defaults_to_seven_days() {
+        let options = match parse_observe_args(&args(&["value"])) {
+            Ok(options) => options,
+            Err(error) => panic!("value options should parse: {error}"),
+        };
+
+        assert!(matches!(options.command, ObserveCommand::Value));
         assert_eq!(options.window.label(), "last 7 days");
     }
 

@@ -289,7 +289,7 @@ pub(super) fn render_session(
     ))
 }
 
-fn observe_summary_json(
+pub(super) fn observe_summary_json(
     options: &ObserveOptions,
     log_events: &LogEvents,
     aggregate: &ObserveAggregate,
@@ -332,6 +332,7 @@ fn observe_command_name(command: ObserveCommand) -> &'static str {
         ObserveCommand::Summary => "summary",
         ObserveCommand::Health => "health",
         ObserveCommand::Session => "session",
+        ObserveCommand::Value => "value",
     }
 }
 
@@ -372,7 +373,7 @@ fn observe_duration_stats_json(durations: &[u64], slow_ms: u64) -> Value {
             "slow_ms": slow_ms,
         });
     }
-    let sum = durations.iter().sum::<u64>();
+    let sum = durations.iter().copied().fold(0_u64, u64::saturating_add);
     let p95_index = ((durations.len() * 95).div_ceil(100)).saturating_sub(1);
     json!({
         "count": durations.len(),
