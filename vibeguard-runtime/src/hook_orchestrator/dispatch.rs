@@ -355,6 +355,19 @@ fn run_source_new(
         0
     };
     if threshold > 0 && prior_count >= threshold {
+        if ctx.cli == "codex" {
+            append_hook_event(
+                ctx,
+                HookKind::PreWrite,
+                decision::WARN,
+                status::WARN,
+                "L1 source-new advisory at reminder threshold",
+                file_path,
+                elapsed_ms(start),
+            )?;
+            print_policy_decision_kv("warn", CODEX_L1_THRESHOLD_REASON);
+            return Ok(());
+        }
         append_hook_event(
             ctx,
             HookKind::PreWrite,
@@ -579,6 +592,7 @@ const MALFORMED_PRE_WRITE_REASON: &str = "VIBEGUARD interception: malformed PreT
 const U16_BASELINE_UNREADABLE_REASON: &str = "VIBEGUARD interception: the existing source file could not be read for the U-16 baseline, so the write was blocked instead of being evaluated with incomplete evidence.";
 const W12_PRE_WRITE_REASON: &str = "[W-12] [block] [this-edit] OBSERVATION: writing to test infrastructure file blocked (conftest.py/jest.config/pytest.ini/.coveragerc/babel.config)\nFIX: Fix the production code that is failing — do not manipulate test framework configuration";
 const L1_BLOCK_REASON: &str = "VIBEGUARD [L1] [block] [this-edit] OBSERVATION: new source file creation blocked — search not performed before write\nSCOPE: search required before retry — use Grep for functions/classes/structs, Glob for same-named files\nACTION: REVIEW";
+const CODEX_L1_THRESHOLD_REASON: &str = "VIBEGUARD [L1] [advisory] OBSERVATION: visible new source file reminders reached the reminder threshold\nSCOPE: audit the repository for an existing implementation before creating another source file\nACTION: use Bash to run a symbol search such as `rg -n 'fn |function |class |struct |def ' .` and a same-name file search such as `rg --files . | rg 'name'`, review the matches, then retry Write";
 
 fn emit_runtime_failure_block(
     kind: HookKind,
