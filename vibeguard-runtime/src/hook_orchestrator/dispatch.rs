@@ -343,7 +343,6 @@ fn run_source_new(
         print_pretty_decision("block", L1_BLOCK_REASON);
         return Ok(());
     }
-
     let threshold = runtime_config_int_value(
         "VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD",
         "write_escalate_threshold",
@@ -385,7 +384,6 @@ fn run_source_new(
         );
         return Ok(());
     }
-
     append_hook_event(
         ctx,
         HookKind::PreWrite,
@@ -395,7 +393,6 @@ fn run_source_new(
         file_path,
         elapsed_ms(start),
     )?;
-
     let breaker = breaker_config(ctx, "pre-write-guard");
     match circuit_breaker::check(
         &breaker.state_file,
@@ -799,14 +796,5 @@ fn source_new_context(check: &PreWriteCheck, has_u16_advisory: bool) -> String {
     L1_ADVISORY_CONTEXT.to_string()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hook_kind_accepts_short_and_script_names() {
-        assert_eq!(HookKind::parse("pre-write"), Some(HookKind::PreWrite));
-        assert_eq!(HookKind::parse("pre-write-guard"), Some(HookKind::PreWrite));
-        assert_eq!(HookKind::parse("nope"), None);
-    }
-}
+#[path = "dispatch_tests.rs"]
+mod tests;
