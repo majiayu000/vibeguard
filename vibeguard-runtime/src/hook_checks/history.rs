@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use crate::event_schema::{decision, field, hook, tool};
 use crate::hook_checks::common::{first_detail_path, write_log_event};
 use crate::logging::query::count_build_fail_events;
+use crate::runtime_config::runtime_config_churn_thresholds;
+use crate::runtime_config::runtime_config_int_value_for_path as threshold;
 use crate::time_utils::{now_unix_secs, parse_iso_ts};
 
 const POST_EDIT_HISTORY_LINES: usize = 500;
@@ -21,7 +23,7 @@ pub(crate) struct PostEditHistorySignals {
 
 impl PostEditHistorySignals {
     pub(crate) fn needs_shell_w15_check(&self) -> bool {
-        self.w15_count >= 2
+        self.w15_count.saturating_add(1) >= threshold("w15.minimum_consecutive_edits") as usize
     }
 }
 
@@ -39,6 +41,7 @@ pub(crate) fn post_edit_history_signals(
     agent: &str,
     file_path: &str,
 ) -> io::Result<Option<PostEditHistorySignals>> {
+    let thresholds = runtime_config_churn_thresholds();
     let lines = match read_tail_lines(log_file, POST_EDIT_HISTORY_LINES) {
         Ok(lines) => lines,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -91,7 +94,7 @@ pub(crate) fn post_edit_history_signals(
         .filter(|e| !is_churn_only_warning(e))
         .filter(|e| first_detail_path(e) == file_path)
         .count();
-    let build_fail_count = if churn_count >= 20 {
+    let build_fail_count = if churn_count >= thresholds.critical_edit_count as usize {
         count_session_build_fail_events(&events, session, &current_project_root())
     } else {
         0
@@ -290,29 +293,29 @@ pub(crate) fn post_edit_history_warnings(
     file_path: &str,
     signals: &PostEditHistorySignals,
 ) -> String {
-    let mut warnings = Vec::new();
+    let (thresholds, mut warnings) = (runtime_config_churn_thresholds(), Vec::new());
     let basename = Path::new(file_path)
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or(file_path);
 
-    if signals.churn_count >= 20 && signals.build_fail_count >= 5 {
+    if thresholds.is_critical(signals.churn_count, signals.build_fail_count) {
         warnings.push(format!(
             "[CHURN CRITICAL] [review] [this-file] OBSERVATION: {basename} has been edited {} times and the project has {} consecutive build failures - possible edit->fail->fix loop\nFIX: Pause and classify: planned refactor vs failed repair loop. If planned, make one scoped finishing edit and verify; if failed loop, stop and re-check root cause (W-02)\nDO NOT: Keep making equivalent fix attempts without fresh build output and a confirmed root cause",
             signals.churn_count,
             signals.build_fail_count
         ));
-    } else if signals.churn_count >= 20 {
+    } else if signals.churn_count >= thresholds.critical_edit_count as usize {
         warnings.push(format!(
             "[CHURN WARNING] [review] [this-file] OBSERVATION: {basename} has been edited {} times - high edit volume without repeated build-failure evidence\nFIX: Pause and classify: planned refactor vs failed repair loop. If planned, make one scoped finishing edit and verify.\nDO NOT: Treat edit count alone as proof of W-02 failure-loop behavior",
             signals.churn_count
         ));
-    } else if signals.churn_count >= 10 {
+    } else if signals.churn_count >= thresholds.warning_edit_count as usize {
         warnings.push(format!(
             "[CHURN WARNING] [info] [this-file] OBSERVATION: {basename} has been edited {} times, possible correction loop\nFIX: Run full build to see the complete picture, or use /vibeguard:learn to extract patterns\nDO NOT: Take any action - monitor and decide whether to continue",
             signals.churn_count
         ));
-    } else if signals.churn_count >= 5 {
+    } else if signals.churn_count >= thresholds.informational_edit_count as usize {
         warnings.push(format!(
             "[CHURN] [info] [this-file] OBSERVATION: {basename} has been edited {} times\nFIX: Check if you are in a correction loop before continuing\nDO NOT: Take any action - this is informational only",
             signals.churn_count
@@ -331,7 +334,7 @@ pub(crate) fn post_edit_history_warnings(
         ));
     }
 
-    if signals.w15_count >= 2 {
+    if signals.w15_count.saturating_add(1) >= threshold("w15.minimum_consecutive_edits") as usize {
         let total = signals.w15_count + 1;
         warnings.push(format!(
             "[W-15] [review] [this-file] OBSERVATION: {total} consecutive edits to {basename} with no edits to other files in between (low-info loop suspect)\nFIX: Pause - are these {total} edits solving the same problem? If change scope shrinks each round, report a blocker instead of continuing to round {}\nDO NOT: Toggle between equivalent rewrites; do not continue same-direction micro-tuning without reporting",
@@ -376,14 +379,19 @@ fn fast_warning_decision(
     warn_count: usize,
     history: Option<&PostEditHistorySignals>,
 ) -> &'static str {
+    let thresholds = runtime_config_churn_thresholds();
     if warn_count >= 3 {
         return decision::ESCALATE;
     }
-    if history.is_some_and(|signals| signals.churn_count >= 20 && signals.build_fail_count >= 5) {
+    if history.is_some_and(|signals| {
+        thresholds.is_critical(signals.churn_count, signals.build_fail_count)
+    }) {
         return decision::ESCALATE;
     }
     if history.is_some_and(|signals| {
-        signals.churn_count >= 5 && signals.overlap.is_none() && signals.w15_count < 2
+        signals.churn_count >= thresholds.informational_edit_count as usize
+            && signals.overlap.is_none()
+            && !signals.needs_shell_w15_check()
     }) {
         return decision::CORRECTION;
     }

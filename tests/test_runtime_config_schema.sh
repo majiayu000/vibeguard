@@ -24,6 +24,12 @@ numeric_contract = {
     "circuit_breaker.cooldown_seconds": (0, 31_536_000),
     "circuit_breaker.lock_timeout_seconds": (0, 300),
     "w14.cooldown_seconds": (0, 31_536_000),
+    "churn.informational_edit_count": (1, 1_000_000),
+    "churn.warning_edit_count": (1, 1_000_000),
+    "churn.critical_edit_count": (1, 1_000_000),
+    "churn.critical_build_failure_count": (1, 1_000_000),
+    "w15.minimum_consecutive_edits": (3, 1_000_000),
+    "w15.latest_delta_character_ceiling": (0, 1_000_000),
     "paralysis.threshold": (0, 1_000_000),
     "write_escalate_threshold": (0, 1_000_000),
     "learn.metrics_tail_bytes": (1, 268_435_456),
@@ -133,7 +139,7 @@ assert schema["additionalProperties"] is False
 assert leaf_paths(schema) == expected_paths
 assert value_paths(template) == expected_paths
 
-for object_path in ["u16", "circuit_breaker", "w14", "paralysis", "learn"]:
+for object_path in ["u16", "circuit_breaker", "w14", "churn", "w15", "paralysis", "learn"]:
     assert schema_at(object_path)["additionalProperties"] is False
 
 for path, (minimum, maximum) in numeric_contract.items():
@@ -147,10 +153,13 @@ for path, (minimum, maximum) in numeric_contract.items():
     set_path(fixture, path, maximum + 1)
     assert_invalid(f"{path} max+1", fixture, "range")
 
-for path in numeric_contract.keys() - {"learn.metrics_tail_bytes"}:
+for path, (minimum, _) in numeric_contract.items():
     fixture = {}
     set_path(fixture, path, 0)
-    assert_valid(f"{path} zero", fixture)
+    if minimum == 0:
+        assert_valid(f"{path} zero", fixture)
+    else:
+        assert_invalid(f"{path} zero", fixture, "range")
 
 assert_valid("empty object", {})
 assert_valid("legacy version missing", {"write_mode": "block"})
