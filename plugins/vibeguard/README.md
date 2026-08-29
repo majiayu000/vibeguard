@@ -49,6 +49,26 @@ For headless validation:
 bash plugins/vibeguard/scripts/vibeguard-plugin.sh dashboard --no-open --output /tmp/vibeguard-dashboard.html --log-file /dev/null
 ```
 
-The generated dashboard is local-only. It renders the same human-facing status,
-stats, and health outputs that VibeGuard already provides; it does not enable
-remote telemetry or hosted deployment.
+The generated dashboard is local-only and standalone. Its headline evidence is
+read from the selected runtime's `observe value --json` output, never inferred
+from human stats or health text. The first screen keeps these tiers separate:
+
+- **Verified association:** a strictly later `post-build-check` pass in the
+  same session after attention. This is time-ordered local evidence, not proof
+  that VibeGuard caused the pass.
+- **Observed signals:** later ordinary follow-up passes, unresolved attention
+  sessions, and observed hook duration.
+- **Observed friction:** repeated-attention sessions, suppressions, and
+  uncorrelatable attention events.
+
+Installation state and human status/stats/health output remain secondary in
+collapsible diagnostic details. Raw output is HTML-escaped. Missing, empty,
+partial, malformed, failed, and unsupported evidence states are shown
+explicitly; unavailable evidence is never replaced with zero. The page makes
+no claims about incidents prevented, token/time/money savings, or compliance.
+
+The built-in 5-positive/5-negative benchmark is a small reproducible corpus,
+not evidence of impact on the user's project. If the selected runtime does not
+support `observe value`, the dashboard shows an actionable update/build
+message while preserving the existing dashboard flags, including the explicit
+rejection of `--project` with `--scope global`.

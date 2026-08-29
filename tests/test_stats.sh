@@ -127,6 +127,16 @@ exit 2
 SH
 chmod +x "${export_observe_runtime}"
 
+value_observe_runtime="${TMP_DIR}/value-observe-runtime"
+cat > "${value_observe_runtime}" <<'SH'
+#!/usr/bin/env bash
+if [[ "$*" == "observe value --json --days all --limit all --log-file /dev/null" ]]; then
+  exit 0
+fi
+exit 2
+SH
+chmod +x "${value_observe_runtime}"
+
 full_observe_runtime="${TMP_DIR}/full-observe-runtime"
 cat > "${full_observe_runtime}" <<'SH'
 #!/usr/bin/env bash
@@ -148,6 +158,20 @@ assert_cmd_fails "Summary probe rejects export-only runtimes" \
   vg_runtime_supports_observe "${export_observe_runtime}"
 assert_cmd "Export probe accepts export-only runtimes" \
   vg_runtime_supports_observe_export_prometheus "${export_observe_runtime}"
+assert_cmd "Value probe accepts runtimes with observe value support" \
+  vg_runtime_supports_observe_value "${value_observe_runtime}"
+
+resolver_value_repo="${TMP_DIR}/resolver-value-repo"
+resolver_value_home="${TMP_DIR}/resolver-value-home"
+mkdir -p "${resolver_value_repo}/vibeguard-runtime/target/debug" "${resolver_value_home}"
+cp "${value_observe_runtime}" "${resolver_value_repo}/vibeguard-runtime/target/debug/vibeguard-runtime"
+selected_value_runtime="$(
+  env -u VIBEGUARD_RUNTIME HOME="${resolver_value_home}" bash -c '
+    source "$1"
+    vg_resolve_runtime "$2" observe_value
+  ' bash "${REPO_DIR}/scripts/lib/runtime.sh" "${resolver_value_repo}"
+)"
+assert_contains "${selected_value_runtime}" "${resolver_value_repo}/vibeguard-runtime/target/debug/vibeguard-runtime" "Resolver selects observe-value capable runtime"
 
 resolver_repo="${TMP_DIR}/resolver-repo"
 resolver_home="${TMP_DIR}/resolver-home"

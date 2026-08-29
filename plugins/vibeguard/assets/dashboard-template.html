@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VibeGuard — first win</title>
+<style>
+:root {
+  color-scheme: dark;
+  --night: #0b1115;
+  --night-raised: #121b21;
+  --night-deep: #080d10;
+  --paper: #f4f0e5;
+  --paper-muted: #c7c7b9;
+  --line: #344149;
+  --line-bright: #60727a;
+  --cyan: #75e3d1;
+  --lime: #d4ed79;
+  --coral: #ff9584;
+  --ink: #162126;
+  --ink-muted: #506068;
+  --display: Georgia, "Times New Roman", serif;
+  --mono: "Courier New", Courier, monospace;
+}
+* { box-sizing: border-box; }
+html { background: var(--night); scroll-behavior: smooth; }
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at 86% 9%, rgba(117,227,209,.13), transparent 26rem),
+    linear-gradient(135deg, var(--night-deep), var(--night) 52%, #101a20);
+  color: var(--paper);
+  font-family: var(--mono);
+  line-height: 1.55;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: .22;
+  background-image: radial-gradient(rgba(244,240,229,.2) .6px, transparent .6px);
+  background-size: 7px 7px;
+  mask-image: linear-gradient(to bottom, black, transparent 72%);
+}
+a { color: inherit; }
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 12px;
+  z-index: 4;
+  padding: 8px 12px;
+  background: var(--lime);
+  color: var(--ink);
+}
+.skip-link:focus { left: 12px; }
+.shell {
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 28px 0 56px;
+}
+.masthead {
+  border-top: 1px solid var(--line-bright);
+  border-bottom: 1px solid var(--line);
+  padding: 16px 0 28px;
+}
+.brandline, .scope-stamp, .section-kicker, .tier-label, .metric-label, summary, .command {
+  font-size: 11px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.brandline {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  color: var(--cyan);
+}
+.state-label { color: var(--paper-muted); }
+.mast-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  gap: 40px;
+  align-items: end;
+  margin-top: 30px;
+}
+h1, h2, h3, p { margin-top: 0; }
+h1 {
+  max-width: 12ch;
+  margin-bottom: 18px;
+  color: var(--paper);
+  font-family: var(--display);
+  font-size: clamp(3.3rem, 8vw, 7.3rem);
+  font-weight: 400;
+  letter-spacing: -.065em;
+  line-height: .87;
+}
+.lede {
+  max-width: 62ch;
+  margin-bottom: 0;
+  color: var(--paper-muted);
+  font-size: 14px;
+}
+.scope-stamp {
+  display: grid;
+  gap: 7px;
+  padding: 15px;
+  border: 1px solid var(--line-bright);
+  border-left: 4px solid var(--cyan);
+  color: var(--paper-muted);
+  line-height: 1.35;
+}
+.scope-stamp strong { color: var(--paper); font-size: 13px; letter-spacing: .04em; }
+.scope-stamp span { color: var(--cyan); }
+.section { margin-top: 28px; }
+.story-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(240px, .7fr);
+  gap: 14px;
+}
+.story-card, .boundary-card, .tier, .friction, .limits, .benchmark, .diagnostics {
+  border: 1px solid var(--line);
+  background: rgba(18, 27, 33, .88);
+}
+.story-card {
+  position: relative;
+  min-height: 260px;
+  padding: 27px;
+  border-color: var(--cyan);
+  box-shadow: 12px 12px 0 rgba(117,227,209,.08);
+}
+.story-card::before {
+  content: "01";
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  color: rgba(117,227,209,.26);
+  font-size: 3.5rem;
+  font-weight: 700;
+  letter-spacing: -.1em;
+}
+.section-kicker, .tier-label { color: var(--cyan); }
+.story-card h2 {
+  max-width: 18ch;
+  margin: 28px 0 15px;
+  color: var(--paper);
+  font-family: var(--display);
+  font-size: clamp(2rem, 4vw, 3.8rem);
+  font-weight: 400;
+  letter-spacing: -.045em;
+  line-height: .98;
+}
+.story-card p { max-width: 67ch; color: var(--paper-muted); font-size: 14px; }
+.next-action {
+  display: grid;
+  gap: 5px;
+  margin: 26px 0 0 !important;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  color: var(--paper) !important;
+}
+.next-action strong { color: var(--lime); font-size: 11px; letter-spacing: .13em; text-transform: uppercase; }
+.boundary-card {
+  padding: 23px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.boundary-card .section-kicker { color: #277c72; }
+.boundary-card p { margin-bottom: 12px; font-family: var(--display); font-size: 20px; line-height: 1.18; }
+.boundary-card p:last-child { margin-bottom: 0; color: var(--ink-muted); font-family: var(--mono); font-size: 12px; }
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 18px;
+  margin-bottom: 12px;
+}
+.section-heading h2 { margin: 0; font-family: var(--display); font-size: 28px; font-weight: 400; letter-spacing: -.03em; }
+.section-heading p { margin: 0; color: var(--paper-muted); font-size: 12px; }
+.tier { padding: 22px; }
+.tier.verified { border-color: var(--lime); }
+.tier.verified .tier-label { color: var(--lime); }
+.metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.metric-card {
+  min-height: 158px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  background: var(--night-deep);
+}
+.metric-card h3 { margin: 18px 0 9px; color: var(--paper); font-family: var(--display); font-size: 22px; font-weight: 400; line-height: 1.04; }
+.metric-card .metric-value { margin: 0; color: var(--cyan); font-family: var(--display); font-size: 42px; line-height: 1; letter-spacing: -.05em; }
+.verified .metric-card .metric-value { color: var(--lime); }
+.metric-card .metric-note { margin: 12px 0 0; color: var(--paper-muted); font-size: 12px; line-height: 1.45; }
+.metric-label { color: var(--paper-muted); }
+.friction { padding: 22px; border-color: var(--coral); }
+.friction .section-heading .tier-label { color: var(--coral); }
+.friction-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.friction-item { padding: 18px; border-top: 2px solid var(--coral); background: rgba(255,149,132,.06); }
+.friction-item strong { display: block; color: var(--coral); font-family: var(--display); font-size: 35px; font-weight: 400; line-height: 1; }
+.friction-item span { display: block; margin-top: 10px; color: var(--paper-muted); font-size: 12px; }
+.friction-note { margin: 17px 0 0; color: var(--paper-muted); font-size: 12px; }
+.limits, .benchmark, .diagnostics { padding: 22px; }
+.limits { border-color: var(--line-bright); }
+.limits h2, .benchmark h2, .diagnostics h2 { margin-bottom: 10px; font-family: var(--display); font-size: 29px; font-weight: 400; letter-spacing: -.03em; }
+.unavailable {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: start;
+  padding: 15px;
+  border-left: 3px solid var(--coral);
+  background: rgba(255,149,132,.06);
+}
+.unavailable .tier-label { color: var(--coral); }
+.unavailable p { margin: 0; color: var(--paper-muted); font-size: 13px; }
+.limit-list { margin: 16px 0 0; padding-left: 20px; color: var(--paper-muted); font-size: 12px; }
+.limit-list li + li { margin-top: 6px; }
+.benchmark { background: var(--paper); color: var(--ink); }
+.benchmark .section-kicker { color: #277c72; }
+.benchmark p { max-width: 70ch; margin-bottom: 0; font-family: var(--display); font-size: 21px; line-height: 1.23; }
+.benchmark small { display: block; margin-top: 13px; color: var(--ink-muted); font-family: var(--mono); font-size: 12px; }
+.diagnostics > p { margin-bottom: 17px; color: var(--paper-muted); font-size: 13px; }
+details { border-top: 1px solid var(--line); }
+summary { padding: 14px 0; cursor: pointer; color: var(--cyan); }
+summary:hover { color: var(--paper); }
+pre {
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: var(--night-deep);
+  color: var(--paper-muted);
+  font: 12px/1.5 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+pre.command { border-top: 0; color: var(--cyan); }
+.footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 30px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--paper-muted);
+  font-size: 11px;
+}
+.muted { color: var(--paper-muted); }
+@media (max-width: 900px) {
+  .mast-grid, .story-grid { grid-template-columns: 1fr; }
+  .scope-stamp { grid-template-columns: repeat(3, auto); justify-content: start; align-items: baseline; }
+  .scope-stamp strong { margin-right: 10px; }
+}
+@media (max-width: 760px) {
+  .shell { width: min(100% - 24px, 640px); padding-top: 14px; }
+  .brandline { display: block; }
+  .state-label { display: block; margin-top: 7px; }
+  .mast-grid { gap: 24px; margin-top: 22px; }
+  h1 { font-size: clamp(3.4rem, 18vw, 6rem); }
+  .scope-stamp { grid-template-columns: 1fr; gap: 3px; }
+  .scope-stamp strong { margin: 0 0 8px; }
+  .story-card, .boundary-card, .tier, .friction, .limits, .benchmark, .diagnostics { padding: 17px; }
+  .story-card { min-height: 0; }
+  .story-card h2 { font-size: 2.6rem; }
+  .section-heading { display: block; }
+  .section-heading p { margin-top: 7px; }
+  .metric-grid, .friction-grid { grid-template-columns: 1fr; }
+  .metric-card { min-height: 0; }
+  .unavailable { grid-template-columns: 1fr; }
+  .footer { display: block; }
+  .footer span { display: block; margin-top: 7px; word-break: break-word; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#evidence">Skip to evidence</a>
+<main class="shell" aria-labelledby="dashboard-title" data-state="{{DATA_STATE}}">
+  <header class="masthead">
+    <div class="brandline">
+      <span>VIBEGUARD / LOCAL SIGNAL BOARD</span>
+      <span class="state-label">{{STATE_LABEL}}</span>
+    </div>
+    <div class="mast-grid">
+      <div>
+        <h1 id="dashboard-title">See what happened after VibeGuard stepped in.</h1>
+        <p class="lede">A first-win view for one local event stream: what was observed, what can be verified by order, what remains unresolved, and what to look at next.</p>
+      </div>
+      <div class="scope-stamp" aria-label="Dashboard scope and generation time">
+        <span>scope</span><strong>{{SCOPE}}</strong>
+        <span>window</span><strong>{{PERIOD}}</strong>
+        <span>generated</span><strong>{{GENERATED_AT}}</strong>
+      </div>
+    </div>
+  </header>
+
+  <section class="section story-grid" aria-labelledby="first-win-title">
+    <div class="story-card">
+      <div class="section-kicker">FIRST WIN / HONEST READ</div>
+      <h2 id="first-win-title">{{STORY_HEADLINE}}</h2>
+      <p>{{STORY_BODY}}</p>
+      <p class="next-action"><strong>Next action</strong><span>{{NEXT_ACTION}}</span></p>
+    </div>
+    <aside class="boundary-card" aria-label="Evidence boundary">
+      <div class="section-kicker">READ THIS FIRST</div>
+      <p>Local-only evidence, kept close to the event stream.</p>
+      <p>Associations are not causality. This page does not claim incidents prevented, savings, or compliance.</p>
+    </aside>
+  </section>
+
+  <section class="section" id="evidence" aria-labelledby="evidence-title">
+    <div class="section-heading">
+      <h2 id="evidence-title">Evidence in two tiers</h2>
+      <p>Headline evidence comes only from <code>observe value --json</code>.</p>
+    </div>
+    <div class="tier verified" data-state="{{DATA_STATE}}">
+      <div class="section-heading">
+        <span class="tier-label">VERIFIED ASSOCIATION</span>
+        <p>Time order in one non-empty session; not proof of cause.</p>
+      </div>
+      <div class="metric-grid">
+        <article class="metric-card">
+          <div class="metric-label">Later build pass after intervention</div>
+          <h3 class="metric-value"><span data-evidence="verified-build-pass">{{VERIFIED_BUILD}}</span></h3>
+          <p class="metric-note">{{VERIFIED_NOTE}}</p>
+        </article>
+      </div>
+    </div>
+    <div class="section tier" data-state="{{DATA_STATE}}">
+      <div class="section-heading">
+        <span class="tier-label">OBSERVED SIGNALS</span>
+        <p>What the selected local event stream contains.</p>
+      </div>
+      <div class="metric-grid">
+        <article class="metric-card">
+          <div class="metric-label">Follow-up after intervention</div>
+          <h3 class="metric-value"><span data-evidence="observed-follow-up">{{FOLLOW_UP}}</span></h3>
+          <p class="metric-note">{{FOLLOW_NOTE}}</p>
+        </article>
+        <article class="metric-card">
+          <div class="metric-label">Guardrail signals without follow-up</div>
+          <h3 class="metric-value"><span data-evidence="unresolved-attention">{{UNRESOLVED}}</span></h3>
+          <p class="metric-note">{{UNRESOLVED_NOTE}}</p>
+        </article>
+        <article class="metric-card">
+          <div class="metric-label">Observed hook overhead</div>
+          <h3 class="metric-value"><span data-evidence="hook-overhead">{{OVERHEAD}}</span></h3>
+          <p class="metric-note">{{OVERHEAD_NOTE}}</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section friction" aria-labelledby="friction-title">
+    <div class="section-heading">
+      <h2 id="friction-title">Friction, kept separate</h2>
+      <span class="tier-label">OBSERVED FRICTION / NOT OUTCOME EVIDENCE</span>
+    </div>
+    <div class="friction-grid">
+      <div class="friction-item"><strong data-friction="repeated-attention">{{REPEATED}}</strong><span>sessions with repeated guardrail signals</span></div>
+      <div class="friction-item"><strong data-friction="suppressions">{{SUPPRESSIONS}}</strong><span>suppressed guardrail signals</span></div>
+      <div class="friction-item"><strong data-friction="uncorrelatable">{{UNCORRELATABLE}}</strong><span>signals missing session/time correlation</span></div>
+    </div>
+    <p class="friction-note">{{FRICTION_NOTE}}</p>
+  </section>
+
+  <section class="section limits" aria-labelledby="limits-title">
+    <h2 id="limits-title">What this page cannot tell you</h2>
+    <div class="unavailable">
+      <span class="tier-label">ESTIMATED / UNAVAILABLE</span>
+      <p>{{ESTIMATED_REASON}}</p>
+    </div>
+    {{LIMITATIONS}}
+  </section>
+
+  <section class="section benchmark" aria-labelledby="benchmark-title">
+    <div class="section-kicker">BOUNDARY / BUILT-IN CHECK</div>
+    <h2 id="benchmark-title">A reproducible corpus is not a project result.</h2>
+    <p>The built-in 5-positive/5-negative benchmark is a small reproducible corpus, not evidence of impact on your project.</p>
+    <small>Keep benchmark behavior checks separate from this local event-stream evidence.</small>
+  </section>
+
+  <section class="section diagnostics" aria-labelledby="diagnostics-title">
+    <h2 id="diagnostics-title">Installation and health diagnostics</h2>
+    <p>Secondary context for troubleshooting. Raw local output is shown only inside expandable details and is escaped before rendering.</p>
+    <details>
+      <summary>Codex installation status</summary>
+      <pre>{{STATUS_OUT}}</pre>
+      <pre class="command">{{STATUS_COMMAND}}</pre>
+    </details>
+    <details>
+      <summary>Hook health output</summary>
+      <pre>{{HEALTH_OUT}}</pre>
+      <pre class="command">{{HEALTH_COMMAND}}</pre>
+    </details>
+    <details>
+      <summary>Trigger stats output</summary>
+      <pre>{{STATS_OUT}}</pre>
+      <pre class="command">{{STATS_COMMAND}}</pre>
+    </details>
+    <details>
+      <summary>Observe-value command output</summary>
+      <pre>{{VALUE_OUT}}</pre>
+      <pre class="command">{{VALUE_COMMAND}}</pre>
+    </details>
+  </section>
+
+  <footer class="footer">
+    <span>LOCAL-ONLY / NO UPLOAD / NO TELEMETRY</span>
+    <span>repo: {{REPO_DIR}} · generated: {{GENERATED_AT}}</span>
+  </footer>
+</main>
+</body>
+</html>

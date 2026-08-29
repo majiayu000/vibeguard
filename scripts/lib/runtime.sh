@@ -72,6 +72,9 @@ vg_runtime_supports() {
     observe_health)
       vg_runtime_supports_observe_health "${candidate}"
       ;;
+    observe_value)
+      vg_runtime_supports_observe_value "${candidate}"
+      ;;
     observe_export_prometheus)
       vg_runtime_supports_observe_export_prometheus "${candidate}"
       ;;
@@ -89,6 +92,11 @@ vg_runtime_supports_observe() {
 vg_runtime_supports_observe_health() {
   local candidate="$1"
   "${candidate}" observe health --hours all --limit all --log-file /dev/null >/dev/null 2>&1
+}
+
+vg_runtime_supports_observe_value() {
+  local candidate="$1"
+  "${candidate}" observe value --json --days all --limit all --log-file /dev/null >/dev/null 2>&1
 }
 
 vg_runtime_supports_observe_export_prometheus() {
