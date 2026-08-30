@@ -48,11 +48,7 @@ pub(super) fn read_log_events(options: &ObserveOptions) -> Result<LogEvents> {
     })
 }
 
-pub(super) fn event_passes_time_window(
-    event: &Value,
-    cutoff_secs: Option<u64>,
-    retain_unparseable_timestamps: bool,
-) -> bool {
+pub(super) fn event_passes_time_window(event: &Value, cutoff_secs: Option<u64>) -> bool {
     let Some(cutoff) = cutoff_secs else {
         return true;
     };
@@ -62,7 +58,7 @@ pub(super) fn event_passes_time_window(
         .and_then(parse_iso_ts)
     {
         Some(timestamp) => timestamp >= cutoff,
-        None => retain_unparseable_timestamps,
+        None => false,
     }
 }
 

@@ -1,13 +1,13 @@
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-use crate::event_schema::{field, hook, status};
+use crate::event_schema::{UNKNOWN, decision, field, hook, status};
 use crate::time_utils::parse_iso_ts;
 
 use super::Result;
 use super::aggregate::{
     ObserveAggregate, observe_effective_duration_ms, observe_is_attention_state,
-    observe_normalized_status, observe_string_field,
+    observe_normalized_decision, observe_normalized_status, observe_string_field,
 };
 use super::model::ObserveOptions;
 use super::read::LogEvents;
@@ -40,8 +40,12 @@ struct OrdinaryPass {
 }
 
 impl ValueEvidence {
-    fn from_events(events: &[Value], slow_ms: u64) -> Self {
-        let mut evidence = Self::default();
+    fn from_events(events: &[Value], slow_ms: u64, unscoped_attention_events: u64) -> Self {
+        let mut evidence = Self {
+            attention_events: unscoped_attention_events,
+            uncorrelatable_attention_events: unscoped_attention_events,
+            ..Self::default()
+        };
         let mut ordinary_passes: BTreeMap<String, Vec<OrdinaryPass>> = BTreeMap::new();
 
         for event in events {
@@ -61,23 +65,26 @@ impl ValueEvidence {
             if observe_is_attention_state(event, slow_ms) {
                 evidence.attention_events += 1;
                 let timestamp = parse_iso_ts(&observe_string_field(event, field::TS));
-                if session.is_empty() || timestamp.is_none() {
+                let correlatable_session =
+                    !session.is_empty() && !session.eq_ignore_ascii_case(UNKNOWN);
+                if !correlatable_session || timestamp.is_none() {
                     evidence.uncorrelatable_attention_events += 1;
                 }
 
-                if !session.is_empty() {
+                if correlatable_session && let Some(timestamp) = timestamp {
                     let attention_session = evidence
                         .attention_sessions
                         .entry(session.clone())
                         .or_default();
                     attention_session.attention_count += 1;
-                    if let Some(timestamp) = timestamp {
-                        attention_session.attention_timestamps.push(timestamp);
-                    }
+                    attention_session.attention_timestamps.push(timestamp);
                 }
             }
 
-            if !is_ordinary_pass(event, slow_ms) || session.is_empty() {
+            if !is_ordinary_pass(event)
+                || session.is_empty()
+                || session.eq_ignore_ascii_case(UNKNOWN)
+            {
                 continue;
             }
             let Some(timestamp) = parse_iso_ts(&observe_string_field(event, field::TS)) else {
@@ -197,30 +204,38 @@ impl ValueEvidence {
 
 fn read_limitation(limit: usize) -> String {
     if limit == usize::MAX {
-        return "Because --limit all was explicitly requested, counts consider all parsed events from the selected scope, then apply the selected time window; events outside it are not considered. Events with missing or unparseable timestamps are retained as uncorrelatable because their time position cannot be established.".to_string();
+        return "Because --limit all was explicitly requested, counts consider all parsed events from the selected scope, then apply the selected time window; events outside it are not considered. Attention events with missing or unparseable timestamps are reported only as uncorrelatable and excluded from finite-window aggregates because their time position cannot be established.".to_string();
     }
     format!(
-        "Counts consider at most the configured {limit} most-recent parsed events from the selected scope, then apply the selected time window; earlier parsed events and events outside it are not considered. Events with missing or unparseable timestamps are retained as uncorrelatable because their time position cannot be established."
+        "Counts consider at most the configured {limit} most-recent parsed events from the selected scope, then apply the selected time window; earlier parsed events and events outside it are not considered. Attention events with missing or unparseable timestamps are reported only as uncorrelatable and excluded from finite-window aggregates because their time position cannot be established."
     )
 }
 
-fn is_ordinary_pass(event: &Value, slow_ms: u64) -> bool {
-    if observe_normalized_status(event, slow_ms) != status::PASS {
+fn is_ordinary_pass(event: &Value) -> bool {
+    if observe_normalized_decision(event) != decision::PASS {
         return false;
     }
+    let explicit_status = observe_string_field(event, field::STATUS).to_ascii_lowercase();
     let reason = observe_string_field(event, field::REASON).to_ascii_lowercase();
-    !reason.starts_with("skip:") && !reason.starts_with("skipped:")
+    explicit_status != status::SKIPPED
+        && !reason.starts_with("skip:")
+        && !reason.starts_with("skipped:")
 }
 
 pub(super) fn render(
     options: &ObserveOptions,
     log_events: &LogEvents,
     aggregate: &ObserveAggregate,
+    unscoped_attention_events: u64,
 ) -> Result<String> {
-    let evidence = ValueEvidence::from_events(&log_events.events, options.slow_ms);
+    let evidence = ValueEvidence::from_events(
+        &log_events.events,
+        options.slow_ms,
+        unscoped_attention_events,
+    );
     let data_state = if !log_events.source_exists {
         "missing"
-    } else if log_events.events.is_empty() {
+    } else if log_events.events.is_empty() && unscoped_attention_events == 0 {
         "empty"
     } else {
         "observed"
@@ -229,6 +244,12 @@ pub(super) fn render(
 
     if options.json {
         let mut output = super::render::observe_summary_json(options, log_events, aggregate);
+        let attention_count = evidence.attention_events as usize;
+        output["attention"] = json!({
+            "count": evidence.attention_events,
+            "rate": super::render::observe_ratio(attention_count, aggregate.event_count),
+            "percent": super::render::observe_percentage(attention_count, aggregate.event_count),
+        });
         output["value"] = evidence.to_json(data_state, &read_limitation);
         return Ok(format!("{}\n", serde_json::to_string_pretty(&output)?));
     }

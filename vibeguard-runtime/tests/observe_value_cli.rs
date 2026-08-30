@@ -137,9 +137,9 @@ fn value_json_applies_attention_and_correlation_boundaries() {
 
     assert_eq!(value["data_state"], "observed");
     assert_eq!(observed["attention_events"], 9);
-    assert_eq!(observed["sessions_with_attention"], 6);
+    assert_eq!(observed["sessions_with_attention"], 5);
     assert_eq!(observed["sessions_with_later_follow_up_pass"], 2);
-    assert_eq!(observed["sessions_without_later_follow_up_pass"], 4);
+    assert_eq!(observed["sessions_without_later_follow_up_pass"], 3);
     assert_eq!(observed["sessions_with_repeated_attention"], 1);
     assert_eq!(observed["uncorrelatable_attention_events"], 3);
     assert_eq!(observed["suppression_events"], 1);
@@ -174,7 +174,10 @@ fn value_finite_window_retains_unparseable_attention_as_uncorrelatable() {
     let log = root.join("events.jsonl");
     write_value_log(
         &log,
-        "{\"ts\":\"not-a-timestamp\",\"session\":\"s1\",\"hook\":\"post-edit-guard\",\"decision\":\"warn\"}\n",
+        concat!(
+            "{\"ts\":\"not-a-timestamp\",\"session\":\"s1\",\"hook\":\"post-edit-guard\",\"decision\":\"warn\"}\n",
+            "{\"ts\":\"not-a-timestamp\",\"session\":\"s1\",\"hook\":\"post-edit-guard\",\"status\":\"skipped\",\"decision\":\"pass\",\"reason\":\"suppressed by cooldown\",\"duration_ms\":99}\n"
+        ),
     );
 
     let rendered = output_json(&run(
@@ -191,13 +194,121 @@ fn value_finite_window_retains_unparseable_attention_as_uncorrelatable() {
     ));
 
     assert_eq!(rendered["value"]["data_state"], "observed");
-    assert_eq!(rendered["event_count"], 1);
+    assert_eq!(rendered["event_count"], 0);
+    assert_eq!(rendered["attention"]["count"], 1);
     assert_eq!(rendered["value"]["observed"]["attention_events"], 1);
     assert_eq!(
         rendered["value"]["observed"]["uncorrelatable_attention_events"],
         1
     );
+    assert_eq!(rendered["value"]["observed"]["sessions_with_attention"], 0);
+    assert_eq!(
+        rendered["value"]["observed"]["sessions_without_later_follow_up_pass"],
+        0
+    );
+    assert_eq!(rendered["value"]["observed"]["suppression_events"], 0);
+    assert_eq!(
+        rendered["value"]["observed"]["hook_duration_ms"]["count"],
+        0
+    );
 
+    fs::remove_dir_all(root).expect("case root should be removed");
+}
+
+#[test]
+fn value_counts_slow_successful_build_checks_as_later_passes() {
+    let root = case_root("slow_build_success");
+    let log = root.join("events.jsonl");
+    write_value_log(
+        &log,
+        concat!(
+            "{\"ts\":\"2099-01-01T00:00:01Z\",\"session\":\"s1\",\"hook\":\"post-edit-guard\",\"decision\":\"warn\"}\n",
+            "{\"ts\":\"2099-01-01T00:00:02Z\",\"session\":\"s1\",\"hook\":\"post-build-check\",\"decision\":\"pass\",\"duration_ms\":2500}\n"
+        ),
+    );
+
+    let rendered = output_json(&run(
+        &root,
+        &[
+            "observe",
+            "value",
+            "--json",
+            "--days",
+            "all",
+            "--log-file",
+            &path_text(&log),
+        ],
+    ));
+
+    assert_eq!(
+        rendered["value"]["observed"]["sessions_with_later_follow_up_pass"],
+        1
+    );
+    assert_eq!(
+        rendered["value"]["verified"]["sessions_with_later_build_pass"],
+        1
+    );
+    fs::remove_dir_all(root).expect("case root should be removed");
+}
+
+#[test]
+fn value_treats_unknown_sessions_as_uncorrelatable() {
+    let root = case_root("unknown_session");
+    let log = root.join("events.jsonl");
+    write_value_log(
+        &log,
+        concat!(
+            "{\"ts\":\"2099-01-01T00:00:01Z\",\"session\":\"unknown\",\"hook\":\"post-edit-guard\",\"decision\":\"warn\"}\n",
+            "{\"ts\":\"2099-01-01T00:00:02Z\",\"session\":\"unknown\",\"hook\":\"post-build-check\",\"decision\":\"pass\"}\n"
+        ),
+    );
+
+    let rendered = output_json(&run(
+        &root,
+        &[
+            "observe",
+            "value",
+            "--json",
+            "--days",
+            "all",
+            "--log-file",
+            &path_text(&log),
+        ],
+    ));
+    let value = &rendered["value"];
+    assert_eq!(value["observed"]["attention_events"], 1);
+    assert_eq!(value["observed"]["uncorrelatable_attention_events"], 1);
+    assert_eq!(value["observed"]["sessions_with_attention"], 0);
+    assert_eq!(value["observed"]["sessions_with_later_follow_up_pass"], 0);
+    assert_eq!(value["verified"]["sessions_with_later_build_pass"], 0);
+    fs::remove_dir_all(root).expect("case root should be removed");
+}
+
+#[test]
+fn value_json_attention_summary_matches_value_semantics() {
+    let root = case_root("attention_consistency");
+    let log = root.join("events.jsonl");
+    write_value_log(
+        &log,
+        "{\"ts\":\"2099-01-01T00:00:01Z\",\"session\":\"s1\",\"status\":\"timeout\",\"decision\":\"pass\"}\n",
+    );
+
+    let rendered = output_json(&run(
+        &root,
+        &[
+            "observe",
+            "value",
+            "--json",
+            "--days",
+            "all",
+            "--log-file",
+            &path_text(&log),
+        ],
+    ));
+    assert_eq!(rendered["attention"]["count"], 0);
+    assert_eq!(rendered["attention"]["rate"], 0.0);
+    assert_eq!(rendered["attention"]["percent"], 0.0);
+    assert_eq!(rendered["value"]["observed"]["attention_events"], 0);
     fs::remove_dir_all(root).expect("case root should be removed");
 }
 
@@ -362,7 +473,7 @@ fn value_limitations_describe_limit_before_time_window() {
         &root,
         &["observe", "value", "--json", "--log-file", &path_text(&log)],
     ));
-    let bounded_limitation = "Counts consider at most the configured 5000 most-recent parsed events from the selected scope, then apply the selected time window; earlier parsed events and events outside it are not considered. Events with missing or unparseable timestamps are retained as uncorrelatable because their time position cannot be established.";
+    let bounded_limitation = "Counts consider at most the configured 5000 most-recent parsed events from the selected scope, then apply the selected time window; earlier parsed events and events outside it are not considered. Attention events with missing or unparseable timestamps are reported only as uncorrelatable and excluded from finite-window aggregates because their time position cannot be established.";
     assert!(
         bounded["value"]["limitations"]
             .as_array()
@@ -386,7 +497,7 @@ fn value_limitations_describe_limit_before_time_window() {
             &path_text(&log),
         ],
     ));
-    let all_limitation = "Because --limit all was explicitly requested, counts consider all parsed events from the selected scope, then apply the selected time window; events outside it are not considered. Events with missing or unparseable timestamps are retained as uncorrelatable because their time position cannot be established.";
+    let all_limitation = "Because --limit all was explicitly requested, counts consider all parsed events from the selected scope, then apply the selected time window; events outside it are not considered. Attention events with missing or unparseable timestamps are reported only as uncorrelatable and excluded from finite-window aggregates because their time position cannot be established.";
     assert!(
         all["value"]["limitations"]
             .as_array()
