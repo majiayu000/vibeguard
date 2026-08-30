@@ -12,7 +12,9 @@ use crate::hook_orchestrator::{
     HookKind, append_hook_event, append_hook_event_with_status, elapsed_ms,
 };
 use crate::logging::query::count_build_fail_events;
-use crate::runtime_config::runtime_config_int_value;
+use crate::runtime_config::{
+    runtime_config_churn_thresholds, runtime_config_int_value, runtime_config_int_value_for_path,
+};
 use crate::setup::support::sha256_text;
 use crate::time_utils::{now_unix_secs, parse_iso_ts};
 
@@ -69,6 +71,11 @@ fn detect_churn(
     events: &[Value],
     warnings: &mut Vec<String>,
 ) {
+    let thresholds = runtime_config_churn_thresholds();
+    let informational_edit_count = thresholds.informational_edit_count as usize;
+    let warning_edit_count = thresholds.warning_edit_count as usize;
+    let critical_edit_count = thresholds.critical_edit_count as usize;
+    let critical_build_failure_count = thresholds.critical_build_failure_count;
     let churn_count = session_events
         .iter()
         .filter(|event| {
@@ -83,7 +90,7 @@ fn detect_churn(
     // leave evidence only when churn would actually have warned, so ordinary
     // temp writes add no log volume.
     if session_temp {
-        if churn_count >= 5 {
+        if churn_count >= informational_edit_count {
             let detail = format!("{file_path}||churn={churn_count}");
             let detail_limit = detail.chars().count();
             if let Err(err) = append_hook_event_with_status(
@@ -101,9 +108,9 @@ fn detect_churn(
         return;
     }
     let basename = post_edit_history_file_name(file_path);
-    if churn_count >= 20 {
+    if churn_count >= critical_edit_count {
         let build_fail_count = count_build_failures(events);
-        if build_fail_count >= 5 {
+        if u64::from(build_fail_count) >= critical_build_failure_count {
             let warning = format!(
                 "[CHURN CRITICAL] [review] [this-file] OBSERVATION: {basename} has been edited {churn_count} times and the project has {build_fail_count} consecutive build failures — possible edit->fail->fix loop\nFIX: Pause and classify: planned refactor vs failed repair loop. If planned, make one scoped finishing edit and verify; if failed loop, stop and re-check root cause (W-02)\nDO NOT: Keep making equivalent fix attempts without fresh build output and a confirmed root cause"
             );
@@ -130,7 +137,7 @@ fn detect_churn(
                 )
             });
         }
-    } else if churn_count >= 10 {
+    } else if churn_count >= warning_edit_count {
         let warning = format!(
             "[CHURN WARNING] [info] [this-file] OBSERVATION: {basename} has been edited {churn_count} times — high edit volume\nFIX: Run full build to see the complete picture, or classify whether this is a planned refactor before continuing\nDO NOT: Take any action — monitor and decide whether to continue"
         );
@@ -143,7 +150,7 @@ fn detect_churn(
                 file_path,
             )
         });
-    } else if churn_count >= 5 {
+    } else if churn_count >= informational_edit_count {
         let warning = format!(
             "[CHURN] [info] [this-file] OBSERVATION: {basename} has been edited {churn_count} times\nFIX: Check if you are in a correction loop before continuing\nDO NOT: Take any action — this is informational only"
         );
@@ -365,17 +372,22 @@ fn detect_w15(
         return;
     }
     let current_delta = new_string.chars().count() as i64 - old_string.chars().count() as i64;
+    let minimum_consecutive_edits =
+        runtime_config_int_value_for_path("w15.minimum_consecutive_edits") as usize;
+    let latest_delta_character_ceiling =
+        runtime_config_int_value_for_path("w15.latest_delta_character_ceiling");
     let trail = same_file_edit_trail(events, &ctx.session_id, file_path);
-    if trail.consecutive < 2 || trail.deltas.len() < 2 {
+    let required_prior_edits = minimum_consecutive_edits.saturating_sub(1);
+    if trail.consecutive < required_prior_edits || trail.deltas.len() < 2 {
         return;
     }
     let prev = trail.deltas[0].unsigned_abs();
     let prev2 = trail.deltas[1].unsigned_abs();
     let cur = current_delta.unsigned_abs();
-    if prev2 >= prev && prev >= cur && cur < 300 {
+    if prev2 >= prev && prev >= cur && cur < latest_delta_character_ceiling {
         let total = trail.consecutive + 1;
         let warning = format!(
-            "[W-15] [review] [this-file] OBSERVATION: {total} consecutive edits to {} with shrinking change radius (|Δ| {prev2}→{prev}→{cur} chars; latest <300)\nFIX: Pause — are these {total} edits solving the same problem? If radius keeps shrinking, report a blocker instead of continuing to round {}\nDO NOT: Toggle between equivalent rewrites; do not continue same-direction micro-tuning without reporting\nESCAPE: set VIBEGUARD_SUPPRESS_W15=1 to suppress (e.g. for long-document writing)",
+            "[W-15] [review] [this-file] OBSERVATION: {total} consecutive edits to {} with shrinking change radius (|Δ| {prev2}→{prev}→{cur} chars; latest <{latest_delta_character_ceiling})\nFIX: Pause — are these {total} edits solving the same problem? If radius keeps shrinking, report a blocker instead of continuing to round {}\nDO NOT: Toggle between equivalent rewrites; do not continue same-direction micro-tuning without reporting\nESCAPE: set VIBEGUARD_SUPPRESS_W15=1 to suppress (e.g. for long-document writing)",
             post_edit_history_file_name(file_path),
             total + 1
         );

@@ -92,3 +92,24 @@ fn schema_and_runtime_reject_non_integral_numbers() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("category=config_type_error"));
     let _ = fs::remove_file(path);
 }
+
+#[test]
+fn published_schema_includes_guided_history_thresholds() {
+    let schema = published_schema();
+    for (path, minimum, maximum, default) in [
+        ("churn.informational_edit_count", 1, 1_000_000, 5),
+        ("churn.warning_edit_count", 1, 1_000_000, 10),
+        ("churn.critical_edit_count", 1, 1_000_000, 20),
+        ("churn.critical_build_failure_count", 1, 1_000_000, 5),
+        ("w15.minimum_consecutive_edits", 3, 1_000_000, 3),
+        ("w15.latest_delta_character_ceiling", 0, 1_000_000, 300),
+    ] {
+        let field = path
+            .split('.')
+            .fold(&schema, |node, key| &node["properties"][key]);
+        assert_eq!(field["type"], "integer", "{path}");
+        assert_eq!(field["minimum"], minimum, "{path}");
+        assert_eq!(field["maximum"], maximum, "{path}");
+        assert_eq!(field["default"], default, "{path}");
+    }
+}

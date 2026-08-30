@@ -8,7 +8,10 @@ use crate::HandlerResult;
 use crate::project_config::{project_config_path, validated_project_config_json};
 
 use super::fields::{FieldKind, RuntimeConfigField, field_for_key};
-use super::validation::{RuntimeConfigError, is_skill_name, nonnegative_json_integer};
+use super::validation::{
+    RuntimeConfigError, is_skill_name, nonnegative_json_integer,
+    validate_effective_churn_threshold_order,
+};
 use super::{is_nonnegative_digits, loaded_runtime_config, runtime_config_file, value_at_path};
 
 type LoadedProjectDocument = Result<Option<ProjectDocument>, RuntimeConfigError>;
@@ -25,7 +28,7 @@ pub(super) enum ConfigSource {
 }
 
 impl ConfigSource {
-    fn source_name(self) -> &'static str {
+    pub(super) fn source_name(self) -> &'static str {
         match self {
             Self::Default => "default",
             Self::UserConfig => "user_config",
@@ -37,8 +40,29 @@ impl ConfigSource {
 
 pub(super) struct Resolved<T> {
     pub value: T,
-    source: ConfigSource,
-    detail: String,
+    pub(super) source: ConfigSource,
+    pub(super) detail: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ChurnThresholds {
+    pub(crate) informational_edit_count: u64,
+    pub(crate) warning_edit_count: u64,
+    pub(crate) critical_edit_count: u64,
+    pub(crate) critical_build_failure_count: u64,
+}
+
+impl ChurnThresholds {
+    pub(crate) fn is_critical(self, churn_count: usize, build_fail_count: u32) -> bool {
+        churn_count >= self.critical_edit_count as usize
+            && u64::from(build_fail_count) >= self.critical_build_failure_count
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum EffectiveCandidate<'a> {
+    User(&'a Value),
+    Project(&'a Value),
 }
 
 pub(super) fn resolve_int(
@@ -47,7 +71,29 @@ pub(super) fn resolve_int(
     default_value: &str,
     cwd: Option<&str>,
 ) -> Result<Resolved<u64>, RuntimeConfigError> {
-    let layers = config_layers(json_path, cwd)?;
+    resolve_int_with_candidate(env_name, json_path, default_value, cwd, None)
+}
+
+fn resolve_int_with_candidate(
+    env_name: &str,
+    json_path: &str,
+    default_value: &str,
+    cwd: Option<&str>,
+    candidate: Option<EffectiveCandidate<'_>>,
+) -> Result<Resolved<u64>, RuntimeConfigError> {
+    let mut layers = config_layers(json_path, cwd)?;
+    if let Some(candidate) = candidate {
+        match candidate {
+            EffectiveCandidate::User(value) => {
+                layers.user = value_at_path(value, json_path).cloned();
+            }
+            EffectiveCandidate::Project(value) => {
+                layers.project = value_at_path(value, json_path)
+                    .cloned()
+                    .map(|value| (value, format!("in-memory project candidate#$.{json_path}")));
+            }
+        }
+    }
     if let Ok(raw) = std::env::var(env_name)
         && !raw.is_empty()
     {
@@ -67,6 +113,50 @@ pub(super) fn resolve_int(
         exit_code: 20,
     })?;
     Ok(resolved(value, ConfigSource::Default, "built-in"))
+}
+
+pub(super) fn resolve_effective_churn_thresholds(
+    cwd: Option<&str>,
+    candidate: Option<EffectiveCandidate<'_>>,
+) -> Result<ChurnThresholds, RuntimeConfigError> {
+    let informational_edit_count =
+        resolve_churn_integer("churn.informational_edit_count", cwd, candidate)?;
+    let warning_edit_count = resolve_churn_integer("churn.warning_edit_count", cwd, candidate)?;
+    let critical_edit_count = resolve_churn_integer("churn.critical_edit_count", cwd, candidate)?;
+    let critical_build_failure_count =
+        resolve_churn_integer("churn.critical_build_failure_count", cwd, candidate)?;
+    validate_effective_churn_threshold_order(
+        informational_edit_count,
+        warning_edit_count,
+        critical_edit_count,
+    )?;
+    Ok(ChurnThresholds {
+        informational_edit_count,
+        warning_edit_count,
+        critical_edit_count,
+        critical_build_failure_count,
+    })
+}
+
+fn resolve_churn_integer(
+    path: &str,
+    cwd: Option<&str>,
+    candidate: Option<EffectiveCandidate<'_>>,
+) -> Result<u64, RuntimeConfigError> {
+    let field = field_for_key(path).ok_or_else(|| RuntimeConfigError {
+        message: format!(
+            "VibeGuard runtime config internal error: undeclared churn path {path}: category=config_internal_error"
+        ),
+        exit_code: 20,
+    })?;
+    resolve_int_with_candidate(
+        field.env.unwrap_or(""),
+        field.path,
+        field.default,
+        cwd,
+        candidate,
+    )
+    .map(|resolved| resolved.value)
 }
 
 pub(super) fn resolve_str(
@@ -296,7 +386,7 @@ fn cached_project_document(
     loaded
 }
 
-fn resolution_cwd(explicit: Option<&str>) -> Option<String> {
+pub(super) fn resolution_cwd(explicit: Option<&str>) -> Option<String> {
     explicit
         .filter(|value| !value.is_empty())
         .map(str::to_string)
@@ -312,7 +402,7 @@ fn resolution_cwd(explicit: Option<&str>) -> Option<String> {
         })
 }
 
-fn resolve_field(
+pub(super) fn resolve_field(
     field: &RuntimeConfigField,
     cwd: Option<&str>,
 ) -> Result<Resolved<Value>, RuntimeConfigError> {
@@ -449,7 +539,7 @@ fn string_items(items: &[Value]) -> Vec<String> {
         .collect()
 }
 
-fn display_value(value: &Value) -> String {
+pub(super) fn display_value(value: &Value) -> String {
     match value {
         Value::String(text) => text.clone(),
         _ => serde_json::to_string(value).unwrap_or_else(|_| "null".to_string()),

@@ -207,6 +207,12 @@
     "w14": {
       "$ref": "vibeguard-runtime-config.schema.json#/properties/w14"
     },
+    "churn": {
+      "$ref": "vibeguard-runtime-config.schema.json#/properties/churn"
+    },
+    "w15": {
+      "$ref": "vibeguard-runtime-config.schema.json#/properties/w15"
+    },
     "paralysis": {
       "$ref": "vibeguard-runtime-config.schema.json#/properties/paralysis"
     },

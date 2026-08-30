@@ -297,7 +297,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "config",
-        usage: "explain <key-or-env> [--cwd <path>] [--json]  — explain a layered runtime configuration value",
+        usage: "show|init|set|reset|explain ...  — inspect or edit layered runtime configuration",
         handler: runtime_config::config,
     },
     Command {

@@ -207,7 +207,7 @@ fn read_project_config_json(path: &Path) -> Result<Value, String> {
     })
 }
 
-fn validate_project_config_value(path: &Path, value: &Value) -> Result<(), String> {
+pub(crate) fn validate_project_config_value(path: &Path, value: &Value) -> Result<(), String> {
     let Some(object) = value.as_object() else {
         return Err(format_project_config_errors(
             path,

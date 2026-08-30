@@ -431,14 +431,14 @@ fn observe_top_human(map: &BTreeMap<String, u64>, limit: usize) -> String {
         .join(", ")
 }
 
-fn observe_ratio(count: usize, total: usize) -> f64 {
+pub(super) fn observe_ratio(count: usize, total: usize) -> f64 {
     if total == 0 {
         return 0.0;
     }
     ((count as f64 / total as f64) * 1_000.0).round() / 1_000.0
 }
 
-fn observe_percentage(count: usize, total: usize) -> f64 {
+pub(super) fn observe_percentage(count: usize, total: usize) -> f64 {
     if total == 0 {
         return 0.0;
     }

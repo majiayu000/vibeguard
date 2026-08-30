@@ -112,6 +112,10 @@ def validate_instance(
     if "enum" in schema and instance not in schema["enum"]:
         errors.append(f"{path}: expected one of {schema['enum']}, got {instance!r}")
 
+    excluded = schema.get("not")
+    if isinstance(excluded, dict) and not validate_instance(instance, excluded, path, root_schema):
+        errors.append(f"{path}: must not match the excluded schema")
+
     any_of = schema.get("anyOf")
     if isinstance(any_of, list):
         branch_errors: list[str] = []

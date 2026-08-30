@@ -19,6 +19,7 @@
   ],
   "oneOf": [
     {
+      "not": { "required": ["value"] },
       "properties": {
         "command": { "enum": ["summary", "health", "session"] }
       }
@@ -194,7 +195,6 @@
       "type": "object",
       "required": [
         "ts",
-        "record_id",
         "session",
         "hook",
         "event",
@@ -211,7 +211,6 @@
       "additionalProperties": false,
       "properties": {
         "ts": { "type": "string" },
-        "record_id": { "type": "string" },
         "session": { "type": "string" },
         "hook": { "type": "string" },
         "event": { "type": "string" },

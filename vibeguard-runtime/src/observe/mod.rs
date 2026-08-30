@@ -10,7 +10,7 @@ mod stats_summary;
 mod value;
 
 use crate::event_schema::field;
-use crate::time_utils::now_unix_secs;
+use crate::time_utils::{now_unix_secs, parse_iso_ts};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -27,15 +27,28 @@ pub fn run(args: &[String]) -> Result {
     let options = model::parse_observe_args(args)?;
     let rule_descriptions = rule_descriptions::RuleDescriptions::load()?;
     let mut log_events = read::read_log_events(&options)?;
-    let cutoff_secs = options.window.cutoff_secs(now_unix_secs());
-    log_events
-        .events
-        .retain(|event| read::event_passes_time_window(event, cutoff_secs));
     if let Some(session) = &options.session {
         log_events
             .events
             .retain(|event| aggregate::observe_string_field(event, field::SESSION) == *session);
     }
+    let cutoff_secs = options.window.cutoff_secs(now_unix_secs());
+    let unscoped_attention_events =
+        if cutoff_secs.is_some() && matches!(options.command, model::ObserveCommand::Value) {
+            log_events
+                .events
+                .iter()
+                .filter(|event| {
+                    parse_iso_ts(&aggregate::observe_string_field(event, field::TS)).is_none()
+                        && aggregate::observe_is_attention_state(event, options.slow_ms)
+                })
+                .count() as u64
+        } else {
+            0
+        };
+    log_events
+        .events
+        .retain(|event| read::event_passes_time_window(event, cutoff_secs));
     log_events.events.sort_by(|left, right| {
         aggregate::observe_string_field(left, field::TS)
             .cmp(&aggregate::observe_string_field(right, field::TS))
@@ -54,7 +67,9 @@ pub fn run(args: &[String]) -> Result {
             render::render_health(&options, &log_events, &aggregate, &rule_descriptions)
         }
         model::ObserveCommand::Session => render::render_session(&options, &log_events, &aggregate),
-        model::ObserveCommand::Value => value::render(&options, &log_events, &aggregate),
+        model::ObserveCommand::Value => {
+            value::render(&options, &log_events, &aggregate, unscoped_attention_events)
+        }
     }?;
     print!("{output}");
     Ok(())
