@@ -26,7 +26,10 @@ fn read_stdin() -> io::Result<String> {
 fn get_nested<'a>(data: &'a Value, path: &str) -> Option<&'a Value> {
     let mut val = data;
     for key in path.split('.') {
-        val = val.get(key)?;
+        val = match val {
+            Value::Array(items) => items.get(key.parse::<usize>().ok()?)?,
+            _ => val.get(key)?,
+        };
     }
     Some(val)
 }
@@ -123,6 +126,18 @@ mod tests {
 
         assert!(get_nested(&data, "tool_input.file_path").is_none());
         assert!(get_nested(&data, "tool_input.command.value").is_none());
+    }
+
+    #[test]
+    fn get_nested_follows_numeric_array_indexes() {
+        let data = json!({"limitations": ["first", "second"]});
+
+        assert_eq!(
+            get_nested(&data, "limitations.1").and_then(Value::as_str),
+            Some("second")
+        );
+        assert!(get_nested(&data, "limitations.2").is_none());
+        assert!(get_nested(&data, "limitations.not-a-number").is_none());
     }
 
     #[test]

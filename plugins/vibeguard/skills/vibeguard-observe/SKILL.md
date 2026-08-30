@@ -26,7 +26,7 @@ JSONL logs before discussing external telemetry.
 ## Checklist
 
 - [ ] Resolve the source checkout with `plugins/vibeguard/scripts/vibeguard-plugin.sh repo-dir`.
-- [ ] Use `dashboard` for a local HTML overview.
+- [ ] Use `dashboard` for a local HTML first-win overview.
 - [ ] Use `health` for recent hook health.
 - [ ] Use `stats` for project/global trigger summaries.
 - [ ] Use `doctor` or `codex-status` for install/capability diagnosis.
@@ -53,3 +53,28 @@ When running from a plugin cache:
 VIBEGUARD_REPO_DIR=/path/to/vibeguard \
   bash scripts/vibeguard-plugin.sh dashboard --no-open
 ```
+
+## Dashboard evidence boundary
+
+The dashboard's headline cards come only from the selected runtime's
+`observe value --json` output. They do not parse or infer evidence from human
+`stats` or `health` output. The first screen separates:
+
+- verified later `post-build-check` pass associations in the same session;
+- observed ordinary follow-up, unresolved attention sessions, and hook
+  overhead;
+- observed friction such as repeated attention, suppressions, and
+  uncorrelatable events.
+
+The dashboard is a standalone local HTML file with no network assets,
+telemetry, upload, account, or server. Installation state and raw diagnostics
+are secondary and live in escaped collapsible details. Missing, empty,
+partial/unresolved, malformed, failed, and unsupported evidence states remain
+explicit. The dashboard does not claim causality, incidents prevented,
+token/time/money savings, or compliance. The built-in 5-positive/5-negative
+benchmark is a small reproducible corpus, not evidence of impact on the
+user's project.
+
+If the selected runtime lacks `observe value`, update or build the runtime and
+regenerate the dashboard. The dashboard flags remain available, and
+`--project` is still rejected together with `--scope global`.

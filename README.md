@@ -279,11 +279,12 @@ vibeguard observe summary --limit all        # Project trigger summary (7 days)
 vibeguard observe health --limit all         # Project health snapshot (24 hours)
 vibeguard observe summary --scope global --limit all # Global trigger summary
 vibeguard observe value                       # Bounded local event-stream evidence
+bash ~/vibeguard/plugins/vibeguard/scripts/vibeguard-plugin.sh dashboard # Local first-win dashboard
 vibeguard observe export prometheus          # Prometheus text export
 bash ~/vibeguard/setup.sh doctor             # Installation and host diagnosis
 ```
 
-`vibeguard observe` is the stable day-to-day command surface; underlying scripts remain available for specialized maintainer diagnostics. Doctor is read-only and summarizes installation state, capability gaps, and repair commands; hooks and guards remain the enforcement layer.
+`vibeguard observe` is the stable day-to-day command surface; underlying scripts remain available for specialized maintainer diagnostics. `observe value --json` is the dashboard's headline evidence source. The dashboard separates verified later build-pass associations from observed follow-up, unresolved attention, hook overhead, and friction; it keeps missing, empty, partial, failed, and unsupported evidence visible instead of substituting zero. It is local-only and makes no claims about causality, incidents prevented, token/time/money savings, or compliance. Doctor is read-only and summarizes installation state, capability gaps, and repair commands; hooks and guards remain the enforcement layer.
 
 Hook latency is also a product contract. See [Hook Latency Contract](docs/reference/hook-latency-contract.md) for per-hook P95 budgets, hotspot attribution, and the static gates that block expensive hook patterns.
 
@@ -390,6 +391,9 @@ production-surface `warn` or `block`; latency is native runtime command wall tim
 over five fresh-state measured runs per case after one warmup. Release CI runs
 the benchmark from both the raw native binary and a fresh no-clone installation,
 and derives the expected README numerators and denominators from the report.
+The built-in 5-positive/5-negative benchmark is a small reproducible corpus, not
+evidence of impact on the user's project. Keep it separate from local
+`observe value` event-stream evidence.
 
 ### Profiles and languages
 
@@ -463,9 +467,12 @@ bash plugins/vibeguard/scripts/vibeguard-plugin.sh stats all
 bash plugins/vibeguard/scripts/vibeguard-plugin.sh install --yes
 ```
 
-The dashboard is generated as a local HTML artifact from the existing VibeGuard
-diagnostic commands. It is not remote telemetry and does not replace behavior
-eval gates.
+The dashboard is generated as a standalone local HTML artifact. Its headline
+cards consume `vibeguard observe value --json`; installation state and human
+status/stats/health output are secondary collapsible diagnostics. The page is
+not remote telemetry, does not upload data, and does not replace behavior eval
+gates. If the selected runtime lacks `observe value`, it renders an explicit
+evidence-unavailable state with an update/build action.
 
 Hooks live in `~/.codex/hooks.json` (requires `[features].hooks = true` in `config.toml`). All profiles install the Bash/apply_patch gates and file post-hooks below; the `post-build-check` and `Stop` rows are installed only by `full` and `strict`:
 

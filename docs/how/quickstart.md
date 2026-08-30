@@ -85,10 +85,13 @@ Start with the live, fail-closed interception demo:
 bash ~/vibeguard/setup.sh demo safe-bash
 ```
 
-This creates a temporary `HOME`, submits `rm -rf $HOME` through the real
-`PreToolUse(Bash)` hook, and verifies that the hook returns `block` while a
-sandbox marker remains intact. The dangerous command is never handed to a
-shell executor; malformed, failed, or non-block hook results stop the demo.
+This protects the demo's temporary `HOME` directory from the destructive
+`rm -rf $HOME` request. That matters because the same command could erase a
+user's local state. The sandbox marker verifies that the protected temporary
+directory remains intact after the real `PreToolUse(Bash)` hook returns
+`block`; the dangerous command is never handed to a shell executor. A
+malformed, failed, or non-block hook result stops the demo. This is isolated
+demo evidence, not evidence from your real project.
 
 Then try one live agent action in a disposable branch or scratch project:
 
@@ -109,3 +112,19 @@ vibeguard observe health --limit all
 This summarizes recent local hook events for the current project. See
 [Codex Hook Status](../reference/codex-hook-status.md) for JSON and global-scope
 diagnostics.
+
+## 6. Find the First Win in Your Project
+
+After a protected action has run in the project, inspect the bounded local
+event evidence:
+
+```bash
+vibeguard observe value --json
+bash ~/vibeguard/plugins/vibeguard/scripts/vibeguard-plugin.sh dashboard
+```
+
+The dashboard reads its headline cards from `observe value --json`. It keeps
+verified later build-pass associations separate from observed follow-up,
+unresolved attention sessions, and hook overhead. Missing, empty, partial, or
+unavailable evidence stays visible; the dashboard does not claim causality,
+incidents prevented, savings, or compliance.

@@ -16,6 +16,7 @@
   </a>
   <div class="links">
     <a href="#how">how it works</a>
+    <a href="#journey">first win</a>
     <a href="#rules">rules</a>
     <a href="#intercept">intercept</a>
     <a href="#install">install</a>
@@ -39,11 +40,27 @@
       <a class="btn ghost" href="#how">how it works →</a>
     </div>
 
-    <div class="stat-strip" aria-label="Product stats">
-      <div class="stat"><div class="num">127</div><div class="lbl">native rules</div></div>
-      <div class="stat"><div class="num">7</div><div class="lbl">constraint layers</div></div>
-      <div class="stat"><div class="num">12</div><div class="lbl">Codex hook entries</div></div>
-      <div class="stat"><div class="num">2</div><div class="lbl">agents supported</div></div>
+    <div class="journey-strip" aria-label="First-win journey">
+      <article class="journey-step">
+        <span class="step-no">01 / problem</span>
+        <h3>Problem surfaces</h3>
+        <p>An agent proposes a risky or unverified action inside your project.</p>
+      </article>
+      <article class="journey-step">
+        <span class="step-no">02 / intervention</span>
+        <h3>Intervention</h3>
+        <p>A native hook blocks, warns, or returns a concrete correction at the action boundary.</p>
+      </article>
+      <article class="journey-step">
+        <span class="step-no">03 / follow-up</span>
+        <h3>Correction / follow-up</h3>
+        <p>The local event stream records whether a later ordinary pass appears in the same session.</p>
+      </article>
+      <article class="journey-step">
+        <span class="step-no">04 / verification</span>
+        <h3>Verification</h3>
+        <p>A later build pass is a time-ordered association to inspect, not a causal impact claim.</p>
+      </article>
     </div>
   </div>
 </section>
@@ -74,6 +91,34 @@
         </ul>
       </div>
     </div>
+  </div>
+</section>
+
+<section class="band sunk" id="journey">
+  <div class="inner">
+    <div class="section-eyebrow">What the local evidence can tell you</div>
+    <h2 class="section-h2">Know the sequence. Keep the <span class="accent">boundary</span>.</h2>
+    <div class="knowledge-grid">
+      <article class="knowledge-card">
+        <div class="knowledge-label">verified</div>
+        <h3>Verified sequence</h3>
+        <p>A strictly later <code>post-build-check</code> pass in the same session can verify event order after a guardrail signal. It does not prove cause.</p>
+      </article>
+      <article class="knowledge-card">
+        <div class="knowledge-label">observed</div>
+        <h3>Observed signals and friction</h3>
+        <p>The local stream can show follow-up passes, unresolved sessions, repeated guardrail signals, suppressions, events that cannot be correlated, and hook overhead.</p>
+      </article>
+      <article class="knowledge-card unavailable-knowledge">
+        <div class="knowledge-label">unavailable</div>
+        <h3>Unavailable outcome claims</h3>
+        <p>The event stream cannot establish causality, incidents prevented, token, time, or money savings, or compliance.</p>
+      </article>
+    </div>
+    <aside class="benchmark-boundary">
+      <div class="section-eyebrow">benchmark boundary / 5 + 5</div>
+      <p>The built-in 5-positive/5-negative benchmark is a small reproducible corpus, not evidence of impact on your project.</p>
+    </aside>
   </div>
 </section>
 
@@ -116,6 +161,15 @@
         <tr><td class="key">Observability</td><td>Metrics, logs, and health checks for every interception. You see what was blocked and why.</td></tr>
       </tbody>
     </table>
+    <div class="system-facts" aria-label="Implementation facts, not project impact metrics">
+      <div class="fact-note">implementation facts / not project impact metrics</div>
+      <div class="stat-strip">
+        <div class="stat"><div class="num">127</div><div class="lbl">native rules</div></div>
+        <div class="stat"><div class="num">7</div><div class="lbl">constraint layers</div></div>
+        <div class="stat"><div class="num">12</div><div class="lbl">Codex hook entries</div></div>
+        <div class="stat"><div class="num">2</div><div class="lbl">agents supported</div></div>
+      </div>
+    </div>
   </div>
 </section>
 
