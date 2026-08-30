@@ -407,6 +407,11 @@ USAGE
     return 2
   fi
 
+  local explicit_log_missing=0
+  if [[ -n "${log_file}" && ! -e "${log_file}" ]]; then
+    explicit_log_missing=1
+  fi
+
   local repo_dir dashboard_dir generated_at period_label
   repo_dir="$(resolve_repo_dir)"
   dashboard_dir="${PLUGIN_DATA:-${VIBEGUARD_PLUGIN_DATA:-${HOME}/.vibeguard/plugin}}"
@@ -494,7 +499,17 @@ USAGE
   local partial=0 parse_status=0
 
   limitations_html='<p class="muted">No additional limitations were provided.</p>'
-  if [[ "${value_status}" -ne 0 ]]; then
+  if [[ "${explicit_log_missing}" -eq 1 ]]; then
+    state="missing"
+    state_label="Event source missing"
+    headline="The selected local event source is missing."
+    body="The selected log path does not exist, so this dashboard cannot treat the window as empty or report zero evidence."
+    next_action="Check the selected log path and VibeGuard setup, then regenerate the dashboard."
+    overhead="No data"
+    overhead_note="No timing data in the selected source."
+    friction_note="Friction cannot be assessed until the selected event source exists."
+    estimated_reason="The selected event source is missing, so outcome evidence is unavailable."
+  elif [[ "${value_status}" -ne 0 ]]; then
     if [[ "${value_resolution_status}" -eq 0 ]]; then
       headline="Evidence command failed; no headline evidence was rendered."
       body="The selected runtime was available, but observe value --json did not complete successfully."

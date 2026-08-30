@@ -41,6 +41,7 @@ make_dashboard_fixture() {
     "${fixture}/scripts/lib" \
     "${fixture}/vibeguard-runtime"
   touch "${fixture}/vibeguard-runtime/Cargo.toml"
+  touch "${fixture}/events.jsonl"
   cp "${REPO_DIR}/scripts/lib/runtime.sh" "${fixture}/scripts/lib/runtime.sh"
 
   cat > "${fixture}/setup.sh" <<'SH'
@@ -221,6 +222,18 @@ dashboard_empty_and_unresolved_states_test() {
   dashboard_require_contains 'data-state="empty"' "${output_path}" || return 1
   dashboard_require_contains 'No local event data in the selected window.' "${output_path}" || return 1
   dashboard_require_absent 'data-evidence="verified-build-pass">0<' "${output_path}" || return 1
+
+  DASHBOARD_TEST_MODE=observed \
+    DASHBOARD_TEST_VALUE_JSON="${empty_json}" \
+    VIBEGUARD_RUNTIME="${fixture}/vibeguard-test-runtime" \
+    VIBEGUARD_REPO_DIR="${fixture}" \
+    bash "${PLUGIN_SCRIPT}" dashboard \
+      --no-open \
+      --output "${output_path}" \
+      --log-file "${fixture}/missing-events.jsonl" >/dev/null
+  dashboard_require_contains 'The selected local event source is missing.' "${output_path}" || return 1
+  dashboard_require_contains 'Check the selected log path and VibeGuard setup' "${output_path}" || return 1
+  dashboard_require_absent 'Update or build the VibeGuard runtime' "${output_path}" || return 1
 
   run_dashboard_fixture unresolved "${unresolved_json}" "${fixture}" "${output_path}"
   dashboard_require_contains 'Partial / unresolved local evidence' "${output_path}" || return 1
