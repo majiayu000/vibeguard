@@ -6,8 +6,9 @@ use crate::time_utils::parse_iso_ts;
 
 use super::Result;
 use super::aggregate::{
-    ObserveAggregate, observe_effective_duration_ms, observe_is_attention_state,
-    observe_normalized_decision, observe_normalized_status, observe_string_field,
+    ObserveAggregate, observe_diagnostic_kind, observe_effective_duration_ms,
+    observe_is_attention_state, observe_normalized_decision, observe_normalized_status,
+    observe_string_field,
 };
 use super::model::ObserveOptions;
 use super::read::LogEvents;
@@ -216,8 +217,10 @@ fn is_ordinary_pass(event: &Value, slow_ms: u64) -> bool {
         return false;
     }
     let normalized_status = observe_normalized_status(event, slow_ms);
+    let diagnostic_kind = observe_diagnostic_kind(event, slow_ms);
     let reason = observe_string_field(event, field::REASON).to_ascii_lowercase();
     matches!(normalized_status.as_str(), status::PASS | status::SLOW)
+        && matches!(diagnostic_kind, "none" | "slow")
         && !reason.starts_with("skip:")
         && !reason.starts_with("skipped:")
 }

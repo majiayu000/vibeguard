@@ -352,7 +352,8 @@ fn value_rejects_diagnostic_passes_as_follow_up_evidence() {
         &log,
         concat!(
             "{\"ts\":\"2099-01-01T00:00:01Z\",\"session\":\"s1\",\"hook\":\"post-edit-guard\",\"decision\":\"warn\"}\n",
-            "{\"ts\":\"2099-01-01T00:00:02Z\",\"session\":\"s1\",\"hook\":\"post-build-check\",\"status\":\"timeout\",\"decision\":\"pass\"}\n"
+            "{\"ts\":\"2099-01-01T00:00:02Z\",\"session\":\"s1\",\"hook\":\"post-build-check\",\"status\":\"timeout\",\"decision\":\"pass\"}\n",
+            "{\"ts\":\"2099-01-01T00:00:03Z\",\"session\":\"s1\",\"hook\":\"post-build-check\",\"status\":\"pass\",\"decision\":\"pass\",\"reason\":\"command timeout after 30 seconds\"}\n"
         ),
     );
 
