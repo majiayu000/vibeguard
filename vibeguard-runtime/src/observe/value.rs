@@ -197,10 +197,10 @@ impl ValueEvidence {
 
 fn read_limitation(limit: usize) -> String {
     if limit == usize::MAX {
-        return "Because --limit all was explicitly requested, counts consider all parsed events from the selected scope, then apply the selected time window; events outside it are not considered.".to_string();
+        return "Because --limit all was explicitly requested, counts consider all parsed events from the selected scope, then apply the selected time window; events outside it are not considered. Events with missing or unparseable timestamps are retained as uncorrelatable because their time position cannot be established.".to_string();
     }
     format!(
-        "Counts consider at most the configured {limit} most-recent parsed events from the selected scope, then apply the selected time window; earlier parsed events and events outside it are not considered."
+        "Counts consider at most the configured {limit} most-recent parsed events from the selected scope, then apply the selected time window; earlier parsed events and events outside it are not considered. Events with missing or unparseable timestamps are retained as uncorrelatable because their time position cannot be established."
     )
 }
 

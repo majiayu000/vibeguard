@@ -106,7 +106,6 @@ pub(super) fn observe_event_json(event: &Value, slow_ms: u64) -> Value {
         field::STATUS: observe_normalized_status(event, slow_ms),
         field::REASON: observe_string_field(event, field::REASON),
         field::DETAIL: observe_string_field(event, field::DETAIL),
-        field::RECORD_ID: observe_string_field(event, field::RECORD_ID),
         field::DURATION_MS: observe_effective_duration_ms(event),
         "client": observe_client_name(event),
         "diagnostic": observe_diagnostic_kind(event, slow_ms),

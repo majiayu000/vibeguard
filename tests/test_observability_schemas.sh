@@ -68,7 +68,7 @@ schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
 if mode == "utf8_lossy_hex":
     raw_lines = [bytes.fromhex(fixture_path.read_text(encoding="ascii").strip())]
-elif mode == "single_json":
+elif mode in {"single_json", "single_json_summary_with_value"}:
     raw_lines = [fixture_path.read_bytes()]
 else:
     raw_lines = fixture_path.read_bytes().splitlines()
@@ -89,6 +89,8 @@ for line_number, raw_line in enumerate(raw_lines, start=1):
     if not isinstance(row, dict):
         errors.append(f"{fixture_path}:{line_number}: row must be a JSON object")
         continue
+    if mode == "single_json_summary_with_value":
+        row["command"] = "summary"
     row_errors = module.validate_instance(row, schema)
     if row_errors:
         errors.extend(f"{fixture_path}:{line_number}: {error}" for error in row_errors)
@@ -130,6 +132,11 @@ assert_fails "invalid observe value evidence tier fails validation" \
   run_schema_check "schemas/observe-output.schema.json" "${FIXTURES_DIR}/observe-value-invalid-tier.json" "single_json"
 assert_fails "missing observe value evidence tier fails validation" \
   run_schema_check "schemas/observe-output.schema.json" "${FIXTURES_DIR}/observe-value-missing-tier.json" "single_json"
+assert_fails "non-value command rejects value evidence" \
+  run_schema_check "schemas/observe-output.schema.json" "${FIXTURES_DIR}/observe-value-current.json" "single_json_summary_with_value"
+assert_cmd "schema v1 rendered event contract excludes record_id" \
+  python3 -c 'import json,sys; event=json.load(open(sys.argv[1], encoding="utf-8"))["$defs"]["event"]; assert "record_id" not in event["required"]; assert "record_id" not in event["properties"]' \
+  "${REPO_DIR}/schemas/observe-output.schema.json"
 
 printf '\n'
 if [[ "$FAIL" -eq 0 ]]; then

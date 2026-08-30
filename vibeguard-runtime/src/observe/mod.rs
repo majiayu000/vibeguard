@@ -28,9 +28,10 @@ pub fn run(args: &[String]) -> Result {
     let rule_descriptions = rule_descriptions::RuleDescriptions::load()?;
     let mut log_events = read::read_log_events(&options)?;
     let cutoff_secs = options.window.cutoff_secs(now_unix_secs());
-    log_events
-        .events
-        .retain(|event| read::event_passes_time_window(event, cutoff_secs));
+    let retain_unparseable_timestamps = matches!(options.command, model::ObserveCommand::Value);
+    log_events.events.retain(|event| {
+        read::event_passes_time_window(event, cutoff_secs, retain_unparseable_timestamps)
+    });
     if let Some(session) = &options.session {
         log_events
             .events

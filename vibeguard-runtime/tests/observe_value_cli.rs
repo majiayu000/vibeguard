@@ -169,6 +169,39 @@ fn value_json_applies_attention_and_correlation_boundaries() {
 }
 
 #[test]
+fn value_finite_window_retains_unparseable_attention_as_uncorrelatable() {
+    let root = case_root("unparseable_timestamp");
+    let log = root.join("events.jsonl");
+    write_value_log(
+        &log,
+        "{\"ts\":\"not-a-timestamp\",\"session\":\"s1\",\"hook\":\"post-edit-guard\",\"decision\":\"warn\"}\n",
+    );
+
+    let rendered = output_json(&run(
+        &root,
+        &[
+            "observe",
+            "value",
+            "--json",
+            "--days",
+            "7",
+            "--log-file",
+            &path_text(&log),
+        ],
+    ));
+
+    assert_eq!(rendered["value"]["data_state"], "observed");
+    assert_eq!(rendered["event_count"], 1);
+    assert_eq!(rendered["value"]["observed"]["attention_events"], 1);
+    assert_eq!(
+        rendered["value"]["observed"]["uncorrelatable_attention_events"],
+        1
+    );
+
+    fs::remove_dir_all(root).expect("case root should be removed");
+}
+
+#[test]
 fn value_human_output_leads_with_boundary_and_has_no_success_headline() {
     let root = case_root("human");
     let log = root.join("events.jsonl");
@@ -329,7 +362,7 @@ fn value_limitations_describe_limit_before_time_window() {
         &root,
         &["observe", "value", "--json", "--log-file", &path_text(&log)],
     ));
-    let bounded_limitation = "Counts consider at most the configured 5000 most-recent parsed events from the selected scope, then apply the selected time window; earlier parsed events and events outside it are not considered.";
+    let bounded_limitation = "Counts consider at most the configured 5000 most-recent parsed events from the selected scope, then apply the selected time window; earlier parsed events and events outside it are not considered. Events with missing or unparseable timestamps are retained as uncorrelatable because their time position cannot be established.";
     assert!(
         bounded["value"]["limitations"]
             .as_array()
@@ -353,7 +386,7 @@ fn value_limitations_describe_limit_before_time_window() {
             &path_text(&log),
         ],
     ));
-    let all_limitation = "Because --limit all was explicitly requested, counts consider all parsed events from the selected scope, then apply the selected time window; events outside it are not considered.";
+    let all_limitation = "Because --limit all was explicitly requested, counts consider all parsed events from the selected scope, then apply the selected time window; events outside it are not considered. Events with missing or unparseable timestamps are retained as uncorrelatable because their time position cannot be established.";
     assert!(
         all["value"]["limitations"]
             .as_array()
@@ -379,7 +412,7 @@ fn value_limitations_describe_limit_before_time_window() {
 }
 
 #[test]
-fn rendered_event_json_preserves_record_ids_and_legacy_empty_values() {
+fn schema_v1_rendered_events_do_not_add_record_ids() {
     let root = case_root("record_ids");
     let log = root.join("events.jsonl");
     write_value_log(
@@ -404,8 +437,7 @@ fn rendered_event_json_preserves_record_ids_and_legacy_empty_values() {
         ],
     ));
     let events = rendered["attention_states"].as_array().unwrap();
-    assert_eq!(events[0]["record_id"], "VGR-1-2-3");
-    assert!(events[0]["record_id"].is_string());
+    assert!(events[0].get("record_id").is_none());
     assert!(rendered["recent_events"].as_array().is_none());
 
     let session = output_json(&run(
@@ -425,9 +457,7 @@ fn rendered_event_json_preserves_record_ids_and_legacy_empty_values() {
     ));
     let recent = session["recent_events"].as_array().unwrap();
     assert_eq!(recent.len(), 2);
-    assert_eq!(recent[0]["record_id"], "VGR-1-2-3");
-    assert_eq!(recent[1]["record_id"], "");
-    assert!(recent[1]["record_id"].is_string());
+    assert!(recent.iter().all(|event| event.get("record_id").is_none()));
     fs::remove_dir_all(root).expect("record id case root should be removed");
 }
 
