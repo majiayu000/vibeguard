@@ -132,6 +132,38 @@ pub(crate) fn validate_runtime_config_overlay(
     validate_runtime_config_value(path, value)
 }
 
+pub(crate) fn validate_effective_churn_threshold_order(
+    informational: u64,
+    warning: u64,
+    critical: u64,
+) -> Result<(), RuntimeConfigError> {
+    validate_churn_threshold_values(
+        "effective configuration",
+        informational,
+        warning,
+        critical,
+        POLICY_ERROR,
+    )
+}
+
+fn validate_churn_threshold_values(
+    source: &str,
+    informational: u64,
+    warning: u64,
+    critical: u64,
+    exit_code: i32,
+) -> Result<(), RuntimeConfigError> {
+    if informational <= warning && warning <= critical {
+        return Ok(());
+    }
+    Err(RuntimeConfigError {
+        message: format!(
+            "VibeGuard runtime config invalid: {source}: path=$.churn category=config_range_error expected=ordered=informational_edit_count<=warning_edit_count<=critical_edit_count actual={informational},{warning},{critical}"
+        ),
+        exit_code,
+    })
+}
+
 fn validate_object(
     file_path: &Path,
     display_path: &str,

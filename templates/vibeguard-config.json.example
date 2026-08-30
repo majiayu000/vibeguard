@@ -12,6 +12,16 @@
   "w14": {
     "cooldown_seconds": 3600
   },
+  "churn": {
+    "informational_edit_count": 5,
+    "warning_edit_count": 10,
+    "critical_edit_count": 20,
+    "critical_build_failure_count": 5
+  },
+  "w15": {
+    "minimum_consecutive_edits": 3,
+    "latest_delta_character_ceiling": 300
+  },
   "paralysis": {
     "threshold": 7
   },

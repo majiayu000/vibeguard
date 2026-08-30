@@ -1,3 +1,4 @@
+mod commands;
 pub(crate) mod fields;
 mod resolution;
 pub mod validation;
@@ -6,6 +7,8 @@ use crate::HandlerResult;
 use crate::runtime_config::validation::{
     RuntimeConfigDecision, RuntimeConfigError, classify_runtime_config_file,
 };
+use fields::{FieldKind, field_for_key};
+pub(crate) use resolution::ChurnThresholds;
 use serde_json::Value;
 use std::io::ErrorKind;
 use std::path::PathBuf;
@@ -43,7 +46,11 @@ pub fn runtime_config_validate(args: &[String]) -> HandlerResult {
 }
 
 pub fn config(args: &[String]) -> HandlerResult {
-    resolution::config_command(args)
+    if args.first().map(String::as_str) == Some("explain") {
+        resolution::config_command(args)
+    } else {
+        commands::run(args)
+    }
 }
 
 pub fn runtime_config_get_int(args: &[String]) -> HandlerResult {
@@ -125,6 +132,27 @@ pub(crate) fn runtime_config_str_value(
     default_value: &str,
 ) -> String {
     resolve_runtime_config_str(env_name, json_path, default_value)
+        .unwrap_or_else(exit_runtime_config_error)
+}
+
+pub(crate) fn runtime_config_int_value_for_path(json_path: &str) -> u64 {
+    let Some(field) = field_for_key(json_path) else {
+        eprintln!(
+            "VibeGuard runtime config internal error: undeclared integer path {json_path}: category=config_internal_error"
+        );
+        process::exit(20);
+    };
+    if !matches!(field.kind, FieldKind::Integer { .. } | FieldKind::Version) {
+        eprintln!(
+            "VibeGuard runtime config internal error: non-integer path {json_path}: category=config_internal_error"
+        );
+        process::exit(20);
+    }
+    runtime_config_int_value(field.env.unwrap_or(""), field.path, field.default)
+}
+
+pub(crate) fn runtime_config_churn_thresholds() -> ChurnThresholds {
+    resolution::resolve_effective_churn_thresholds(None, None)
         .unwrap_or_else(exit_runtime_config_error)
 }
 
