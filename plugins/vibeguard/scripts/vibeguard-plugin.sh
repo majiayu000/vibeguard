@@ -40,6 +40,144 @@ strip_ansi() {
   perl -pe 's/\e\[[0-9;?]*[ -\/]*[@-~]//g'
 }
 
+render_dashboard_template() {
+  local template_path="$1"
+  local output_path="$2"
+  shift 2
+
+  if [[ ! -r "${template_path}" ]]; then
+    printf 'ERROR: dashboard template is not readable: %s\n' "${template_path}" >&2
+    return 1
+  fi
+  if (( $# % 2 != 0 )); then
+    printf 'ERROR: dashboard template replacements must be key/value pairs\n' >&2
+    return 1
+  fi
+
+  local key value key_list=""
+  local -a replacement_env=()
+  while [[ $# -gt 0 ]]; do
+    key="$1"
+    value="$2"
+    shift 2
+    key_list="${key_list}${key_list:+ }${key}"
+    replacement_env+=("DASHBOARD_REPLACE_${key}=${value}")
+  done
+
+  local temp_output
+  if ! temp_output="$(mktemp "${output_path}.tmp.XXXXXX")"; then
+    printf 'ERROR: could not create temporary dashboard beside: %s\n' "${output_path}" >&2
+    return 1
+  fi
+  if ! env "${replacement_env[@]}" awk -v key_list="${key_list}" '
+    BEGIN {
+      key_count = split(key_list, keys, " ")
+      failed = 0
+    }
+    {
+      source = $0
+      rendered = ""
+      while (length(source) > 0) {
+        unknown_at = index(source, "{{")
+        best_at = 0
+        best_key = ""
+        best_token = ""
+        for (index_key = 1; index_key <= key_count; index_key++) {
+          token = "{{" keys[index_key] "}}"
+          token_at = index(source, token)
+          if (token_at > 0 && (best_at == 0 || token_at < best_at)) {
+            best_at = token_at
+            best_key = keys[index_key]
+            best_token = token
+          }
+        }
+        if (unknown_at > 0 && (best_at == 0 || unknown_at < best_at)) {
+          failed = 1
+          next
+        }
+        if (best_at == 0) {
+          rendered = rendered source
+          source = ""
+        } else {
+          rendered = rendered substr(source, 1, best_at - 1) ENVIRON["DASHBOARD_REPLACE_" best_key]
+          source = substr(source, best_at + length(best_token))
+        }
+      }
+      if (!failed) {
+        print rendered
+      }
+    }
+    END {
+      if (failed) {
+        print "ERROR: dashboard template contains an unknown placeholder" > "/dev/stderr"
+        exit 1
+      }
+    }
+  ' "${template_path}" > "${temp_output}"; then
+    rm -f "${temp_output}"
+    printf 'ERROR: could not write dashboard: %s\n' "${output_path}" >&2
+    return 1
+  fi
+  if ! mv -f "${temp_output}" "${output_path}"; then
+    rm -f "${temp_output}"
+    printf 'ERROR: could not install generated dashboard: %s\n' "${output_path}" >&2
+    return 1
+  fi
+}
+
+dashboard_json_field() {
+  local runtime="$1"
+  local payload="$2"
+  local field="$3"
+  printf '%s\n' "${payload}" | "${runtime}" json-field --strict "${field}" 2>/dev/null
+}
+
+dashboard_count_value() {
+  local value
+  value="$(dashboard_json_field "$1" "$2" "$3")" || return 1
+  [[ "${value}" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "${value}"
+}
+
+dashboard_count_text() {
+  local value="$1"
+  local state="$2"
+  if [[ "${state}" == "missing" || "${state}" == "empty" ]]; then
+    printf 'No data\n'
+  elif [[ -z "${value}" ]]; then
+    printf 'Unavailable\n'
+  else
+    printf '%s\n' "${value}"
+  fi
+}
+
+dashboard_plural_count() {
+  local value="$1"
+  local noun="$2"
+  if [[ "${value}" == "1" ]]; then
+    printf '1 %s\n' "${noun}"
+  else
+    printf '%s %ss\n' "${value}" "${noun}"
+  fi
+}
+
+dashboard_metric_note() {
+  local value="$1"
+  local state="$2"
+  local missing_text="$3"
+  local zero_text="$4"
+  local observed_text="$5"
+  if [[ "${state}" == "missing" || "${state}" == "empty" ]]; then
+    printf '%s\n' "${missing_text}"
+  elif [[ -z "${value}" ]]; then
+    printf 'This value was not available in the observe-value JSON.\n'
+  elif [[ "${value}" == "0" ]]; then
+    printf '%s\n' "${zero_text}"
+  else
+    printf '%s\n' "${observed_text}"
+  fi
+}
+
 capture_command() {
   local output status
   status=0
@@ -340,312 +478,230 @@ USAGE
   stats_clean="$(printf '%s\n' "${stats_out}" | strip_ansi)"
   health_clean="$(printf '%s\n' "${health_out}" | strip_ansi)"
   value_clean="$(printf '%s\n' "${value_out}" | strip_ansi)"
-  status_cmd="bash ${repo_dir}/setup.sh --codex-status"
+  status_cmd="$(printf 'bash %q --codex-status' "${repo_dir}/setup.sh")"
   stats_cmd="$({ printf 'bash %q' "${repo_dir}/scripts/stats.sh"; printf ' %q' "${stats_args[@]}"; printf '\n'; } )"
   health_cmd="$({ printf 'bash %q' "${repo_dir}/scripts/hook-health.sh"; printf ' %q' "${health_args[@]}"; printf '\n'; } )"
-  if [[ -n "${value_runtime}" ]]; then
-    value_cmd="$({ printf '%q' "${value_runtime}"; printf ' %q' "${value_args[@]}"; printf '\n'; } )"
+  value_cmd="$({ printf '%q' "${value_runtime:-vibeguard-runtime}"; printf ' %q' "${value_args[@]}"; printf '\n'; } )"
+
+  local state="unavailable"
+  local state_label="Evidence unavailable"
+  local headline body next_action
+  local verified_build="" follow_up="" unresolved="" repeated="" suppressions="" uncorrelatable=""
+  local attention_events="" attention_sessions="" duration_count="" duration_avg="" duration_p95=""
+  local overhead="Unavailable" overhead_note="No JSON evidence was available."
+  local friction_note="Friction cannot be assessed until the JSON evidence command succeeds."
+  local estimated_reason limitations_html
+  local partial=0 parse_status=0
+
+  limitations_html='<p class="muted">No additional limitations were provided.</p>'
+  if [[ "${value_status}" -ne 0 ]]; then
+    if [[ "${value_resolution_status}" -eq 0 ]]; then
+      headline="Evidence command failed; no headline evidence was rendered."
+      body="The selected runtime was available, but observe value --json did not complete successfully."
+      next_action="Check the escaped command output below, then update or build the VibeGuard runtime if needed."
+      estimated_reason="The evidence command did not produce usable output."
+    else
+      headline="First-win evidence is unavailable."
+      body="The selected runtime could not provide observe value --json, so no headline evidence is shown."
+      next_action="Update or build the VibeGuard runtime, then regenerate this dashboard."
+      estimated_reason="The selected runtime does not support observe-value evidence."
+    fi
   else
-    value_cmd="vibeguard-runtime observe value --json --limit all --days ${days}"
+    state="$(dashboard_json_field "${value_runtime}" "${value_clean}" value.data_state)" || parse_status=$?
+    if [[ "${parse_status}" -ne 0 ]]; then
+      state="unavailable"
+      headline="Evidence output could not be parsed; no headline evidence was rendered."
+      body="The runtime returned output, but it was not the expected observe-value JSON envelope."
+      next_action="Update or build the VibeGuard runtime, then regenerate this dashboard."
+      overhead_note="The JSON output could not be parsed."
+      friction_note="Friction cannot be assessed until the JSON evidence output is valid."
+      estimated_reason="The observe-value JSON could not be parsed."
+    else
+      case "${state}" in
+        missing|empty|observed) ;;
+        *) state="partial" ;;
+      esac
+
+      verified_build="$(dashboard_count_value "${value_runtime}" "${value_clean}" value.verified.sessions_with_later_build_pass)" || verified_build=""
+      follow_up="$(dashboard_count_value "${value_runtime}" "${value_clean}" value.observed.sessions_with_later_follow_up_pass)" || follow_up=""
+      unresolved="$(dashboard_count_value "${value_runtime}" "${value_clean}" value.observed.sessions_without_later_follow_up_pass)" || unresolved=""
+      repeated="$(dashboard_count_value "${value_runtime}" "${value_clean}" value.observed.sessions_with_repeated_attention)" || repeated=""
+      suppressions="$(dashboard_count_value "${value_runtime}" "${value_clean}" value.observed.suppression_events)" || suppressions=""
+      uncorrelatable="$(dashboard_count_value "${value_runtime}" "${value_clean}" value.observed.uncorrelatable_attention_events)" || uncorrelatable=""
+      attention_events="$(dashboard_count_value "${value_runtime}" "${value_clean}" value.observed.attention_events)" || attention_events=""
+      attention_sessions="$(dashboard_count_value "${value_runtime}" "${value_clean}" value.observed.sessions_with_attention)" || attention_sessions=""
+      duration_count="$(dashboard_count_value "${value_runtime}" "${value_clean}" value.observed.hook_duration_ms.count)" || duration_count=""
+      duration_avg="$(dashboard_count_value "${value_runtime}" "${value_clean}" value.observed.hook_duration_ms.avg_ms)" || duration_avg=""
+      duration_p95="$(dashboard_count_value "${value_runtime}" "${value_clean}" value.observed.hook_duration_ms.p95_ms)" || duration_p95=""
+
+      if [[ "${state}" == "partial" || -z "${verified_build}" || -z "${follow_up}" || -z "${unresolved}" || -z "${repeated}" || -z "${suppressions}" || -z "${uncorrelatable}" ]]; then
+        partial=1
+      fi
+      if [[ -n "${uncorrelatable}" && "${uncorrelatable}" -gt 0 ]]; then
+        partial=1
+      fi
+
+      if [[ "${state}" == "missing" ]]; then
+        headline="The selected local event source is missing."
+        body="The configured source could not be found, so this dashboard cannot treat the window as empty or report zero evidence."
+        next_action="Check the selected log path and VibeGuard setup, then regenerate the dashboard."
+      elif [[ "${state}" == "empty" ]]; then
+        headline="No local event data in the selected window."
+        body="The selected source exists but has no usable events in this window; the dashboard does not turn that absence into zero evidence."
+        next_action="Trigger one protected action in the project, then regenerate the dashboard."
+      elif [[ -n "${verified_build}" && "${verified_build}" -gt 0 ]]; then
+        headline="A later build pass is recorded after VibeGuard stepped in."
+        body="$(dashboard_plural_count "${verified_build}" session) contains a strictly later post-build-check pass after a guardrail signal. This is a time-ordered association, not proof VibeGuard caused the result."
+        next_action="Keep observing the next intervention-to-pass sequence in this project."
+      elif [[ -n "${follow_up}" && "${follow_up}" -gt 0 ]]; then
+        headline="A follow-up pass is visible after VibeGuard stepped in."
+        body="The event stream shows a later ordinary pass in $(dashboard_plural_count "${follow_up}" session), but no later build-pass association is recorded here."
+        next_action="Run or observe a post-build check after the next follow-up."
+      elif [[ -n "${unresolved}" && "${unresolved}" -gt 0 ]]; then
+        headline="A guardrail signal still needs follow-up in $(dashboard_plural_count "${unresolved}" session)."
+        body="These sessions have no later ordinary pass recorded in the selected event window."
+        next_action="Inspect the unresolved sessions before drawing a conclusion."
+      elif [[ "${partial}" -eq 1 ]]; then
+        headline="Partial / unresolved local evidence."
+        body="Some guardrail signals or fields cannot support a complete sequence in this window."
+        next_action="Inspect the local event stream and observe the next intervention-to-pass sequence."
+      else
+        headline="No supported intervention-to-follow-up sequence is recorded yet."
+        body="The selected event stream is present, but it does not contain a supported first-win story in this window."
+        next_action="Use VibeGuard in the project and observe the next protected action."
+      fi
+
+      if [[ "${state}" != "missing" && "${state}" != "empty" && "${partial}" -eq 1 ]]; then
+        if [[ -n "${uncorrelatable}" && "${uncorrelatable}" -gt 0 ]]; then
+          body="${body} Evidence is partial: $(dashboard_plural_count "${uncorrelatable}" "guardrail signal") could not be correlated by session and timestamp."
+        else
+          body="${body} Evidence is partial: one or more required fields were unavailable."
+        fi
+      fi
+
+      if [[ -n "${duration_count}" && "${duration_count}" -gt 0 && -n "${duration_avg}" ]]; then
+        overhead="${duration_avg} ms"
+        overhead_note="Average observed hook duration across $(dashboard_plural_count "${duration_count}" event)"
+        if [[ -n "${duration_p95}" ]]; then
+          overhead_note="${overhead_note}; p95 ${duration_p95} ms."
+        else
+          overhead_note="${overhead_note}."
+        fi
+      elif [[ "${state}" == "missing" || "${state}" == "empty" ]]; then
+        overhead="No data"
+        overhead_note="No timing data in the selected source."
+      elif [[ "${duration_count}" == "0" ]]; then
+        overhead="No timing data"
+        overhead_note="The selected events did not include usable durations."
+      else
+        overhead="Unavailable"
+        overhead_note="Hook duration was not available in the observe-value JSON."
+      fi
+
+      estimated_reason="$(dashboard_json_field "${value_runtime}" "${value_clean}" value.estimated.reason)" || estimated_reason=""
+      if [[ -z "${estimated_reason}" ]]; then
+        estimated_reason="The local event stream does not provide causal, incident, savings, or compliance evidence."
+      fi
+      if [[ -n "${attention_events}" && -n "${attention_sessions}" ]]; then
+        friction_note="Observed $(dashboard_plural_count "${attention_events}" "attention event") across $(dashboard_plural_count "${attention_sessions}" session); these signals do not establish impact."
+      else
+        friction_note="These are observed friction signals, not outcome claims."
+      fi
+
+      local limitation limitations_raw index=0 limitation_items=""
+      limitations_raw="$(dashboard_json_field "${value_runtime}" "${value_clean}" value.limitations)" || limitations_raw=""
+      while limitation="$(dashboard_json_field "${value_runtime}" "${value_clean}" "value.limitations.${index}")"; do
+        if [[ -n "${limitation}" ]]; then
+          limitation_items="${limitation_items}<li>$(printf '%s' "${limitation}" | html_escape)</li>"
+        fi
+        index=$((index + 1))
+      done
+      if [[ -n "${limitation_items}" ]]; then
+        limitations_html="<ul class=\"limit-list\">${limitation_items}</ul>"
+      elif [[ -n "${limitations_raw}" && "${limitations_raw}" != "[]" ]]; then
+        limitations_html='<p class="muted">Limitations were reported but could not be rendered; inspect the raw observe-value output below.</p>'
+      fi
+
+      if [[ "${partial}" -eq 1 ]]; then
+        state_label="Partial / unresolved local evidence"
+      elif [[ "${state}" == "observed" ]]; then
+        state_label="Observed local evidence"
+      elif [[ "${state}" == "missing" ]]; then
+        state_label="Event source missing"
+      else
+        state_label="No local event data"
+      fi
+    fi
   fi
 
-  if \
-    DASHBOARD_TEMPLATE_PATH="${PLUGIN_DIR}/assets/dashboard-template.html" \
-    DASHBOARD_OUTPUT_PATH="${output_path}" \
-    DASHBOARD_REPO_DIR="${repo_dir}" \
-    DASHBOARD_GENERATED_AT="${generated_at}" \
-    DASHBOARD_SCOPE="${scope:-project}" \
-    DASHBOARD_PERIOD="${period_label}" \
-    DASHBOARD_STATUS_OUT="${status_clean}" \
-    DASHBOARD_STATS_OUT="${stats_clean}" \
-    DASHBOARD_HEALTH_OUT="${health_clean}" \
-    DASHBOARD_VALUE_OUT="${value_clean}" \
-    DASHBOARD_VALUE_STATUS="${value_status}" \
-    DASHBOARD_VALUE_RESOLUTION_STATUS="${value_resolution_status}" \
-    DASHBOARD_STATUS_COMMAND="${status_cmd}" \
-    DASHBOARD_STATS_COMMAND="${stats_cmd}" \
-    DASHBOARD_HEALTH_COMMAND="${health_cmd}" \
-    DASHBOARD_VALUE_COMMAND="${value_cmd}" \
-    python3 - <<'PY'
-import html
-import json
-import os
-import sys
-from pathlib import Path
-
-
-def escape(value):
-    return html.escape(str(value), quote=True)
-
-
-def count_value(section, key):
-    if not isinstance(section, dict):
-        return None
-    value = section.get(key)
-    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
-        return value
-    return None
-
-
-def count_text(value, state):
-    if state in {"missing", "empty"}:
-        return "No data"
-    if value is None:
-        return "Unavailable"
-    return str(value)
-
-
-def plural_count(value, noun):
-    return f"{value} {noun}" if value == 1 else f"{value} {noun}s"
-
-
-def diagnostic_list(items):
-    if not isinstance(items, list):
-        return '<p class="muted">No additional limitations were provided.</p>'
-    values = [escape(item) for item in items if isinstance(item, str) and item]
-    if not values:
-        return '<p class="muted">No additional limitations were provided.</p>'
-    return '<ul class="limit-list">' + ''.join(f"<li>{item}</li>" for item in values) + '</ul>'
-
-
-def metric_note(value, state, missing_text, zero_text, observed_text):
-    if state in {"missing", "empty"}:
-        return missing_text
-    if value is None:
-        return "This value was not available in the observe-value JSON."
-    if value == 0:
-        return zero_text
-    return observed_text
-
-
-def render_evidence():
-    raw = os.environ.get("DASHBOARD_VALUE_OUT", "")
-    try:
-        command_status = int(os.environ.get("DASHBOARD_VALUE_STATUS", "2"))
-    except ValueError:
-        command_status = 2
-    try:
-        resolution_status = int(os.environ.get("DASHBOARD_VALUE_RESOLUTION_STATUS", command_status))
-    except ValueError:
-        resolution_status = command_status
-
-    if command_status != 0:
-        return {
-            "state": "unavailable",
-            "state_label": "Evidence unavailable",
-            "headline": "Evidence command failed; no headline evidence was rendered." if resolution_status == 0 else "First-win evidence is unavailable.",
-            "body": "The selected runtime was available, but observe value --json did not complete successfully." if resolution_status == 0 else "The selected runtime could not provide observe value --json, so no headline evidence is shown.",
-            "next_action": "Check the escaped command output below, then update or build the VibeGuard runtime if needed." if resolution_status == 0 else "Update or build the VibeGuard runtime, then regenerate this dashboard.",
-            "verified_build": "Unavailable",
-            "verified_note": "No JSON evidence was available.",
-            "follow_up": "Unavailable",
-            "follow_note": "No JSON evidence was available.",
-            "unresolved": "Unavailable",
-            "unresolved_note": "No JSON evidence was available.",
-            "overhead": "Unavailable",
-            "overhead_note": "No JSON evidence was available.",
-            "repeated": "Unavailable",
-            "suppressions": "Unavailable",
-            "uncorrelatable": "Unavailable",
-            "friction_note": "Friction cannot be assessed until the JSON evidence command succeeds.",
-            "estimated_reason": "The evidence command did not produce usable output." if resolution_status == 0 else "The selected runtime does not support observe-value evidence.",
-            "limitations": diagnostic_list([]),
-            "raw": raw,
-        }
-
-    try:
-        payload = json.loads(raw)
-        value = payload["value"]
-        if not isinstance(payload, dict) or not isinstance(value, dict):
-            raise ValueError("observe value JSON does not contain an object value")
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
-        return {
-            "state": "unavailable",
-            "state_label": "Evidence unavailable",
-            "headline": "Evidence output could not be parsed; no headline evidence was rendered.",
-            "body": "The runtime returned output, but it was not the expected observe-value JSON envelope.",
-            "next_action": "Update or build the VibeGuard runtime, then regenerate this dashboard.",
-            "verified_build": "Unavailable",
-            "verified_note": "The JSON output could not be parsed.",
-            "follow_up": "Unavailable",
-            "follow_note": "The JSON output could not be parsed.",
-            "unresolved": "Unavailable",
-            "unresolved_note": "The JSON output could not be parsed.",
-            "overhead": "Unavailable",
-            "overhead_note": "The JSON output could not be parsed.",
-            "repeated": "Unavailable",
-            "suppressions": "Unavailable",
-            "uncorrelatable": "Unavailable",
-            "friction_note": "Friction cannot be assessed until the JSON evidence output is valid.",
-            "estimated_reason": f"The observe-value JSON could not be parsed ({error}).",
-            "limitations": diagnostic_list([]),
-            "raw": raw,
-        }
-
-    data_state = value.get("data_state")
-    state = data_state if isinstance(data_state, str) and data_state in {"missing", "empty", "observed"} else "partial"
-    verified = value.get("verified", {})
-    observed = value.get("observed", {})
-    verified_build = count_value(verified, "sessions_with_later_build_pass")
-    follow_up = count_value(observed, "sessions_with_later_follow_up_pass")
-    unresolved = count_value(observed, "sessions_without_later_follow_up_pass")
-    repeated = count_value(observed, "sessions_with_repeated_attention")
-    suppressions = count_value(observed, "suppression_events")
-    uncorrelatable = count_value(observed, "uncorrelatable_attention_events")
-    attention_events = count_value(observed, "attention_events")
-    attention_sessions = count_value(observed, "sessions_with_attention")
-    duration = observed.get("hook_duration_ms") if isinstance(observed, dict) else None
-    duration_count = count_value(duration, "count")
-    duration_avg = count_value(duration, "avg_ms")
-    duration_p95 = count_value(duration, "p95_ms")
-    partial = state == "partial" or any(
-        item is None for item in (verified_build, follow_up, unresolved, repeated, suppressions, uncorrelatable)
-    )
-    if uncorrelatable is not None and uncorrelatable > 0:
-        partial = True
-
-    if state in {"missing", "empty"}:
-        headline = "No local event data in the selected window."
-        body = "The dashboard keeps this state explicit; it does not turn an absent or empty source into zero evidence."
-        next_action = "Trigger one protected action in the project, then regenerate the dashboard."
-    elif verified_build is not None and verified_build > 0:
-        headline = "A later build pass is recorded after VibeGuard stepped in."
-        body = f"{plural_count(verified_build, 'session')} contains a strictly later post-build-check pass after a guardrail signal. This is a time-ordered association, not proof VibeGuard caused the result."
-        next_action = "Keep observing the next intervention-to-pass sequence in this project."
-    elif follow_up is not None and follow_up > 0:
-        headline = "A follow-up pass is visible after VibeGuard stepped in."
-        body = f"The event stream shows a later ordinary pass in {plural_count(follow_up, 'session')}, but no later build-pass association is recorded here."
-        next_action = "Run or observe a post-build check after the next follow-up."
-    elif unresolved is not None and unresolved > 0:
-        headline = f"A guardrail signal still needs follow-up in {plural_count(unresolved, 'session')}."
-        body = "These sessions have no later ordinary pass recorded in the selected event window."
-        next_action = "Inspect the unresolved sessions before drawing a conclusion."
-    elif partial:
-        headline = "Partial / unresolved local evidence."
-        body = "Some guardrail signals or fields cannot support a complete sequence in this window."
-        next_action = "Inspect the local event stream and observe the next intervention-to-pass sequence."
-    else:
-        headline = "No supported intervention-to-follow-up sequence is recorded yet."
-        body = "The selected event stream is present, but it does not contain a supported first-win story in this window."
-        next_action = "Use VibeGuard in the project and observe the next protected action."
-
-    if state not in {"missing", "empty"} and partial:
-        body += " Evidence is partial:"
-        if uncorrelatable is not None and uncorrelatable > 0:
-            body += f" {plural_count(uncorrelatable, 'guardrail signal')} could not be correlated by session and timestamp."
-        else:
-            body += " one or more required fields were unavailable."
-
-    if duration_count is not None and duration_count > 0 and duration_avg is not None:
-        overhead = f"{duration_avg} ms"
-        overhead_note = f"Average observed hook duration across {plural_count(duration_count, 'event')}"
-        if duration_p95 is not None:
-            overhead_note += f"; p95 {duration_p95} ms."
-        else:
-            overhead_note += "."
-    elif state in {"missing", "empty"}:
-        overhead = "No data"
-        overhead_note = "No timing data in the selected source."
-    elif duration_count == 0:
-        overhead = "No timing data"
-        overhead_note = "The selected events did not include usable durations."
-    else:
-        overhead = "Unavailable"
-        overhead_note = "Hook duration was not available in the observe-value JSON."
-
-    estimated = value.get("estimated", {})
-    estimated_reason = estimated.get("reason") if isinstance(estimated, dict) else None
-    if not isinstance(estimated_reason, str) or not estimated_reason:
-        estimated_reason = "The local event stream does not provide causal, incident, savings, or compliance evidence."
-    friction_note = "These are observed friction signals, not outcome claims."
-    if attention_events is not None and attention_sessions is not None:
-        friction_note = f"Observed {plural_count(attention_events, 'attention event')} across {plural_count(attention_sessions, 'session')}; these signals do not establish impact."
-
-    return {
-        "state": state,
-        "state_label": "Partial / unresolved local evidence" if partial else ("Observed local evidence" if state == "observed" else "No local event data"),
-        "headline": headline,
-        "body": body,
-        "next_action": next_action,
-        "verified_build": count_text(verified_build, state),
-        "verified_note": metric_note(verified_build, state, "The selected source has no usable events.", "No later build-pass association is recorded in this window.", "Strictly later post-build-check pass association(s) after a guardrail signal."),
-        "follow_up": count_text(follow_up, state),
-        "follow_note": metric_note(follow_up, state, "The selected source has no usable events.", "No later ordinary pass is recorded in this window.", "Later ordinary pass(es) observed after a guardrail signal."),
-        "unresolved": count_text(unresolved, state),
-        "unresolved_note": metric_note(unresolved, state, "The selected source has no usable events.", "No unresolved guardrail-signal session is recorded in this window.", "Guardrail-signal session(s) without a later ordinary pass."),
-        "overhead": overhead,
-        "overhead_note": overhead_note,
-        "repeated": count_text(repeated, state),
-        "suppressions": count_text(suppressions, state),
-        "uncorrelatable": count_text(uncorrelatable, state),
-        "friction_note": friction_note,
-        "estimated_reason": estimated_reason,
-        "limitations": diagnostic_list(value.get("limitations")),
-        "raw": raw,
-    }
-
-
-def main():
-    template_path = Path(os.environ["DASHBOARD_TEMPLATE_PATH"])
-    output_path = Path(os.environ["DASHBOARD_OUTPUT_PATH"])
-    template = template_path.read_text(encoding="utf-8")
-    evidence = render_evidence()
-    replacements = {
-        "REPO_DIR": escape(os.environ.get("DASHBOARD_REPO_DIR", "")),
-        "GENERATED_AT": escape(os.environ.get("DASHBOARD_GENERATED_AT", "")),
-        "SCOPE": escape(os.environ.get("DASHBOARD_SCOPE", "project")),
-        "PERIOD": escape(os.environ.get("DASHBOARD_PERIOD", "last 7 days")),
-        "DATA_STATE": escape(evidence["state"]),
-        "STATE_LABEL": escape(evidence["state_label"]),
-        "STORY_HEADLINE": escape(evidence["headline"]),
-        "STORY_BODY": escape(evidence["body"]),
-        "NEXT_ACTION": escape(evidence["next_action"]),
-        "VERIFIED_BUILD": escape(evidence["verified_build"]),
-        "VERIFIED_NOTE": escape(evidence["verified_note"]),
-        "FOLLOW_UP": escape(evidence["follow_up"]),
-        "FOLLOW_NOTE": escape(evidence["follow_note"]),
-        "UNRESOLVED": escape(evidence["unresolved"]),
-        "UNRESOLVED_NOTE": escape(evidence["unresolved_note"]),
-        "OVERHEAD": escape(evidence["overhead"]),
-        "OVERHEAD_NOTE": escape(evidence["overhead_note"]),
-        "REPEATED": escape(evidence["repeated"]),
-        "SUPPRESSIONS": escape(evidence["suppressions"]),
-        "UNCORRELATABLE": escape(evidence["uncorrelatable"]),
-        "FRICTION_NOTE": escape(evidence["friction_note"]),
-        "ESTIMATED_REASON": escape(evidence["estimated_reason"]),
-        "LIMITATIONS": evidence["limitations"],
-        "STATUS_OUT": escape(os.environ.get("DASHBOARD_STATUS_OUT", "")),
-        "STATS_OUT": escape(os.environ.get("DASHBOARD_STATS_OUT", "")),
-        "HEALTH_OUT": escape(os.environ.get("DASHBOARD_HEALTH_OUT", "")),
-        "VALUE_OUT": escape(evidence["raw"]),
-        "STATUS_COMMAND": escape(os.environ.get("DASHBOARD_STATUS_COMMAND", "")),
-        "STATS_COMMAND": escape(os.environ.get("DASHBOARD_STATS_COMMAND", "")),
-        "HEALTH_COMMAND": escape(os.environ.get("DASHBOARD_HEALTH_COMMAND", "")),
-        "VALUE_COMMAND": escape(os.environ.get("DASHBOARD_VALUE_COMMAND", "")),
-    }
-    for key, value in replacements.items():
-        template = template.replace("{{" + key + "}}", value)
-    if "{{" in template:
-        raise RuntimeError("dashboard template contains an unresolved placeholder")
-    output_path.write_text(template, encoding="utf-8")
-
-
-try:
-    main()
-except (OSError, RuntimeError, UnicodeError) as error:
-    sys.stderr.write(f"ERROR: could not generate dashboard: {error}\n")
-    raise SystemExit(1)
-PY
-  then
-    if ! chmod 600 "${output_path}"; then
-      printf 'ERROR: could not set private permissions on dashboard: %s\n' "${output_path}" >&2
-      return 1
-    fi
-    printf '%s\n' "${output_path}"
+  local unavailable_note="No JSON evidence was available."
+  if [[ "${parse_status}" -ne 0 ]]; then
+    unavailable_note="The JSON output could not be parsed."
+  fi
+  local verified_text follow_up_text unresolved_text repeated_text suppressions_text uncorrelatable_text
+  local verified_note follow_up_note unresolved_note
+  if [[ "${state}" == "unavailable" ]]; then
+    verified_text="Unavailable"
+    follow_up_text="Unavailable"
+    unresolved_text="Unavailable"
+    repeated_text="Unavailable"
+    suppressions_text="Unavailable"
+    uncorrelatable_text="Unavailable"
+    verified_note="${unavailable_note}"
+    follow_up_note="${unavailable_note}"
+    unresolved_note="${unavailable_note}"
   else
+    verified_text="$(dashboard_count_text "${verified_build}" "${state}")"
+    follow_up_text="$(dashboard_count_text "${follow_up}" "${state}")"
+    unresolved_text="$(dashboard_count_text "${unresolved}" "${state}")"
+    repeated_text="$(dashboard_count_text "${repeated}" "${state}")"
+    suppressions_text="$(dashboard_count_text "${suppressions}" "${state}")"
+    uncorrelatable_text="$(dashboard_count_text "${uncorrelatable}" "${state}")"
+    verified_note="$(dashboard_metric_note "${verified_build}" "${state}" "The selected source has no usable events." "No later build-pass association is recorded in this window." "Strictly later post-build-check pass association(s) after a guardrail signal.")"
+    follow_up_note="$(dashboard_metric_note "${follow_up}" "${state}" "The selected source has no usable events." "No later ordinary pass is recorded in this window." "Later ordinary pass(es) observed after a guardrail signal.")"
+    unresolved_note="$(dashboard_metric_note "${unresolved}" "${state}" "The selected source has no usable events." "No unresolved guardrail-signal session is recorded in this window." "Guardrail-signal session(s) without a later ordinary pass.")"
+  fi
+
+  if ! render_dashboard_template "${PLUGIN_DIR}/assets/dashboard-template.html" "${output_path}" \
+    REPO_DIR "$(printf '%s' "${repo_dir}" | html_escape)" \
+    GENERATED_AT "$(printf '%s' "${generated_at}" | html_escape)" \
+    SCOPE "$(printf '%s' "${scope:-project}" | html_escape)" \
+    PERIOD "$(printf '%s' "${period_label}" | html_escape)" \
+    DATA_STATE "$(printf '%s' "${state}" | html_escape)" \
+    STATE_LABEL "$(printf '%s' "${state_label}" | html_escape)" \
+    STORY_HEADLINE "$(printf '%s' "${headline}" | html_escape)" \
+    STORY_BODY "$(printf '%s' "${body}" | html_escape)" \
+    NEXT_ACTION "$(printf '%s' "${next_action}" | html_escape)" \
+    VERIFIED_BUILD "$(printf '%s' "${verified_text}" | html_escape)" \
+    VERIFIED_NOTE "$(printf '%s' "${verified_note}" | html_escape)" \
+    FOLLOW_UP "$(printf '%s' "${follow_up_text}" | html_escape)" \
+    FOLLOW_NOTE "$(printf '%s' "${follow_up_note}" | html_escape)" \
+    UNRESOLVED "$(printf '%s' "${unresolved_text}" | html_escape)" \
+    UNRESOLVED_NOTE "$(printf '%s' "${unresolved_note}" | html_escape)" \
+    OVERHEAD "$(printf '%s' "${overhead}" | html_escape)" \
+    OVERHEAD_NOTE "$(printf '%s' "${overhead_note}" | html_escape)" \
+    REPEATED "$(printf '%s' "${repeated_text}" | html_escape)" \
+    SUPPRESSIONS "$(printf '%s' "${suppressions_text}" | html_escape)" \
+    UNCORRELATABLE "$(printf '%s' "${uncorrelatable_text}" | html_escape)" \
+    FRICTION_NOTE "$(printf '%s' "${friction_note}" | html_escape)" \
+    ESTIMATED_REASON "$(printf '%s' "${estimated_reason}" | html_escape)" \
+    LIMITATIONS "${limitations_html}" \
+    STATUS_OUT "$(printf '%s' "${status_clean}" | html_escape)" \
+    STATS_OUT "$(printf '%s' "${stats_clean}" | html_escape)" \
+    HEALTH_OUT "$(printf '%s' "${health_clean}" | html_escape)" \
+    VALUE_OUT "$(printf '%s' "${value_clean}" | html_escape)" \
+    STATUS_COMMAND "$(printf '%s' "${status_cmd}" | html_escape)" \
+    STATS_COMMAND "$(printf '%s' "${stats_cmd}" | html_escape)" \
+    HEALTH_COMMAND "$(printf '%s' "${health_cmd}" | html_escape)" \
+    VALUE_COMMAND "$(printf '%s' "${value_cmd}" | html_escape)"; then
     printf 'ERROR: dashboard template generation failed\n' >&2
     return 1
   fi
+  if ! chmod 600 "${output_path}"; then
+    printf 'ERROR: could not set private permissions on dashboard: %s\n' "${output_path}" >&2
+    return 1
+  fi
+  printf '%s\n' "${output_path}"
 
   if [[ "${open_after}" -eq 1 ]]; then
     open_path "${output_path}"
