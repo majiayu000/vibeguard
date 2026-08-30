@@ -313,6 +313,73 @@ fn value_json_attention_summary_matches_value_semantics() {
 }
 
 #[test]
+fn value_attention_rate_uses_the_same_scoped_and_unscoped_population() {
+    let root = case_root("attention_rate_population");
+    let log = root.join("events.jsonl");
+    write_value_log(
+        &log,
+        concat!(
+            "{\"ts\":\"2099-01-01T00:00:01Z\",\"session\":\"s1\",\"decision\":\"warn\"}\n",
+            "{\"ts\":\"not-a-timestamp\",\"session\":\"s2\",\"decision\":\"warn\"}\n"
+        ),
+    );
+
+    let rendered = output_json(&run(
+        &root,
+        &[
+            "observe",
+            "value",
+            "--json",
+            "--days",
+            "7",
+            "--log-file",
+            &path_text(&log),
+        ],
+    ));
+    assert_eq!(rendered["event_count"], 1);
+    assert_eq!(rendered["attention"]["count"], 2);
+    assert_eq!(rendered["attention"]["rate"], 1.0);
+    assert_eq!(rendered["attention"]["percent"], 100.0);
+    assert_eq!(rendered["value"]["observed"]["attention_events"], 2);
+    fs::remove_dir_all(root).expect("case root should be removed");
+}
+
+#[test]
+fn value_rejects_diagnostic_passes_as_follow_up_evidence() {
+    let root = case_root("diagnostic_pass");
+    let log = root.join("events.jsonl");
+    write_value_log(
+        &log,
+        concat!(
+            "{\"ts\":\"2099-01-01T00:00:01Z\",\"session\":\"s1\",\"hook\":\"post-edit-guard\",\"decision\":\"warn\"}\n",
+            "{\"ts\":\"2099-01-01T00:00:02Z\",\"session\":\"s1\",\"hook\":\"post-build-check\",\"status\":\"timeout\",\"decision\":\"pass\"}\n"
+        ),
+    );
+
+    let rendered = output_json(&run(
+        &root,
+        &[
+            "observe",
+            "value",
+            "--json",
+            "--days",
+            "all",
+            "--log-file",
+            &path_text(&log),
+        ],
+    ));
+    assert_eq!(
+        rendered["value"]["observed"]["sessions_with_later_follow_up_pass"],
+        0
+    );
+    assert_eq!(
+        rendered["value"]["verified"]["sessions_with_later_build_pass"],
+        0
+    );
+    fs::remove_dir_all(root).expect("case root should be removed");
+}
+
+#[test]
 fn value_human_output_leads_with_boundary_and_has_no_success_headline() {
     let root = case_root("human");
     let log = root.join("events.jsonl");

@@ -81,7 +81,7 @@ impl ValueEvidence {
                 }
             }
 
-            if !is_ordinary_pass(event)
+            if !is_ordinary_pass(event, slow_ms)
                 || session.is_empty()
                 || session.eq_ignore_ascii_case(UNKNOWN)
             {
@@ -211,13 +211,13 @@ fn read_limitation(limit: usize) -> String {
     )
 }
 
-fn is_ordinary_pass(event: &Value) -> bool {
+fn is_ordinary_pass(event: &Value, slow_ms: u64) -> bool {
     if observe_normalized_decision(event) != decision::PASS {
         return false;
     }
-    let explicit_status = observe_string_field(event, field::STATUS).to_ascii_lowercase();
+    let normalized_status = observe_normalized_status(event, slow_ms);
     let reason = observe_string_field(event, field::REASON).to_ascii_lowercase();
-    explicit_status != status::SKIPPED
+    matches!(normalized_status.as_str(), status::PASS | status::SLOW)
         && !reason.starts_with("skip:")
         && !reason.starts_with("skipped:")
 }
@@ -245,10 +245,13 @@ pub(super) fn render(
     if options.json {
         let mut output = super::render::observe_summary_json(options, log_events, aggregate);
         let attention_count = evidence.attention_events as usize;
+        let attention_population = aggregate
+            .event_count
+            .saturating_add(unscoped_attention_events as usize);
         output["attention"] = json!({
             "count": evidence.attention_events,
-            "rate": super::render::observe_ratio(attention_count, aggregate.event_count),
-            "percent": super::render::observe_percentage(attention_count, aggregate.event_count),
+            "rate": super::render::observe_ratio(attention_count, attention_population),
+            "percent": super::render::observe_percentage(attention_count, attention_population),
         });
         output["value"] = evidence.to_json(data_state, &read_limitation);
         return Ok(format!("{}\n", serde_json::to_string_pretty(&output)?));
