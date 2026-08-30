@@ -65,6 +65,60 @@
         }
       }
     },
+    "churn": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "informational_edit_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000,
+          "default": 5,
+          "description": "Same-file edit count that starts informational churn guidance. Env override: VIBEGUARD_CHURN_INFORMATIONAL_EDIT_COUNT."
+        },
+        "warning_edit_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000,
+          "default": 10,
+          "description": "Same-file edit count that raises churn guidance to warning level. Env override: VIBEGUARD_CHURN_WARNING_EDIT_COUNT."
+        },
+        "critical_edit_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000,
+          "default": 20,
+          "description": "Same-file edit count that enables critical churn classification. Env override: VIBEGUARD_CHURN_CRITICAL_EDIT_COUNT."
+        },
+        "critical_build_failure_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000,
+          "default": 5,
+          "description": "Consecutive build failures needed with critical churn for escalation. Env override: VIBEGUARD_CHURN_CRITICAL_BUILD_FAILURE_COUNT."
+        }
+      }
+    },
+    "w15": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minimum_consecutive_edits": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 1000000,
+          "default": 3,
+          "description": "Minimum same-file edit trail, including the current edit, before W-15 evaluates only the latest three deltas. Env override: VIBEGUARD_W15_MINIMUM_CONSECUTIVE_EDITS."
+        },
+        "latest_delta_character_ceiling": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000,
+          "default": 300,
+          "description": "Largest latest change radius eligible for W-15 micro-tuning detection. Env override: VIBEGUARD_W15_LATEST_DELTA_CHARACTER_CEILING."
+        }
+      }
+    },
     "paralysis": {
       "type": "object",
       "additionalProperties": false,

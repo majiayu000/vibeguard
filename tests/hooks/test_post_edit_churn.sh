@@ -17,8 +17,9 @@ source hooks/log.sh
 source hooks/_lib/post_edit_common.sh
 source hooks/_lib/post_edit_history.sh
 
-FILE_PATH="$WORK_DIR/planned_refactor.tsx"
-touch "$FILE_PATH"
+# Keep repository-local paths relative when this worktree itself is under /tmp.
+FILE_PATH="${WORK_DIR#"$REPO_DIR"/}/planned_refactor.tsx"
+touch "$REPO_DIR/$FILE_PATH"
 
 append_event() {
   local hook="$1" tool="$2" decision="$3" reason="$4" detail="$5"
@@ -102,6 +103,8 @@ case "${1:-}" in
 esac
 STUB
 chmod +x "$summary_runtime"
+# Warm the new executable outside the hook's two-second runtime query budget.
+VG_STUB_RUNTIME_CALLS=/dev/null "$summary_runtime" warmup </dev/null >/dev/null
 
 old_runtime="$_VIBEGUARD_RUNTIME"
 _VIBEGUARD_RUNTIME="$summary_runtime"

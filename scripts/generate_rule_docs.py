@@ -70,7 +70,6 @@ def normalize_severity(raw: str) -> str:
         raise ValueError(f"Unknown severity {raw!r}")
     return mapping[value]
 
-
 def strip_markdown(text: str) -> str:
     text = text.replace("**", "").replace("__", "")
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
@@ -269,7 +268,6 @@ def make_table(headers: list[str], rows: list[list[str]]) -> str:
 
 def select_rules(rules: Iterable[Rule], predicate: Callable[[Rule], bool]) -> list[Rule]:
     return [rule for rule in rules if predicate(rule)]
-
 
 def prefix_of(rule_id: str) -> str:
     return rule_id.split("-", 1)[0]
@@ -549,9 +547,9 @@ Canonical source of truth: `rules/claude-rules/`
 
 Runtime values resolve from lowest to highest precedence: built-in default →
 `~/.vibeguard/config.json` → project `.vibeguard.json` → environment. The user
-and project files use the same JSON paths. Run
-`vibeguard-runtime config explain <json-path-or-env> --cwd <project>` to print
-the effective value and source layer.
+and project files use the same JSON paths. Use `config show`, `config init`,
+`config set`, and `config reset` for guided changes; `config explain
+<json-path-or-env> --cwd <project>` keeps its single-value explanation format.
 
 | JSON path | Supported environment override | Default |
 |-----------|--------------------------------|---------|
@@ -561,6 +559,12 @@ the effective value and source layer.
 | `circuit_breaker.cooldown_seconds` | `VG_CB_COOLDOWN` | `300` |
 | `circuit_breaker.lock_timeout_seconds` | `VG_CB_LOCK_TIMEOUT_SECONDS` | `5` |
 | `w14.cooldown_seconds` | `VIBEGUARD_W14_COOLDOWN_SECONDS` | `3600` |
+| `churn.informational_edit_count` | `VIBEGUARD_CHURN_INFORMATIONAL_EDIT_COUNT` | `5` |
+| `churn.warning_edit_count` | `VIBEGUARD_CHURN_WARNING_EDIT_COUNT` | `10` |
+| `churn.critical_edit_count` | `VIBEGUARD_CHURN_CRITICAL_EDIT_COUNT` | `20` |
+| `churn.critical_build_failure_count` | `VIBEGUARD_CHURN_CRITICAL_BUILD_FAILURE_COUNT` | `5` |
+| `w15.minimum_consecutive_edits` | `VIBEGUARD_W15_MINIMUM_CONSECUTIVE_EDITS` | `3` |
+| `w15.latest_delta_character_ceiling` | `VIBEGUARD_W15_LATEST_DELTA_CHARACTER_CEILING` | `300` |
 | `paralysis.threshold` | `VG_PARALYSIS_THRESHOLD` | `7` |
 | `write_mode` | `VIBEGUARD_WRITE_MODE` | `warn` |
 | `write_escalate_threshold` | `VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD` | `5` |

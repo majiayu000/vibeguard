@@ -54,6 +54,62 @@ fn run_post_edit_with(
     child.wait_with_output().unwrap()
 }
 
+fn run_post_edit_fast_with(
+    repo: &Path,
+    log_root: &Path,
+    log_file: &Path,
+    input: &str,
+    configure: impl FnOnce(&mut Command),
+) -> Output {
+    let mut command = post_edit_command(repo, log_root, log_file);
+    command
+        .args(["post-edit-fast-check", "800", "post-edit-session", "codex"])
+        .arg(log_file)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    configure(&mut command);
+    let mut child = command.spawn().unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+fn seed_post_edit_history(log_file: &Path, file_path: &str, deltas: &[i64]) {
+    let history = deltas
+        .iter()
+        .map(|delta| {
+            json!({
+                "session": "post-edit-session",
+                "hook": "post-edit-guard",
+                "tool": "Edit",
+                "decision": "pass",
+                "detail": format!("{file_path}||delta={delta}"),
+            })
+            .to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(log_file, format!("{history}\n")).unwrap();
+}
+
+fn clear_history_threshold_env(command: &mut Command) {
+    for name in [
+        "VIBEGUARD_CHURN_INFORMATIONAL_EDIT_COUNT",
+        "VIBEGUARD_CHURN_WARNING_EDIT_COUNT",
+        "VIBEGUARD_CHURN_CRITICAL_EDIT_COUNT",
+        "VIBEGUARD_CHURN_CRITICAL_BUILD_FAILURE_COUNT",
+        "VIBEGUARD_W15_MINIMUM_CONSECUTIVE_EDITS",
+        "VIBEGUARD_W15_LATEST_DELTA_CHARACTER_CEILING",
+    ] {
+        command.env_remove(name);
+    }
+}
+
 fn case_paths(label: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
     let root = unique_temp_dir(label);
     let repo = root.join("repo");
@@ -357,6 +413,233 @@ fn post_edit_warning_survives_log_failure_with_internal_error() {
     assert!(stdout.contains("VIBEGUARD quality warning"), "{stdout}");
     assert!(stdout.contains("[RS-03]"), "{stdout}");
     assert!(!log_file.exists());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_history_uses_configured_churn_thresholds() {
+    let (root, repo, log_root, log_file) = case_paths("post-edit-configured-churn");
+    let config = root.join("runtime-config.json");
+    fs::write(
+        &config,
+        json!({
+            "churn": {
+                "informational_edit_count": 4,
+                "warning_edit_count": 8,
+                "critical_edit_count": 16,
+                "critical_build_failure_count": 2
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    seed_post_edit_history(&log_file, "src/lib.rs", &[1, 1, 1, 1]);
+
+    let out = run_post_edit_with(
+        &repo,
+        &log_root,
+        &log_file,
+        &edit_input("src/lib.rs", "fn old() {}", "fn clean() {}"),
+        |command| {
+            clear_history_threshold_env(command);
+            command.env("VIBEGUARD_CONFIG_FILE", &config);
+        },
+    );
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("[CHURN]"), "{stdout}");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_fast_history_uses_environment_churn_threshold() {
+    let (root, repo, log_root, log_file) = case_paths("post-edit-fast-configured-churn");
+    let missing_config = root.join("missing-runtime-config.json");
+    seed_post_edit_history(&log_file, "src/lib.rs", &[1, 1, 1, 1]);
+    let other_event = json!({
+        "session": "post-edit-session",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "pass",
+        "detail": "src/other.rs||delta=1"
+    });
+    let mut history = fs::OpenOptions::new().append(true).open(&log_file).unwrap();
+    writeln!(history, "{other_event}").unwrap();
+
+    let out = run_post_edit_fast_with(
+        &repo,
+        &log_root,
+        &log_file,
+        &edit_input("src/lib.rs", "fn old() {}", "fn clean() {}"),
+        |command| {
+            clear_history_threshold_env(command);
+            command
+                .env("VIBEGUARD_CONFIG_FILE", &missing_config)
+                .env("VIBEGUARD_CHURN_INFORMATIONAL_EDIT_COUNT", "4");
+        },
+    );
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("FAST_OUTPUT"), "{stdout}");
+    assert!(stdout.contains("[CHURN]"), "{stdout}");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_paths_reject_conflicting_effective_churn_environment() {
+    for fast in [false, true] {
+        let label = if fast {
+            "post-edit-fast-conflicting-churn"
+        } else {
+            "post-edit-conflicting-churn"
+        };
+        let (root, repo, log_root, log_file) = case_paths(label);
+        let missing_config = root.join("missing-runtime-config.json");
+        let input = edit_input("src/lib.rs", "fn old() {}", "fn clean() {}");
+        let configure = |command: &mut Command| {
+            clear_history_threshold_env(command);
+            command
+                .env("VIBEGUARD_CONFIG_FILE", &missing_config)
+                .env("VIBEGUARD_CHURN_INFORMATIONAL_EDIT_COUNT", "11");
+        };
+        let output = if fast {
+            run_post_edit_fast_with(&repo, &log_root, &log_file, &input, configure)
+        } else {
+            run_post_edit_with(&repo, &log_root, &log_file, &input, configure)
+        };
+        assert_eq!(output.status.code(), Some(20), "{output:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("config_range_error"), "{stderr}");
+        assert!(output.stdout.is_empty(), "{output:?}");
+        let _ = fs::remove_dir_all(root);
+    }
+}
+
+#[test]
+fn post_edit_history_uses_configured_w15_minimum_and_delta_ceiling() {
+    let (root, repo, log_root, log_file) = case_paths("post-edit-configured-w15");
+    let missing_config = root.join("missing-runtime-config.json");
+
+    seed_post_edit_history(&log_file, "src/lib.rs", &[100, 80]);
+    let minimum_out = run_post_edit_with(
+        &repo,
+        &log_root,
+        &log_file,
+        &edit_input("src/lib.rs", "", &"x".repeat(40)),
+        |command| {
+            clear_history_threshold_env(command);
+            command
+                .env("VIBEGUARD_CONFIG_FILE", &missing_config)
+                .env("VIBEGUARD_W15_MINIMUM_CONSECUTIVE_EDITS", "4");
+        },
+    );
+    assert_eq!(minimum_out.status.code(), Some(0), "{minimum_out:?}");
+    assert!(!String::from_utf8_lossy(&minimum_out.stdout).contains("[W-15]"));
+
+    seed_post_edit_history(&log_file, "src/lib.rs", &[100, 80]);
+    let ceiling_out = run_post_edit_with(
+        &repo,
+        &log_root,
+        &log_file,
+        &edit_input("src/lib.rs", "", &"x".repeat(70)),
+        |command| {
+            clear_history_threshold_env(command);
+            command
+                .env("VIBEGUARD_CONFIG_FILE", &missing_config)
+                .env("VIBEGUARD_W15_LATEST_DELTA_CHARACTER_CEILING", "60");
+        },
+    );
+    assert_eq!(ceiling_out.status.code(), Some(0), "{ceiling_out:?}");
+    assert!(!String::from_utf8_lossy(&ceiling_out.stdout).contains("[W-15]"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_history_extended_w15_trail_uses_only_latest_three_deltas() {
+    let (root, repo, log_root, log_file) = case_paths("post-edit-extended-w15-trail");
+    let missing_config = root.join("missing-runtime-config.json");
+    let events = [
+        json!({
+            "session": "post-edit-session",
+            "hook": "post-edit-guard",
+            "tool": "Edit",
+            "decision": "pass",
+            "detail": "src/lib.rs"
+        }),
+        json!({
+            "session": "post-edit-session",
+            "hook": "post-edit-guard",
+            "tool": "Edit",
+            "decision": "pass",
+            "detail": "src/lib.rs"
+        }),
+        json!({
+            "session": "post-edit-session",
+            "hook": "post-edit-guard",
+            "tool": "Edit",
+            "decision": "pass",
+            "detail": "src/lib.rs||delta=100"
+        }),
+        json!({
+            "session": "post-edit-session",
+            "hook": "post-edit-guard",
+            "tool": "Edit",
+            "decision": "pass",
+            "detail": "src/lib.rs||delta=80"
+        }),
+    ];
+    let history = events
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(&log_file, format!("{history}\n")).expect("history should be written");
+
+    let output = run_post_edit_with(
+        &repo,
+        &log_root,
+        &log_file,
+        &edit_input("src/lib.rs", "", &"x".repeat(40)),
+        |command| {
+            clear_history_threshold_env(command);
+            command
+                .env("VIBEGUARD_CONFIG_FILE", &missing_config)
+                .env("VIBEGUARD_W15_MINIMUM_CONSECUTIVE_EDITS", "5");
+        },
+    );
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[W-15]"), "{stdout}");
+    assert!(stdout.contains("100→80→40"), "{stdout}");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_fast_history_uses_configured_w15_minimum_before_shell_fallback() {
+    let (root, repo, log_root, log_file) = case_paths("post-edit-fast-configured-w15");
+    let missing_config = root.join("missing-runtime-config.json");
+    seed_post_edit_history(&log_file, "src/lib.rs", &[100, 80]);
+
+    let out = run_post_edit_fast_with(
+        &repo,
+        &log_root,
+        &log_file,
+        &edit_input("src/lib.rs", "", &"x".repeat(70)),
+        |command| {
+            clear_history_threshold_env(command);
+            command
+                .env("VIBEGUARD_CONFIG_FILE", &missing_config)
+                .env("VIBEGUARD_W15_MINIMUM_CONSECUTIVE_EDITS", "4");
+        },
+    );
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("FAST_LOGGED"),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
     let _ = fs::remove_dir_all(root);
 }
 
