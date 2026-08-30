@@ -17,10 +17,24 @@
     "top_reason_codes",
     "duration_stats"
   ],
+  "oneOf": [
+    {
+      "not": { "required": ["value"] },
+      "properties": {
+        "command": { "enum": ["summary", "health", "session"] }
+      }
+    },
+    {
+      "required": ["value"],
+      "properties": {
+        "command": { "const": "value" }
+      }
+    }
+  ],
   "additionalProperties": false,
   "properties": {
     "schema_version": { "const": 1 },
-    "command": { "enum": ["summary", "health", "session"] },
+    "command": { "enum": ["summary", "health", "session", "value"] },
     "source": {
       "type": "object",
       "required": ["log_path", "scope", "period", "limit"],
@@ -93,6 +107,71 @@
     "recent_events": {
       "type": "array",
       "items": { "$ref": "#/$defs/event" }
+    },
+    "value": {
+      "type": "object",
+      "required": ["data_state", "verified", "observed", "estimated", "limitations"],
+      "additionalProperties": false,
+      "properties": {
+        "data_state": { "enum": ["observed", "empty", "missing"] },
+        "verified": {
+          "type": "object",
+          "required": ["sessions_with_later_build_pass", "definition"],
+          "additionalProperties": false,
+          "properties": {
+            "sessions_with_later_build_pass": { "type": "integer", "minimum": 0 },
+            "definition": { "type": "string", "minLength": 1 }
+          }
+        },
+        "observed": {
+          "type": "object",
+          "required": [
+            "attention_events",
+            "sessions_with_attention",
+            "sessions_with_later_follow_up_pass",
+            "sessions_without_later_follow_up_pass",
+            "sessions_with_repeated_attention",
+            "uncorrelatable_attention_events",
+            "suppression_events",
+            "hook_duration_ms"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "attention_events": { "type": "integer", "minimum": 0 },
+            "sessions_with_attention": { "type": "integer", "minimum": 0 },
+            "sessions_with_later_follow_up_pass": { "type": "integer", "minimum": 0 },
+            "sessions_without_later_follow_up_pass": { "type": "integer", "minimum": 0 },
+            "sessions_with_repeated_attention": { "type": "integer", "minimum": 0 },
+            "uncorrelatable_attention_events": { "type": "integer", "minimum": 0 },
+            "suppression_events": { "type": "integer", "minimum": 0 },
+            "hook_duration_ms": {
+              "type": "object",
+              "required": ["count", "total_ms", "avg_ms", "p95_ms"],
+              "additionalProperties": false,
+              "properties": {
+                "count": { "type": "integer", "minimum": 0 },
+                "total_ms": { "type": "integer", "minimum": 0 },
+                "avg_ms": { "type": "integer", "minimum": 0 },
+                "p95_ms": { "type": ["integer", "null"], "minimum": 0 }
+              }
+            }
+          }
+        },
+        "estimated": {
+          "type": "object",
+          "required": ["available", "reason"],
+          "additionalProperties": false,
+          "properties": {
+            "available": { "const": false },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
     }
   },
   "$defs": {

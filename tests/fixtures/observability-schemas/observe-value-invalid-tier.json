@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "command": "value",
+  "source": {
+    "log_path": "events.jsonl",
+    "scope": "project",
+    "period": "last 7 days",
+    "limit": 5000
+  },
+  "time_range": {
+    "first_ts": "",
+    "last_ts": ""
+  },
+  "event_count": 0,
+  "decision_counts": {},
+  "hook_counts": {},
+  "client_distribution": {},
+  "attention": {
+    "count": 0,
+    "rate": 0,
+    "percent": 0
+  },
+  "top_rule_ids": [],
+  "top_reason_codes": [],
+  "duration_stats": {
+    "count": 0,
+    "avg_ms": 0,
+    "min_ms": null,
+    "p95_ms": null,
+    "max_ms": null,
+    "slow_count": 0,
+    "slow_ms": 2000
+  },
+  "value": {
+    "data_state": "observed",
+    "verified": {
+      "sessions_with_later_build_pass": 1,
+      "definition": "valid"
+    },
+    "observed": {
+      "attention_events": 1,
+      "sessions_with_attention": 1,
+      "sessions_with_later_follow_up_pass": 1,
+      "sessions_without_later_follow_up_pass": 0,
+      "sessions_with_repeated_attention": 0,
+      "uncorrelatable_attention_events": 0,
+      "suppression_events": 0,
+      "hook_duration_ms": {
+        "count": 0,
+        "total_ms": 0,
+        "avg_ms": 0,
+        "p95_ms": null
+      }
+    },
+    "estimated": {
+      "available": "false",
+      "reason": "valid"
+    },
+    "limitations": ["valid"]
+  }
+}

@@ -52,9 +52,9 @@ Required event fields are:
 - `decision`
 - `status`
 
-Current rows may also include `event`, `matcher`, `reason`, `detail`, `duration_ms`,
-`elapsed_ms`, `timeout_ms`, `model_context`, `log_path`, `source`, and caller
-identity fields such as `cli`, `client`, and `wrapper`.
+Current rows may also include `record_id`, `event`, `matcher`, `reason`, `detail`,
+`duration_ms`, `elapsed_ms`, `timeout_ms`, `model_context`, `log_path`, `source`,
+and caller identity fields such as `cli`, `client`, and `wrapper`.
 
 Use this log for:
 
@@ -100,9 +100,34 @@ Use the smallest surface that answers the question.
 |---|---|
 | What happened in this project? | `vibeguard observe summary --limit all` |
 | What happened globally? | `vibeguard observe summary --scope global --limit all` |
+| What does the local event stream support? | `vibeguard observe value` |
 | Why did this session have friction? | `session-metrics.jsonl` and `correction_signals` |
 | Which hook is slow? | `vibeguard-runtime hook-status --mode full --slow-ms 2000` |
 | Did eval quality regress? | `python3 eval/run_behavior_eval.py --fail-on-threshold` and `python3 eval/summarize_runs.py` |
+
+### Bounded value view
+
+`vibeguard observe value` reports bounded evidence from the selected local event
+stream. It begins with an evidence boundary and separates `Verified`, `Observed`,
+and `Estimated/unavailable` output. `--json` retains the common observe envelope
+and adds a `value` object. The default window is the last seven days; use
+`--scope`, `--days` or `--hours`, and `--log-file` to select the source and
+window.
+
+Attention counts include only canonical `warn`, `block`, `gate`, `escalate`, and
+`correction` states. Slow or timeout diagnostics alone are not attention events.
+A later follow-up pass requires a non-empty session, parseable timestamps, and a
+strictly later ordinary pass in the same session. A later `post-build-check` pass
+is reported as verified build evidence, but remains an association rather than
+proof that VibeGuard caused the result. Skipped passes are excluded, equal or
+unparseable timestamps do not establish order, and uncorrelatable attention is
+counted visibly.
+
+The view reports observed suppression events and effective hook duration
+statistics when present. Estimated evidence is unavailable by default because
+the local event stream does not provide causal outcome or savings data. Missing
+logs and existing logs with no events in the selected window are distinct JSON
+`data_state` values.
 
 `docs/reference/codex-hook-status.md` documents the focused hook-status surface.
 `docs/reference/hook-latency-contract.md` documents the latency regression gate.

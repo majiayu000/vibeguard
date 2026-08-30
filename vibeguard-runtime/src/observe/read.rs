@@ -52,11 +52,14 @@ pub(super) fn event_passes_time_window(event: &Value, cutoff_secs: Option<u64>) 
     let Some(cutoff) = cutoff_secs else {
         return true;
     };
-    event
+    match event
         .get(field::TS)
         .and_then(Value::as_str)
         .and_then(parse_iso_ts)
-        .is_some_and(|ts| ts >= cutoff)
+    {
+        Some(timestamp) => timestamp >= cutoff,
+        None => false,
+    }
 }
 
 fn read_jsonl_file_limited(path: &Path, limit: usize) -> Result<Vec<Value>> {

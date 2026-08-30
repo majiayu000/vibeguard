@@ -157,7 +157,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "observe",
-        usage: "<summary|health|session|export prometheus> [options]  — query observability summaries or export low-cardinality metrics",
+        usage: "<summary|health|session|value|export prometheus> [options]  — query observability summaries or export low-cardinality metrics",
         handler: observe::run,
     },
     Command {

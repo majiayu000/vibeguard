@@ -196,6 +196,7 @@ export PATH="$HOME/.vibeguard/installed/bin:$PATH"
 vibeguard observe summary --limit all
 vibeguard observe health --limit all
 vibeguard observe summary --scope global --limit all
+vibeguard observe value
 vibeguard observe export prometheus
 bash ~/vibeguard/setup.sh doctor
 ```

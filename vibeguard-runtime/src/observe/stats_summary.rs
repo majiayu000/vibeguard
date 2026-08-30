@@ -107,7 +107,6 @@ pub(super) fn render_stats_summary(
     }
 
     append_daily_counts(&mut output, &log_events.events);
-    append_warn_compliance(&mut output, &log_events.events);
     append_file_type_distribution(&mut output, &log_events.events);
     append_time_distribution(&mut output, &log_events.events);
     append_performance_analysis(&mut output, &log_events.events);
@@ -132,58 +131,6 @@ fn append_daily_counts(output: &mut String, events: &[Value]) {
     {
         let bar = std::iter::repeat_n('\u{2588}', (*count).min(50) as usize).collect::<String>();
         output.push_str(&format!("  {day}  {bar} {count}\n"));
-    }
-}
-
-fn append_warn_compliance(output: &mut String, events: &[Value]) {
-    if !events
-        .iter()
-        .any(|event| observe_normalized_decision(event) == decision::WARN)
-    {
-        return;
-    }
-
-    let mut by_hook: BTreeMap<String, (u64, u64)> = BTreeMap::new();
-    for event in events {
-        let decision_value = observe_normalized_decision(event);
-        if !matches!(decision_value.as_str(), decision::WARN | decision::PASS) {
-            continue;
-        }
-        let hook = observe_string_field(event, field::HOOK);
-        let entry = by_hook.entry(hook).or_default();
-        if decision_value == decision::WARN {
-            entry.0 += 1;
-        } else {
-            entry.1 += 1;
-        }
-    }
-
-    output.push_str("\n== Warn compliance rate analysis ==\n");
-    let mut upgrade_candidates = Vec::new();
-    for (hook, (warn_count, pass_count)) in &by_hook {
-        if *warn_count == 0 {
-            continue;
-        }
-        let total = warn_count + pass_count;
-        let compliance = (*pass_count as f64 / total as f64) * 100.0;
-        let indicator = if compliance >= 80.0 { "OK" } else { "LOW" };
-        output.push_str(&format!(
-            " {hook}: warn={warn_count} pass={pass_count} compliance rate={compliance:.0}% [{indicator}]\n"
-        ));
-        if compliance < 50.0 && *warn_count >= 3 {
-            upgrade_candidates.push((hook.clone(), *warn_count, compliance));
-        }
-    }
-
-    if !upgrade_candidates.is_empty() {
-        output.push_str(
-            "\nIt is recommended to upgrade to block (compliance rate < 50% and warn >= 3 times):\n",
-        );
-        for (hook, count, rate) in upgrade_candidates {
-            output.push_str(&format!(
-                " {hook}: {count} times warn, compliance rate {rate:.0}%\n"
-            ));
-        }
     }
 }
 
@@ -268,20 +215,6 @@ fn append_performance_analysis(output: &mut String, events: &[Value]) {
     output.push_str(&format!(
         "Average warning rate per session: {:.1}%\n",
         warn_rate_sum / sessions.len() as f64
-    ));
-
-    let deterministic_checks = events
-        .iter()
-        .filter(|event| {
-            matches!(
-                observe_normalized_decision(event).as_str(),
-                decision::PASS | decision::BLOCK | decision::WARN
-            )
-        })
-        .count() as u64;
-    output.push_str(&format!(
-        "Deterministic node estimated savings: ~{} tokens\n",
-        stats_token_savings_label(deterministic_checks * 500)
     ));
 
     append_problem_sessions(output, &sessions);
@@ -376,16 +309,6 @@ fn stats_file_extension(detail: &str) -> Option<String> {
     None
 }
 
-fn stats_token_savings_label(tokens: u64) -> String {
-    if tokens >= 1_000_000 {
-        format!("{:.1}M", tokens as f64 / 1_000_000.0)
-    } else if tokens >= 1_000 {
-        format!("{}K", tokens / 1_000)
-    } else {
-        tokens.to_string()
-    }
-}
-
 fn stats_ts_prefix(event: &Value) -> String {
     let ts = observe_string_field(event, field::TS);
     if ts.is_empty() {
@@ -475,15 +398,15 @@ mod tests {
             Err(error) => panic!("stats summary should render: {error}"),
         };
 
-        assert!(output.contains("== Warn compliance rate analysis =="));
-        assert!(output.contains("pre-bash-guard: warn=1 pass=1 compliance rate=50% [LOW]"));
+        assert!(!output.contains("Warn compliance"));
+        assert!(!output.contains("upgrade to block"));
         assert!(output.contains("Distributed by file type:"));
         assert!(output.contains(".rs: 2 times"));
         assert!(output.contains("Distributed by time period:"));
         assert!(output.contains("working time (09-18): 2 times (50%)"));
         assert!(output.contains("== Performance analysis =="));
         assert!(output.contains("Average triggers per session: 2.0 times"));
-        assert!(output.contains("Deterministic node estimated savings: ~2K tokens"));
+        assert!(!output.contains("estimated savings"));
         assert!(output.contains("session-b: 2 issues / 2 triggers"));
     }
 

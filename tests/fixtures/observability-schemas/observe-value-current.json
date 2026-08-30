@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "command": "value",
+  "source": {
+    "log_path": "~/.vibeguard/events.jsonl",
+    "scope": "project",
+    "period": "last 7 days",
+    "limit": 5000
+  },
+  "time_range": {
+    "first_ts": "2026-08-24T00:00:00Z",
+    "last_ts": "2026-08-30T00:00:00Z"
+  },
+  "event_count": 3,
+  "decision_counts": {
+    "pass": 2,
+    "warn": 1
+  },
+  "block_counts": {
+    "total_blocks": 0,
+    "protocol_errors": 0,
+    "non_protocol_blocks": 0
+  },
+  "hook_counts": {
+    "post-build-check": 1,
+    "post-edit-guard": 2
+  },
+  "client_distribution": {
+    "codex": 3
+  },
+  "attention": {
+    "count": 1,
+    "rate": 0.333,
+    "percent": 33.3
+  },
+  "top_rule_ids": [],
+  "top_reason_codes": [],
+  "duration_stats": {
+    "count": 3,
+    "avg_ms": 20,
+    "min_ms": 10,
+    "p95_ms": 30,
+    "max_ms": 30,
+    "slow_count": 0,
+    "slow_ms": 2000
+  },
+  "value": {
+    "data_state": "observed",
+    "verified": {
+      "sessions_with_later_build_pass": 1,
+      "definition": "A strictly later ordinary pass from post-build-check in the same non-empty session after attention; this is an association, not proof VibeGuard caused the result."
+    },
+    "observed": {
+      "attention_events": 1,
+      "sessions_with_attention": 1,
+      "sessions_with_later_follow_up_pass": 1,
+      "sessions_without_later_follow_up_pass": 0,
+      "sessions_with_repeated_attention": 0,
+      "uncorrelatable_attention_events": 0,
+      "suppression_events": 0,
+      "hook_duration_ms": {
+        "count": 3,
+        "total_ms": 60,
+        "avg_ms": 20,
+        "p95_ms": 30
+      }
+    },
+    "estimated": {
+      "available": false,
+      "reason": "The local event stream has no causal, incident, token, time, or money outcome evidence for estimates."
+    },
+    "limitations": [
+      "Later passes and build checks are associations in the event stream, not proof VibeGuard caused the result.",
+      "Counts consider at most the configured 5000 most-recent parsed events from the selected scope, then apply the selected time window; earlier parsed events and events outside it are not considered."
+    ]
+  }
+}

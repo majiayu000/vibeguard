@@ -128,7 +128,7 @@ pub(super) fn observe_numeric_field(value: &Value, key: &str) -> Option<u64> {
         .and_then(|raw| raw.as_u64().or_else(|| raw.as_str()?.parse::<u64>().ok()))
 }
 
-fn observe_effective_duration_ms(event: &Value) -> Option<u64> {
+pub(super) fn observe_effective_duration_ms(event: &Value) -> Option<u64> {
     observe_numeric_field(event, field::DURATION_MS)
         .or_else(|| observe_numeric_field(event, field::ELAPSED_MS))
 }
@@ -165,7 +165,7 @@ pub(super) fn observe_normalized_decision(event: &Value) -> String {
     observe_string_field(event, field::STATUS).to_ascii_lowercase()
 }
 
-fn observe_normalized_status(event: &Value, slow_ms: u64) -> String {
+pub(super) fn observe_normalized_status(event: &Value, slow_ms: u64) -> String {
     let explicit = observe_string_field(event, field::STATUS).to_ascii_lowercase();
     if !explicit.is_empty() {
         return observe_canonical_status(&explicit);
@@ -235,7 +235,7 @@ fn observe_is_attention_or_diagnostic(event: &Value, slow_ms: u64) -> bool {
     observe_is_attention_state(event, slow_ms) || observe_is_diagnostic_event(event, slow_ms)
 }
 
-fn observe_diagnostic_kind(event: &Value, slow_ms: u64) -> &'static str {
+pub(super) fn observe_diagnostic_kind(event: &Value, slow_ms: u64) -> &'static str {
     let status_value = observe_normalized_status(event, slow_ms);
     let reason = observe_string_field(event, field::REASON).to_ascii_lowercase();
     if status_value == status::TIMEOUT || reason.contains("timeout") {
