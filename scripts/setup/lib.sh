@@ -115,7 +115,7 @@ setup_runtime_supports() {
     runtime-config-get-list \
     runtime-config-validate \
     latest-client-events; do
-    probe_out="$("${runtime}" "${command}" 2>&1 || true)"
+    probe_out="$("${runtime}" "${command}" </dev/null 2>&1 || true)"
     if printf '%s\n' "${probe_out}" | grep -q "Unknown command"; then
       return 1
     fi
