@@ -439,8 +439,8 @@ mkdir -p \
   "${PROTECTION_PROJECT_LOG}" \
   "${PROTECTION_OTHER_LOG}"
 for wrapper in run-hook.sh run-hook-codex.sh run-hook-gemini.sh; do
-  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
-    > "${PROTECTION_STATUS_HOME}/.vibeguard/${wrapper}"
+  cp "${REPO_DIR}/hooks/${wrapper}" \
+    "${PROTECTION_STATUS_HOME}/.vibeguard/${wrapper}"
   chmod +x "${PROTECTION_STATUS_HOME}/.vibeguard/${wrapper}"
 done
 printf '%s\n' '#!/usr/bin/env bash' '[[ "${1:-}" == "hooks" && "${2:-}" == "--help" ]]' \
@@ -451,6 +451,8 @@ printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
 chmod +x "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-bash-guard.sh"
 cp "${REPO_DIR}"/hooks/*.sh \
   "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/"
+cp -R "${REPO_DIR}/hooks/_lib" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/_lib"
 printf '%s\n' 'gemini-cli-hooks-v1' \
   > "${PROTECTION_STATUS_HOME}/.vibeguard/gemini-enabled"
 
@@ -532,6 +534,86 @@ assert_contains "${gemini_protected_out}" "Gemini CLI: PROTECTED" \
 assert_contains "${gemini_protected_out}" \
   "2026-08-31T01:02:00Z | pre-bash-guard | pass" \
   "protected Gemini status names its live evidence"
+
+cp "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh.canonical"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+  > "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh"
+chmod +x "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh"
+wrapper_drift_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${wrapper_drift_out}" "Claude Code: DEGRADED" \
+  "an executable no-op Claude wrapper cannot report protected"
+assert_contains "${wrapper_drift_out}" "Gemini CLI: DEGRADED" \
+  "Gemini cannot report protected through a drifted shared wrapper"
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh.canonical" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh"
+
+cp "${PROTECTION_STATUS_HOME}/.claude/settings.json" \
+  "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical"
+python3 - "${PROTECTION_STATUS_HOME}/.claude/settings.json" \
+  "${PROTECTION_STATUS_HOME}" <<'PY'
+import sys
+from pathlib import Path
+
+settings = Path(sys.argv[1])
+home = sys.argv[2]
+text = settings.read_text(encoding="utf-8")
+text = text.replace(
+    f"bash {home}/.vibeguard/run-hook.sh ",
+    f"bash {home}/.vibeguard/installed/hooks/",
+)
+settings.write_text(text, encoding="utf-8")
+PY
+direct_claude_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${direct_claude_out}" "Claude Code: DEGRADED" \
+  "direct Claude hook scripts cannot bypass the canonical wrapper verdict"
+mv "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical" \
+  "${PROTECTION_STATUS_HOME}/.claude/settings.json"
+
+cp "${PROTECTION_PROJECT_LOG}/events.jsonl" \
+  "${PROTECTION_PROJECT_LOG}/events.jsonl.valid"
+printf '%s\n' '{' >> "${PROTECTION_PROJECT_LOG}/events.jsonl"
+malformed_evidence_rc=0
+malformed_evidence_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || malformed_evidence_rc=$?
+assert_cmd "malformed project evidence fails protection status" \
+  test "${malformed_evidence_rc}" -ne 0
+assert_contains "${malformed_evidence_out}" "failed to read project event evidence" \
+  "malformed project evidence fails visibly"
+mv "${PROTECTION_PROJECT_LOG}/events.jsonl.valid" \
+  "${PROTECTION_PROJECT_LOG}/events.jsonl"
+
+rm -f "${PROTECTION_STATUS_HOME}/.vibeguard/gemini-enabled"
+gemini_marker_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${gemini_marker_out}" "Gemini CLI: DEGRADED" \
+  "active Gemini settings without ownership marker are degraded"
+assert_not_contains "${gemini_marker_out}" "Gemini CLI: UNPROTECTED" \
+  "active Gemini settings are still detected without the marker"
+printf '%s\n' 'gemini-cli-hooks-v1' \
+  > "${PROTECTION_STATUS_HOME}/.vibeguard/gemini-enabled"
 
 mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-write-guard.sh" \
   "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-write-guard.sh.missing"

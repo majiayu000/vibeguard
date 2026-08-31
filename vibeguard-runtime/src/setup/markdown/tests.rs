@@ -393,4 +393,26 @@ mod setup_markdown_tests {
         let command = "bash -x /tmp/workspace/.vibeguard/run-hook.sh pre-bash-guard.sh";
         assert!(!settings_is_canonical(command, "pre-bash-guard.sh"));
     }
+
+    #[test]
+    fn canonical_profile_rejects_direct_hook_scripts() -> SetupResult<()> {
+        let repo_dir = repo_dir()?;
+        let specs = claude_specs(repo_dir, Some("core"))?;
+        let mut data = serde_json::json!({"hooks": {}});
+        for spec in &specs {
+            settings_upsert_hook(&mut data, spec, true);
+        }
+        assert!(settings_has_canonical_profile_hooks(
+            repo_dir, &data, "core"
+        )?);
+        let command = data["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+            .as_str()
+            .ok_or("expected command")?
+            .replace(".vibeguard/run-hook.sh ", ".vibeguard/installed/hooks/");
+        data["hooks"]["PreToolUse"][0]["hooks"][0]["command"] = Value::String(command);
+        assert!(!settings_has_canonical_profile_hooks(
+            repo_dir, &data, "core"
+        )?);
+        Ok(())
+    }
 }

@@ -160,6 +160,13 @@ pub fn settings_check(args: &[String]) -> SetupResult<()> {
             }
             settings_has_profile_hooks(repo_dir, &data, profile)?
         }
+        target if target.starts_with("canonical-profile-hooks:") => {
+            let profile = &target["canonical-profile-hooks:".len()..];
+            if !matches!(profile, "minimal" | "core" | "full" | "strict") {
+                return Err(format!("unsupported profile target: {profile}").into());
+            }
+            settings_has_canonical_profile_hooks(repo_dir, &data, profile)?
+        }
         _ => false,
     };
     if ok {
@@ -381,6 +388,47 @@ fn settings_has_profile_hooks(repo_dir: &Path, data: &Value, profile: &str) -> S
         .keys()
         .all(|identity| desired_identities.contains(identity))
         && managed_counts.values().all(|count| *count == 1))
+}
+
+fn settings_has_canonical_profile_hooks(
+    repo_dir: &Path,
+    data: &Value,
+    profile: &str,
+) -> SetupResult<bool> {
+    let desired = claude_specs(repo_dir, Some(profile))?;
+    if !settings_has_profile_hooks(repo_dir, data, profile)? {
+        return Ok(false);
+    }
+    let wrapper = home_dir()
+        .unwrap_or_default()
+        .join(".vibeguard")
+        .join("run-hook.sh");
+    Ok(desired.iter().all(|spec| {
+        let desired_command = format!(
+            "bash {} {}",
+            shell_quote(&wrapper.display().to_string()),
+            shell_quote(&spec.script)
+        );
+        data.get("hooks")
+            .and_then(Value::as_object)
+            .and_then(|hooks| hooks.get(&spec.event))
+            .and_then(Value::as_array)
+            .is_some_and(|entries| {
+                entries.iter().any(|entry| {
+                    entry.get("matcher").and_then(Value::as_str).unwrap_or("") == spec.matcher
+                        && entry
+                            .get("hooks")
+                            .and_then(Value::as_array)
+                            .is_some_and(|hooks| {
+                                hooks.iter().any(|hook| {
+                                    hook.get("type").and_then(Value::as_str) == Some("command")
+                                        && hook.get("command").and_then(Value::as_str)
+                                            == Some(desired_command.as_str())
+                                })
+                            })
+                })
+            })
+    }))
 }
 
 fn settings_has_spec(data: &Value, spec: &ClaudeSpec) -> bool {

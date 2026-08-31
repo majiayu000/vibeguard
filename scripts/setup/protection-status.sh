@@ -104,19 +104,46 @@ if ! codex_profile_hooks="$(
 fi
 gemini_profile_hooks=$'pre-bash-guard.sh\npre-edit-guard.sh\npre-write-guard.sh'
 
+canonical_asset_problem() {
+  local actual="$1" canonical="$2" label="$3"
+  if [[ ! -f "${actual}" ]]; then
+    printf 'Required %s is missing: %s' "${label}" "${actual}"
+    return 10
+  fi
+  if ! cmp -s "${canonical}" "${actual}"; then
+    printf 'Required %s has drifted: %s' "${label}" "${actual}"
+    return 10
+  fi
+  return 0
+}
+
 hook_assets_problem() {
-  local host="$1" hooks="$2" hook source_path
+  local host="$1" hooks="$2" wrapper="$3" hook source_path canonical_path
+  canonical_asset_problem \
+    "${HOME}/.vibeguard/${wrapper}" "${REPO_DIR}/hooks/${wrapper}" "hook wrapper" || return $?
+  if [[ "${host}" == "gemini" ]]; then
+    canonical_asset_problem \
+      "${HOME}/.vibeguard/run-hook.sh" "${REPO_DIR}/hooks/run-hook.sh" \
+      "shared hook wrapper" || return $?
+  fi
   while IFS= read -r hook; do
     [[ -n "${hook}" ]] || continue
     case "${host}" in
       codex) source_path="$(_codex_source_path "hooks/${hook}")" ;;
       *) source_path="$(_claude_source_path "hooks/${hook}")" ;;
     esac
-    if [[ ! -f "${source_path}" ]]; then
-      printf 'Required hook asset is missing: %s' "${hook}"
-      return 10
-    fi
+    canonical_asset_problem \
+      "${source_path}" "${REPO_DIR}/hooks/${hook}" "hook asset" || return $?
   done <<< "${hooks}"
+  while IFS= read -r canonical_path; do
+    [[ -n "${canonical_path}" ]] || continue
+    hook="${canonical_path#"${REPO_DIR}/hooks/"}"
+    case "${host}" in
+      codex) source_path="$(_codex_source_path "hooks/${hook}")" ;;
+      *) source_path="$(_claude_source_path "hooks/${hook}")" ;;
+    esac
+    canonical_asset_problem "${source_path}" "${canonical_path}" "hook helper" || return $?
+  done < <(find "${REPO_DIR}/hooks/_lib" -type f -name '*.sh' -print)
   return 0
 }
 
@@ -170,8 +197,8 @@ hook_set_policy_problem() {
 }
 
 host_problem() {
-  local host="$1" hooks="$2" result status=0
-  result="$(hook_assets_problem "${host}" "${hooks}")" || status=$?
+  local host="$1" hooks="$2" wrapper="$3" result status=0
+  result="$(hook_assets_problem "${host}" "${hooks}" "${wrapper}")" || status=$?
   case "${status}" in
     0) ;;
     10) printf '%s' "${result}"; return 0 ;;
@@ -186,16 +213,16 @@ host_problem() {
   esac
 }
 
-if ! claude_problem="$(host_problem claude "${claude_profile_hooks}")" \
-  || ! codex_problem="$(host_problem codex "${codex_profile_hooks}")" \
-  || ! gemini_problem="$(host_problem gemini "${gemini_profile_hooks}")"; then
+if ! claude_problem="$(host_problem claude "${claude_profile_hooks}" run-hook.sh)" \
+  || ! codex_problem="$(host_problem codex "${codex_profile_hooks}" run-hook-codex.sh)" \
+  || ! gemini_problem="$(host_problem gemini "${gemini_profile_hooks}" run-hook-gemini.sh)"; then
   exit 2
 fi
 
 claude_enabled=0
 claude_configured=0
 claude_settings_canonical=0
-if settings_check "${SETTINGS_FILE}" "profile-hooks:${profile}"; then
+if settings_check "${SETTINGS_FILE}" "canonical-profile-hooks:${profile}"; then
   claude_settings_canonical=1
 fi
 if [[ -e "${HOME}/.vibeguard/run-hook.sh" ]] \
@@ -233,10 +260,14 @@ fi
 
 gemini_enabled=0
 gemini_configured=0
-if gemini_install_expected; then
+if gemini_install_expected \
+  || [[ -e "${GEMINI_WRAPPER}" ]] \
+  || { [[ -f "${GEMINI_SETTINGS_FILE}" ]] \
+    && grep -Fq 'run-hook-gemini.sh' "${GEMINI_SETTINGS_FILE}"; }; then
   gemini_enabled=1
 fi
 if [[ "${gemini_enabled}" -eq 1 ]] \
+  && [[ -f "${GEMINI_ENABLED_MARKER}" ]] \
   && [[ -x "${GEMINI_WRAPPER}" ]] \
   && [[ -x "${HOME}/.vibeguard/run-hook.sh" ]] \
   && [[ -f "$(_claude_source_path "hooks/pre-bash-guard.sh")" ]] \

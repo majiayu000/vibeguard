@@ -9,6 +9,19 @@ use crate::event_schema::{UNKNOWN, field};
 type ClientEvent = (String, String, String, String);
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
+fn read_events(
+    reader: impl BufRead,
+) -> std::result::Result<Vec<Value>, Box<dyn std::error::Error>> {
+    let mut events = Vec::new();
+    for (index, line) in reader.lines().enumerate() {
+        let line = line?;
+        let event = serde_json::from_str::<Value>(&line)
+            .map_err(|error| format!("invalid JSONL record at line {}: {error}", index + 1))?;
+        events.push(event);
+    }
+    Ok(events)
+}
+
 fn string_field<'a>(event: &'a Value, names: &[&str]) -> Option<&'a str> {
     names
         .iter()
@@ -57,13 +70,7 @@ pub fn run(args: &[String]) -> Result {
     }
 
     let stdin = io::stdin();
-    let mut events = Vec::new();
-    for line in stdin.lock().lines() {
-        let line = line?;
-        if let Ok(event) = serde_json::from_str::<Value>(&line) {
-            events.push(event);
-        }
-    }
+    let events = read_events(stdin.lock())?;
     for (client, ts, hook, outcome) in latest_client_events(&events) {
         println!(
             "{}\t{}\t{}\t{}",
@@ -115,5 +122,12 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn rejects_malformed_jsonl_records() {
+        let input = std::io::Cursor::new("{\"client\":\"claude\"}\n{\n");
+        let error = read_events(input).expect_err("malformed JSONL must fail");
+        assert!(error.to_string().contains("line 2"));
     }
 }
