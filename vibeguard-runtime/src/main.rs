@@ -121,6 +121,11 @@ static COMMANDS: &[Command] = &[
         handler: logging::query::paralysis_count,
     },
     Command {
+        name: "latest-client-events",
+        usage: "  — report the latest project event for each observed client",
+        handler: logging::client_events::run,
+    },
+    Command {
         name: "append-jsonl",
         usage: "<log-file>  — append one stdin JSONL line with runtime locking",
         handler: logging::append::run,

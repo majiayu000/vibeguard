@@ -59,6 +59,7 @@ scripts/setup/guard-packs.sh
 scripts/setup/install.sh
 scripts/setup/lib.sh
 scripts/setup/markdown-compat.sh
+scripts/setup/protection-status.sh
 scripts/setup/runtime-clean-pin.sh
 scripts/setup/runtime-install.sh
 scripts/setup/runtime_config_health.sh

@@ -25,6 +25,8 @@ STALE_RUNTIME_DIR=""
 SYSTEMD_CHECK_HOME=""
 INVALID_DISABLED_SKILLS_HOME=""
 INVALID_QUARANTINE_STATE_HOME=""
+PROTECTION_STATUS_HOME=""
+PROTECTION_EMPTY_HOME=""
 
 cleanup() {
   if [[ -n "${AWK_PORTABILITY_FIXTURE}" ]]; then
@@ -59,6 +61,12 @@ cleanup() {
   fi
   if [[ -n "${INVALID_QUARANTINE_STATE_HOME}" ]]; then
     rm -rf "${INVALID_QUARANTINE_STATE_HOME}"
+  fi
+  if [[ -n "${PROTECTION_STATUS_HOME}" ]]; then
+    rm -rf "${PROTECTION_STATUS_HOME}"
+  fi
+  if [[ -n "${PROTECTION_EMPTY_HOME}" ]]; then
+    rm -rf "${PROTECTION_EMPTY_HOME}"
   fi
 }
 trap cleanup EXIT
@@ -413,7 +421,137 @@ assert_eq "$top_help_rc" "0" "setup --help: exit 0"
 assert_contains "$top_help_out" "doctor" "setup --help: documents doctor"
 assert_contains "$top_help_out" "verify-install" "setup --help: documents verify-install"
 assert_contains "$top_help_out" "verify-project --json" "setup --help: documents JSON verify route"
+assert_contains "$top_help_out" "protection-status" "setup --help: documents truthful protection status"
 assert_contains "$top_help_out" "setup.sh --check --install  -> bash setup.sh verify-install" "setup --help: documents install migration"
+
+header "truthful protection status"
+PROTECTION_STATUS_HOME="$(mktemp -d)"
+PROTECTION_BIN="${PROTECTION_STATUS_HOME}/bin"
+PROTECTION_LOG_ROOT="${PROTECTION_STATUS_HOME}/logs"
+PROTECTION_PROJECT_LOG="${PROTECTION_LOG_ROOT}/projects/current-project"
+PROTECTION_OTHER_LOG="${PROTECTION_LOG_ROOT}/projects/other-project"
+mkdir -p \
+  "${PROTECTION_STATUS_HOME}/.claude" \
+  "${PROTECTION_STATUS_HOME}/.codex" \
+  "${PROTECTION_STATUS_HOME}/.gemini" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks" \
+  "${PROTECTION_BIN}" \
+  "${PROTECTION_PROJECT_LOG}" \
+  "${PROTECTION_OTHER_LOG}"
+for wrapper in run-hook.sh run-hook-codex.sh run-hook-gemini.sh; do
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+    > "${PROTECTION_STATUS_HOME}/.vibeguard/${wrapper}"
+  chmod +x "${PROTECTION_STATUS_HOME}/.vibeguard/${wrapper}"
+done
+printf '%s\n' '#!/usr/bin/env bash' '[[ "${1:-}" == "hooks" && "${2:-}" == "--help" ]]' \
+  > "${PROTECTION_BIN}/gemini"
+chmod +x "${PROTECTION_BIN}/gemini"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+  > "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+chmod +x "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+printf '%s\n' 'gemini-cli-hooks-v1' \
+  > "${PROTECTION_STATUS_HOME}/.vibeguard/gemini-enabled"
+
+HOME="${PROTECTION_STATUS_HOME}" "${CURRENT_SETUP_RUNTIME}" \
+  setup-settings-upsert "${REPO_DIR}" \
+  "${PROTECTION_STATUS_HOME}/.claude/settings.json" core >/dev/null
+HOME="${PROTECTION_STATUS_HOME}" "${CURRENT_SETUP_RUNTIME}" \
+  setup-codex-hooks-upsert "${REPO_DIR}" \
+  "${PROTECTION_STATUS_HOME}/.codex/hooks.json" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook-codex.sh" core >/dev/null
+HOME="${PROTECTION_STATUS_HOME}" "${CURRENT_SETUP_RUNTIME}" \
+  setup-codex-config-enable-hooks \
+  "${PROTECTION_STATUS_HOME}/.codex/config.toml" >/dev/null
+HOME="${PROTECTION_STATUS_HOME}" "${CURRENT_SETUP_RUNTIME}" \
+  setup-gemini-hooks-upsert \
+  "${PROTECTION_STATUS_HOME}/.gemini/settings.json" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook-gemini.sh" >/dev/null
+
+printf '%s' "${REPO_DIR}" > "${PROTECTION_PROJECT_LOG}/.project-root"
+printf '%s' "${PROTECTION_STATUS_HOME}/other-repo" \
+  > "${PROTECTION_OTHER_LOG}/.project-root"
+cat > "${PROTECTION_PROJECT_LOG}/events.jsonl" <<'JSONL'
+{"ts":"2026-08-31T01:00:00Z","client":"claude","hook":"pre-bash-guard","decision":"pass"}
+{"ts":"2026-08-31T01:01:00Z","client":"codex","hook":"pre-write-guard","decision":"block"}
+JSONL
+cat > "${PROTECTION_OTHER_LOG}/events.jsonl" <<'JSONL'
+{"ts":"2030-01-01T00:00:00Z","client":"gemini","hook":"pre-bash-guard","decision":"pass"}
+JSONL
+
+protection_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${protection_out}" "Project: ${REPO_DIR}" \
+  "protection status names the checked project"
+assert_contains "${protection_out}" "Claude Code: PROTECTED" \
+  "Claude requires canonical config and current-project evidence"
+assert_contains "${protection_out}" "Codex CLI: PROTECTED" \
+  "Codex requires canonical config and current-project evidence"
+assert_contains "${protection_out}" "Gemini CLI: DEGRADED" \
+  "Gemini config without current-project evidence is degraded"
+assert_contains "${protection_out}" \
+  "No Gemini CLI hook event has been observed for this project" \
+  "degraded Gemini status explains the missing evidence"
+assert_not_contains "${protection_out}" "2030-01-01T00:00:00Z" \
+  "protection status never substitutes another project's event"
+
+printf '%s\n' \
+  '{"ts":"2026-08-31T01:02:00Z","client":"gemini","hook":"pre-bash-guard","decision":"pass"}' \
+  >> "${PROTECTION_PROJECT_LOG}/events.jsonl"
+gemini_protected_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${gemini_protected_out}" "Gemini CLI: PROTECTED" \
+  "Gemini becomes protected only after current-project evidence"
+assert_contains "${gemini_protected_out}" \
+  "2026-08-31T01:02:00Z | pre-bash-guard | pass" \
+  "protected Gemini status names its live evidence"
+
+printf '%s\n' '[features]' 'hooks = false' \
+  > "${PROTECTION_STATUS_HOME}/.codex/config.toml"
+codex_degraded_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${codex_degraded_out}" "Codex CLI: DEGRADED" \
+  "Codex historical evidence cannot hide current configuration drift"
+assert_contains "${codex_degraded_out}" \
+  "The installed integration is incomplete or non-canonical" \
+  "degraded Codex status explains configuration drift"
+
+PROTECTION_EMPTY_HOME="$(mktemp -d)"
+mkdir -p \
+  "${PROTECTION_EMPTY_HOME}/.claude" \
+  "${PROTECTION_EMPTY_HOME}/.codex" \
+  "${PROTECTION_EMPTY_HOME}/.gemini"
+printf '%s\n' '{}' > "${PROTECTION_EMPTY_HOME}/.claude/settings.json"
+printf '%s\n' 'model = "gpt-5"' > "${PROTECTION_EMPTY_HOME}/.codex/config.toml"
+printf '%s\n' '{}' > "${PROTECTION_EMPTY_HOME}/.gemini/settings.json"
+empty_protection_out="$(
+  HOME="${PROTECTION_EMPTY_HOME}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_EMPTY_HOME}/logs" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${empty_protection_out}" "Claude Code: UNPROTECTED" \
+  "missing Claude integration is unprotected"
+assert_contains "${empty_protection_out}" "Codex CLI: UNPROTECTED" \
+  "missing Codex integration is unprotected"
+assert_contains "${empty_protection_out}" "Gemini CLI: UNPROTECTED" \
+  "disabled Gemini integration is unprotected"
+assert_contains "${empty_protection_out}" "bash setup.sh --yes --host gemini" \
+  "unprotected Gemini status gives one exact install action"
 
 # Help should exit 0 and print usage.
 help_out="$(bash "${SETUP_SCRIPT}" --check --help 2>&1)"

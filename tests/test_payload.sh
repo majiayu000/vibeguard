@@ -50,6 +50,7 @@ grep -qx 'vibeguard-runtime/VERSION' "${MANIFEST}" || rc=1
 grep -qx 'hooks' "${MANIFEST}" || rc=1
 grep -qx 'rules' "${MANIFEST}" || rc=1
 grep -qx 'scripts/setup/install.sh' "${MANIFEST}" || rc=1
+grep -qx 'scripts/setup/protection-status.sh' "${MANIFEST}" || rc=1
 grep -qx 'scripts/setup/bootstrap.sh' "${MANIFEST}" || rc=1
 grep -qx 'scripts/setup/bootstrap-lib.sh' "${MANIFEST}" || rc=1
 grep -qx 'scripts/lib/install-state.sh' "${MANIFEST}" || rc=1
