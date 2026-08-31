@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # VibeGuard setup regression testing
 #
-# Usage: bash tests/test_setup.sh [--shard full|bootstrap|install|protection|profile]
+# Usage: bash tests/test_setup.sh [--shard quick|full|bootstrap|install|protection|profile]
 
 set -euo pipefail
 
@@ -14,30 +14,30 @@ PROJECT_CONFIG_HELPER="${REPO_DIR}/scripts/lib/project_config_validate.py"
 CHAT_CONTRACT_ANCHOR="Compact Chat Contract: progress updates, concise answers, plain formatting."
 CODEX_CONFIG_HELPER="${REPO_DIR}/scripts/lib/codex_config_toml.py"
 
-SETUP_SHARD="full"
+SETUP_SHARD="quick"
 case "${1:-}" in
   "") ;;
   --shard)
     [[ $# -eq 2 ]] || {
-      printf 'Usage: bash tests/test_setup.sh [--shard full|bootstrap|install|protection|profile]\n' >&2
+      printf 'Usage: bash tests/test_setup.sh [--shard quick|full|bootstrap|install|protection|profile]\n' >&2
       exit 2
     }
     SETUP_SHARD="$2"
     ;;
   --shard=*)
     [[ $# -eq 1 ]] || {
-      printf 'Usage: bash tests/test_setup.sh [--shard full|bootstrap|install|protection|profile]\n' >&2
+      printf 'Usage: bash tests/test_setup.sh [--shard quick|full|bootstrap|install|protection|profile]\n' >&2
       exit 2
     }
     SETUP_SHARD="${1#--shard=}"
     ;;
   *)
-    printf 'Usage: bash tests/test_setup.sh [--shard full|bootstrap|install|protection|profile]\n' >&2
+    printf 'Usage: bash tests/test_setup.sh [--shard quick|full|bootstrap|install|protection|profile]\n' >&2
     exit 2
     ;;
 esac
 case "${SETUP_SHARD}" in
-  full|bootstrap|install|protection|profile) ;;
+  quick|full|bootstrap|install|protection|profile) ;;
   *)
     printf 'Unknown setup test shard: %s\n' "${SETUP_SHARD}" >&2
     exit 2
@@ -806,6 +806,12 @@ JSON
 
 setup_tests=()
 case "${SETUP_SHARD}" in
+  quick)
+    setup_tests=(
+      "${REPO_DIR}/tests/setup/syntax_manifest_tests.sh"
+      "${REPO_DIR}/tests/setup/workflow_skill_lifecycle_tests.sh"
+    )
+    ;;
   full)
     setup_tests=(
       "${REPO_DIR}/tests/setup/syntax_manifest_tests.sh"

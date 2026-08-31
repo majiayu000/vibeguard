@@ -15,13 +15,32 @@ VIBEGUARD_SETUP_DRY_RUN="${VIBEGUARD_SETUP_DRY_RUN:-0}"
 VIBEGUARD_SETUP_AUTO="${VIBEGUARD_SETUP_AUTO:-0}"
 VIBEGUARD_SETUP_FORCE_OVERWRITE="${VIBEGUARD_SETUP_FORCE_OVERWRITE:-0}"
 SETUP_RUNTIME_RELEASE_MANIFEST="vibeguard-runtime-releases.json"
+_VG_SETUP_RUNTIME_CACHE=""
+_VG_SETUP_RUNTIME_CACHE_KEY=""
 
 green() { printf '\033[32m%s\033[0m\n' "$1"; }
 yellow() { printf '\033[33m%s\033[0m\n' "$1"; }
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
 
+setup_runtime_cache_key() {
+  printf '%s\n' "${VIBEGUARD_SETUP_RUNTIME:-}|${_INSTALL_TMP:-}|${HOME:-}|${PATH}|${REPO_DIR}|${VIBEGUARD_SETUP_RUNTIME_VERSION:-}|${VIBEGUARD_SETUP_SKIP_REPO_RUNTIME:-0}"
+}
+
+setup_runtime_cache_clear() {
+  _VG_SETUP_RUNTIME_CACHE=""
+  _VG_SETUP_RUNTIME_CACHE_KEY=""
+}
+
 setup_runtime_path() {
-  local candidate
+  local candidate cache_key
+  cache_key="$(setup_runtime_cache_key)"
+  if [[ -n "${_VG_SETUP_RUNTIME_CACHE}" \
+    && "${_VG_SETUP_RUNTIME_CACHE_KEY}" == "${cache_key}" \
+    && -x "${_VG_SETUP_RUNTIME_CACHE}" ]]; then
+    printf '%s\n' "${_VG_SETUP_RUNTIME_CACHE}"
+    return 0
+  fi
+  setup_runtime_cache_clear
   for candidate in \
     "${VIBEGUARD_SETUP_RUNTIME:-}" \
     "${_INSTALL_TMP:-}/bin/vibeguard-runtime" \
@@ -36,12 +55,16 @@ setup_runtime_path() {
     fi
     if [[ "${candidate}" == */* ]]; then
       if [[ -x "${candidate}" ]] && setup_runtime_supports "${candidate}"; then
+        _VG_SETUP_RUNTIME_CACHE="${candidate}"
+        _VG_SETUP_RUNTIME_CACHE_KEY="${cache_key}"
         printf '%s\n' "${candidate}"
         return 0
       fi
     elif command -v "${candidate}" >/dev/null 2>&1; then
       candidate="$(command -v "${candidate}")"
       if setup_runtime_supports "${candidate}"; then
+        _VG_SETUP_RUNTIME_CACHE="${candidate}"
+        _VG_SETUP_RUNTIME_CACHE_KEY="${cache_key}"
         printf '%s\n' "${candidate}"
         return 0
       fi
@@ -75,57 +98,24 @@ setup_runtime_version_matches() {
 }
 
 setup_runtime_supports() {
-  local runtime="$1" capability_out probe_state="${TMPDIR:-/tmp}/vibeguard-runtime-probe.$$.json"
+  local runtime="$1" capability_out
   capability_out="$("${runtime}" setup-state-capabilities 2>/dev/null)" || return 1
   [[ "${capability_out}" == "complete-snapshot-v2" ]] || return 1
-  "${runtime}" setup-state-list-symlinks-under "${probe_state}" "${TMPDIR:-/tmp}" >/dev/null 2>&1 || return 1
-  setup_runtime_version_matches "${runtime}" || return 1
-
-  local command probe_out
-  for command in \
-    version \
-    setup-manifest-skill-links \
-    setup-md-remove \
-    setup-settings-check \
-    setup-settings-check-stale \
-    setup-codex-config-check-hooks \
-    setup-codex-hooks-upsert \
-    setup-codex-hooks-check \
-    setup-codex-hooks-check-stale \
-    setup-codex-hooks-prune-stale-unmanaged \
-    setup-codex-hooks-check-timeouts \
-    setup-gemini-hooks-upsert \
-    setup-gemini-hooks-check \
-    setup-gemini-hooks-remove \
-    setup-state-init \
-    setup-state-list-tracked-under \
-    setup-state-verify-managed-tree \
-    setup-state-quarantine-managed-tree \
-    setup-state-remove-managed-tree \
-    setup-state-quarantine-count \
-    setup-state-validate-managed-tree-transactions \
-    setup-state-release-quarantined-tree \
-    setup-state-generation \
-    setup-state-mark-complete \
-    setup-lock-acquire \
-    setup-lock-publish-owner \
-    setup-lock-release \
-    runtime-config-get-list \
-    runtime-config-validate; do
-    probe_out="$("${runtime}" "${command}" 2>&1 || true)"
-    if printf '%s\n' "${probe_out}" | grep -q "Unknown command"; then
-      return 1
-    fi
-  done
-  return 0
+  setup_runtime_version_matches "${runtime}"
 }
 
 setup_runtime() {
-  local runtime
-  runtime="$(setup_runtime_path)" || {
-    red "  ERROR: vibeguard-runtime not found; run setup with --build-from-source or install a release binary." >&2
-    return 127
-  }
+  local runtime cache_key
+  cache_key="$(setup_runtime_cache_key)"
+  if [[ -z "${_VG_SETUP_RUNTIME_CACHE}" \
+    || "${_VG_SETUP_RUNTIME_CACHE_KEY}" != "${cache_key}" \
+    || ! -x "${_VG_SETUP_RUNTIME_CACHE}" ]]; then
+    setup_runtime_path >/dev/null || {
+      red "  ERROR: vibeguard-runtime not found; run setup with --build-from-source or install a release binary." >&2
+      return 127
+    }
+  fi
+  runtime="${_VG_SETUP_RUNTIME_CACHE}"
   "${runtime}" "$@"
 }
 
