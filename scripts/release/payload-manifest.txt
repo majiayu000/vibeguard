@@ -36,6 +36,7 @@ scripts/lib/guard_packs.py
 scripts/lib/hook_config_model.py
 scripts/lib/hooks_manifest.py
 scripts/lib/install-state.sh
+scripts/lib/log_scope.sh
 scripts/lib/project_config.sh
 scripts/lib/runtime.sh
 scripts/lib/settings_json.py

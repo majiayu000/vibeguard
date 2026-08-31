@@ -446,6 +446,11 @@ static COMMANDS: &[Command] = &[
         handler: setup::markdown::settings_check_stale,
     },
     Command {
+        name: "setup-claude-profile-hook-scripts",
+        usage: "<repo-dir> <profile>  — list Claude hook scripts required by a profile",
+        handler: setup::markdown::profile_hook_scripts,
+    },
+    Command {
         name: "setup-state-capabilities",
         usage: "— report the versioned install-state capability contract",
         handler: setup::install_state::capabilities,
@@ -574,6 +579,11 @@ static COMMANDS: &[Command] = &[
         name: "setup-codex-hooks-count",
         usage: "<hooks-file>  — count Codex hook entries",
         handler: setup::codex_hooks::codex_hooks_count,
+    },
+    Command {
+        name: "setup-codex-profile-hook-scripts",
+        usage: "<repo-dir> <profile>  — list Codex hook scripts required by a profile",
+        handler: setup::codex_hooks::profile_hook_scripts,
     },
     Command {
         name: "setup-codex-hooks-check-stale",

@@ -12,6 +12,8 @@ source "${SCRIPT_DIR}/targets/claude-home.sh"
 source "${SCRIPT_DIR}/targets/codex-home.sh"
 # shellcheck source=targets/gemini-home.sh
 source "${SCRIPT_DIR}/targets/gemini-home.sh"
+# shellcheck source=../lib/log_scope.sh
+source "${SCRIPT_DIR}/../lib/log_scope.sh"
 
 usage() {
   cat <<'USAGE'
@@ -55,27 +57,9 @@ if ! profile="$(state_installed_profile)"; then
 fi
 export PROFILE="${profile}"
 
-find_project_event_file() {
+resolve_project_event_file() {
   local log_root="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
-  local marker mapped_root mapped_root_abs
-  local -a markers=()
-  shopt -s nullglob
-  markers=("${log_root}"/projects/*/.project-root)
-  shopt -u nullglob
-  for marker in "${markers[@]}"; do
-    if [[ ! -r "${marker}" ]]; then
-      printf 'ERROR: project log marker is unreadable: %s\n' "${marker}" >&2
-      return 2
-    fi
-    mapped_root="$(<"${marker}")"
-    [[ -n "${mapped_root}" && -d "${mapped_root}" ]] || continue
-    mapped_root_abs="$(cd "${mapped_root}" && pwd -P)"
-    if [[ "${mapped_root_abs}" == "${project_root}" ]]; then
-      printf '%s\n' "${marker%/.project-root}/events.jsonl"
-      return 0
-    fi
-  done
-  return 1
+  vg_log_scope_project_log_file "${log_root}" "${project_root}"
 }
 
 latest_event_for() {
@@ -85,9 +69,8 @@ latest_event_for() {
 }
 
 event_file=""
-event_file_status=0
-event_file="$(find_project_event_file)" || event_file_status=$?
-if [[ "${event_file_status}" -eq 2 ]]; then
+if ! event_file="$(resolve_project_event_file)"; then
+  printf 'ERROR: failed to resolve project event log: %s\n' "${project_root}" >&2
   exit 2
 fi
 
@@ -107,6 +90,108 @@ claude_event="$(latest_event_for claude)"
 codex_event="$(latest_event_for codex)"
 gemini_event="$(latest_event_for gemini)"
 
+if ! claude_profile_hooks="$(
+  "${runtime}" setup-claude-profile-hook-scripts "${REPO_DIR}" "${profile}"
+)" || [[ -z "${claude_profile_hooks}" ]]; then
+  printf 'ERROR: failed to resolve Claude hook assets for profile %s\n' "${profile}" >&2
+  exit 2
+fi
+if ! codex_profile_hooks="$(
+  "${runtime}" setup-codex-profile-hook-scripts "${REPO_DIR}" "${profile}"
+)" || [[ -z "${codex_profile_hooks}" ]]; then
+  printf 'ERROR: failed to resolve Codex hook assets for profile %s\n' "${profile}" >&2
+  exit 2
+fi
+gemini_profile_hooks=$'pre-bash-guard.sh\npre-edit-guard.sh\npre-write-guard.sh'
+
+hook_assets_problem() {
+  local host="$1" hooks="$2" hook source_path
+  while IFS= read -r hook; do
+    [[ -n "${hook}" ]] || continue
+    case "${host}" in
+      codex) source_path="$(_codex_source_path "hooks/${hook}")" ;;
+      *) source_path="$(_claude_source_path "hooks/${hook}")" ;;
+    esac
+    if [[ ! -f "${source_path}" ]]; then
+      printf 'Required hook asset is missing: %s' "${hook}"
+      return 10
+    fi
+  done <<< "${hooks}"
+  return 0
+}
+
+hook_policy_problem() {
+  local hook="$1" output status=0 enforcement user_config
+  user_config="${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}"
+  output="$(
+    VG_INTERNAL_USER_CONFIG_FILE="${user_config}" \
+    VIBEGUARD_USER_CONFIG_FILE="${user_config}" \
+      "${runtime}" runtime-policy-check --cwd "${project_root}" "${hook}" 2>/dev/null
+  )" || status=$?
+  case "${status}" in
+    0)
+      if ! enforcement="$(
+        printf '%s' "${output}" | "${runtime}" json-field --strict enforcement 2>/dev/null
+      )"; then
+        printf 'ERROR: runtime policy returned invalid evidence for %s\n' "${hook}" >&2
+        return 2
+      fi
+      if [[ "${enforcement}" != "block" ]]; then
+        printf 'Project policy weakens %s to %s enforcement.' "${hook}" "${enforcement:-unknown}"
+        return 10
+      fi
+      ;;
+    10)
+      printf 'Project policy disables %s.' "${hook}"
+      return 10
+      ;;
+    *)
+      printf 'ERROR: failed to evaluate project policy for %s\n' "${hook}" >&2
+      return 2
+      ;;
+  esac
+  return 0
+}
+
+hook_set_policy_problem() {
+  local hooks="$1" hook result status
+  while IFS= read -r hook; do
+    [[ -n "${hook}" ]] || continue
+    result=""
+    status=0
+    result="$(hook_policy_problem "${hook}")" || status=$?
+    case "${status}" in
+      0) ;;
+      10) printf '%s' "${result}"; return 10 ;;
+      *) return 2 ;;
+    esac
+  done <<< "${hooks}"
+  return 0
+}
+
+host_problem() {
+  local host="$1" hooks="$2" result status=0
+  result="$(hook_assets_problem "${host}" "${hooks}")" || status=$?
+  case "${status}" in
+    0) ;;
+    10) printf '%s' "${result}"; return 0 ;;
+    *) return 2 ;;
+  esac
+  status=0
+  result="$(hook_set_policy_problem "${hooks}")" || status=$?
+  case "${status}" in
+    0) return 0 ;;
+    10) printf '%s' "${result}"; return 0 ;;
+    *) return 2 ;;
+  esac
+}
+
+if ! claude_problem="$(host_problem claude "${claude_profile_hooks}")" \
+  || ! codex_problem="$(host_problem codex "${codex_profile_hooks}")" \
+  || ! gemini_problem="$(host_problem gemini "${gemini_profile_hooks}")"; then
+  exit 2
+fi
+
 claude_enabled=0
 claude_configured=0
 claude_settings_canonical=0
@@ -119,7 +204,8 @@ if [[ -e "${HOME}/.vibeguard/run-hook.sh" ]] \
 fi
 if [[ -x "${HOME}/.vibeguard/run-hook.sh" ]] \
   && [[ -f "$(_claude_source_path "hooks/pre-bash-guard.sh")" ]] \
-  && [[ "${claude_settings_canonical}" -eq 1 ]]; then
+  && [[ "${claude_settings_canonical}" -eq 1 ]] \
+  && [[ -z "${claude_problem}" ]]; then
   claude_configured=1
 fi
 
@@ -140,7 +226,8 @@ if [[ -x "${codex_wrapper}" ]] \
   && [[ -f "$(_codex_source_path "hooks/pre-bash-guard.sh")" ]] \
   && [[ "${codex_feature_status}" == "OK" ]] \
   && "${runtime}" setup-codex-hooks-check \
-    "${REPO_DIR}" "${codex_hooks_file}" "${codex_wrapper}" "${profile}" >/dev/null 2>&1; then
+    "${REPO_DIR}" "${codex_hooks_file}" "${codex_wrapper}" "${profile}" >/dev/null 2>&1 \
+  && [[ -z "${codex_problem}" ]]; then
   codex_configured=1
 fi
 
@@ -156,12 +243,13 @@ if [[ "${gemini_enabled}" -eq 1 ]] \
   && "${runtime}" setup-gemini-hooks-check \
     "${GEMINI_SETTINGS_FILE}" "${GEMINI_WRAPPER}" >/dev/null 2>&1 \
   && command -v gemini >/dev/null 2>&1 \
-  && gemini hooks --help >/dev/null 2>&1; then
+  && gemini hooks --help >/dev/null 2>&1 \
+  && [[ -z "${gemini_problem}" ]]; then
   gemini_configured=1
 fi
 
 render_host() {
-  local label="$1" enabled="$2" configured="$3" event="$4" install_command="$5"
+  local label="$1" enabled="$2" configured="$3" event="$4" install_command="$5" problem="$6"
   local ts hook decision
   if [[ "${enabled}" -eq 0 ]]; then
     printf '%s: UNPROTECTED\n' "${label}"
@@ -171,7 +259,7 @@ render_host() {
   fi
   if [[ "${configured}" -eq 0 ]]; then
     printf '%s: DEGRADED\n' "${label}"
-    printf '  Reason: The installed integration is incomplete or non-canonical.\n'
+    printf '  Reason: %s\n' "${problem:-The installed integration is incomplete or non-canonical.}"
     printf '  Next: %s\n' "${install_command}"
     return
   fi
@@ -189,11 +277,12 @@ render_host() {
 
 printf '%s\n' 'VibeGuard Protection Status'
 printf 'Project: %s\n\n' "${project_root}"
+setup_entrypoint="$(printf '%q' "${REPO_DIR}/setup.sh")"
 render_host "Claude Code" "${claude_enabled}" "${claude_configured}" "${claude_event}" \
-  "bash setup.sh --yes --profile ${profile}"
+  "bash ${setup_entrypoint} --yes --profile ${profile}" "${claude_problem}"
 printf '\n'
 render_host "Codex CLI" "${codex_enabled}" "${codex_configured}" "${codex_event}" \
-  "bash setup.sh --yes --profile ${profile}"
+  "bash ${setup_entrypoint} --yes --profile ${profile}" "${codex_problem}"
 printf '\n'
 render_host "Gemini CLI" "${gemini_enabled}" "${gemini_configured}" "${gemini_event}" \
-  "bash setup.sh --yes --host gemini"
+  "bash ${setup_entrypoint} --yes --host gemini --profile ${profile}" "${gemini_problem}"

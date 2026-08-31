@@ -54,6 +54,7 @@ grep -qx 'scripts/setup/protection-status.sh' "${MANIFEST}" || rc=1
 grep -qx 'scripts/setup/bootstrap.sh' "${MANIFEST}" || rc=1
 grep -qx 'scripts/setup/bootstrap-lib.sh' "${MANIFEST}" || rc=1
 grep -qx 'scripts/lib/install-state.sh' "${MANIFEST}" || rc=1
+grep -qx 'scripts/lib/log_scope.sh' "${MANIFEST}" || rc=1
 grep -qx 'scripts/release/payload-manifest.txt' "${MANIFEST}" || rc=1
 check "manifest keeps the install-critical entries" "${rc}"
 

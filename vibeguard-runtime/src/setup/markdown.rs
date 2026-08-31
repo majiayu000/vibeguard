@@ -326,6 +326,23 @@ fn claude_specs(repo_dir: &Path, profile: Option<&str>) -> SetupResult<Vec<Claud
     Ok(specs)
 }
 
+pub fn profile_hook_scripts(args: &[String]) -> SetupResult<()> {
+    if args.len() != 2 {
+        return Err(
+            "Usage: vibeguard-runtime setup-claude-profile-hook-scripts <repo-dir> <profile>"
+                .into(),
+        );
+    }
+    let scripts = claude_specs(Path::new(&args[0]), Some(&args[1]))?
+        .into_iter()
+        .map(|spec| spec.script)
+        .collect::<BTreeSet<_>>();
+    for script in scripts {
+        println!("{script}");
+    }
+    Ok(())
+}
+
 fn settings_has_pre_hooks(repo_dir: &Path, data: &Value) -> SetupResult<bool> {
     Ok(claude_specs(repo_dir, Some("minimal"))?
         .iter()
