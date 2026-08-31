@@ -99,7 +99,9 @@ version = "0.1.0"
 edition = "2021"
 TOML
 project_init_read_only_out="$(bash "${REPO_DIR}/scripts/project-init.sh" --no-hooks "${project_init_read_only_target}" 2>&1)"
+project_init_read_only_target_abs="$(cd "${project_init_read_only_target}" && pwd -P)"
 assert_contains "${project_init_read_only_out}" "Git hook installation skipped (--no-hooks)" "project-init read-only mode reports skipped writes"
+assert_contains "${project_init_read_only_out}" "(cd \"${project_init_read_only_target_abs}\" && bash \"${REPO_DIR}/setup.sh\" verify-project)" "project-init verification step targets the inspected project"
 assert_cmd "project-init read-only mode does not install pre-commit" test ! -e "${project_init_read_only_target}/.git/hooks/pre-commit"
 assert_cmd "project-init read-only mode does not install pre-push" test ! -e "${project_init_read_only_target}/.git/hooks/pre-push"
 

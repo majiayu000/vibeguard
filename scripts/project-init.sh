@@ -400,7 +400,7 @@ echo
 
 echo "--- Next steps ---"
 echo "1. Save the reviewed guidance snippet in AGENTS.md or CLAUDE.md."
-echo "2. Verify this project: bash \"${VIBEGUARD_DIR}/setup.sh\" verify-project"
+echo "2. Verify this project: (cd \"${PROJECT_ROOT_ABS}\" && bash \"${VIBEGUARD_DIR}/setup.sh\" verify-project)"
 echo "3. Prove interception: bash \"${VIBEGUARD_DIR}/setup.sh\" demo safe-bash"
 echo
 
