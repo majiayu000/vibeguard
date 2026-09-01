@@ -434,6 +434,7 @@ mkdir -p \
   "${PROTECTION_STATUS_HOME}/.claude" \
   "${PROTECTION_STATUS_HOME}/.codex" \
   "${PROTECTION_STATUS_HOME}/.gemini" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin" \
   "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks" \
   "${PROTECTION_BIN}" \
   "${PROTECTION_PROJECT_LOG}" \
@@ -453,6 +454,9 @@ cp "${REPO_DIR}"/hooks/*.sh \
   "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/"
 cp -R "${REPO_DIR}/hooks/_lib" \
   "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/_lib"
+cp "${CURRENT_SETUP_RUNTIME}" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+chmod +x "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime"
 printf '%s\n' 'gemini-cli-hooks-v1' \
   > "${PROTECTION_STATUS_HOME}/.vibeguard/gemini-enabled"
 
@@ -534,6 +538,26 @@ assert_contains "${gemini_protected_out}" "Gemini CLI: PROTECTED" \
 assert_contains "${gemini_protected_out}" \
   "2026-08-31T01:02:00Z | pre-bash-guard | pass" \
   "protected Gemini status names its live evidence"
+
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime.missing"
+missing_runtime_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${missing_runtime_out}" "Claude Code: DEGRADED" \
+  "a missing installed runtime degrades Claude protection"
+assert_contains "${missing_runtime_out}" "Codex CLI: DEGRADED" \
+  "a missing installed runtime degrades Codex protection"
+assert_contains "${missing_runtime_out}" "Gemini CLI: DEGRADED" \
+  "a missing installed runtime degrades Gemini protection"
+assert_contains "${missing_runtime_out}" "installed runtime" \
+  "missing installed runtime is explained"
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime.missing" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime"
 
 cp "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh" \
   "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh.canonical"
@@ -659,6 +683,32 @@ assert_contains "${policy_off_out}" "Gemini CLI: DEGRADED" \
   "project enforcement off degrades Gemini protection"
 assert_contains "${policy_off_out}" "Project policy" \
   "policy degradation is explained"
+
+PROTECTION_FULL_PROJECT="${PROTECTION_STATUS_HOME}/full-profile-project"
+PROTECTION_FULL_LOG="${PROTECTION_LOG_ROOT}/projects/full-profile-project"
+mkdir -p "${PROTECTION_FULL_PROJECT}" "${PROTECTION_FULL_LOG}"
+git -C "${PROTECTION_FULL_PROJECT}" init -q
+printf '%s\n' '{"profile":"full"}' \
+  > "${PROTECTION_FULL_PROJECT}/.vibeguard.json"
+printf '%s' "${PROTECTION_FULL_PROJECT}" \
+  > "${PROTECTION_FULL_LOG}/.project-root"
+cat > "${PROTECTION_FULL_LOG}/events.jsonl" <<'JSONL'
+{"ts":"2026-08-31T03:00:00Z","client":"claude","hook":"pre-bash-guard","decision":"pass"}
+{"ts":"2026-08-31T03:01:00Z","client":"codex","hook":"pre-write-guard","decision":"pass"}
+JSONL
+full_profile_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${PROTECTION_FULL_PROJECT}"
+)"
+assert_contains "${full_profile_out}" "Claude Code: DEGRADED" \
+  "a full project profile cannot report protected through a core Claude install"
+assert_contains "${full_profile_out}" "Codex CLI: DEGRADED" \
+  "a full project profile cannot report protected through a core Codex install"
+assert_contains "${full_profile_out}" "Project profile full requires" \
+  "stronger project profile degradation is explained"
 
 printf '%s\n' '[features]' 'hooks = false' \
   > "${PROTECTION_STATUS_HOME}/.codex/config.toml"

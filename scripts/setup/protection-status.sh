@@ -57,6 +57,35 @@ if ! profile="$(state_installed_profile)"; then
 fi
 export PROFILE="${profile}"
 
+installed_runtime="${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+installed_runtime_problem=""
+if [[ ! -x "${installed_runtime}" ]]; then
+  installed_runtime_problem="Required installed runtime is missing or not executable: ${installed_runtime}"
+elif ! setup_runtime_supports "${installed_runtime}"; then
+  installed_runtime_problem="Required installed runtime is incompatible or corrupt: ${installed_runtime}"
+fi
+
+resolve_effective_profile() {
+  local output status=0 effective_profile
+  output="$(
+    "${runtime}" runtime-policy-check --cwd "${project_root}" pre-bash-guard.sh 2>/dev/null
+  )" || status=$?
+  case "${status}" in
+    0|10) ;;
+    *) return 1 ;;
+  esac
+  effective_profile="$(
+    printf '%s' "${output}" | "${runtime}" json-field --strict profile 2>/dev/null
+  )" || return 1
+  [[ -n "${effective_profile}" && "${effective_profile}" != "null" ]] || return 1
+  printf '%s\n' "${effective_profile}"
+}
+
+if ! effective_profile="$(resolve_effective_profile)"; then
+  printf 'ERROR: failed to resolve the project profile: %s\n' "${project_root}" >&2
+  exit 2
+fi
+
 resolve_project_event_file() {
   local log_root="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
   vg_log_scope_project_log_file "${log_root}" "${project_root}"
@@ -90,19 +119,49 @@ claude_event="$(latest_event_for claude)"
 codex_event="$(latest_event_for codex)"
 gemini_event="$(latest_event_for gemini)"
 
-if ! claude_profile_hooks="$(
+if ! installed_claude_profile_hooks="$(
   "${runtime}" setup-claude-profile-hook-scripts "${REPO_DIR}" "${profile}"
-)" || [[ -z "${claude_profile_hooks}" ]]; then
+)" || [[ -z "${installed_claude_profile_hooks}" ]]; then
   printf 'ERROR: failed to resolve Claude hook assets for profile %s\n' "${profile}" >&2
   exit 2
 fi
-if ! codex_profile_hooks="$(
+if ! installed_codex_profile_hooks="$(
   "${runtime}" setup-codex-profile-hook-scripts "${REPO_DIR}" "${profile}"
-)" || [[ -z "${codex_profile_hooks}" ]]; then
+)" || [[ -z "${installed_codex_profile_hooks}" ]]; then
   printf 'ERROR: failed to resolve Codex hook assets for profile %s\n' "${profile}" >&2
   exit 2
 fi
+if ! codex_profile_hooks="$(
+  "${runtime}" setup-codex-profile-hook-scripts "${REPO_DIR}" "${effective_profile}"
+)" || [[ -z "${codex_profile_hooks}" ]]; then
+  printf 'ERROR: failed to resolve Codex hook assets for profile %s\n' "${effective_profile}" >&2
+  exit 2
+fi
+if ! claude_profile_hooks="$(
+  "${runtime}" setup-claude-profile-hook-scripts "${REPO_DIR}" "${effective_profile}"
+)" || [[ -z "${claude_profile_hooks}" ]]; then
+  printf 'ERROR: failed to resolve Claude hook assets for profile %s\n' "${effective_profile}" >&2
+  exit 2
+fi
 gemini_profile_hooks=$'pre-bash-guard.sh\npre-edit-guard.sh\npre-write-guard.sh'
+
+profile_hook_problem() {
+  local host="$1" effective_hooks="$2" installed_hooks hook
+  case "${host}" in
+    claude) installed_hooks="${installed_claude_profile_hooks}" ;;
+    codex) installed_hooks="${installed_codex_profile_hooks}" ;;
+    *) return 0 ;;
+  esac
+  while IFS= read -r hook; do
+    [[ -n "${hook}" ]] || continue
+    if ! grep -Fqx "${hook}" <<< "${installed_hooks}"; then
+      printf 'Project profile %s requires %s for %s, but installed profile %s does not configure it.' \
+        "${effective_profile}" "${hook}" "${host}" "${profile}"
+      return 10
+    fi
+  done <<< "${effective_hooks}"
+  return 0
+}
 
 canonical_asset_problem() {
   local actual="$1" canonical="$2" label="$3"
@@ -198,6 +257,17 @@ hook_set_policy_problem() {
 
 host_problem() {
   local host="$1" hooks="$2" wrapper="$3" result status=0
+  if [[ -n "${installed_runtime_problem}" ]]; then
+    printf '%s' "${installed_runtime_problem}"
+    return 0
+  fi
+  result="$(profile_hook_problem "${host}" "${hooks}")" || status=$?
+  case "${status}" in
+    0) ;;
+    10) printf '%s' "${result}"; return 0 ;;
+    *) return 2 ;;
+  esac
+  status=0
   result="$(hook_assets_problem "${host}" "${hooks}" "${wrapper}")" || status=$?
   case "${status}" in
     0) ;;

@@ -9,33 +9,18 @@ use crate::event_schema::{UNKNOWN, field};
 type ClientEvent = (String, String, String, String);
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
-fn read_events(
+fn latest_client_events(
     reader: impl BufRead,
-) -> std::result::Result<Vec<Value>, Box<dyn std::error::Error>> {
-    let mut events = Vec::new();
+) -> std::result::Result<Vec<ClientEvent>, Box<dyn std::error::Error>> {
+    let mut latest = BTreeMap::<String, ClientEvent>::new();
     for (index, line) in reader.lines().enumerate() {
         let line = line?;
         let event = serde_json::from_str::<Value>(&line)
             .map_err(|error| format!("invalid JSONL record at line {}: {error}", index + 1))?;
-        events.push(event);
-    }
-    Ok(events)
-}
-
-fn string_field<'a>(event: &'a Value, names: &[&str]) -> Option<&'a str> {
-    names
-        .iter()
-        .find_map(|name| event.get(name).and_then(Value::as_str))
-        .filter(|value| !value.is_empty())
-}
-
-fn latest_client_events(events: &[Value]) -> Vec<ClientEvent> {
-    let mut latest = BTreeMap::<String, ClientEvent>::new();
-    for event in events {
-        let Some(client) = string_field(event, &[field::CLIENT, field::CLI, "agent_type"]) else {
+        let Some(client) = string_field(&event, &[field::CLIENT, field::CLI, "agent_type"]) else {
             continue;
         };
-        let Some(ts) = string_field(event, &[field::TS]) else {
+        let Some(ts) = string_field(&event, &[field::TS]) else {
             continue;
         };
         if latest
@@ -44,8 +29,8 @@ fn latest_client_events(events: &[Value]) -> Vec<ClientEvent> {
         {
             continue;
         }
-        let hook = string_field(event, &[field::HOOK]).unwrap_or(UNKNOWN);
-        let outcome = string_field(event, &[field::DECISION, field::STATUS]).unwrap_or(UNKNOWN);
+        let hook = string_field(&event, &[field::HOOK]).unwrap_or(UNKNOWN);
+        let outcome = string_field(&event, &[field::DECISION, field::STATUS]).unwrap_or(UNKNOWN);
         latest.insert(
             client.to_string(),
             (
@@ -56,7 +41,14 @@ fn latest_client_events(events: &[Value]) -> Vec<ClientEvent> {
             ),
         );
     }
-    latest.into_values().collect()
+    Ok(latest.into_values().collect())
+}
+
+fn string_field<'a>(event: &'a Value, names: &[&str]) -> Option<&'a str> {
+    names
+        .iter()
+        .find_map(|name| event.get(name).and_then(Value::as_str))
+        .filter(|value| !value.is_empty())
 }
 
 fn tsv_field(value: &str) -> String {
@@ -70,8 +62,7 @@ pub fn run(args: &[String]) -> Result {
     }
 
     let stdin = io::stdin();
-    let events = read_events(stdin.lock())?;
-    for (client, ts, hook, outcome) in latest_client_events(&events) {
+    for (client, ts, hook, outcome) in latest_client_events(stdin.lock())? {
         println!(
             "{}\t{}\t{}\t{}",
             tsv_field(&client),
@@ -86,21 +77,20 @@ pub fn run(args: &[String]) -> Result {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn uses_identity_fallbacks_and_latest_timestamp() {
-        let events = vec![
-            json!({"client": "claude", "ts": "2026-08-31T08:00:00Z", "hook": "older", "decision": "pass"}),
-            json!({"client": "claude", "ts": "2026-08-31T10:00:00Z", "hook": "newer", "decision": "warn"}),
-            json!({"cli": "codex", "ts": "2026-08-31T09:00:00Z", "hook": "codex-hook", "status": "pass"}),
-            json!({"agent_type": "gemini", "ts": "2026-08-31T07:00:00Z", "hook": "gemini-hook", "decision": "block"}),
-            json!({"client": "claude", "hook": "missing-ts", "decision": "pass"}),
-            json!({"ts": "2026-08-31T11:00:00Z", "hook": "missing-client", "decision": "pass"}),
-        ];
+        let input = std::io::Cursor::new(concat!(
+            "{\"client\":\"claude\",\"ts\":\"2026-08-31T08:00:00Z\",\"hook\":\"older\",\"decision\":\"pass\"}\n",
+            "{\"client\":\"claude\",\"ts\":\"2026-08-31T10:00:00Z\",\"hook\":\"newer\",\"decision\":\"warn\"}\n",
+            "{\"cli\":\"codex\",\"ts\":\"2026-08-31T09:00:00Z\",\"hook\":\"codex-hook\",\"status\":\"pass\"}\n",
+            "{\"agent_type\":\"gemini\",\"ts\":\"2026-08-31T07:00:00Z\",\"hook\":\"gemini-hook\",\"decision\":\"block\"}\n",
+            "{\"client\":\"claude\",\"hook\":\"missing-ts\",\"decision\":\"pass\"}\n",
+            "{\"ts\":\"2026-08-31T11:00:00Z\",\"hook\":\"missing-client\",\"decision\":\"pass\"}\n",
+        ));
 
         assert_eq!(
-            latest_client_events(&events),
+            latest_client_events(input).expect("valid JSONL should stream"),
             vec![
                 (
                     "claude".to_string(),
@@ -127,7 +117,7 @@ mod tests {
     #[test]
     fn rejects_malformed_jsonl_records() {
         let input = std::io::Cursor::new("{\"client\":\"claude\"}\n{\n");
-        let error = read_events(input).expect_err("malformed JSONL must fail");
+        let error = latest_client_events(input).expect_err("malformed JSONL must fail");
         assert!(error.to_string().contains("line 2"));
     }
 }
