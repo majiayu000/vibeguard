@@ -523,9 +523,27 @@ assert_contains "${hash_fallback_out}" "Claude Code: PROTECTED" \
   "missing project marker falls back to the deterministic project log"
 printf '%s' "${REPO_DIR}" > "${PROTECTION_PROJECT_LOG}/.project-root"
 
+cat > "${PROTECTION_HASH_LOG}/events.jsonl" <<'JSONL'
+{"ts":"2026-08-31T01:01:30Z","client":"claude","hook":"pre-bash-guard","decision":"warn"}
+JSONL
+deterministic_log_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${deterministic_log_out}" \
+  "2026-08-31T01:01:30Z | pre-bash-guard | warn" \
+  "deterministic project log takes precedence over a legacy mapping"
+rm -rf "${PROTECTION_HASH_LOG}"
+
+PROTECTION_GEMINI_LOG="${PROTECTION_STATUS_HOME}/.vibeguard/projects/gemini-project"
+mkdir -p "${PROTECTION_GEMINI_LOG}"
+printf '%s' "${REPO_DIR}" > "${PROTECTION_GEMINI_LOG}/.project-root"
 printf '%s\n' \
   '{"ts":"2026-08-31T01:02:00Z","client":"gemini","hook":"pre-bash-guard","decision":"pass"}' \
-  >> "${PROTECTION_PROJECT_LOG}/events.jsonl"
+  > "${PROTECTION_GEMINI_LOG}/events.jsonl"
 gemini_protected_out="$(
   HOME="${PROTECTION_STATUS_HOME}" \
   PATH="${PROTECTION_BIN}:${PATH}" \
@@ -558,6 +576,23 @@ assert_contains "${missing_runtime_out}" "installed runtime" \
   "missing installed runtime is explained"
 mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime.missing" \
   "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+
+printf '%s\n' 'dev-linked-repo' \
+  > "${PROTECTION_STATUS_HOME}/.vibeguard/execution-mode"
+dev_linked_missing_repo_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${dev_linked_missing_repo_out}" "Claude Code: DEGRADED" \
+  "dev-linked Claude protection requires its routed repository"
+assert_contains "${dev_linked_missing_repo_out}" "Codex CLI: DEGRADED" \
+  "dev-linked Codex protection requires its routed repository"
+assert_contains "${dev_linked_missing_repo_out}" "repo-path" \
+  "missing dev-linked repository routing is explained"
+rm -f "${PROTECTION_STATUS_HOME}/.vibeguard/execution-mode"
 
 cp "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh" \
   "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh.canonical"
@@ -655,6 +690,26 @@ assert_contains "${missing_asset_out}" "Codex CLI: DEGRADED" \
 mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-write-guard.sh.missing" \
   "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-write-guard.sh"
 
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/log.sh" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/log.sh.missing"
+missing_dependency_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${missing_dependency_out}" "Claude Code: DEGRADED" \
+  "a missing top-level hook dependency degrades Claude protection"
+assert_contains "${missing_dependency_out}" "Codex CLI: DEGRADED" \
+  "a missing top-level hook dependency degrades Codex protection"
+assert_contains "${missing_dependency_out}" "Gemini CLI: DEGRADED" \
+  "a missing top-level hook dependency degrades Gemini protection"
+assert_contains "${missing_dependency_out}" "log.sh" \
+  "missing top-level hook dependency is identified"
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/log.sh.missing" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/log.sh"
+
 PROTECTION_POLICY_PROJECT="${PROTECTION_STATUS_HOME}/policy-project"
 PROTECTION_POLICY_LOG="${PROTECTION_LOG_ROOT}/projects/policy-project"
 mkdir -p "${PROTECTION_POLICY_PROJECT}" "${PROTECTION_POLICY_LOG}"
@@ -709,6 +764,8 @@ assert_contains "${full_profile_out}" "Codex CLI: DEGRADED" \
   "a full project profile cannot report protected through a core Codex install"
 assert_contains "${full_profile_out}" "Project profile full requires" \
   "stronger project profile degradation is explained"
+assert_contains "${full_profile_out}" "--profile full" \
+  "stronger project profile recovery action installs the required profile"
 
 printf '%s\n' '[features]' 'hooks = false' \
   > "${PROTECTION_STATUS_HOME}/.codex/config.toml"
