@@ -557,6 +557,43 @@ assert_contains "${gemini_protected_out}" \
   "2026-08-31T01:02:00Z | pre-bash-guard | pass" \
   "protected Gemini status names its live evidence"
 
+PROTECTION_BAD_RUNTIME="${PROTECTION_STATUS_HOME}/bad-runtime"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "${PROTECTION_BAD_RUNTIME}"
+chmod +x "${PROTECTION_BAD_RUNTIME}"
+runtime_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_RUNTIME="${PROTECTION_BAD_RUNTIME}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${runtime_override_out}" "Claude Code: DEGRADED" \
+  "an incompatible runtime override degrades Claude protection"
+assert_contains "${runtime_override_out}" "Codex CLI: DEGRADED" \
+  "an incompatible runtime override degrades Codex protection"
+assert_contains "${runtime_override_out}" "Gemini CLI: PROTECTED" \
+  "Gemini ignores the runtime override removed by its adapter"
+assert_contains "${runtime_override_out}" "runtime override" \
+  "an incompatible runtime override is explained"
+rm -f "${PROTECTION_BAD_RUNTIME}"
+
+mv "${PROTECTION_BIN}/gemini" "${PROTECTION_BIN}/gemini.missing"
+gemini_cli_missing_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${gemini_cli_missing_out}" \
+  "Gemini CLI executable is not available" \
+  "missing Gemini CLI is identified"
+assert_contains "${gemini_cli_missing_out}" \
+  "Install or restore Gemini CLI" \
+  "missing Gemini CLI gives an effective recovery action"
+mv "${PROTECTION_BIN}/gemini.missing" "${PROTECTION_BIN}/gemini"
+
 printf '%s\n' '{}' > "${PROTECTION_STATUS_HOME}/custom-config.json"
 printf '%s\n' '{' > "${PROTECTION_STATUS_HOME}/.vibeguard/config.json"
 gemini_default_config_rc=0
@@ -806,6 +843,12 @@ assert_contains "${policy_off_out}" "Gemini CLI: DEGRADED" \
   "project enforcement off degrades Gemini protection"
 assert_contains "${policy_off_out}" "Project policy" \
   "policy degradation is explained"
+assert_contains "${policy_off_out}" \
+  "Update or remove the project policy" \
+  "policy degradation gives an effective recovery action"
+assert_not_contains "${policy_off_out}" \
+  "Next: bash ${REPO_DIR}/setup.sh --yes" \
+  "policy degradation does not recommend an ineffective reinstall"
 
 PROTECTION_FULL_PROJECT="${PROTECTION_STATUS_HOME}/full-profile-project"
 PROTECTION_FULL_LOG="${PROTECTION_LOG_ROOT}/projects/full-profile-project"

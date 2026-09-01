@@ -89,6 +89,13 @@ elif ! setup_runtime_supports "${installed_runtime}"; then
   installed_runtime_problem="Required installed runtime is incompatible or corrupt: ${installed_runtime}"
 fi
 
+runtime_override_problem=""
+runtime_override="${VIBEGUARD_RUNTIME:-}"
+if [[ -n "${runtime_override}" && -f "${runtime_override}" && -x "${runtime_override}" ]] \
+  && ! setup_runtime_supports "${runtime_override}"; then
+  runtime_override_problem="Selected runtime override VIBEGUARD_RUNTIME is incompatible or corrupt: ${runtime_override}"
+fi
+
 dev_linked_runtime_problem=""
 if [[ "${execution_mode}" == "dev-linked-repo" && -z "${execution_problem}" ]]; then
   linked_runtime=""
@@ -396,6 +403,10 @@ host_problem() {
     printf '%s' "${installed_runtime_problem}"
     return 0
   fi
+  if [[ "${host}" != "gemini" && -n "${runtime_override_problem}" ]]; then
+    printf '%s' "${runtime_override_problem}"
+    return 0
+  fi
   if [[ "${host}" == "claude" && -n "${dev_linked_runtime_problem}" ]]; then
     printf '%s' "${dev_linked_runtime_problem}"
     return 0
@@ -475,6 +486,10 @@ if gemini_install_expected \
     && grep -Fq 'run-hook-gemini.sh' "${GEMINI_SETTINGS_FILE}"; }; then
   gemini_enabled=1
 fi
+if [[ "${gemini_enabled}" -eq 1 && -z "${gemini_problem}" ]] \
+  && ! command -v gemini >/dev/null 2>&1; then
+  gemini_problem="Gemini CLI executable is not available on PATH."
+fi
 if [[ "${gemini_enabled}" -eq 1 ]] \
   && [[ -f "${GEMINI_ENABLED_MARKER}" ]] \
   && [[ -x "${GEMINI_WRAPPER}" ]] \
@@ -500,7 +515,18 @@ render_host() {
   if [[ "${configured}" -eq 0 ]]; then
     printf '%s: DEGRADED\n' "${label}"
     printf '  Reason: %s\n' "${problem:-The installed integration is incomplete or non-canonical.}"
-    printf '  Next: %s\n' "${install_command}"
+    case "${problem}" in
+      Project\ policy\ *)
+        printf '  Next: Update or remove the project policy in %s, then rerun protection-status.\n' \
+          "${VIBEGUARD_PROJECT_CONFIG:-${project_root}/.vibeguard.json}"
+        ;;
+      "Gemini CLI executable is not available on PATH.")
+        printf '  Next: Install or restore Gemini CLI, then rerun protection-status.\n'
+        ;;
+      *)
+        printf '  Next: %s\n' "${install_command}"
+        ;;
+    esac
     return
   fi
   if [[ -z "${event}" ]]; then
