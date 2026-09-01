@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::io::{self, BufRead};
 
-use crate::event_schema::{UNKNOWN, field};
+use crate::event_schema::field;
 
 type ClientEvent = (String, String, String, String);
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
@@ -23,14 +23,18 @@ fn latest_client_events(
         let Some(ts) = string_field(&event, &[field::TS]) else {
             continue;
         };
+        let Some(hook) = string_field(&event, &[field::HOOK]) else {
+            continue;
+        };
+        let Some(outcome) = string_field(&event, &[field::DECISION, field::STATUS]) else {
+            continue;
+        };
         if latest
             .get(client)
             .is_some_and(|(_, latest_ts, _, _)| latest_ts.as_str() > ts)
         {
             continue;
         }
-        let hook = string_field(&event, &[field::HOOK]).unwrap_or(UNKNOWN);
-        let outcome = string_field(&event, &[field::DECISION, field::STATUS]).unwrap_or(UNKNOWN);
         latest.insert(
             client.to_string(),
             (
@@ -119,5 +123,24 @@ mod tests {
         let input = std::io::Cursor::new("{\"client\":\"claude\"}\n{\n");
         let error = latest_client_events(input).expect_err("malformed JSONL must fail");
         assert!(error.to_string().contains("line 2"));
+    }
+
+    #[test]
+    fn ignores_records_missing_hook_or_outcome() {
+        let input = std::io::Cursor::new(concat!(
+            "{\"client\":\"claude\",\"ts\":\"2026-08-31T08:00:00Z\",\"hook\":\"pre-bash-guard\",\"decision\":\"pass\"}\n",
+            "{\"client\":\"claude\",\"ts\":\"2026-08-31T09:00:00Z\",\"decision\":\"pass\"}\n",
+            "{\"client\":\"codex\",\"ts\":\"2026-08-31T10:00:00Z\",\"hook\":\"pre-write-guard\"}\n",
+        ));
+
+        assert_eq!(
+            latest_client_events(input).expect("valid JSONL should stream"),
+            vec![(
+                "claude".to_string(),
+                "2026-08-31T08:00:00Z".to_string(),
+                "pre-bash-guard".to_string(),
+                "pass".to_string(),
+            )]
+        );
     }
 }

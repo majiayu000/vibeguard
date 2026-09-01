@@ -96,6 +96,20 @@ if [[ -n "${runtime_override}" && -f "${runtime_override}" && -x "${runtime_over
   runtime_override_problem="Selected runtime override VIBEGUARD_RUNTIME is incompatible or corrupt: ${runtime_override}"
 fi
 
+policy_runtime_override_problem=""
+policy_runtime_override="${VIBEGUARD_POLICY_RUNTIME:-}"
+policy_runtime_handshake=""
+if [[ -n "${policy_runtime_override}" \
+  && -f "${policy_runtime_override}" \
+  && -x "${policy_runtime_override}" ]] \
+  && policy_runtime_handshake="$(
+    "${policy_runtime_override}" runtime-policy-supports 2>/dev/null
+  )" \
+  && [[ "${policy_runtime_handshake}" == "vibeguard-runtime-policy-v1" ]] \
+  && ! setup_runtime_supports "${policy_runtime_override}"; then
+  policy_runtime_override_problem="Selected policy runtime override VIBEGUARD_POLICY_RUNTIME is incompatible or corrupt: ${policy_runtime_override}"
+fi
+
 dev_linked_runtime_problem=""
 if [[ "${execution_mode}" == "dev-linked-repo" && -z "${execution_problem}" ]]; then
   linked_runtime=""
@@ -343,6 +357,7 @@ hook_assets_problem() {
 hook_policy_problem() {
   local host="$1" hook="$2" output status=0 enforcement user_config
   if [[ "${host}" == "gemini" ]]; then
+    unset VIBEGUARD_PROJECT_CONFIG
     user_config="${HOME}/.vibeguard/config.json"
   else
     user_config="${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}"
@@ -407,6 +422,10 @@ host_problem() {
     printf '%s' "${runtime_override_problem}"
     return 0
   fi
+  if [[ "${host}" != "gemini" && -n "${policy_runtime_override_problem}" ]]; then
+    printf '%s' "${policy_runtime_override_problem}"
+    return 0
+  fi
   if [[ "${host}" == "claude" && -n "${dev_linked_runtime_problem}" ]]; then
     printf '%s' "${dev_linked_runtime_problem}"
     return 0
@@ -469,6 +488,9 @@ codex_feature_status=""
 if [[ -f "${codex_config}" ]]; then
   codex_feature_status="$("${runtime}" setup-codex-config-check-hooks "${codex_config}" 2>/dev/null || true)"
 fi
+if [[ "${codex_feature_status}" == "INVALID" && -z "${codex_problem}" ]]; then
+  codex_problem="Codex configuration is malformed TOML: ${codex_config}"
+fi
 if [[ -x "${codex_wrapper}" ]] \
   && [[ -f "${execution_root}/hooks/pre-bash-guard.sh" ]] \
   && [[ "${codex_feature_status}" == "OK" ]] \
@@ -486,9 +508,12 @@ if gemini_install_expected \
     && grep -Fq 'run-hook-gemini.sh' "${GEMINI_SETTINGS_FILE}"; }; then
   gemini_enabled=1
 fi
-if [[ "${gemini_enabled}" -eq 1 && -z "${gemini_problem}" ]] \
-  && ! command -v gemini >/dev/null 2>&1; then
-  gemini_problem="Gemini CLI executable is not available on PATH."
+if [[ "${gemini_enabled}" -eq 1 && -z "${gemini_problem}" ]]; then
+  if ! command -v gemini >/dev/null 2>&1; then
+    gemini_problem="Gemini CLI executable is not available on PATH."
+  elif ! gemini hooks --help >/dev/null 2>&1; then
+    gemini_problem="Gemini CLI does not expose hook support."
+  fi
 fi
 if [[ "${gemini_enabled}" -eq 1 ]] \
   && [[ -f "${GEMINI_ENABLED_MARKER}" ]] \
@@ -497,14 +522,13 @@ if [[ "${gemini_enabled}" -eq 1 ]] \
   && [[ -f "${HOME}/.vibeguard/installed/hooks/pre-bash-guard.sh" ]] \
   && "${runtime}" setup-gemini-hooks-check \
     "${GEMINI_SETTINGS_FILE}" "${GEMINI_WRAPPER}" >/dev/null 2>&1 \
-  && command -v gemini >/dev/null 2>&1 \
-  && gemini hooks --help >/dev/null 2>&1 \
   && [[ -z "${gemini_problem}" ]]; then
   gemini_configured=1
 fi
 
 render_host() {
   local label="$1" enabled="$2" configured="$3" event="$4" install_command="$5" problem="$6"
+  local policy_source="$7"
   local ts hook decision
   if [[ "${enabled}" -eq 0 ]]; then
     printf '%s: UNPROTECTED\n' "${label}"
@@ -518,10 +542,17 @@ render_host() {
     case "${problem}" in
       Project\ policy\ *)
         printf '  Next: Update or remove the project policy in %s, then rerun protection-status.\n' \
-          "${VIBEGUARD_PROJECT_CONFIG:-${project_root}/.vibeguard.json}"
+          "${policy_source}"
         ;;
       "Gemini CLI executable is not available on PATH.")
         printf '  Next: Install or restore Gemini CLI, then rerun protection-status.\n'
+        ;;
+      "Gemini CLI does not expose hook support.")
+        printf '  Next: Upgrade Gemini CLI to a version with hook support, then rerun protection-status.\n'
+        ;;
+      Codex\ configuration\ is\ malformed\ TOML:*)
+        printf '  Next: Fix the malformed Codex configuration in %s, then rerun protection-status.\n' \
+          "${codex_config}"
         ;;
       *)
         printf '  Next: %s\n' "${install_command}"
@@ -544,11 +575,15 @@ render_host() {
 printf '%s\n' 'VibeGuard Protection Status'
 printf 'Project: %s\n\n' "${project_root}"
 setup_entrypoint="$(printf '%q' "${REPO_DIR}/setup.sh")"
+project_policy_source="${VIBEGUARD_PROJECT_CONFIG:-${project_root}/.vibeguard.json}"
 render_host "Claude Code" "${claude_enabled}" "${claude_configured}" "${claude_event}" \
-  "bash ${setup_entrypoint} --yes --profile ${repair_profile}" "${claude_problem}"
+  "bash ${setup_entrypoint} --yes --profile ${repair_profile}" "${claude_problem}" \
+  "${project_policy_source}"
 printf '\n'
 render_host "Codex CLI" "${codex_enabled}" "${codex_configured}" "${codex_event}" \
-  "bash ${setup_entrypoint} --yes --profile ${repair_profile}" "${codex_problem}"
+  "bash ${setup_entrypoint} --yes --profile ${repair_profile}" "${codex_problem}" \
+  "${project_policy_source}"
 printf '\n'
 render_host "Gemini CLI" "${gemini_enabled}" "${gemini_configured}" "${gemini_event}" \
-  "bash ${setup_entrypoint} --yes --host gemini --profile ${repair_profile}" "${gemini_problem}"
+  "bash ${setup_entrypoint} --yes --host gemini --profile ${repair_profile}" "${gemini_problem}" \
+  "${project_root}/.vibeguard.json"

@@ -578,6 +578,33 @@ assert_contains "${runtime_override_out}" "runtime override" \
   "an incompatible runtime override is explained"
 rm -f "${PROTECTION_BAD_RUNTIME}"
 
+PROTECTION_BAD_POLICY_RUNTIME="${PROTECTION_STATUS_HOME}/bad-policy-runtime"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'if [[ "${1:-}" == "runtime-policy-supports" ]]; then' \
+  '  printf "%s\n" "vibeguard-runtime-policy-v1"' \
+  'fi' \
+  'exit 0' \
+  > "${PROTECTION_BAD_POLICY_RUNTIME}"
+chmod +x "${PROTECTION_BAD_POLICY_RUNTIME}"
+policy_runtime_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_POLICY_RUNTIME="${PROTECTION_BAD_POLICY_RUNTIME}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${policy_runtime_override_out}" "Claude Code: DEGRADED" \
+  "an incompatible policy runtime override degrades Claude protection"
+assert_contains "${policy_runtime_override_out}" "Codex CLI: DEGRADED" \
+  "an incompatible policy runtime override degrades Codex protection"
+assert_contains "${policy_runtime_override_out}" "Gemini CLI: PROTECTED" \
+  "Gemini ignores the policy runtime override removed by its adapter"
+assert_contains "${policy_runtime_override_out}" "policy runtime override" \
+  "an incompatible policy runtime override is explained"
+rm -f "${PROTECTION_BAD_POLICY_RUNTIME}"
+
 mv "${PROTECTION_BIN}/gemini" "${PROTECTION_BIN}/gemini.missing"
 gemini_cli_missing_out="$(
   HOME="${PROTECTION_STATUS_HOME}" \
@@ -593,6 +620,24 @@ assert_contains "${gemini_cli_missing_out}" \
   "Install or restore Gemini CLI" \
   "missing Gemini CLI gives an effective recovery action"
 mv "${PROTECTION_BIN}/gemini.missing" "${PROTECTION_BIN}/gemini"
+
+mv "${PROTECTION_BIN}/gemini" "${PROTECTION_BIN}/gemini.supported"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "${PROTECTION_BIN}/gemini"
+chmod +x "${PROTECTION_BIN}/gemini"
+gemini_hooks_unsupported_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${gemini_hooks_unsupported_out}" \
+  "Gemini CLI does not expose hook support" \
+  "unsupported Gemini hook capability is identified"
+assert_contains "${gemini_hooks_unsupported_out}" \
+  "Upgrade Gemini CLI" \
+  "unsupported Gemini gives an effective upgrade action"
+mv "${PROTECTION_BIN}/gemini.supported" "${PROTECTION_BIN}/gemini"
 
 printf '%s\n' '{}' > "${PROTECTION_STATUS_HOME}/custom-config.json"
 printf '%s\n' '{' > "${PROTECTION_STATUS_HOME}/.vibeguard/config.json"
@@ -819,6 +864,7 @@ PROTECTION_POLICY_PROJECT="${PROTECTION_STATUS_HOME}/policy-project"
 PROTECTION_POLICY_LOG="${PROTECTION_LOG_ROOT}/projects/policy-project"
 mkdir -p "${PROTECTION_POLICY_PROJECT}" "${PROTECTION_POLICY_LOG}"
 git -C "${PROTECTION_POLICY_PROJECT}" init -q
+PROTECTION_POLICY_PROJECT="$(cd "${PROTECTION_POLICY_PROJECT}" && pwd -P)"
 printf '%s\n' '{"enforcement":"off"}' \
   > "${PROTECTION_POLICY_PROJECT}/.vibeguard.json"
 printf '%s' "${PROTECTION_POLICY_PROJECT}" \
@@ -849,6 +895,36 @@ assert_contains "${policy_off_out}" \
 assert_not_contains "${policy_off_out}" \
   "Next: bash ${REPO_DIR}/setup.sh --yes" \
   "policy degradation does not recommend an ineffective reinstall"
+
+PROTECTION_POLICY_OVERRIDE="${PROTECTION_STATUS_HOME}/policy-override.json"
+PROTECTION_GEMINI_POLICY_LOG="${PROTECTION_STATUS_HOME}/.vibeguard/projects/gemini-policy-project"
+printf '%s\n' '{}' > "${PROTECTION_POLICY_OVERRIDE}"
+mkdir -p "${PROTECTION_GEMINI_POLICY_LOG}"
+printf '%s' "${PROTECTION_POLICY_PROJECT}" \
+  > "${PROTECTION_GEMINI_POLICY_LOG}/.project-root"
+printf '%s\n' \
+  '{"ts":"2026-08-31T02:03:00Z","client":"gemini","hook":"pre-bash-guard","decision":"pass"}' \
+  > "${PROTECTION_GEMINI_POLICY_LOG}/events.jsonl"
+gemini_project_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_PROJECT_CONFIG="${PROTECTION_POLICY_OVERRIDE}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${PROTECTION_POLICY_PROJECT}"
+)"
+assert_contains "${gemini_project_override_out}" "Claude Code: PROTECTED" \
+  "Claude honors an inherited project config override"
+assert_contains "${gemini_project_override_out}" "Codex CLI: PROTECTED" \
+  "Codex honors an inherited project config override"
+assert_contains "${gemini_project_override_out}" "Gemini CLI: DEGRADED" \
+  "Gemini ignores the project config override removed by its adapter"
+assert_contains "${gemini_project_override_out}" \
+  "${PROTECTION_POLICY_PROJECT}/.vibeguard.json" \
+  "Gemini policy recovery names the live project policy"
+assert_not_contains "${gemini_project_override_out}" \
+  "Next: Update or remove the project policy in ${PROTECTION_POLICY_OVERRIDE}" \
+  "Gemini policy recovery does not name the ignored override"
 
 PROTECTION_FULL_PROJECT="${PROTECTION_STATUS_HOME}/full-profile-project"
 PROTECTION_FULL_LOG="${PROTECTION_LOG_ROOT}/projects/full-profile-project"
@@ -892,6 +968,24 @@ assert_contains "${codex_degraded_out}" "Codex CLI: DEGRADED" \
 assert_contains "${codex_degraded_out}" \
   "The installed integration is incomplete or non-canonical" \
   "degraded Codex status explains configuration drift"
+
+printf '%s\n' '[' > "${PROTECTION_STATUS_HOME}/.codex/config.toml"
+codex_invalid_config_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${codex_invalid_config_out}" \
+  "Codex configuration is malformed TOML" \
+  "malformed Codex configuration is identified"
+assert_contains "${codex_invalid_config_out}" \
+  "Fix the malformed Codex configuration" \
+  "malformed Codex configuration gives an effective recovery action"
+assert_not_contains "${codex_invalid_config_out}" \
+  "Next: bash ${REPO_DIR}/setup.sh --yes" \
+  "malformed Codex configuration does not recommend an ineffective reinstall"
 
 PROTECTION_EMPTY_HOME="$(mktemp -d)"
 mkdir -p \
