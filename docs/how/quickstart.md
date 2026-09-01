@@ -41,15 +41,19 @@ bash ~/vibeguard/scripts/doctors/codex-doctor.sh
 
 ```bash
 cd /path/to/project
+bash ~/vibeguard/scripts/project-init.sh --no-hooks "$PWD"  # inspect only
 bash ~/vibeguard/scripts/project-init.sh "$PWD"
 ```
 
-This prints a `Suggested project CLAUDE.md snippet` and installs the shared
-pre-commit/pre-push wrappers when they are available. Save the suggested
-snippet into the repository's `CLAUDE.md`, `AGENTS.md`, or equivalent project
-guidance file before relying on agent-visible instructions. Open a new Claude
-Code or Codex session after saving that guidance so the agent loads the updated
-instructions and hooks.
+The first command detects the project and prints a `Suggested agent guidance
+snippet` without writing Git hooks. The second repeats the report and installs
+the shared pre-commit/pre-push wrappers when they are available. Neither command
+modifies `AGENTS.md` or `CLAUDE.md`; review and save the snippet in the guidance
+file for the agent host you use. Open a new Claude Code or Codex session after
+saving that guidance so the agent loads the updated instructions and hooks.
+
+Run `bash ~/vibeguard/scripts/project-init.sh --help` for the complete command
+contract.
 
 `project-init.sh` only bootstraps repositories where it detects a known
 language marker such as `Cargo.toml`, `tsconfig.json`, `package.json`,

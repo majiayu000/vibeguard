@@ -55,6 +55,10 @@ assert_profile_hook_restored_after_repair() {
 }
 
 header "setup --clean"
+project_init_help_out="$(bash "${REPO_DIR}/scripts/project-init.sh" --help 2>&1)"
+assert_contains "${project_init_help_out}" "Usage: project-init.sh [--no-hooks] [project_root]" "project-init help shows the command contract"
+assert_contains "${project_init_help_out}" "--no-hooks" "project-init help documents read-only inspection"
+
 printf 'user codex note\n' >> "${HOME}/.codex/AGENTS.md"
 mkdir -p "${HOME}/.vibeguard/projects/session-a"
 printf '{"write_mode":"warn"}\n' > "${HOME}/.vibeguard/config.json"
@@ -79,8 +83,35 @@ TOML
 project_init_out="$(bash "${REPO_DIR}/scripts/project-init.sh" "${project_init_target}" 2>&1)"
 assert_contains "${project_init_out}" "pre-commit hook installed" "project-init installs tracked pre-commit hook"
 assert_contains "${project_init_out}" "pre-push hook installed" "project-init installs tracked pre-push hook"
+assert_contains "${project_init_out}" "Available static guards" "project-init distinguishes available checks from active hooks"
+assert_contains "${project_init_out}" "Suggested agent guidance snippet" "project-init guidance is host-neutral"
+assert_contains "${project_init_out}" "AGENTS.md or CLAUDE.md" "project-init names both supported guidance files"
 assert_cmd "project-init pre-commit hook targets VibeGuard wrapper" bash -c "[[ \"\$(readlink '${project_init_target}/.git/hooks/pre-commit')\" == '${HOME}/.vibeguard/pre-commit' ]]"
 assert_cmd "install-state records project-init hooks" bash -c "grep -q '${project_init_target}/.git/hooks/pre-commit' '${HOME}/.vibeguard/install-state.json'"
+
+project_init_read_only_target="${TMP_HOME}/project-init-read-only-target"
+mkdir -p "${project_init_read_only_target}"
+git -C "${project_init_read_only_target}" init >/dev/null
+cat > "${project_init_read_only_target}/Cargo.toml" <<'TOML'
+[package]
+name = "project-init-read-only-target"
+version = "0.1.0"
+edition = "2021"
+TOML
+project_init_read_only_out="$(bash "${REPO_DIR}/scripts/project-init.sh" --no-hooks "${project_init_read_only_target}" 2>&1)"
+project_init_read_only_target_abs="$(cd "${project_init_read_only_target}" && pwd -P)"
+assert_contains "${project_init_read_only_out}" "Git hook installation skipped (--no-hooks)" "project-init read-only mode reports skipped writes"
+assert_contains "${project_init_read_only_out}" "(cd \"${project_init_read_only_target_abs}\" && bash \"${REPO_DIR}/setup.sh\" verify-project)" "project-init verification step targets the inspected project"
+assert_cmd "project-init read-only mode does not install pre-commit" test ! -e "${project_init_read_only_target}/.git/hooks/pre-commit"
+assert_cmd "project-init read-only mode does not install pre-push" test ! -e "${project_init_read_only_target}/.git/hooks/pre-push"
+
+project_init_python_target="${TMP_HOME}/project-init-python-target"
+mkdir -p "${project_init_python_target}"
+printf '%s\n' '[project]' 'name = "project-init-python-target"' 'version = "0.1.0"' \
+  > "${project_init_python_target}/pyproject.toml"
+project_init_python_out="$(bash "${REPO_DIR}/scripts/project-init.sh" --no-hooks "${project_init_python_target}" 2>&1)"
+assert_contains "${project_init_python_out}" "[universal] check_dependency_layers.py" "project-init lists universal Python guards"
+assert_contains "${project_init_python_out}" "[python] check_duplicates.py" "project-init lists Python project guards"
 
 project_init_relative_target="${TMP_HOME}/project-init-relative-target"
 mkdir -p "${project_init_relative_target}"

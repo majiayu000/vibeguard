@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# VibeGuard Project Init — Generate project-level guard configuration for the current warehouse
+# VibeGuard Project Init — Inspect a project and attach VibeGuard protection
 #
-# Detect language/framework → List activated guards/rules → Generate project-level CLAUDE.md fragment
+# Detect language/framework → List available guards/rules → Print agent guidance → Install Git hooks
 #
-# Usage: bash project-init.sh [project_root]
+# Usage: bash project-init.sh [--no-hooks] [project_root]
 set -euo pipefail
 
 # Resolve the script before entering the target repository. A relative $0 must
@@ -18,7 +18,62 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
 VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 
-PROJECT_ROOT="${1:-$(pwd)}"
+usage() {
+  printf '%s\n' \
+    'Usage: project-init.sh [--no-hooks] [project_root]' \
+    '' \
+    'Detect the project stack, print agent guidance, and attach the shared' \
+    'VibeGuard pre-commit and pre-push hooks when they are installed.' \
+    '' \
+    'Options:' \
+    '  --no-hooks  Inspect and print guidance without modifying Git hooks.' \
+    '  -h, --help  Show this help.' \
+    '' \
+    'No AGENTS.md or CLAUDE.md file is modified.'
+}
+
+INSTALL_HOOKS=1
+PROJECT_ROOT=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-hooks)
+      INSTALL_HOOKS=0
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      if [[ $# -gt 0 ]]; then
+        PROJECT_ROOT="$1"
+        shift
+      fi
+      if [[ $# -gt 0 ]]; then
+        echo "ERROR: project-init accepts at most one project_root" >&2
+        usage >&2
+        exit 2
+      fi
+      break
+      ;;
+    -*)
+      echo "ERROR: unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      if [[ -n "${PROJECT_ROOT}" ]]; then
+        echo "ERROR: project-init accepts at most one project_root" >&2
+        usage >&2
+        exit 2
+      fi
+      PROJECT_ROOT="$1"
+      ;;
+  esac
+  shift
+done
+
+PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"
 cd "$PROJECT_ROOT" || { echo "ERROR: Unable to enter directory $PROJECT_ROOT"; exit 1; }
 PROJECT_ROOT_ABS="$(pwd -P)"
 
@@ -172,22 +227,26 @@ if [[ ${#LANGS[@]} -eq 0 ]]; then
 fi
 
 echo "Language detected: ${LANGS[*]}"
-[[ ${#FRAMEWORKS[@]} -gt 0 ]] && echo "Frame detected: ${FRAMEWORKS[*]}"
+[[ ${#FRAMEWORKS[@]} -gt 0 ]] && echo "Framework detected: ${FRAMEWORKS[*]}"
 echo
 
-# --- List active guards ---
-echo "--- activated guard ---"
+# --- List available static guards ---
+echo "--- Available static guards ---"
 GUARDS_DIR="$VIBEGUARD_DIR/guards"
-ACTIVE_GUARDS=()
+AVAILABLE_GUARDS=()
+
+append_available_guards() {
+  local guard_dir="$1" label="$2" guard_file
+  [[ -d "${guard_dir}" ]] || return 0
+  for guard_file in "${guard_dir}"/check_*.sh "${guard_dir}"/check_*.py; do
+    [[ -f "${guard_file}" ]] || continue
+    AVAILABLE_GUARDS+=("$(basename "${guard_file}")")
+    echo "[${label}] $(basename "${guard_file}")"
+  done
+}
 
 # Universal guard
-if [[ -d "$GUARDS_DIR/universal" ]]; then
-  for g in "$GUARDS_DIR/universal"/check_*.sh; do
-    [[ -f "$g" ]] || continue
-    ACTIVE_GUARDS+=("$(basename "$g")")
-    echo "[General] $(basename "$g")"
-  done
-fi
+append_available_guards "${GUARDS_DIR}/universal" universal
 
 # Language Guard
 for lang in "${LANGS[@]}"; do
@@ -196,20 +255,15 @@ for lang in "${LANGS[@]}"; do
     rust) LANG_DIR="$GUARDS_DIR/rust" ;;
     typescript|javascript) LANG_DIR="$GUARDS_DIR/typescript" ;;
     go) LANG_DIR="$GUARDS_DIR/go" ;;
+    python) LANG_DIR="$GUARDS_DIR/python" ;;
   esac
-  if [[ -n "$LANG_DIR" ]] && [[ -d "$LANG_DIR" ]]; then
-    for g in "$LANG_DIR"/check_*.sh; do
-      [[ -f "$g" ]] || continue
-      ACTIVE_GUARDS+=("$(basename "$g")")
-      echo "  [${lang}] $(basename "$g")"
-    done
-  fi
+  [[ -n "${LANG_DIR}" ]] && append_available_guards "${LANG_DIR}" "${lang}"
 done
-echo "A total of ${#ACTIVE_GUARDS[@]} guards activated"
+echo "${#AVAILABLE_GUARDS[@]} static guards available"
 echo
 
-# --- List activated native rules ---
-echo "---Activated native rules ---"
+# --- List installed Claude Code native rules ---
+echo "--- Installed Claude Code rules ---"
 RULES_DIR="$HOME/.claude/rules/vibeguard"
 RULE_COUNT=0
 
@@ -239,24 +293,27 @@ for lang in "${LANGS[@]}"; do
     done
   fi
 done
-echo "A total of ${RULE_COUNT} rules activated"
+echo "${RULE_COUNT} Claude Code rules found"
 echo
 
-# --- Check if project-level CLAUDE.md already exists ---
-if [[ -f "CLAUDE.md" ]]; then
-  echo "The project already has CLAUDE.md, skip generation."
-  echo "It is recommended to add the following content manually:"
-  echo
+# --- Report existing project guidance without modifying it ---
+GUIDANCE_FILES=()
+for guidance_file in AGENTS.md CLAUDE.md; do
+  [[ -f "${guidance_file}" ]] && GUIDANCE_FILES+=("${guidance_file}")
+done
+if [[ ${#GUIDANCE_FILES[@]} -gt 0 ]]; then
+  echo "Existing agent guidance: ${GUIDANCE_FILES[*]}"
 else
-  echo "The project does not have CLAUDE.md, you can choose to generate it."
-  echo
+  echo "No AGENTS.md or CLAUDE.md file found."
 fi
+echo "No guidance file was modified."
+echo
 
-# --- Output suggested CLAUDE.md fragment ---
-echo "--- Suggested project CLAUDE.md snippet ---"
+# --- Output suggested agent-guidance fragment ---
+echo "--- Suggested agent guidance snippet ---"
 echo
 echo '```markdown'
-echo "# project constraints"
+echo "# Project constraints"
 echo
 echo "## build command"
 if [[ ${#BUILD_CMDS[@]} -eq 0 ]]; then
@@ -285,16 +342,18 @@ if [[ "$ENTRY_POINTS" -gt 1 ]]; then
   echo
 fi
 
-echo "## VibeGuard guard"
-echo "${#ACTIVE_GUARDS[@]} guards + ${RULE_COUNT} rules activated"
+echo "## VibeGuard coverage"
+echo "${#AVAILABLE_GUARDS[@]} static guards available; ${RULE_COUNT} Claude Code rules found"
 echo '```'
+echo "Review and save this snippet in AGENTS.md or CLAUDE.md for the agent host you use."
 echo
 # --- Automatically install git hooks ---
 echo "--- Git Hooks ---"
 PRE_COMMIT_WRAPPER="${HOME}/.vibeguard/pre-commit"
 PRE_PUSH_WRAPPER="${HOME}/.vibeguard/pre-push"
 GIT_HOOKS_DIR=""
-if git -C "${PROJECT_ROOT_ABS}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+if [[ "${INSTALL_HOOKS}" -eq 1 ]] \
+  && git -C "${PROJECT_ROOT_ABS}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   if ! GIT_HOOKS_DIR="$(git -C "${PROJECT_ROOT_ABS}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)" \
     || [[ -z "${GIT_HOOKS_DIR}" ]]; then
     echo "ERROR: unable to resolve Git hooks directory for ${PROJECT_ROOT_ABS}" >&2
@@ -310,7 +369,9 @@ record_project_hook_install() {
   fi
 }
 
-if [[ -n "${GIT_HOOKS_DIR}" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
+if [[ "${INSTALL_HOOKS}" -eq 0 ]]; then
+  echo "Git hook installation skipped (--no-hooks)"
+elif [[ -n "${GIT_HOOKS_DIR}" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
   mkdir -p "$GIT_HOOKS_DIR"
   if [[ -f "$GIT_HOOKS_DIR/pre-commit" ]]; then
     echo ".git/hooks/pre-commit already exists, skip (manual override: ln -sf $PRE_COMMIT_WRAPPER $GIT_HOOKS_DIR/pre-commit)"
@@ -335,6 +396,12 @@ elif [[ -z "${GIT_HOOKS_DIR}" ]]; then
 elif [[ ! -f "$PRE_COMMIT_WRAPPER" ]]; then
   echo " ~/.vibeguard/pre-commit does not exist, please run setup.sh first"
 fi
+echo
+
+echo "--- Next steps ---"
+echo "1. Save the reviewed guidance snippet in AGENTS.md or CLAUDE.md."
+echo "2. Verify this project: (cd \"${PROJECT_ROOT_ABS}\" && bash \"${VIBEGUARD_DIR}/setup.sh\" verify-project)"
+echo "3. Prove interception: bash \"${VIBEGUARD_DIR}/setup.sh\" demo safe-bash"
 echo
 
 echo "=== Done ==="
