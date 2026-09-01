@@ -538,6 +538,21 @@ assert_contains "${deterministic_log_out}" \
   "deterministic project log takes precedence over a legacy mapping"
 rm -rf "${PROTECTION_HASH_LOG}"
 
+chmod 000 "${PROTECTION_PROJECT_LOG}/.project-root"
+unreadable_mapping_rc=0
+unreadable_mapping_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || unreadable_mapping_rc=$?
+assert_cmd "unreadable legacy project mapping fails protection status" \
+  test "${unreadable_mapping_rc}" -ne 0
+assert_contains "${unreadable_mapping_out}" "failed to resolve project event log" \
+  "unreadable legacy project mapping fails visibly"
+chmod 600 "${PROTECTION_PROJECT_LOG}/.project-root"
+
 PROTECTION_GEMINI_LOG="${PROTECTION_STATUS_HOME}/.vibeguard/projects/gemini-project"
 mkdir -p "${PROTECTION_GEMINI_LOG}"
 printf '%s' "${REPO_DIR}" > "${PROTECTION_GEMINI_LOG}/.project-root"
@@ -659,6 +674,42 @@ rm -f \
   "${PROTECTION_STATUS_HOME}/custom-config.json" \
   "${PROTECTION_STATUS_HOME}/.vibeguard/config.json"
 
+PROTECTION_HEALTHY_CONFIG="${PROTECTION_STATUS_HOME}/healthy-config.json"
+PROTECTION_BAD_INTERNAL_CONFIG="${PROTECTION_STATUS_HOME}/bad-internal-config.json"
+printf '%s\n' '{}' > "${PROTECTION_HEALTHY_CONFIG}"
+printf '%s\n' '{' > "${PROTECTION_BAD_INTERNAL_CONFIG}"
+internal_config_rc=0
+internal_config_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VG_INTERNAL_CONFIG_FILE="${PROTECTION_BAD_INTERNAL_CONFIG}" \
+  _VG_CONFIG_FILE="${PROTECTION_HEALTHY_CONFIG}" \
+  VIBEGUARD_CONFIG_FILE="${PROTECTION_HEALTHY_CONFIG}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || internal_config_rc=$?
+assert_cmd "highest-priority internal config failure is visible" \
+  test "${internal_config_rc}" -ne 0
+assert_contains "${internal_config_out}" "failed to evaluate project policy" \
+  "VG_INTERNAL_CONFIG_FILE takes precedence during policy checks"
+
+deprecated_internal_config_rc=0
+deprecated_internal_config_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  _VG_CONFIG_FILE="${PROTECTION_BAD_INTERNAL_CONFIG}" \
+  VIBEGUARD_CONFIG_FILE="${PROTECTION_HEALTHY_CONFIG}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || deprecated_internal_config_rc=$?
+assert_cmd "deprecated internal config failure is visible" \
+  test "${deprecated_internal_config_rc}" -ne 0
+assert_contains "${deprecated_internal_config_out}" "failed to evaluate project policy" \
+  "_VG_CONFIG_FILE precedes the public config during policy checks"
+rm -f "${PROTECTION_HEALTHY_CONFIG}" "${PROTECTION_BAD_INTERNAL_CONFIG}"
+
 mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
   "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime.missing"
 missing_runtime_out="$(
@@ -742,6 +793,27 @@ assert_contains "${wrapper_drift_out}" "Gemini CLI: DEGRADED" \
   "Gemini cannot report protected through a drifted shared wrapper"
 mv "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh.canonical" \
   "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh"
+
+PROTECTION_CODEX_ADAPTER_OVERRIDE="${PROTECTION_STATUS_HOME}/codex-adapter-override.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'codex_adapt_pretool() { return 0; }' \
+  > "${PROTECTION_CODEX_ADAPTER_OVERRIDE}"
+codex_adapter_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_CODEX_ADAPTER_PATH="${PROTECTION_CODEX_ADAPTER_OVERRIDE}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${codex_adapter_override_out}" "Claude Code: PROTECTED" \
+  "a Codex adapter override does not affect Claude protection"
+assert_contains "${codex_adapter_override_out}" "Codex CLI: DEGRADED" \
+  "a noncanonical active Codex adapter degrades Codex protection"
+assert_contains "${codex_adapter_override_out}" "Codex adapter override" \
+  "a noncanonical active Codex adapter is identified"
+assert_contains "${codex_adapter_override_out}" "Gemini CLI: PROTECTED" \
+  "a Codex adapter override does not affect Gemini protection"
+rm -f "${PROTECTION_CODEX_ADAPTER_OVERRIDE}"
 
 cp "${PROTECTION_STATUS_HOME}/.claude/settings.json" \
   "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical"
@@ -895,6 +967,53 @@ assert_contains "${policy_off_out}" \
 assert_not_contains "${policy_off_out}" \
   "Next: bash ${REPO_DIR}/setup.sh --yes" \
   "policy degradation does not recommend an ineffective reinstall"
+
+policy_cwd_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_POLICY_CWD="${PROTECTION_POLICY_PROJECT}" \
+  VIBEGUARD_PROJECT_ROOT="${REPO_DIR}" \
+  VIBEGUARD_PROJECT_CWD="${REPO_DIR}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${policy_cwd_override_out}" "Claude Code: DEGRADED" \
+  "policy CWD override degrades Claude when its policy disables hooks"
+assert_contains "${policy_cwd_override_out}" "Codex CLI: DEGRADED" \
+  "policy CWD override degrades Codex when its policy disables hooks"
+assert_contains "${policy_cwd_override_out}" "Gemini CLI: PROTECTED" \
+  "Gemini ignores inherited policy CWD overrides"
+assert_contains "${policy_cwd_override_out}" \
+  "${PROTECTION_POLICY_PROJECT}/.vibeguard.json" \
+  "policy CWD recovery names the live policy source"
+
+project_root_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_PROJECT_ROOT="${PROTECTION_POLICY_PROJECT}" \
+  VIBEGUARD_PROJECT_CWD="${REPO_DIR}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${project_root_override_out}" "Claude Code: DEGRADED" \
+  "project root override precedes the project CWD fallback"
+assert_contains "${project_root_override_out}" "Codex CLI: DEGRADED" \
+  "Codex honors the project root override precedence"
+
+project_cwd_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_PROJECT_CWD="${PROTECTION_POLICY_PROJECT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${project_cwd_override_out}" "Claude Code: DEGRADED" \
+  "project CWD fallback affects Claude policy checks"
+assert_contains "${project_cwd_override_out}" "Codex CLI: DEGRADED" \
+  "project CWD fallback affects Codex policy checks"
 
 PROTECTION_POLICY_OVERRIDE="${PROTECTION_STATUS_HOME}/policy-override.json"
 PROTECTION_GEMINI_POLICY_LOG="${PROTECTION_STATUS_HOME}/.vibeguard/projects/gemini-policy-project"

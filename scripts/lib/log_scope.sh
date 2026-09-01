@@ -52,7 +52,10 @@ vg_log_scope_project_log_file() {
 
   for mapping in "${log_root}/projects/"*/.project-root; do
     [[ -f "$mapping" ]] || continue
-    mapped_root="$(cat "$mapping" 2>/dev/null || true)"
+    if ! mapped_root="$(cat "$mapping")"; then
+      printf '%s\n' "unable to read project log mapping: $mapping" >&2
+      return 1
+    fi
     if [[ "$mapped_root" == "$project_root" ]]; then
       printf '%s/events.jsonl' "$(dirname "$mapping")"
       return 0

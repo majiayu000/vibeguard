@@ -46,6 +46,7 @@ if ! project_root="$(git -C "${target_dir}" rev-parse --show-toplevel 2>/dev/nul
   exit 2
 fi
 project_root="$(cd "${project_root}" && pwd -P)"
+effective_policy_cwd="${VIBEGUARD_POLICY_CWD:-${VIBEGUARD_PROJECT_ROOT:-${VIBEGUARD_PROJECT_CWD:-${project_root}}}}"
 
 if ! runtime="$(setup_runtime_path)"; then
   printf 'ERROR: vibeguard-runtime is unavailable; run: bash setup.sh --yes\n' >&2
@@ -280,6 +281,11 @@ hook_assets_problem() {
   fi
   canonical_asset_problem \
     "${HOME}/.vibeguard/${wrapper}" "${REPO_DIR}/hooks/${wrapper}" "hook wrapper" || return $?
+  if [[ "${host}" == "codex" && -n "${VIBEGUARD_CODEX_ADAPTER_PATH:-}" ]]; then
+    canonical_asset_problem \
+      "${VIBEGUARD_CODEX_ADAPTER_PATH}" "${REPO_DIR}/hooks/_lib/codex_adapter.sh" \
+      "Codex adapter override" || return $?
+  fi
   if [[ "${host}" == "gemini" ]]; then
     canonical_asset_problem \
       "${HOME}/.vibeguard/run-hook.sh" "${REPO_DIR}/hooks/run-hook.sh" \
@@ -355,17 +361,19 @@ hook_assets_problem() {
 }
 
 hook_policy_problem() {
-  local host="$1" hook="$2" output status=0 enforcement user_config
+  local host="$1" hook="$2" output status=0 enforcement user_config policy_cwd
   if [[ "${host}" == "gemini" ]]; then
     unset VIBEGUARD_PROJECT_CONFIG
     user_config="${HOME}/.vibeguard/config.json"
+    policy_cwd="${project_root}"
   else
-    user_config="${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}"
+    user_config="${VG_INTERNAL_CONFIG_FILE:-${_VG_CONFIG_FILE:-${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}}}"
+    policy_cwd="${effective_policy_cwd}"
   fi
   output="$(
     VG_INTERNAL_USER_CONFIG_FILE="${user_config}" \
     VIBEGUARD_USER_CONFIG_FILE="${user_config}" \
-      "${runtime}" runtime-policy-check --cwd "${project_root}" "${hook}" 2>/dev/null
+      "${runtime}" runtime-policy-check --cwd "${policy_cwd}" "${hook}" 2>/dev/null
   )" || status=$?
   case "${status}" in
     0)
@@ -554,6 +562,9 @@ render_host() {
         printf '  Next: Fix the malformed Codex configuration in %s, then rerun protection-status.\n' \
           "${codex_config}"
         ;;
+      Required\ Codex\ adapter\ override\ *)
+        printf '  Next: Unset VIBEGUARD_CODEX_ADAPTER_PATH or restore its canonical contents, then rerun protection-status.\n'
+        ;;
       *)
         printf '  Next: %s\n' "${install_command}"
         ;;
@@ -575,7 +586,7 @@ render_host() {
 printf '%s\n' 'VibeGuard Protection Status'
 printf 'Project: %s\n\n' "${project_root}"
 setup_entrypoint="$(printf '%q' "${REPO_DIR}/setup.sh")"
-project_policy_source="${VIBEGUARD_PROJECT_CONFIG:-${project_root}/.vibeguard.json}"
+project_policy_source="${VIBEGUARD_PROJECT_CONFIG:-${effective_policy_cwd}/.vibeguard.json}"
 render_host "Claude Code" "${claude_enabled}" "${claude_configured}" "${claude_event}" \
   "bash ${setup_entrypoint} --yes --profile ${repair_profile}" "${claude_problem}" \
   "${project_policy_source}"
