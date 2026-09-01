@@ -89,6 +89,27 @@ elif ! setup_runtime_supports "${installed_runtime}"; then
   installed_runtime_problem="Required installed runtime is incompatible or corrupt: ${installed_runtime}"
 fi
 
+dev_linked_runtime_problem=""
+if [[ "${execution_mode}" == "dev-linked-repo" && -z "${execution_problem}" ]]; then
+  linked_runtime=""
+  for candidate in \
+    "${VIBEGUARD_RUNTIME:-}" \
+    "${execution_root}/vibeguard-runtime/target/release/vibeguard-runtime" \
+    "${execution_root}/vibeguard-runtime/target/debug/vibeguard-runtime" \
+    "${installed_runtime}" \
+    "${execution_root}/hooks/vibeguard-runtime"; do
+    if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
+      linked_runtime="${candidate}"
+      break
+    fi
+  done
+  if [[ -z "${linked_runtime}" ]]; then
+    dev_linked_runtime_problem="Required dev-linked runtime is missing."
+  elif ! setup_runtime_supports "${linked_runtime}"; then
+    dev_linked_runtime_problem="Required dev-linked runtime is incompatible or corrupt: ${linked_runtime}"
+  fi
+fi
+
 resolve_effective_profile() {
   local output status=0 effective_profile
   output="$(
@@ -229,6 +250,8 @@ canonical_asset_problem() {
 
 hook_assets_problem() {
   local host="$1" hooks="$2" wrapper="$3" hook source_path canonical_path source_root
+  local active_sources="" dependency_sources="" required_assets="" relative_path candidate_base
+  local changed referenced
   if [[ "${host}" == "gemini" ]]; then
     source_root="${HOME}/.vibeguard/installed"
   else
@@ -240,32 +263,83 @@ hook_assets_problem() {
     canonical_asset_problem \
       "${HOME}/.vibeguard/run-hook.sh" "${REPO_DIR}/hooks/run-hook.sh" \
       "shared hook wrapper" || return $?
+    dependency_sources+=$'\n'"${REPO_DIR}/hooks/run-hook.sh"
   fi
+  dependency_sources="${REPO_DIR}/hooks/${wrapper}${dependency_sources}"
   while IFS= read -r hook; do
     [[ -n "${hook}" ]] || continue
-    source_path="${source_root}/hooks/${hook}"
-    canonical_asset_problem \
-      "${source_path}" "${REPO_DIR}/hooks/${hook}" "hook asset" || return $?
+    relative_path="hooks/${hook}"
+    [[ -z "${required_assets}" ]] || required_assets+=$'\n'
+    required_assets+="${relative_path}"
+    [[ -z "${active_sources}" ]] || active_sources+=$'\n'
+    active_sources+="${REPO_DIR}/${relative_path}"
+    dependency_sources+=$'\n'"${REPO_DIR}/${relative_path}"
   done <<< "${hooks}"
+
+  # Top-level libraries are dependencies only when an active profile hook
+  # sources them. Manual and otherwise unconfigured hook scripts are ignored.
   while IFS= read -r canonical_path; do
     [[ -n "${canonical_path}" ]] || continue
-    hook="${canonical_path#"${REPO_DIR}/hooks/"}"
-    source_path="${source_root}/hooks/${hook}"
-    canonical_asset_problem "${source_path}" "${canonical_path}" \
-      "hook dependency" || return $?
+    relative_path="hooks/${canonical_path#"${REPO_DIR}/hooks/"}"
+    grep -Fqx "${relative_path}" <<< "${required_assets}" && continue
+    candidate_base="${canonical_path##*/}"
+    referenced=0
+    while IFS= read -r source_path; do
+      [[ -n "${source_path}" ]] || continue
+      if grep -Fq "/${candidate_base}" "${source_path}"; then
+        referenced=1
+        break
+      fi
+    done <<< "${active_sources}"
+    [[ "${referenced}" -eq 1 ]] || continue
+    [[ -z "${required_assets}" ]] || required_assets+=$'\n'
+    required_assets+="${relative_path}"
+    dependency_sources+=$'\n'"${canonical_path}"
   done < <(find "${REPO_DIR}/hooks" -maxdepth 1 -type f -name '*.sh' -print)
-  while IFS= read -r canonical_path; do
-    [[ -n "${canonical_path}" ]] || continue
-    hook="${canonical_path#"${REPO_DIR}/hooks/"}"
-    source_path="${source_root}/hooks/${hook}"
-    canonical_asset_problem "${source_path}" "${canonical_path}" "hook helper" || return $?
-  done < <(find "${REPO_DIR}/hooks/_lib" -type f -name '*.sh' -print)
+
+  # Follow literal helper references from the selected wrappers, hooks, and
+  # libraries until their small shell dependency closure is complete.
+  changed=1
+  while [[ "${changed}" -eq 1 ]]; do
+    changed=0
+    while IFS= read -r canonical_path; do
+      [[ -n "${canonical_path}" ]] || continue
+      relative_path="hooks/_lib/${canonical_path##*/}"
+      grep -Fqx "${relative_path}" <<< "${required_assets}" && continue
+      candidate_base="${canonical_path##*/}"
+      referenced=0
+      while IFS= read -r source_path; do
+        [[ -n "${source_path}" ]] || continue
+        if grep -Fq "/${candidate_base}" "${source_path}" \
+          || grep -Fq " ${candidate_base}" "${source_path}"; then
+          referenced=1
+          break
+        fi
+      done <<< "${dependency_sources}"
+      [[ "${referenced}" -eq 1 ]] || continue
+      [[ -z "${required_assets}" ]] || required_assets+=$'\n'
+      required_assets+="${relative_path}"
+      dependency_sources+=$'\n'"${canonical_path}"
+      changed=1
+    done < <(find "${REPO_DIR}/hooks/_lib" -maxdepth 1 -type f -name '*.sh' -print)
+  done
+
+  while IFS= read -r relative_path; do
+    [[ -n "${relative_path}" ]] || continue
+    canonical_asset_problem \
+      "${source_root}/${relative_path}" "${REPO_DIR}/${relative_path}" \
+      "hook asset" || return $?
+  done <<< "${required_assets}"
   return 0
 }
 
 hook_policy_problem() {
-  local hook="$1" output status=0 enforcement user_config
-  user_config="${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}"
+  local host="$1" hook="$2" output status=0 enforcement user_config
+  if [[ "${host}" == "gemini" ]]; then
+    user_config="${HOME}/.vibeguard/config.json"
+  else
+    user_config="${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}"
+  fi
   output="$(
     VG_INTERNAL_USER_CONFIG_FILE="${user_config}" \
     VIBEGUARD_USER_CONFIG_FILE="${user_config}" \
@@ -297,12 +371,12 @@ hook_policy_problem() {
 }
 
 hook_set_policy_problem() {
-  local hooks="$1" hook result status
+  local host="$1" hooks="$2" hook result status
   while IFS= read -r hook; do
     [[ -n "${hook}" ]] || continue
     result=""
     status=0
-    result="$(hook_policy_problem "${hook}")" || status=$?
+    result="$(hook_policy_problem "${host}" "${hook}")" || status=$?
     case "${status}" in
       0) ;;
       10) printf '%s' "${result}"; return 10 ;;
@@ -322,6 +396,10 @@ host_problem() {
     printf '%s' "${installed_runtime_problem}"
     return 0
   fi
+  if [[ "${host}" == "claude" && -n "${dev_linked_runtime_problem}" ]]; then
+    printf '%s' "${dev_linked_runtime_problem}"
+    return 0
+  fi
   result="$(profile_hook_problem "${host}" "${hooks}")" || status=$?
   case "${status}" in
     0) ;;
@@ -336,7 +414,7 @@ host_problem() {
     *) return 2 ;;
   esac
   status=0
-  result="$(hook_set_policy_problem "${hooks}")" || status=$?
+  result="$(hook_set_policy_problem "${host}" "${hooks}")" || status=$?
   case "${status}" in
     0) return 0 ;;
     10) printf '%s' "${result}"; return 0 ;;
