@@ -132,6 +132,21 @@ if [[ "${execution_mode}" == "dev-linked-repo" && -z "${execution_problem}" ]]; 
   fi
 fi
 
+hook_dir_override_problem=""
+if [[ -n "${VIBEGUARD_HOOK_DIR:-}" ]]; then
+  expected_hook_dir="${execution_root}/hooks"
+  selected_hook_dir="${VIBEGUARD_HOOK_DIR}"
+  if [[ ! -d "${selected_hook_dir}" ]]; then
+    hook_dir_override_problem="Selected hook directory override VIBEGUARD_HOOK_DIR is missing or not a directory: ${selected_hook_dir}"
+  elif [[ -d "${expected_hook_dir}" ]]; then
+    selected_hook_dir="$(cd "${selected_hook_dir}" && pwd -P)"
+    expected_hook_dir="$(cd "${expected_hook_dir}" && pwd -P)"
+    if [[ "${selected_hook_dir}" != "${expected_hook_dir}" ]]; then
+      hook_dir_override_problem="Selected hook directory override VIBEGUARD_HOOK_DIR does not match the active hook directory: ${selected_hook_dir}"
+    fi
+  fi
+fi
+
 resolve_effective_profile() {
   local policy_cwd="$1" output status=0 effective_profile
   output="$(
@@ -444,8 +459,12 @@ host_problem() {
     printf '%s' "${policy_runtime_override_problem}"
     return 0
   fi
-  if [[ "${host}" == "claude" && -n "${dev_linked_runtime_problem}" ]]; then
+  if [[ "${host}" != "gemini" && -n "${dev_linked_runtime_problem}" ]]; then
     printf '%s' "${dev_linked_runtime_problem}"
+    return 0
+  fi
+  if [[ "${host}" != "gemini" && -n "${hook_dir_override_problem}" ]]; then
+    printf '%s' "${hook_dir_override_problem}"
     return 0
   fi
   result="$(profile_hook_problem "${host}" "${hooks}")" || status=$?
@@ -509,6 +528,8 @@ codex_configured=0
 codex_hooks_file="${CODEX_DIR}/hooks.json"
 codex_wrapper="${HOME}/.vibeguard/run-hook-codex.sh"
 codex_config="${CODEX_DIR}/config.toml"
+codex_hooks_check_status=1
+codex_hooks_check_output=""
 if [[ -e "${codex_wrapper}" ]] \
   || { [[ -f "${codex_hooks_file}" ]] && grep -Fq 'run-hook-codex.sh' "${codex_hooks_file}"; }; then
   codex_enabled=1
@@ -520,17 +541,30 @@ fi
 if [[ "${codex_feature_status}" == "INVALID" && -z "${codex_problem}" ]]; then
   codex_problem="Codex configuration is malformed TOML: ${codex_config}"
 fi
+if [[ -f "${codex_hooks_file}" ]]; then
+  codex_hooks_check_status=0
+  codex_hooks_check_output="$(
+    "${runtime}" setup-codex-hooks-check \
+      "${REPO_DIR}" "${codex_hooks_file}" "${codex_wrapper}" "${profile}" 2>&1
+  )" || codex_hooks_check_status=$?
+  if [[ "${codex_hooks_check_status}" -ne 0 \
+    && -n "${codex_hooks_check_output}" \
+    && -z "${codex_problem}" ]]; then
+    codex_problem="Codex hook configuration is malformed JSON: ${codex_hooks_file}"
+  fi
+fi
 if [[ -x "${codex_wrapper}" ]] \
   && [[ -f "${execution_root}/hooks/pre-bash-guard.sh" ]] \
   && [[ "${codex_feature_status}" == "OK" ]] \
-  && "${runtime}" setup-codex-hooks-check \
-    "${REPO_DIR}" "${codex_hooks_file}" "${codex_wrapper}" "${profile}" >/dev/null 2>&1 \
+  && [[ "${codex_hooks_check_status}" -eq 0 ]] \
   && [[ -z "${codex_problem}" ]]; then
   codex_configured=1
 fi
 
 gemini_enabled=0
 gemini_configured=0
+gemini_settings_check_status=1
+gemini_settings_check_output=""
 if gemini_install_expected \
   || [[ -e "${GEMINI_WRAPPER}" ]] \
   || { [[ -f "${GEMINI_SETTINGS_FILE}" ]] \
@@ -544,13 +578,24 @@ if [[ "${gemini_enabled}" -eq 1 && -z "${gemini_problem}" ]]; then
     gemini_problem="Gemini CLI does not expose hook support."
   fi
 fi
+if [[ -f "${GEMINI_SETTINGS_FILE}" ]]; then
+  gemini_settings_check_status=0
+  gemini_settings_check_output="$(
+    "${runtime}" setup-gemini-hooks-check \
+      "${GEMINI_SETTINGS_FILE}" "${GEMINI_WRAPPER}" 2>&1
+  )" || gemini_settings_check_status=$?
+  if [[ "${gemini_settings_check_status}" -ne 0 \
+    && -n "${gemini_settings_check_output}" \
+    && -z "${gemini_problem}" ]]; then
+    gemini_problem="Gemini settings are malformed JSON: ${GEMINI_SETTINGS_FILE}"
+  fi
+fi
 if [[ "${gemini_enabled}" -eq 1 ]] \
   && [[ -f "${GEMINI_ENABLED_MARKER}" ]] \
   && [[ -x "${GEMINI_WRAPPER}" ]] \
   && [[ -x "${HOME}/.vibeguard/run-hook.sh" ]] \
   && [[ -f "${HOME}/.vibeguard/installed/hooks/pre-bash-guard.sh" ]] \
-  && "${runtime}" setup-gemini-hooks-check \
-    "${GEMINI_SETTINGS_FILE}" "${GEMINI_WRAPPER}" >/dev/null 2>&1 \
+  && [[ "${gemini_settings_check_status}" -eq 0 ]] \
   && [[ -z "${gemini_problem}" ]]; then
   gemini_configured=1
 fi
@@ -587,8 +632,20 @@ render_host() {
         printf '  Next: Fix the malformed Claude settings in %s, then rerun protection-status.\n' \
           "${SETTINGS_FILE}"
         ;;
+      Codex\ hook\ configuration\ is\ malformed\ JSON:*)
+        printf '  Next: Fix the malformed Codex hook configuration in %s, then rerun protection-status.\n' \
+          "${codex_hooks_file}"
+        ;;
+      Gemini\ settings\ are\ malformed\ JSON:*)
+        printf '  Next: Fix the malformed Gemini settings in %s, then rerun protection-status.\n' \
+          "${GEMINI_SETTINGS_FILE}"
+        ;;
       Required\ Codex\ adapter\ override\ *)
         printf '  Next: Unset VIBEGUARD_CODEX_ADAPTER_PATH or restore its canonical contents, then rerun protection-status.\n'
+        ;;
+      Selected\ hook\ directory\ override\ VIBEGUARD_HOOK_DIR*)
+        printf '  Next: Unset VIBEGUARD_HOOK_DIR or set it to %s, then rerun protection-status.\n' \
+          "${execution_root}/hooks"
         ;;
       *)
         printf '  Next: %s\n' "${install_command}"

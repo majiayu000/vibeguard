@@ -792,8 +792,8 @@ dev_linked_bad_runtime_out="$(
 )"
 assert_contains "${dev_linked_bad_runtime_out}" "Claude Code: DEGRADED" \
   "dev-linked Claude validates the repository runtime it executes"
-assert_contains "${dev_linked_bad_runtime_out}" "Codex CLI: PROTECTED" \
-  "Codex remains on the validated runtime selected by its wrapper"
+assert_contains "${dev_linked_bad_runtime_out}" "Codex CLI: DEGRADED" \
+  "dev-linked Codex validates the repository runtime selected by its wrapper"
 assert_contains "${dev_linked_bad_runtime_out}" "Gemini CLI: PROTECTED" \
   "dev-linked repository runtime does not affect installed Gemini execution"
 assert_contains "${dev_linked_bad_runtime_out}" "linked runtime" \
@@ -841,6 +841,26 @@ assert_contains "${codex_adapter_override_out}" "Gemini CLI: PROTECTED" \
   "a Codex adapter override does not affect Gemini protection"
 rm -f "${PROTECTION_CODEX_ADAPTER_OVERRIDE}"
 
+PROTECTION_BAD_HOOK_DIR="${PROTECTION_STATUS_HOME}/stale-hook-dir"
+mkdir -p "${PROTECTION_BAD_HOOK_DIR}"
+hook_dir_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_HOOK_DIR="${PROTECTION_BAD_HOOK_DIR}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${hook_dir_override_out}" "Claude Code: DEGRADED" \
+  "a stale hook directory override degrades Claude protection"
+assert_contains "${hook_dir_override_out}" "Codex CLI: DEGRADED" \
+  "a stale hook directory override degrades Codex protection"
+assert_contains "${hook_dir_override_out}" "VIBEGUARD_HOOK_DIR" \
+  "a stale hook directory override is identified"
+assert_contains "${hook_dir_override_out}" "Gemini CLI: PROTECTED" \
+  "Gemini ignores the hook directory override removed by its adapter"
+rmdir "${PROTECTION_BAD_HOOK_DIR}"
+
 cp "${PROTECTION_STATUS_HOME}/.claude/settings.json" \
   "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical"
 python3 - "${PROTECTION_STATUS_HOME}/.claude/settings.json" \
@@ -868,6 +888,50 @@ assert_contains "${direct_claude_out}" "Claude Code: DEGRADED" \
   "direct Claude hook scripts cannot bypass the canonical wrapper verdict"
 mv "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical" \
   "${PROTECTION_STATUS_HOME}/.claude/settings.json"
+
+cp "${PROTECTION_STATUS_HOME}/.codex/hooks.json" \
+  "${PROTECTION_STATUS_HOME}/.codex/hooks.json.canonical"
+printf '%s\n' '[' > "${PROTECTION_STATUS_HOME}/.codex/hooks.json"
+codex_invalid_hooks_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${codex_invalid_hooks_out}" \
+  "Codex hook configuration is malformed JSON" \
+  "malformed Codex hooks are identified"
+assert_contains "${codex_invalid_hooks_out}" \
+  "Fix the malformed Codex hook configuration" \
+  "malformed Codex hooks give an effective recovery action"
+assert_not_contains "${codex_invalid_hooks_out}" \
+  "Next: bash ${REPO_DIR}/setup.sh --yes" \
+  "malformed Codex hooks do not recommend an ineffective reinstall"
+mv "${PROTECTION_STATUS_HOME}/.codex/hooks.json.canonical" \
+  "${PROTECTION_STATUS_HOME}/.codex/hooks.json"
+
+cp "${PROTECTION_STATUS_HOME}/.gemini/settings.json" \
+  "${PROTECTION_STATUS_HOME}/.gemini/settings.json.canonical"
+printf '%s\n' '[' > "${PROTECTION_STATUS_HOME}/.gemini/settings.json"
+gemini_invalid_settings_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${gemini_invalid_settings_out}" \
+  "Gemini settings are malformed JSON" \
+  "malformed Gemini settings are identified"
+assert_contains "${gemini_invalid_settings_out}" \
+  "Fix the malformed Gemini settings" \
+  "malformed Gemini settings give an effective recovery action"
+assert_not_contains "${gemini_invalid_settings_out}" \
+  "Next: bash ${REPO_DIR}/setup.sh --yes" \
+  "malformed Gemini settings do not recommend an ineffective reinstall"
+mv "${PROTECTION_STATUS_HOME}/.gemini/settings.json.canonical" \
+  "${PROTECTION_STATUS_HOME}/.gemini/settings.json"
 
 cp "${PROTECTION_STATUS_HOME}/.claude/settings.json" \
   "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical"
