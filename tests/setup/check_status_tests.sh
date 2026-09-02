@@ -572,6 +572,32 @@ assert_contains "${gemini_protected_out}" \
   "2026-08-31T01:02:00Z | pre-bash-guard | pass" \
   "protected Gemini status names its live evidence"
 
+PROTECTION_EXPLICIT_LOG_DIR="${PROTECTION_STATUS_HOME}/explicit-project-log"
+PROTECTION_EXPLICIT_LOG_FILE="${PROTECTION_EXPLICIT_LOG_DIR}/custom-events.jsonl"
+mkdir -p "${PROTECTION_EXPLICIT_LOG_DIR}"
+cat > "${PROTECTION_EXPLICIT_LOG_FILE}" <<'JSONL'
+{"ts":"2026-09-01T01:00:00Z","client":"claude","hook":"pre-edit-guard","decision":"block"}
+{"ts":"2026-09-01T01:01:00Z","client":"codex","hook":"pre-bash-guard","decision":"pass"}
+JSONL
+explicit_log_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_PROJECT_LOG_DIR="${PROTECTION_EXPLICIT_LOG_DIR}" \
+  VIBEGUARD_LOG_FILE="${PROTECTION_EXPLICIT_LOG_FILE}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${explicit_log_out}" \
+  "2026-09-01T01:00:00Z | pre-edit-guard | block" \
+  "Claude evidence follows the active explicit log file"
+assert_contains "${explicit_log_out}" \
+  "2026-09-01T01:01:00Z | pre-bash-guard | pass" \
+  "Codex evidence follows the active explicit log file"
+assert_contains "${explicit_log_out}" \
+  "2026-08-31T01:02:00Z | pre-bash-guard | pass" \
+  "Gemini evidence ignores inherited explicit log overrides"
+
 PROTECTION_BAD_RUNTIME="${PROTECTION_STATUS_HOME}/bad-runtime"
 printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "${PROTECTION_BAD_RUNTIME}"
 chmod +x "${PROTECTION_BAD_RUNTIME}"
@@ -843,6 +869,28 @@ assert_contains "${direct_claude_out}" "Claude Code: DEGRADED" \
 mv "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical" \
   "${PROTECTION_STATUS_HOME}/.claude/settings.json"
 
+cp "${PROTECTION_STATUS_HOME}/.claude/settings.json" \
+  "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical"
+printf '%s\n' '[' > "${PROTECTION_STATUS_HOME}/.claude/settings.json"
+claude_invalid_settings_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${claude_invalid_settings_out}" \
+  "Claude settings are malformed JSON" \
+  "malformed Claude settings are identified"
+assert_contains "${claude_invalid_settings_out}" \
+  "Fix the malformed Claude settings" \
+  "malformed Claude settings give an effective recovery action"
+assert_not_contains "${claude_invalid_settings_out}" \
+  "Next: bash ${REPO_DIR}/setup.sh --yes" \
+  "malformed Claude settings do not recommend an ineffective reinstall"
+mv "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical" \
+  "${PROTECTION_STATUS_HOME}/.claude/settings.json"
+
 cp "${PROTECTION_PROJECT_LOG}/events.jsonl" \
   "${PROTECTION_PROJECT_LOG}/events.jsonl.valid"
 printf '%s\n' '{' >> "${PROTECTION_PROJECT_LOG}/events.jsonl"
@@ -1072,6 +1120,21 @@ assert_contains "${full_profile_out}" "Project profile full requires" \
   "stronger project profile degradation is explained"
 assert_contains "${full_profile_out}" "--profile full" \
   "stronger project profile recovery action installs the required profile"
+
+policy_cwd_full_profile_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_POLICY_CWD="${PROTECTION_FULL_PROJECT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${policy_cwd_full_profile_out}" "Claude Code: DEGRADED" \
+  "live full-profile CWD cannot report protected through a core Claude install"
+assert_contains "${policy_cwd_full_profile_out}" "Codex CLI: DEGRADED" \
+  "live full-profile CWD cannot report protected through a core Codex install"
+assert_contains "${policy_cwd_full_profile_out}" "Project profile full requires" \
+  "live policy CWD supplies the required hook profile"
 
 printf '%s\n' '[features]' 'hooks = false' \
   > "${PROTECTION_STATUS_HOME}/.codex/config.toml"

@@ -133,9 +133,9 @@ if [[ "${execution_mode}" == "dev-linked-repo" && -z "${execution_problem}" ]]; 
 fi
 
 resolve_effective_profile() {
-  local output status=0 effective_profile
+  local policy_cwd="$1" output status=0 effective_profile
   output="$(
-    "${runtime}" runtime-policy-check --cwd "${project_root}" pre-bash-guard.sh 2>/dev/null
+    "${runtime}" runtime-policy-check --cwd "${policy_cwd}" pre-bash-guard.sh 2>/dev/null
   )" || status=$?
   case "${status}" in
     0|10) ;;
@@ -148,8 +148,8 @@ resolve_effective_profile() {
   printf '%s\n' "${effective_profile}"
 }
 
-if ! effective_profile="$(resolve_effective_profile)"; then
-  printf 'ERROR: failed to resolve the project profile: %s\n' "${project_root}" >&2
+if ! effective_profile="$(resolve_effective_profile "${effective_policy_cwd}")"; then
+  printf 'ERROR: failed to resolve the project profile: %s\n' "${effective_policy_cwd}" >&2
   exit 2
 fi
 
@@ -164,12 +164,8 @@ latest_event_for() {
     <<< "${summary}"
 }
 
-event_summary_for_log_root() {
-  local log_root="$1" event_file summary=""
-  if ! event_file="$(resolve_project_event_file "${log_root}")"; then
-    printf 'ERROR: failed to resolve project event log: %s\n' "${project_root}" >&2
-    return 2
-  fi
+event_summary_for_file() {
+  local event_file="$1" summary=""
   if [[ -n "${event_file}" && -e "${event_file}" ]]; then
     if [[ ! -r "${event_file}" ]]; then
       printf 'ERROR: project event log is unreadable: %s\n' "${event_file}" >&2
@@ -183,12 +179,26 @@ event_summary_for_log_root() {
   printf '%s' "${summary}"
 }
 
+event_summary_for_log_root() {
+  local log_root="$1" event_file
+  if ! event_file="$(resolve_project_event_file "${log_root}")"; then
+    printf 'ERROR: failed to resolve project event log: %s\n' "${project_root}" >&2
+    return 2
+  fi
+  event_summary_for_file "${event_file}"
+}
+
 primary_log_root="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
-if ! event_summary="$(event_summary_for_log_root "${primary_log_root}")"; then
+primary_uses_explicit_log=0
+if [[ -n "${VIBEGUARD_PROJECT_LOG_DIR:-}" && -n "${VIBEGUARD_LOG_FILE:-}" ]]; then
+  primary_uses_explicit_log=1
+  event_summary="$(event_summary_for_file "${VIBEGUARD_LOG_FILE}")" || exit 2
+elif ! event_summary="$(event_summary_for_log_root "${primary_log_root}")"; then
   exit 2
 fi
 gemini_log_root="${HOME}/.vibeguard"
-if [[ "${gemini_log_root}" == "${primary_log_root}" ]]; then
+if [[ "${primary_uses_explicit_log}" -eq 0 \
+  && "${gemini_log_root}" == "${primary_log_root}" ]]; then
   gemini_event_summary="${event_summary}"
 elif ! gemini_event_summary="$(event_summary_for_log_root "${gemini_log_root}")"; then
   exit 2
@@ -469,8 +479,19 @@ fi
 claude_enabled=0
 claude_configured=0
 claude_settings_canonical=0
-if settings_check "${SETTINGS_FILE}" "canonical-profile-hooks:${profile}"; then
-  claude_settings_canonical=1
+claude_settings_check_status=1
+claude_settings_check_output=""
+if [[ -f "${SETTINGS_FILE}" ]]; then
+  claude_settings_check_status=0
+  claude_settings_check_output="$(
+    "${runtime}" setup-settings-check "${REPO_DIR}" "${SETTINGS_FILE}" \
+      "canonical-profile-hooks:${profile}" 2>&1
+  )" || claude_settings_check_status=$?
+  if [[ "${claude_settings_check_status}" -eq 0 ]]; then
+    claude_settings_canonical=1
+  elif [[ -n "${claude_settings_check_output}" && -z "${claude_problem}" ]]; then
+    claude_problem="Claude settings are malformed JSON: ${SETTINGS_FILE}"
+  fi
 fi
 if [[ -e "${HOME}/.vibeguard/run-hook.sh" ]] \
   || { [[ -f "${SETTINGS_FILE}" ]] && grep -Fq 'run-hook.sh' "${SETTINGS_FILE}"; }; then
@@ -561,6 +582,10 @@ render_host() {
       Codex\ configuration\ is\ malformed\ TOML:*)
         printf '  Next: Fix the malformed Codex configuration in %s, then rerun protection-status.\n' \
           "${codex_config}"
+        ;;
+      Claude\ settings\ are\ malformed\ JSON:*)
+        printf '  Next: Fix the malformed Claude settings in %s, then rerun protection-status.\n' \
+          "${SETTINGS_FILE}"
         ;;
       Required\ Codex\ adapter\ override\ *)
         printf '  Next: Unset VIBEGUARD_CODEX_ADAPTER_PATH or restore its canonical contents, then rerun protection-status.\n'
