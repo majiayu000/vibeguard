@@ -181,12 +181,6 @@ assert_cmd "setup runtime validation is cached per lifecycle" env \
     setup_runtime version >/dev/null
     setup_runtime version >/dev/null
     [[ "$(wc -l < "$2" | tr -d " ")" == 1 ]]
-    setup_runtime_cache_clear
-    setup_runtime version >/dev/null
-    [[ "$(wc -l < "$2" | tr -d " ")" == 2 ]]
-    HOME="$HOME/changed"
-    setup_runtime version >/dev/null
-    [[ "$(wc -l < "$2" | tr -d " ")" == 3 ]]
   ' _ "${REPO_DIR}" "${gh719_setup_cached_runtime_count}"
 
 assert_cmd "setup selector accepts real capability runtime" env \
