@@ -147,6 +147,26 @@ if [[ -n "${VIBEGUARD_HOOK_DIR:-}" ]]; then
   fi
 fi
 
+active_root_override_problem=""
+installed_root_override_problem=""
+if [[ -n "${VIBEGUARD_DIR:-}" ]]; then
+  selected_vibeguard_dir="${VIBEGUARD_DIR}"
+  if [[ ! -d "${selected_vibeguard_dir}" ]]; then
+    active_root_override_problem="Selected VibeGuard root override VIBEGUARD_DIR is missing or not a directory: ${selected_vibeguard_dir}"
+    installed_root_override_problem="${active_root_override_problem}"
+  else
+    selected_vibeguard_dir="$(cd "${selected_vibeguard_dir}" && pwd -P)"
+    active_execution_root="$(cd "${execution_root}" && pwd -P)"
+    installed_execution_root="$(cd "${HOME}/.vibeguard/installed" && pwd -P)"
+    if [[ "${selected_vibeguard_dir}" != "${active_execution_root}" ]]; then
+      active_root_override_problem="Selected VibeGuard root override VIBEGUARD_DIR does not match the active execution root: ${selected_vibeguard_dir}"
+    fi
+    if [[ "${selected_vibeguard_dir}" != "${installed_execution_root}" ]]; then
+      installed_root_override_problem="Selected VibeGuard root override VIBEGUARD_DIR does not match the installed execution root: ${selected_vibeguard_dir}"
+    fi
+  fi
+fi
+
 resolve_effective_profile() {
   local policy_cwd="$1" output status=0 effective_profile
   output="$(
@@ -298,7 +318,7 @@ canonical_asset_problem() {
 hook_assets_problem() {
   local host="$1" hooks="$2" wrapper="$3" hook source_path canonical_path source_root
   local active_sources="" dependency_sources="" required_assets="" relative_path candidate_base
-  local changed referenced
+  local changed referenced guard_source guard_dir guard_candidate
   if [[ "${host}" == "gemini" ]]; then
     source_root="${HOME}/.vibeguard/installed"
   else
@@ -376,6 +396,47 @@ hook_assets_problem() {
     done < <(find "${REPO_DIR}/hooks/_lib" -maxdepth 1 -type f -name '*.sh' -print)
   done
 
+  # pre-bash dispatches pre-commit outside the profile hook list. Derive its
+  # language guard set from the canonical script, then follow local helper
+  # references so protection covers the assets the runtime actually invokes.
+  if grep -Fqx "pre-bash-guard.sh" <<< "${hooks}"; then
+    for relative_path in hooks/pre-commit-guard.sh hooks/log.sh; do
+      if ! grep -Fqx "${relative_path}" <<< "${required_assets}"; then
+        [[ -z "${required_assets}" ]] || required_assets+=$'\n'
+        required_assets+="${relative_path}"
+        dependency_sources+=$'\n'"${REPO_DIR}/${relative_path}"
+      fi
+    done
+    while IFS= read -r relative_path; do
+      [[ -n "${relative_path}" ]] || continue
+      if ! grep -Fqx "${relative_path}" <<< "${required_assets}"; then
+        required_assets+=$'\n'"${relative_path}"
+        dependency_sources+=$'\n'"${REPO_DIR}/${relative_path}"
+      fi
+    done < <(
+      sed -n 's#.*${GUARDS_DIR}/\([^}"[:space:]]*\).*#guards/\1#p' \
+        "${REPO_DIR}/hooks/pre-commit-guard.sh" | sort -u
+    )
+
+    changed=1
+    while [[ "${changed}" -eq 1 ]]; do
+      changed=0
+      while IFS= read -r guard_source; do
+        [[ "${guard_source}" == "${REPO_DIR}/guards/"* ]] || continue
+        guard_dir="${guard_source%/*}"
+        while IFS= read -r guard_candidate; do
+          candidate_base="${guard_candidate##*/}"
+          grep -Fq "/${candidate_base}" "${guard_source}" || continue
+          relative_path="${guard_candidate#"${REPO_DIR}/"}"
+          grep -Fqx "${relative_path}" <<< "${required_assets}" && continue
+          required_assets+=$'\n'"${relative_path}"
+          dependency_sources+=$'\n'"${guard_candidate}"
+          changed=1
+        done < <(find "${guard_dir}" -maxdepth 1 -type f -print)
+      done <<< "${dependency_sources}"
+    done
+  fi
+
   while IFS= read -r relative_path; do
     [[ -n "${relative_path}" ]] || continue
     canonical_asset_problem \
@@ -447,7 +508,8 @@ host_problem() {
     printf '%s' "${execution_problem}"
     return 0
   fi
-  if [[ -n "${installed_runtime_problem}" ]]; then
+  if [[ -n "${installed_runtime_problem}" \
+    && ( "${host}" == "gemini" || "${execution_mode}" != "dev-linked-repo" ) ]]; then
     printf '%s' "${installed_runtime_problem}"
     return 0
   fi
@@ -465,6 +527,14 @@ host_problem() {
   fi
   if [[ "${host}" != "gemini" && -n "${hook_dir_override_problem}" ]]; then
     printf '%s' "${hook_dir_override_problem}"
+    return 0
+  fi
+  if [[ "${host}" == "gemini" && -n "${installed_root_override_problem}" ]]; then
+    printf '%s' "${installed_root_override_problem}"
+    return 0
+  fi
+  if [[ "${host}" != "gemini" && -n "${active_root_override_problem}" ]]; then
+    printf '%s' "${active_root_override_problem}"
     return 0
   fi
   result="$(profile_hook_problem "${host}" "${hooks}")" || status=$?
@@ -646,6 +716,9 @@ render_host() {
       Selected\ hook\ directory\ override\ VIBEGUARD_HOOK_DIR*)
         printf '  Next: Unset VIBEGUARD_HOOK_DIR or set it to %s, then rerun protection-status.\n' \
           "${execution_root}/hooks"
+        ;;
+      Selected\ VibeGuard\ root\ override\ VIBEGUARD_DIR*)
+        printf '  Next: Unset VIBEGUARD_DIR, then rerun protection-status.\n'
         ;;
       *)
         printf '  Next: %s\n' "${install_command}"
