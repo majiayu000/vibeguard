@@ -88,12 +88,14 @@ setup_runtime_supports() {
     setup-md-remove \
     setup-settings-check \
     setup-settings-check-stale \
+    setup-claude-profile-hook-scripts \
     setup-codex-config-check-hooks \
     setup-codex-hooks-upsert \
     setup-codex-hooks-check \
     setup-codex-hooks-check-stale \
     setup-codex-hooks-prune-stale-unmanaged \
     setup-codex-hooks-check-timeouts \
+    setup-codex-profile-hook-scripts \
     setup-gemini-hooks-upsert \
     setup-gemini-hooks-check \
     setup-gemini-hooks-remove \
@@ -111,8 +113,9 @@ setup_runtime_supports() {
     setup-lock-publish-owner \
     setup-lock-release \
     runtime-config-get-list \
-    runtime-config-validate; do
-    probe_out="$("${runtime}" "${command}" 2>&1 || true)"
+    runtime-config-validate \
+    latest-client-events; do
+    probe_out="$("${runtime}" "${command}" </dev/null 2>&1 || true)"
     if printf '%s\n' "${probe_out}" | grep -q "Unknown command"; then
       return 1
     fi

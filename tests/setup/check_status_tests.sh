@@ -25,6 +25,8 @@ STALE_RUNTIME_DIR=""
 SYSTEMD_CHECK_HOME=""
 INVALID_DISABLED_SKILLS_HOME=""
 INVALID_QUARANTINE_STATE_HOME=""
+PROTECTION_STATUS_HOME=""
+PROTECTION_EMPTY_HOME=""
 
 cleanup() {
   if [[ -n "${AWK_PORTABILITY_FIXTURE}" ]]; then
@@ -59,6 +61,12 @@ cleanup() {
   fi
   if [[ -n "${INVALID_QUARANTINE_STATE_HOME}" ]]; then
     rm -rf "${INVALID_QUARANTINE_STATE_HOME}"
+  fi
+  if [[ -n "${PROTECTION_STATUS_HOME}" ]]; then
+    rm -rf "${PROTECTION_STATUS_HOME}"
+  fi
+  if [[ -n "${PROTECTION_EMPTY_HOME}" ]]; then
+    rm -rf "${PROTECTION_EMPTY_HOME}"
   fi
 }
 trap cleanup EXIT
@@ -132,8 +140,8 @@ assert_cmd() {
 }
 
 # Establish one current-source runtime before any setup behavior invocation.
-# The hostile fixture proves that the exact quarantine capability rejects a
-# same-version stale binary before any setup behavior can invoke it.
+# The hostile fixture proves that protection-status rejects a same-version
+# runtime that predates its event query before setup behavior can invoke it.
 STALE_RUNTIME_DIR="$(mktemp -d)"
 STALE_RUNTIME="${STALE_RUNTIME_DIR}/vibeguard-runtime"
 STALE_RUNTIME_MARKER="${STALE_RUNTIME_DIR}/called"
@@ -146,8 +154,8 @@ fi
 case "${1:-}" in
   version) printf '%s\n' "${VIBEGUARD_STALE_RUNTIME_VERSION:?}" ;;
   setup-state-capabilities) printf '%s\n' 'complete-snapshot-v2' ;;
-  setup-state-quarantine-managed-tree)
-    printf '%s\n' "Unknown command: setup-state-quarantine-managed-tree" >&2
+  latest-client-events)
+    printf '%s\n' "Unknown command: latest-client-events" >&2
     exit 2
     ;;
   *) exit 0 ;;
@@ -413,7 +421,1109 @@ assert_eq "$top_help_rc" "0" "setup --help: exit 0"
 assert_contains "$top_help_out" "doctor" "setup --help: documents doctor"
 assert_contains "$top_help_out" "verify-install" "setup --help: documents verify-install"
 assert_contains "$top_help_out" "verify-project --json" "setup --help: documents JSON verify route"
+assert_contains "$top_help_out" "protection-status" "setup --help: documents truthful protection status"
 assert_contains "$top_help_out" "setup.sh --check --install  -> bash setup.sh verify-install" "setup --help: documents install migration"
+
+header "truthful protection status"
+PROTECTION_STATUS_HOME="$(mktemp -d)"
+PROTECTION_BIN="${PROTECTION_STATUS_HOME}/bin"
+PROTECTION_LOG_ROOT="${PROTECTION_STATUS_HOME}/logs"
+PROTECTION_PROJECT_LOG="${PROTECTION_LOG_ROOT}/projects/current-project"
+PROTECTION_OTHER_LOG="${PROTECTION_LOG_ROOT}/projects/other-project"
+mkdir -p \
+  "${PROTECTION_STATUS_HOME}/.claude" \
+  "${PROTECTION_STATUS_HOME}/.codex" \
+  "${PROTECTION_STATUS_HOME}/.gemini" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks" \
+  "${PROTECTION_BIN}" \
+  "${PROTECTION_PROJECT_LOG}" \
+  "${PROTECTION_OTHER_LOG}"
+for wrapper in run-hook.sh run-hook-codex.sh run-hook-gemini.sh; do
+  cp "${REPO_DIR}/hooks/${wrapper}" \
+    "${PROTECTION_STATUS_HOME}/.vibeguard/${wrapper}"
+  chmod +x "${PROTECTION_STATUS_HOME}/.vibeguard/${wrapper}"
+done
+printf '%s\n' '#!/usr/bin/env bash' '[[ "${1:-}" == "hooks" && "${2:-}" == "--help" ]]' \
+  > "${PROTECTION_BIN}/gemini"
+chmod +x "${PROTECTION_BIN}/gemini"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+  > "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+chmod +x "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+cp "${REPO_DIR}"/hooks/*.sh \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/"
+cp -R "${REPO_DIR}/hooks/_lib" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/_lib"
+cp -R "${REPO_DIR}/guards" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/guards"
+cp "${CURRENT_SETUP_RUNTIME}" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+chmod +x "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+printf '%s\n' 'gemini-cli-hooks-v1' \
+  > "${PROTECTION_STATUS_HOME}/.vibeguard/gemini-enabled"
+
+HOME="${PROTECTION_STATUS_HOME}" "${CURRENT_SETUP_RUNTIME}" \
+  setup-settings-upsert "${REPO_DIR}" \
+  "${PROTECTION_STATUS_HOME}/.claude/settings.json" core >/dev/null
+HOME="${PROTECTION_STATUS_HOME}" "${CURRENT_SETUP_RUNTIME}" \
+  setup-codex-hooks-upsert "${REPO_DIR}" \
+  "${PROTECTION_STATUS_HOME}/.codex/hooks.json" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook-codex.sh" core >/dev/null
+HOME="${PROTECTION_STATUS_HOME}" "${CURRENT_SETUP_RUNTIME}" \
+  setup-codex-config-enable-hooks \
+  "${PROTECTION_STATUS_HOME}/.codex/config.toml" >/dev/null
+HOME="${PROTECTION_STATUS_HOME}" "${CURRENT_SETUP_RUNTIME}" \
+  setup-gemini-hooks-upsert \
+  "${PROTECTION_STATUS_HOME}/.gemini/settings.json" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook-gemini.sh" >/dev/null
+
+printf '%s' "${REPO_DIR}" > "${PROTECTION_PROJECT_LOG}/.project-root"
+printf '%s' "${PROTECTION_STATUS_HOME}/other-repo" \
+  > "${PROTECTION_OTHER_LOG}/.project-root"
+cat > "${PROTECTION_PROJECT_LOG}/events.jsonl" <<'JSONL'
+{"ts":"2026-08-31T01:00:00Z","client":"claude","hook":"pre-bash-guard","decision":"pass"}
+{"ts":"2026-08-31T01:01:00Z","client":"codex","hook":"pre-write-guard","decision":"block"}
+JSONL
+cat > "${PROTECTION_OTHER_LOG}/events.jsonl" <<'JSONL'
+{"ts":"2030-01-01T00:00:00Z","client":"gemini","hook":"pre-bash-guard","decision":"pass"}
+JSONL
+
+protection_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${protection_out}" "Project: ${REPO_DIR}" \
+  "protection status names the checked project"
+assert_contains "${protection_out}" "Claude Code: PROTECTED" \
+  "Claude requires canonical config and current-project evidence"
+assert_contains "${protection_out}" "Codex CLI: PROTECTED" \
+  "Codex requires canonical config and current-project evidence"
+assert_contains "${protection_out}" "Gemini CLI: DEGRADED" \
+  "Gemini config without current-project evidence is degraded"
+assert_contains "${protection_out}" \
+  "No Gemini CLI hook event has been observed for this project" \
+  "degraded Gemini status explains the missing evidence"
+assert_not_contains "${protection_out}" "2030-01-01T00:00:00Z" \
+  "protection status never substitutes another project's event"
+
+PROTECTION_PROJECT_HASH="$(printf '%s' "${REPO_DIR}" | shasum -a 256 | cut -c1-8)"
+PROTECTION_HASH_LOG="${PROTECTION_LOG_ROOT}/projects/${PROTECTION_PROJECT_HASH}"
+mkdir -p "${PROTECTION_HASH_LOG}"
+cp "${PROTECTION_PROJECT_LOG}/events.jsonl" "${PROTECTION_HASH_LOG}/events.jsonl"
+rm -f "${PROTECTION_PROJECT_LOG}/.project-root"
+hash_fallback_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${hash_fallback_out}" "Claude Code: PROTECTED" \
+  "missing project marker falls back to the deterministic project log"
+printf '%s' "${REPO_DIR}" > "${PROTECTION_PROJECT_LOG}/.project-root"
+
+cat > "${PROTECTION_HASH_LOG}/events.jsonl" <<'JSONL'
+{"ts":"2026-08-31T01:01:30Z","client":"claude","hook":"pre-bash-guard","decision":"warn"}
+JSONL
+deterministic_log_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${deterministic_log_out}" \
+  "2026-08-31T01:01:30Z | pre-bash-guard | warn" \
+  "deterministic project log takes precedence over a legacy mapping"
+rm -f "${PROTECTION_HASH_LOG}/events.jsonl"
+ln -s "${PROTECTION_OTHER_LOG}/events.jsonl" \
+  "${PROTECTION_HASH_LOG}/events.jsonl"
+symlinked_default_log_rc=0
+symlinked_default_log_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || symlinked_default_log_rc=$?
+assert_cmd "symlinked deterministic log fails protection status" \
+  test "${symlinked_default_log_rc}" -ne 0
+assert_contains "${symlinked_default_log_out}" \
+  "project event log must not be a symlink" \
+  "symlinked deterministic evidence fails visibly"
+rm -rf "${PROTECTION_HASH_LOG}"
+
+PROTECTION_UNREADABLE_OTHER_LOG="${PROTECTION_LOG_ROOT}/projects/00-unreadable-other"
+mkdir -p "${PROTECTION_UNREADABLE_OTHER_LOG}"
+printf '%s' "${PROTECTION_STATUS_HOME}/unrelated-repo" \
+  > "${PROTECTION_UNREADABLE_OTHER_LOG}/.project-root"
+chmod 000 "${PROTECTION_UNREADABLE_OTHER_LOG}/.project-root"
+unreadable_unrelated_mapping_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${unreadable_unrelated_mapping_out}" "Claude Code: PROTECTED" \
+  "an unreadable unrelated mapping does not hide a later project match"
+chmod 600 "${PROTECTION_UNREADABLE_OTHER_LOG}/.project-root"
+rm -rf "${PROTECTION_UNREADABLE_OTHER_LOG}"
+
+chmod 000 "${PROTECTION_PROJECT_LOG}/.project-root"
+unreadable_mapping_rc=0
+unreadable_mapping_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || unreadable_mapping_rc=$?
+assert_cmd "unreadable legacy project mapping fails protection status" \
+  test "${unreadable_mapping_rc}" -ne 0
+assert_contains "${unreadable_mapping_out}" "failed to resolve project event log" \
+  "unreadable legacy project mapping fails visibly"
+chmod 600 "${PROTECTION_PROJECT_LOG}/.project-root"
+
+PROTECTION_GEMINI_LOG="${PROTECTION_STATUS_HOME}/.vibeguard/projects/gemini-project"
+mkdir -p "${PROTECTION_GEMINI_LOG}"
+printf '%s' "${REPO_DIR}" > "${PROTECTION_GEMINI_LOG}/.project-root"
+printf '%s\n' \
+  '{"ts":"2026-08-31T01:02:00Z","client":"gemini","hook":"pre-bash-guard","decision":"pass"}' \
+  > "${PROTECTION_GEMINI_LOG}/events.jsonl"
+gemini_protected_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${gemini_protected_out}" "Gemini CLI: PROTECTED" \
+  "Gemini becomes protected only after current-project evidence"
+assert_contains "${gemini_protected_out}" \
+  "2026-08-31T01:02:00Z | pre-bash-guard | pass" \
+  "protected Gemini status names its live evidence"
+
+PROTECTION_EXPLICIT_LOG_DIR="${PROTECTION_STATUS_HOME}/explicit-project-log"
+PROTECTION_EXPLICIT_LOG_FILE="${PROTECTION_EXPLICIT_LOG_DIR}/custom-events.jsonl"
+mkdir -p "${PROTECTION_EXPLICIT_LOG_DIR}"
+printf '%s' "${REPO_DIR}" > "${PROTECTION_EXPLICIT_LOG_DIR}/.project-root"
+cat > "${PROTECTION_EXPLICIT_LOG_FILE}" <<'JSONL'
+{"ts":"2026-09-01T01:00:00Z","client":"claude","hook":"pre-edit-guard","decision":"block"}
+{"ts":"2026-09-01T01:01:00Z","client":"codex","hook":"pre-bash-guard","decision":"pass"}
+{"ts":"2026-09-01T01:02:00Z","client":"gemini","hook":"pre-write-guard","decision":"block"}
+JSONL
+explicit_log_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_PROJECT_LOG_DIR="${PROTECTION_EXPLICIT_LOG_DIR}" \
+  VIBEGUARD_LOG_FILE="${PROTECTION_EXPLICIT_LOG_FILE}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${explicit_log_out}" \
+  "2026-09-01T01:00:00Z | pre-edit-guard | block" \
+  "Claude evidence follows the active explicit log file"
+assert_contains "${explicit_log_out}" \
+  "2026-09-01T01:01:00Z | pre-bash-guard | pass" \
+  "Codex evidence follows the active explicit log file"
+assert_contains "${explicit_log_out}" \
+  "2026-08-31T01:02:00Z | pre-bash-guard | pass" \
+  "Gemini evidence follows its canonical clean environment"
+assert_not_contains "${explicit_log_out}" \
+  "2026-09-01T01:02:00Z | pre-write-guard | block" \
+  "Gemini ignores explicit log overrides cleared by its canonical command"
+
+printf '%s' "${PROTECTION_STATUS_HOME}/other-repo" \
+  > "${PROTECTION_EXPLICIT_LOG_DIR}/.project-root"
+mismatched_explicit_log_rc=0
+mismatched_explicit_log_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_PROJECT_LOG_DIR="${PROTECTION_EXPLICIT_LOG_DIR}" \
+  VIBEGUARD_LOG_FILE="${PROTECTION_EXPLICIT_LOG_FILE}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || mismatched_explicit_log_rc=$?
+assert_cmd "explicit log for another project fails protection status" \
+  test "${mismatched_explicit_log_rc}" -ne 0
+assert_contains "${mismatched_explicit_log_out}" \
+  "explicit project log is not associated with the requested project" \
+  "cross-project explicit evidence fails visibly"
+assert_not_contains "${mismatched_explicit_log_out}" \
+  "2026-09-01T01:00:00Z" \
+  "cross-project explicit evidence is never reported as current"
+printf '%s' "${REPO_DIR}" > "${PROTECTION_EXPLICIT_LOG_DIR}/.project-root"
+
+mv "${PROTECTION_EXPLICIT_LOG_FILE}" "${PROTECTION_EXPLICIT_LOG_FILE}.valid"
+ln -s "${PROTECTION_OTHER_LOG}/events.jsonl" "${PROTECTION_EXPLICIT_LOG_FILE}"
+symlinked_explicit_log_rc=0
+symlinked_explicit_log_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_PROJECT_LOG_DIR="${PROTECTION_EXPLICIT_LOG_DIR}" \
+  VIBEGUARD_LOG_FILE="${PROTECTION_EXPLICIT_LOG_FILE}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || symlinked_explicit_log_rc=$?
+assert_cmd "symlinked explicit log fails protection status" \
+  test "${symlinked_explicit_log_rc}" -ne 0
+assert_contains "${symlinked_explicit_log_out}" \
+  "project event log must not be a symlink" \
+  "symlinked explicit evidence fails visibly"
+rm -f "${PROTECTION_EXPLICIT_LOG_FILE}"
+mv "${PROTECTION_EXPLICIT_LOG_FILE}.valid" "${PROTECTION_EXPLICIT_LOG_FILE}"
+
+PROTECTION_BAD_RUNTIME="${PROTECTION_STATUS_HOME}/bad-runtime"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "${PROTECTION_BAD_RUNTIME}"
+chmod +x "${PROTECTION_BAD_RUNTIME}"
+runtime_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_RUNTIME="${PROTECTION_BAD_RUNTIME}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${runtime_override_out}" "Claude Code: DEGRADED" \
+  "an incompatible runtime override degrades Claude protection"
+assert_contains "${runtime_override_out}" "Codex CLI: DEGRADED" \
+  "an incompatible runtime override degrades Codex protection"
+assert_contains "${runtime_override_out}" "Gemini CLI: PROTECTED" \
+  "Gemini ignores the runtime override removed by its adapter"
+assert_contains "${runtime_override_out}" "runtime override" \
+  "an incompatible runtime override is explained"
+assert_contains "${runtime_override_out}" "Unset VIBEGUARD_RUNTIME" \
+  "an incompatible runtime override gives a direct recovery action"
+rm -f "${PROTECTION_BAD_RUNTIME}"
+
+PROTECTION_BAD_POLICY_RUNTIME="${PROTECTION_STATUS_HOME}/bad-policy-runtime"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'if [[ "${1:-}" == "runtime-policy-supports" ]]; then' \
+  '  printf "%s\n" "vibeguard-runtime-policy-v1"' \
+  'fi' \
+  'exit 0' \
+  > "${PROTECTION_BAD_POLICY_RUNTIME}"
+chmod +x "${PROTECTION_BAD_POLICY_RUNTIME}"
+policy_runtime_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_POLICY_RUNTIME="${PROTECTION_BAD_POLICY_RUNTIME}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${policy_runtime_override_out}" "Claude Code: DEGRADED" \
+  "an incompatible policy runtime override degrades Claude protection"
+assert_contains "${policy_runtime_override_out}" "Codex CLI: DEGRADED" \
+  "an incompatible policy runtime override degrades Codex protection"
+assert_contains "${policy_runtime_override_out}" "Gemini CLI: PROTECTED" \
+  "Gemini ignores the policy runtime override removed by its adapter"
+assert_contains "${policy_runtime_override_out}" "policy runtime override" \
+  "an incompatible policy runtime override is explained"
+assert_contains "${policy_runtime_override_out}" "Unset VIBEGUARD_POLICY_RUNTIME" \
+  "an incompatible policy runtime override gives a direct recovery action"
+rm -f "${PROTECTION_BAD_POLICY_RUNTIME}"
+
+mv "${PROTECTION_BIN}/gemini" "${PROTECTION_BIN}/gemini.missing"
+gemini_cli_missing_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${gemini_cli_missing_out}" \
+  "Gemini CLI executable is not available" \
+  "missing Gemini CLI is identified"
+assert_contains "${gemini_cli_missing_out}" \
+  "Install or restore Gemini CLI" \
+  "missing Gemini CLI gives an effective recovery action"
+mv "${PROTECTION_BIN}/gemini.missing" "${PROTECTION_BIN}/gemini"
+
+mv "${PROTECTION_BIN}/gemini" "${PROTECTION_BIN}/gemini.supported"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "${PROTECTION_BIN}/gemini"
+chmod +x "${PROTECTION_BIN}/gemini"
+gemini_hooks_unsupported_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${gemini_hooks_unsupported_out}" \
+  "Gemini CLI does not expose hook support" \
+  "unsupported Gemini hook capability is identified"
+assert_contains "${gemini_hooks_unsupported_out}" \
+  "Upgrade Gemini CLI" \
+  "unsupported Gemini gives an effective upgrade action"
+mv "${PROTECTION_BIN}/gemini.supported" "${PROTECTION_BIN}/gemini"
+
+printf '%s\n' '{}' > "${PROTECTION_STATUS_HOME}/custom-config.json"
+printf '%s\n' '{' > "${PROTECTION_STATUS_HOME}/.vibeguard/config.json"
+gemini_default_config_rc=0
+gemini_default_config_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_CONFIG_FILE="${PROTECTION_STATUS_HOME}/custom-config.json" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || gemini_default_config_rc=$?
+assert_cmd "Gemini policy rejects its malformed sanitized config" \
+  test "${gemini_default_config_rc}" -ne 0
+assert_contains "${gemini_default_config_out}" \
+  "failed to evaluate project policy" \
+  "Gemini policy failure from its sanitized config is visible"
+rm -f \
+  "${PROTECTION_STATUS_HOME}/custom-config.json" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/config.json"
+
+printf '%s\n' '{}' > "${PROTECTION_STATUS_HOME}/healthy-internal-config.json"
+printf '%s\n' '{}' > "${PROTECTION_STATUS_HOME}/healthy-deprecated-config.json"
+printf '%s\n' '{' > "${PROTECTION_STATUS_HOME}/.vibeguard/config.json"
+gemini_deprecated_config_rc=0
+gemini_deprecated_config_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VG_INTERNAL_CONFIG_FILE="${PROTECTION_STATUS_HOME}/healthy-internal-config.json" \
+  _VG_CONFIG_FILE="${PROTECTION_STATUS_HOME}/healthy-deprecated-config.json" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || gemini_deprecated_config_rc=$?
+assert_cmd "Gemini policy ignores deprecated config cleared by its canonical command" \
+  test "${gemini_deprecated_config_rc}" -ne 0
+assert_contains "${gemini_deprecated_config_out}" \
+  "failed to evaluate project policy" \
+  "Gemini default config failure remains visible"
+rm -f \
+  "${PROTECTION_STATUS_HOME}/healthy-internal-config.json" \
+  "${PROTECTION_STATUS_HOME}/healthy-deprecated-config.json" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/config.json"
+
+PROTECTION_HEALTHY_CONFIG="${PROTECTION_STATUS_HOME}/healthy-config.json"
+PROTECTION_BAD_INTERNAL_CONFIG="${PROTECTION_STATUS_HOME}/bad-internal-config.json"
+printf '%s\n' '{}' > "${PROTECTION_HEALTHY_CONFIG}"
+printf '%s\n' '{' > "${PROTECTION_BAD_INTERNAL_CONFIG}"
+internal_config_rc=0
+internal_config_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VG_INTERNAL_CONFIG_FILE="${PROTECTION_BAD_INTERNAL_CONFIG}" \
+  _VG_CONFIG_FILE="${PROTECTION_HEALTHY_CONFIG}" \
+  VIBEGUARD_CONFIG_FILE="${PROTECTION_HEALTHY_CONFIG}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || internal_config_rc=$?
+assert_cmd "highest-priority internal config failure is visible" \
+  test "${internal_config_rc}" -ne 0
+assert_contains "${internal_config_out}" "failed to evaluate project policy" \
+  "VG_INTERNAL_CONFIG_FILE takes precedence during policy checks"
+
+deprecated_internal_config_rc=0
+deprecated_internal_config_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  _VG_CONFIG_FILE="${PROTECTION_BAD_INTERNAL_CONFIG}" \
+  VIBEGUARD_CONFIG_FILE="${PROTECTION_HEALTHY_CONFIG}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || deprecated_internal_config_rc=$?
+assert_cmd "deprecated internal config failure is visible" \
+  test "${deprecated_internal_config_rc}" -ne 0
+assert_contains "${deprecated_internal_config_out}" "failed to evaluate project policy" \
+  "_VG_CONFIG_FILE precedes the public config during policy checks"
+rm -f "${PROTECTION_HEALTHY_CONFIG}" "${PROTECTION_BAD_INTERNAL_CONFIG}"
+
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime.missing"
+missing_runtime_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${missing_runtime_out}" "Claude Code: DEGRADED" \
+  "a missing installed runtime degrades Claude protection"
+assert_contains "${missing_runtime_out}" "Codex CLI: DEGRADED" \
+  "a missing installed runtime degrades Codex protection"
+assert_contains "${missing_runtime_out}" "Gemini CLI: DEGRADED" \
+  "a missing installed runtime degrades Gemini protection"
+assert_contains "${missing_runtime_out}" "installed runtime" \
+  "missing installed runtime is explained"
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime.missing" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+
+printf '%s\n' 'dev-linked-repo' \
+  > "${PROTECTION_STATUS_HOME}/.vibeguard/execution-mode"
+dev_linked_missing_repo_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${dev_linked_missing_repo_out}" "Claude Code: DEGRADED" \
+  "dev-linked Claude protection requires its routed repository"
+assert_contains "${dev_linked_missing_repo_out}" "Codex CLI: DEGRADED" \
+  "dev-linked Codex protection requires its routed repository"
+assert_contains "${dev_linked_missing_repo_out}" "repo-path" \
+  "missing dev-linked repository routing is explained"
+
+PROTECTION_DEV_LINKED_REPO="${PROTECTION_STATUS_HOME}/dev-linked-repo"
+mkdir -p \
+  "${PROTECTION_DEV_LINKED_REPO}/vibeguard-runtime/target/release"
+cp -R "${REPO_DIR}/hooks" "${PROTECTION_DEV_LINKED_REPO}/hooks"
+cp -R "${REPO_DIR}/guards" "${PROTECTION_DEV_LINKED_REPO}/guards"
+git -C "${PROTECTION_DEV_LINKED_REPO}" init -q
+printf '%s\n' '#!/usr/bin/env bash' 'exit 1' \
+  > "${PROTECTION_DEV_LINKED_REPO}/vibeguard-runtime/target/release/vibeguard-runtime"
+chmod +x \
+  "${PROTECTION_DEV_LINKED_REPO}/vibeguard-runtime/target/release/vibeguard-runtime"
+printf '%s' "${PROTECTION_DEV_LINKED_REPO}" \
+  > "${PROTECTION_STATUS_HOME}/.vibeguard/repo-path"
+dev_linked_bad_runtime_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${dev_linked_bad_runtime_out}" "Claude Code: DEGRADED" \
+  "dev-linked Claude validates the repository runtime it executes"
+assert_contains "${dev_linked_bad_runtime_out}" "Codex CLI: DEGRADED" \
+  "dev-linked Codex validates the repository runtime selected by its wrapper"
+assert_contains "${dev_linked_bad_runtime_out}" "Gemini CLI: PROTECTED" \
+  "dev-linked repository runtime does not affect installed Gemini execution"
+assert_contains "${dev_linked_bad_runtime_out}" "linked runtime" \
+  "an incompatible dev-linked runtime is explained"
+setup_mode_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_SETUP_DEV_LINKED=0 \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${setup_mode_override_out}" "Claude Code: DEGRADED" \
+  "setup-only mode does not hide the dev-linked Claude runtime"
+assert_contains "${setup_mode_override_out}" "Codex CLI: DEGRADED" \
+  "setup-only mode does not hide the dev-linked Codex runtime"
+assert_contains "${setup_mode_override_out}" "linked runtime" \
+  "persisted live execution mode takes precedence over setup-only state"
+cp "${CURRENT_SETUP_RUNTIME}" \
+  "${PROTECTION_DEV_LINKED_REPO}/vibeguard-runtime/target/release/vibeguard-runtime"
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime.missing"
+dev_linked_without_installed_runtime_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${dev_linked_without_installed_runtime_out}" "Claude Code: PROTECTED" \
+  "dev-linked Claude relies on its validated repository runtime"
+assert_contains "${dev_linked_without_installed_runtime_out}" "Codex CLI: PROTECTED" \
+  "dev-linked Codex relies on its validated repository runtime"
+assert_contains "${dev_linked_without_installed_runtime_out}" "Gemini CLI: DEGRADED" \
+  "Gemini still requires its installed runtime in dev-linked mode"
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime.missing" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+rm -f "${PROTECTION_STATUS_HOME}/.vibeguard/execution-mode"
+rm -f "${PROTECTION_STATUS_HOME}/.vibeguard/repo-path"
+
+cp "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh.canonical"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+  > "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh"
+chmod +x "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh"
+wrapper_drift_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${wrapper_drift_out}" "Claude Code: DEGRADED" \
+  "an executable no-op Claude wrapper cannot report protected"
+assert_contains "${wrapper_drift_out}" "Gemini CLI: DEGRADED" \
+  "Gemini cannot report protected through a drifted shared wrapper"
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh.canonical" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/run-hook.sh"
+
+PROTECTION_CODEX_ADAPTER_OVERRIDE="${PROTECTION_STATUS_HOME}/codex-adapter-override.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'codex_adapt_pretool() { return 0; }' \
+  > "${PROTECTION_CODEX_ADAPTER_OVERRIDE}"
+codex_adapter_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_CODEX_ADAPTER_PATH="${PROTECTION_CODEX_ADAPTER_OVERRIDE}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${codex_adapter_override_out}" "Claude Code: PROTECTED" \
+  "a Codex adapter override does not affect Claude protection"
+assert_contains "${codex_adapter_override_out}" "Codex CLI: DEGRADED" \
+  "a noncanonical active Codex adapter degrades Codex protection"
+assert_contains "${codex_adapter_override_out}" "Codex adapter override" \
+  "a noncanonical active Codex adapter is identified"
+assert_contains "${codex_adapter_override_out}" "Gemini CLI: PROTECTED" \
+  "a Codex adapter override does not affect Gemini protection"
+rm -f "${PROTECTION_CODEX_ADAPTER_OVERRIDE}"
+
+PROTECTION_BAD_HOOK_DIR="${PROTECTION_STATUS_HOME}/stale-hook-dir"
+mkdir -p "${PROTECTION_BAD_HOOK_DIR}"
+hook_dir_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_HOOK_DIR="${PROTECTION_BAD_HOOK_DIR}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${hook_dir_override_out}" "Claude Code: DEGRADED" \
+  "a stale hook directory override degrades Claude protection"
+assert_contains "${hook_dir_override_out}" "Codex CLI: DEGRADED" \
+  "a stale hook directory override degrades Codex protection"
+assert_contains "${hook_dir_override_out}" "VIBEGUARD_HOOK_DIR" \
+  "a stale hook directory override is identified"
+assert_contains "${hook_dir_override_out}" "Gemini CLI: PROTECTED" \
+  "Gemini ignores the hook directory override removed by its adapter"
+rmdir "${PROTECTION_BAD_HOOK_DIR}"
+
+PROTECTION_STALE_ROOT="${PROTECTION_STATUS_HOME}/stale-vibeguard-root"
+mkdir -p "${PROTECTION_STALE_ROOT}"
+root_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_DIR="${PROTECTION_STALE_ROOT}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${root_override_out}" "Claude Code: DEGRADED" \
+  "a stale VibeGuard root override degrades Claude protection"
+assert_contains "${root_override_out}" "Codex CLI: DEGRADED" \
+  "a stale VibeGuard root override degrades Codex protection"
+assert_contains "${root_override_out}" "Gemini CLI: DEGRADED" \
+  "Gemini validates the inherited VibeGuard root override"
+assert_contains "${root_override_out}" "VIBEGUARD_DIR" \
+  "a stale VibeGuard root override is identified"
+rmdir "${PROTECTION_STALE_ROOT}"
+
+precommit_skip_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_SKIP_PRECOMMIT=1 \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${precommit_skip_out}" "Claude Code: DEGRADED" \
+  "an active pre-commit skip degrades Claude protection"
+assert_contains "${precommit_skip_out}" "Codex CLI: DEGRADED" \
+  "an active pre-commit skip degrades Codex protection"
+assert_contains "${precommit_skip_out}" "Gemini CLI: DEGRADED" \
+  "an active pre-commit skip degrades Gemini protection"
+assert_contains "${precommit_skip_out}" "VIBEGUARD_SKIP_PRECOMMIT=1" \
+  "an active pre-commit skip is identified"
+assert_contains "${precommit_skip_out}" "Unset VIBEGUARD_SKIP_PRECOMMIT" \
+  "an active pre-commit skip gives a direct recovery action"
+
+precommit_timeout_warn_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR=warn \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${precommit_timeout_warn_out}" "Claude Code: DEGRADED" \
+  "warn-only pre-commit timeouts degrade Claude protection"
+assert_contains "${precommit_timeout_warn_out}" "Codex CLI: DEGRADED" \
+  "warn-only pre-commit timeouts degrade Codex protection"
+assert_contains "${precommit_timeout_warn_out}" "Gemini CLI: DEGRADED" \
+  "warn-only pre-commit timeouts degrade Gemini protection"
+assert_contains "${precommit_timeout_warn_out}" \
+  "VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR=warn" \
+  "warn-only pre-commit timeouts are identified"
+assert_contains "${precommit_timeout_warn_out}" \
+  "Unset VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR" \
+  "warn-only pre-commit timeouts give a direct recovery action"
+
+cp "${PROTECTION_STATUS_HOME}/.claude/settings.json" \
+  "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical"
+python3 - "${PROTECTION_STATUS_HOME}/.claude/settings.json" \
+  "${PROTECTION_STATUS_HOME}" <<'PY'
+import sys
+from pathlib import Path
+
+settings = Path(sys.argv[1])
+home = sys.argv[2]
+text = settings.read_text(encoding="utf-8")
+text = text.replace(
+    f"bash {home}/.vibeguard/run-hook.sh ",
+    f"bash {home}/.vibeguard/installed/hooks/",
+)
+settings.write_text(text, encoding="utf-8")
+PY
+direct_claude_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${direct_claude_out}" "Claude Code: DEGRADED" \
+  "direct Claude hook scripts cannot bypass the canonical wrapper verdict"
+mv "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical" \
+  "${PROTECTION_STATUS_HOME}/.claude/settings.json"
+
+cp "${PROTECTION_STATUS_HOME}/.codex/hooks.json" \
+  "${PROTECTION_STATUS_HOME}/.codex/hooks.json.canonical"
+printf '%s\n' '[' > "${PROTECTION_STATUS_HOME}/.codex/hooks.json"
+codex_invalid_hooks_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${codex_invalid_hooks_out}" \
+  "Codex hook configuration is malformed JSON" \
+  "malformed Codex hooks are identified"
+assert_contains "${codex_invalid_hooks_out}" \
+  "Fix the malformed Codex hook configuration" \
+  "malformed Codex hooks give an effective recovery action"
+assert_not_contains "${codex_invalid_hooks_out}" \
+  "Next: bash ${REPO_DIR}/setup.sh --yes" \
+  "malformed Codex hooks do not recommend an ineffective reinstall"
+mv "${PROTECTION_STATUS_HOME}/.codex/hooks.json.canonical" \
+  "${PROTECTION_STATUS_HOME}/.codex/hooks.json"
+
+cp "${PROTECTION_STATUS_HOME}/.gemini/settings.json" \
+  "${PROTECTION_STATUS_HOME}/.gemini/settings.json.canonical"
+printf '%s\n' '[' > "${PROTECTION_STATUS_HOME}/.gemini/settings.json"
+gemini_invalid_settings_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${gemini_invalid_settings_out}" \
+  "Gemini settings are malformed JSON" \
+  "malformed Gemini settings are identified"
+assert_contains "${gemini_invalid_settings_out}" \
+  "Fix the malformed Gemini settings" \
+  "malformed Gemini settings give an effective recovery action"
+assert_not_contains "${gemini_invalid_settings_out}" \
+  "Next: bash ${REPO_DIR}/setup.sh --yes" \
+  "malformed Gemini settings do not recommend an ineffective reinstall"
+mv "${PROTECTION_STATUS_HOME}/.gemini/settings.json.canonical" \
+  "${PROTECTION_STATUS_HOME}/.gemini/settings.json"
+
+cp "${PROTECTION_STATUS_HOME}/.claude/settings.json" \
+  "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical"
+printf '%s\n' '[' > "${PROTECTION_STATUS_HOME}/.claude/settings.json"
+claude_invalid_settings_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${claude_invalid_settings_out}" \
+  "Claude settings are malformed JSON" \
+  "malformed Claude settings are identified"
+assert_contains "${claude_invalid_settings_out}" \
+  "Fix the malformed Claude settings" \
+  "malformed Claude settings give an effective recovery action"
+assert_not_contains "${claude_invalid_settings_out}" \
+  "Next: bash ${REPO_DIR}/setup.sh --yes" \
+  "malformed Claude settings do not recommend an ineffective reinstall"
+mv "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical" \
+  "${PROTECTION_STATUS_HOME}/.claude/settings.json"
+
+cp "${PROTECTION_PROJECT_LOG}/events.jsonl" \
+  "${PROTECTION_PROJECT_LOG}/events.jsonl.valid"
+printf '%s\n' '{' >> "${PROTECTION_PROJECT_LOG}/events.jsonl"
+malformed_evidence_rc=0
+malformed_evidence_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || malformed_evidence_rc=$?
+assert_cmd "malformed project evidence fails protection status" \
+  test "${malformed_evidence_rc}" -ne 0
+assert_contains "${malformed_evidence_out}" "failed to read project event evidence" \
+  "malformed project evidence fails visibly"
+mv "${PROTECTION_PROJECT_LOG}/events.jsonl.valid" \
+  "${PROTECTION_PROJECT_LOG}/events.jsonl"
+
+rm -f "${PROTECTION_STATUS_HOME}/.vibeguard/gemini-enabled"
+gemini_marker_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${gemini_marker_out}" "Gemini CLI: DEGRADED" \
+  "active Gemini settings without ownership marker are degraded"
+assert_not_contains "${gemini_marker_out}" "Gemini CLI: UNPROTECTED" \
+  "active Gemini settings are still detected without the marker"
+printf '%s\n' 'gemini-cli-hooks-v1' \
+  > "${PROTECTION_STATUS_HOME}/.vibeguard/gemini-enabled"
+
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-write-guard.sh" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-write-guard.sh.missing"
+missing_asset_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${missing_asset_out}" "Claude Code: DEGRADED" \
+  "a missing profile hook asset degrades Claude protection"
+assert_contains "${missing_asset_out}" "Codex CLI: DEGRADED" \
+  "a missing profile hook asset degrades Codex protection"
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-write-guard.sh.missing" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-write-guard.sh"
+
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-commit-guard.sh" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-commit-guard.sh.missing"
+missing_precommit_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${missing_precommit_out}" "Claude Code: DEGRADED" \
+  "a missing runtime-dispatched pre-commit hook degrades Claude protection"
+assert_contains "${missing_precommit_out}" "Codex CLI: DEGRADED" \
+  "a missing runtime-dispatched pre-commit hook degrades Codex protection"
+assert_contains "${missing_precommit_out}" "Gemini CLI: DEGRADED" \
+  "a missing runtime-dispatched pre-commit hook degrades Gemini protection"
+assert_contains "${missing_precommit_out}" "pre-commit-guard.sh" \
+  "the missing runtime-dispatched pre-commit hook is identified"
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-commit-guard.sh.missing" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/pre-commit-guard.sh"
+
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/guards/typescript/check_any_abuse.sh" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/guards/typescript/check_any_abuse.sh.missing"
+missing_guard_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${missing_guard_out}" "Claude Code: DEGRADED" \
+  "a missing pre-commit language guard degrades Claude protection"
+assert_contains "${missing_guard_out}" "Codex CLI: DEGRADED" \
+  "a missing pre-commit language guard degrades Codex protection"
+assert_contains "${missing_guard_out}" "Gemini CLI: DEGRADED" \
+  "a missing pre-commit language guard degrades Gemini protection"
+assert_contains "${missing_guard_out}" "check_any_abuse.sh" \
+  "the missing pre-commit language guard is identified"
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/guards/typescript/check_any_abuse.sh.missing" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/guards/typescript/check_any_abuse.sh"
+
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/skills-loader.sh" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/skills-loader.sh.missing"
+unused_asset_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${unused_asset_out}" "Claude Code: PROTECTED" \
+  "an unused hook asset does not degrade Claude protection"
+assert_contains "${unused_asset_out}" "Codex CLI: PROTECTED" \
+  "an unused hook asset does not degrade Codex protection"
+assert_contains "${unused_asset_out}" "Gemini CLI: PROTECTED" \
+  "an unused hook asset does not degrade Gemini protection"
+assert_not_contains "${unused_asset_out}" "skills-loader.sh" \
+  "an unused hook asset is excluded from protection dependencies"
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/skills-loader.sh.missing" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/skills-loader.sh"
+
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/log.sh" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/log.sh.missing"
+missing_dependency_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${missing_dependency_out}" "Claude Code: DEGRADED" \
+  "a missing top-level hook dependency degrades Claude protection"
+assert_contains "${missing_dependency_out}" "Codex CLI: DEGRADED" \
+  "a missing pre-commit logging dependency degrades Codex protection"
+assert_contains "${missing_dependency_out}" "Gemini CLI: DEGRADED" \
+  "a missing pre-commit logging dependency degrades Gemini protection"
+assert_contains "${missing_dependency_out}" "log.sh" \
+  "missing top-level hook dependency is identified"
+mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/log.sh.missing" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/installed/hooks/log.sh"
+
+PROTECTION_POLICY_PROJECT="${PROTECTION_STATUS_HOME}/policy-project"
+PROTECTION_POLICY_LOG="${PROTECTION_LOG_ROOT}/projects/policy-project"
+mkdir -p "${PROTECTION_POLICY_PROJECT}" "${PROTECTION_POLICY_LOG}"
+git -C "${PROTECTION_POLICY_PROJECT}" init -q
+PROTECTION_POLICY_PROJECT="$(cd "${PROTECTION_POLICY_PROJECT}" && pwd -P)"
+printf '%s\n' '{"enforcement":"off"}' \
+  > "${PROTECTION_POLICY_PROJECT}/.vibeguard.json"
+printf '%s' "${PROTECTION_POLICY_PROJECT}" \
+  > "${PROTECTION_POLICY_LOG}/.project-root"
+cat > "${PROTECTION_POLICY_LOG}/events.jsonl" <<'JSONL'
+{"ts":"2026-08-31T02:00:00Z","client":"claude","hook":"pre-bash-guard","decision":"pass"}
+{"ts":"2026-08-31T02:01:00Z","client":"codex","hook":"pre-write-guard","decision":"pass"}
+{"ts":"2026-08-31T02:02:00Z","client":"gemini","hook":"pre-edit-guard","decision":"pass"}
+JSONL
+policy_off_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${PROTECTION_POLICY_PROJECT}"
+)"
+assert_contains "${policy_off_out}" "Claude Code: DEGRADED" \
+  "project enforcement off degrades Claude protection"
+assert_contains "${policy_off_out}" "Codex CLI: DEGRADED" \
+  "project enforcement off degrades Codex protection"
+assert_contains "${policy_off_out}" "Gemini CLI: DEGRADED" \
+  "project enforcement off degrades Gemini protection"
+assert_contains "${policy_off_out}" "Project policy" \
+  "policy degradation is explained"
+assert_contains "${policy_off_out}" \
+  "Update or remove the project policy" \
+  "policy degradation gives an effective recovery action"
+assert_not_contains "${policy_off_out}" \
+  "Next: bash ${REPO_DIR}/setup.sh --yes" \
+  "policy degradation does not recommend an ineffective reinstall"
+
+policy_cwd_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_POLICY_CWD="${PROTECTION_POLICY_PROJECT}" \
+  VIBEGUARD_PROJECT_ROOT="${REPO_DIR}" \
+  VIBEGUARD_PROJECT_CWD="${REPO_DIR}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${policy_cwd_override_out}" "Claude Code: DEGRADED" \
+  "policy CWD override degrades Claude when its policy disables hooks"
+assert_contains "${policy_cwd_override_out}" "Codex CLI: DEGRADED" \
+  "policy CWD override degrades Codex when its policy disables hooks"
+assert_contains "${policy_cwd_override_out}" "Gemini CLI: PROTECTED" \
+  "Gemini ignores inherited policy CWD overrides"
+assert_contains "${policy_cwd_override_out}" \
+  "${PROTECTION_POLICY_PROJECT}/.vibeguard.json" \
+  "policy CWD recovery names the live policy source"
+
+project_root_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_PROJECT_ROOT="${PROTECTION_POLICY_PROJECT}" \
+  VIBEGUARD_PROJECT_CWD="${REPO_DIR}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${project_root_override_out}" "Claude Code: DEGRADED" \
+  "project root override precedes the project CWD fallback"
+assert_contains "${project_root_override_out}" "Codex CLI: DEGRADED" \
+  "Codex honors the project root override precedence"
+
+project_cwd_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_PROJECT_CWD="${PROTECTION_POLICY_PROJECT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${project_cwd_override_out}" "Claude Code: DEGRADED" \
+  "project CWD fallback affects Claude policy checks"
+assert_contains "${project_cwd_override_out}" "Codex CLI: DEGRADED" \
+  "project CWD fallback affects Codex policy checks"
+
+PROTECTION_POLICY_OVERRIDE="${PROTECTION_STATUS_HOME}/policy-override.json"
+PROTECTION_GEMINI_POLICY_LOG="${PROTECTION_STATUS_HOME}/.vibeguard/projects/gemini-policy-project"
+printf '%s\n' '{"enforcement":"off"}' > "${PROTECTION_POLICY_OVERRIDE}"
+printf '%s\n' '{}' > "${PROTECTION_POLICY_PROJECT}/.vibeguard.json"
+project_override_recovery_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_PROJECT_CONFIG="${PROTECTION_POLICY_OVERRIDE}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${PROTECTION_POLICY_PROJECT}"
+)"
+assert_contains "${project_override_recovery_out}" \
+  "Update or remove the project policy in ${PROTECTION_POLICY_OVERRIDE}" \
+  "Gemini policy probing preserves the Claude and Codex override recovery source"
+
+printf '%s\n' '{}' > "${PROTECTION_POLICY_OVERRIDE}"
+printf '%s\n' '{"enforcement":"off"}' \
+  > "${PROTECTION_POLICY_PROJECT}/.vibeguard.json"
+mkdir -p "${PROTECTION_GEMINI_POLICY_LOG}"
+printf '%s' "${PROTECTION_POLICY_PROJECT}" \
+  > "${PROTECTION_GEMINI_POLICY_LOG}/.project-root"
+printf '%s\n' \
+  '{"ts":"2026-08-31T02:03:00Z","client":"gemini","hook":"pre-bash-guard","decision":"pass"}' \
+  > "${PROTECTION_GEMINI_POLICY_LOG}/events.jsonl"
+gemini_project_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_PROJECT_CONFIG="${PROTECTION_POLICY_OVERRIDE}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${PROTECTION_POLICY_PROJECT}"
+)"
+assert_contains "${gemini_project_override_out}" "Claude Code: PROTECTED" \
+  "Claude honors an inherited project config override"
+assert_contains "${gemini_project_override_out}" "Codex CLI: PROTECTED" \
+  "Codex honors an inherited project config override"
+assert_contains "${gemini_project_override_out}" "Gemini CLI: DEGRADED" \
+  "Gemini ignores the project config override removed by its adapter"
+assert_contains "${gemini_project_override_out}" \
+  "${PROTECTION_POLICY_PROJECT}/.vibeguard.json" \
+  "Gemini policy recovery names the live project policy"
+assert_not_contains "${gemini_project_override_out}" \
+  "Next: Update or remove the project policy in ${PROTECTION_POLICY_OVERRIDE}" \
+  "Gemini policy recovery does not name the ignored override"
+
+PROTECTION_FULL_PROJECT="${PROTECTION_STATUS_HOME}/full-profile-project"
+PROTECTION_FULL_LOG="${PROTECTION_LOG_ROOT}/projects/full-profile-project"
+mkdir -p "${PROTECTION_FULL_PROJECT}" "${PROTECTION_FULL_LOG}"
+git -C "${PROTECTION_FULL_PROJECT}" init -q
+printf '%s\n' '{"profile":"full"}' \
+  > "${PROTECTION_FULL_PROJECT}/.vibeguard.json"
+printf '%s' "${PROTECTION_FULL_PROJECT}" \
+  > "${PROTECTION_FULL_LOG}/.project-root"
+cat > "${PROTECTION_FULL_LOG}/events.jsonl" <<'JSONL'
+{"ts":"2026-08-31T03:00:00Z","client":"claude","hook":"pre-bash-guard","decision":"pass"}
+{"ts":"2026-08-31T03:01:00Z","client":"codex","hook":"pre-write-guard","decision":"pass"}
+JSONL
+full_profile_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${PROTECTION_FULL_PROJECT}"
+)"
+assert_contains "${full_profile_out}" "Claude Code: DEGRADED" \
+  "a full project profile cannot report protected through a core Claude install"
+assert_contains "${full_profile_out}" "Codex CLI: DEGRADED" \
+  "a full project profile cannot report protected through a core Codex install"
+assert_contains "${full_profile_out}" "Project profile full requires" \
+  "stronger project profile degradation is explained"
+assert_contains "${full_profile_out}" "--profile full" \
+  "stronger project profile recovery action installs the required profile"
+
+policy_cwd_full_profile_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_POLICY_CWD="${PROTECTION_FULL_PROJECT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${policy_cwd_full_profile_out}" "Claude Code: DEGRADED" \
+  "live full-profile CWD cannot report protected through a core Claude install"
+assert_contains "${policy_cwd_full_profile_out}" "Codex CLI: DEGRADED" \
+  "live full-profile CWD cannot report protected through a core Codex install"
+assert_contains "${policy_cwd_full_profile_out}" "Project profile full requires" \
+  "live policy CWD supplies the required hook profile"
+
+printf '%s\n' '[features]' 'hooks = false' \
+  > "${PROTECTION_STATUS_HOME}/.codex/config.toml"
+codex_degraded_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${codex_degraded_out}" "Codex CLI: DEGRADED" \
+  "Codex historical evidence cannot hide current configuration drift"
+assert_contains "${codex_degraded_out}" \
+  "The installed integration is incomplete or non-canonical" \
+  "degraded Codex status explains configuration drift"
+
+printf '%s\n' '[' > "${PROTECTION_STATUS_HOME}/.codex/config.toml"
+codex_invalid_config_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${codex_invalid_config_out}" \
+  "Codex configuration is malformed TOML" \
+  "malformed Codex configuration is identified"
+assert_contains "${codex_invalid_config_out}" \
+  "Fix the malformed Codex configuration" \
+  "malformed Codex configuration gives an effective recovery action"
+assert_not_contains "${codex_invalid_config_out}" \
+  "Next: bash ${REPO_DIR}/setup.sh --yes" \
+  "malformed Codex configuration does not recommend an ineffective reinstall"
+
+PROTECTION_EMPTY_HOME="$(mktemp -d)"
+mkdir -p \
+  "${PROTECTION_EMPTY_HOME}/.claude" \
+  "${PROTECTION_EMPTY_HOME}/.codex" \
+  "${PROTECTION_EMPTY_HOME}/.gemini"
+printf '%s\n' '{}' > "${PROTECTION_EMPTY_HOME}/.claude/settings.json"
+printf '%s\n' 'model = "gpt-5"' > "${PROTECTION_EMPTY_HOME}/.codex/config.toml"
+printf '%s\n' '{}' > "${PROTECTION_EMPTY_HOME}/.gemini/settings.json"
+empty_protection_out="$(
+  HOME="${PROTECTION_EMPTY_HOME}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_EMPTY_HOME}/logs" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${empty_protection_out}" "Claude Code: UNPROTECTED" \
+  "missing Claude integration is unprotected"
+assert_contains "${empty_protection_out}" "Codex CLI: UNPROTECTED" \
+  "missing Codex integration is unprotected"
+assert_contains "${empty_protection_out}" "Gemini CLI: UNPROTECTED" \
+  "disabled Gemini integration is unprotected"
+setup_intent_only_out="$(
+  HOME="${PROTECTION_EMPTY_HOME}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_EMPTY_HOME}/logs" \
+  VIBEGUARD_SETUP_GEMINI=1 \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${setup_intent_only_out}" "Gemini CLI: UNPROTECTED" \
+  "setup-only Gemini intent does not enable the live integration"
+assert_contains "${empty_protection_out}" \
+  "bash ${REPO_DIR}/setup.sh --yes --host gemini --profile core" \
+  "unprotected Gemini status gives one runnable profile-preserving action"
 
 # Help should exit 0 and print usage.
 help_out="$(bash "${SETUP_SCRIPT}" --check --help 2>&1)"
