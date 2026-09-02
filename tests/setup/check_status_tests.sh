@@ -594,6 +594,7 @@ assert_contains "${gemini_protected_out}" \
 PROTECTION_EXPLICIT_LOG_DIR="${PROTECTION_STATUS_HOME}/explicit-project-log"
 PROTECTION_EXPLICIT_LOG_FILE="${PROTECTION_EXPLICIT_LOG_DIR}/custom-events.jsonl"
 mkdir -p "${PROTECTION_EXPLICIT_LOG_DIR}"
+printf '%s' "${REPO_DIR}" > "${PROTECTION_EXPLICIT_LOG_DIR}/.project-root"
 cat > "${PROTECTION_EXPLICIT_LOG_FILE}" <<'JSONL'
 {"ts":"2026-09-01T01:00:00Z","client":"claude","hook":"pre-edit-guard","decision":"block"}
 {"ts":"2026-09-01T01:01:00Z","client":"codex","hook":"pre-bash-guard","decision":"pass"}
@@ -616,6 +617,28 @@ assert_contains "${explicit_log_out}" \
 assert_contains "${explicit_log_out}" \
   "2026-08-31T01:02:00Z | pre-bash-guard | pass" \
   "Gemini evidence ignores inherited explicit log overrides"
+
+printf '%s' "${PROTECTION_STATUS_HOME}/other-repo" \
+  > "${PROTECTION_EXPLICIT_LOG_DIR}/.project-root"
+mismatched_explicit_log_rc=0
+mismatched_explicit_log_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_PROJECT_LOG_DIR="${PROTECTION_EXPLICIT_LOG_DIR}" \
+  VIBEGUARD_LOG_FILE="${PROTECTION_EXPLICIT_LOG_FILE}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || mismatched_explicit_log_rc=$?
+assert_cmd "explicit log for another project fails protection status" \
+  test "${mismatched_explicit_log_rc}" -ne 0
+assert_contains "${mismatched_explicit_log_out}" \
+  "explicit project log is not associated with the requested project" \
+  "cross-project explicit evidence fails visibly"
+assert_not_contains "${mismatched_explicit_log_out}" \
+  "2026-09-01T01:00:00Z" \
+  "cross-project explicit evidence is never reported as current"
+printf '%s' "${REPO_DIR}" > "${PROTECTION_EXPLICIT_LOG_DIR}/.project-root"
 
 PROTECTION_BAD_RUNTIME="${PROTECTION_STATUS_HOME}/bad-runtime"
 printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "${PROTECTION_BAD_RUNTIME}"
@@ -818,6 +841,20 @@ assert_contains "${dev_linked_bad_runtime_out}" "Gemini CLI: PROTECTED" \
   "dev-linked repository runtime does not affect installed Gemini execution"
 assert_contains "${dev_linked_bad_runtime_out}" "linked runtime" \
   "an incompatible dev-linked runtime is explained"
+setup_mode_override_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_SETUP_DEV_LINKED=0 \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${setup_mode_override_out}" "Claude Code: DEGRADED" \
+  "setup-only mode does not hide the dev-linked Claude runtime"
+assert_contains "${setup_mode_override_out}" "Codex CLI: DEGRADED" \
+  "setup-only mode does not hide the dev-linked Codex runtime"
+assert_contains "${setup_mode_override_out}" "linked runtime" \
+  "persisted live execution mode takes precedence over setup-only state"
 cp "${CURRENT_SETUP_RUNTIME}" \
   "${PROTECTION_DEV_LINKED_REPO}/vibeguard-runtime/target/release/vibeguard-runtime"
 mv "${PROTECTION_STATUS_HOME}/.vibeguard/installed/bin/vibeguard-runtime" \

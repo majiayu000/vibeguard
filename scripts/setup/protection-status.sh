@@ -58,7 +58,18 @@ if ! profile="$(state_installed_profile)"; then
 fi
 export PROFILE="${profile}"
 
-execution_mode="$(_claude_execution_mode)"
+execution_mode="${VIBEGUARD_EXECUTION_MODE:-}"
+if [[ -z "${execution_mode}" && -f "${HOME}/.vibeguard/execution-mode" ]]; then
+  execution_mode="$(tr -d '[:space:]' < "${HOME}/.vibeguard/execution-mode")"
+fi
+case "${execution_mode}" in
+  dev-linked|dev-linked-repo|repo|repo-linked)
+    execution_mode="dev-linked-repo"
+    ;;
+  *)
+    execution_mode="installed-snapshot"
+    ;;
+esac
 execution_root="${HOME}/.vibeguard/installed"
 execution_problem=""
 if [[ "${execution_mode}" == "dev-linked-repo" ]]; then
@@ -228,10 +239,46 @@ event_summary_for_log_root() {
   event_summary_for_file "${event_file}"
 }
 
+validate_explicit_project_log() {
+  local log_dir="$1" log_file="$2"
+  local canonical_log_dir canonical_file_dir mapping mapped_root project_id
+  if [[ ! -d "${log_dir}" ]] \
+    || ! canonical_log_dir="$(cd "${log_dir}" && pwd -P)" \
+    || ! canonical_file_dir="$(cd "$(dirname "${log_file}")" && pwd -P)"; then
+    printf 'ERROR: explicit project log is not associated with the requested project: %s\n' \
+      "${log_dir}" >&2
+    return 1
+  fi
+  if [[ "${canonical_file_dir}" != "${canonical_log_dir}" ]]; then
+    printf 'ERROR: explicit project log is not associated with the requested project: %s\n' \
+      "${log_file}" >&2
+    return 1
+  fi
+
+  mapping="${canonical_log_dir}/.project-root"
+  if [[ -e "${mapping}" ]]; then
+    if ! mapped_root="$(<"${mapping}")" || [[ "${mapped_root}" != "${project_root}" ]]; then
+      printf 'ERROR: explicit project log is not associated with the requested project: %s\n' \
+        "${log_dir}" >&2
+      return 1
+    fi
+    return 0
+  fi
+
+  project_id="$(vg_log_scope_sha256_short "${project_root}")" || return 1
+  if [[ "${canonical_log_dir##*/}" != "${project_id}" ]]; then
+    printf 'ERROR: explicit project log is not associated with the requested project: %s\n' \
+      "${log_dir}" >&2
+    return 1
+  fi
+}
+
 primary_log_root="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
 primary_uses_explicit_log=0
 if [[ -n "${VIBEGUARD_PROJECT_LOG_DIR:-}" && -n "${VIBEGUARD_LOG_FILE:-}" ]]; then
   primary_uses_explicit_log=1
+  validate_explicit_project_log \
+    "${VIBEGUARD_PROJECT_LOG_DIR}" "${VIBEGUARD_LOG_FILE}" || exit 2
   event_summary="$(event_summary_for_file "${VIBEGUARD_LOG_FILE}")" || exit 2
 elif ! event_summary="$(event_summary_for_log_root "${primary_log_root}")"; then
   exit 2
