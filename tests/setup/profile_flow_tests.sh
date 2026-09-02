@@ -118,6 +118,29 @@ assert_cmd "project-init read-only mode does not install pre-push" test ! -e "${
 assert_cmd "project-init does not modify AGENTS.md" grep -qx "guidance-sentinel" "${project_init_read_only_target}/AGENTS.md"
 assert_cmd "project-init does not modify CLAUDE.md" grep -qx "claude-sentinel" "${project_init_read_only_target}/CLAUDE.md"
 
+project_init_existing_hooks_target="${TMP_HOME}/project-init-existing-hooks-target"
+mkdir -p "${project_init_existing_hooks_target}/.git/hooks"
+git -C "${project_init_existing_hooks_target}" init >/dev/null
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+  > "${project_init_existing_hooks_target}/.git/hooks/pre-commit"
+chmod +x "${project_init_existing_hooks_target}/.git/hooks/pre-commit"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+  > "${project_init_existing_hooks_target}/.git/hooks/pre-push"
+chmod -x "${project_init_existing_hooks_target}/.git/hooks/pre-push"
+project_init_existing_hooks_out="$(
+  bash "${REPO_DIR}/scripts/project-init.sh" "${project_init_existing_hooks_target}" 2>&1
+)"
+assert_contains "${project_init_existing_hooks_out}" \
+  "Git pre-commit: unverified (existing hook is not VibeGuard-owned)" \
+  "project-init does not claim foreign executable pre-commit protection"
+assert_contains "${project_init_existing_hooks_out}" \
+  "Git pre-push: inactive (existing hook is not executable)" \
+  "project-init does not claim non-executable pre-push protection"
+assert_cmd "project-init preserves foreign pre-commit hook" \
+  grep -qx 'exit 0' "${project_init_existing_hooks_target}/.git/hooks/pre-commit"
+assert_cmd "project-init preserves non-executable pre-push hook" \
+  test ! -x "${project_init_existing_hooks_target}/.git/hooks/pre-push"
+
 project_init_python_target="${TMP_HOME}/project-init-python-target"
 mkdir -p "${project_init_python_target}"
 printf '%s\n' '[project]' 'name = "project-init-python-target"' 'version = "0.1.0"' \

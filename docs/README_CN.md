@@ -41,6 +41,7 @@ bash ~/vibeguard/setup.sh
 ```bash
 bash ~/vibeguard/setup.sh doctor
 bash ~/vibeguard/setup.sh verify-install
+bash ~/vibeguard/setup.sh protection-status /path/to/project
 ```
 
 ## 文档导航
@@ -316,6 +317,7 @@ bash ~/vibeguard/scripts/install-health-report-scheduler.sh --install  # opt in 
 
 # 检查 / 卸载
 bash ~/vibeguard/setup.sh doctor                 # 面向人的友好报告，兼容性退出 0
+bash ~/vibeguard/setup.sh protection-status "$PWD" # 按当前项目真实 hook 事件核验各宿主保护状态
 bash ~/vibeguard/setup.sh --check                # doctor 的兼容别名
 bash ~/vibeguard/setup.sh verify-install         # CI/post-install 验证，必需状态损坏时退出 2
 bash ~/vibeguard/setup.sh verify-project         # strict 项目验证，degraded/broken 时退出 1/2
@@ -323,6 +325,11 @@ bash ~/vibeguard/setup.sh verify-dev-repo        # VibeGuard 开发仓库 strict
 bash ~/vibeguard/setup.sh verify-project --json  # CI 使用的 JSON 输出
 bash ~/vibeguard/setup.sh --clean
 ```
+
+`protection-status` 会分别把 Claude Code、Codex CLI 和 Gemini CLI 标为
+`PROTECTED`、`DEGRADED` 或 `UNPROTECTED`。只有宿主配置语义正确，并且当前
+Git 项目确实记录过该宿主的 VibeGuard hook 事件时，才会显示 `PROTECTED`；
+其他状态会直接给出下一步操作。
 
 迁移路径：`--check --strict` 仍可用，推荐改为 `verify-project`；
 `--check --json` 推荐改为 `verify-project --json`；`--check --install`

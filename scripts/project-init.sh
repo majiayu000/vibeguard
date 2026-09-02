@@ -381,27 +381,43 @@ record_project_hook_install() {
   fi
 }
 
+project_hook_state() {
+  local hook_path="$1" expected_target="$2" actual_target=""
+  if [[ ! -x "${hook_path}" ]]; then
+    printf '%s\n' "inactive (existing hook is not executable)"
+  elif [[ ! -L "${hook_path}" ]]; then
+    printf '%s\n' "unverified (existing hook is not VibeGuard-owned)"
+  else
+    actual_target="$(readlink "${hook_path}" 2>/dev/null || true)"
+    if [[ "${actual_target}" == "${expected_target}" ]]; then
+      printf '%s\n' "attached (already present)"
+    else
+      printf '%s\n' "unverified (existing hook is not VibeGuard-owned)"
+    fi
+  fi
+}
+
 PRE_COMMIT_STATE="not-attached"
 PRE_PUSH_STATE="not-attached"
 if [[ "${INSTALL_HOOKS}" -eq 0 ]]; then
   echo "Git hook installation skipped (--no-hooks)"
   PRE_COMMIT_STATE="skipped (--no-hooks)"
   PRE_PUSH_STATE="skipped (--no-hooks)"
-elif [[ -n "${GIT_HOOKS_DIR}" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
+elif [[ -n "${GIT_HOOKS_DIR}" ]] && [[ -x "$PRE_COMMIT_WRAPPER" ]]; then
   mkdir -p "$GIT_HOOKS_DIR"
-  if [[ -f "$GIT_HOOKS_DIR/pre-commit" ]]; then
+  if [[ -e "$GIT_HOOKS_DIR/pre-commit" || -L "$GIT_HOOKS_DIR/pre-commit" ]]; then
     echo ".git/hooks/pre-commit already exists, skip (manual override: ln -sf $PRE_COMMIT_WRAPPER $GIT_HOOKS_DIR/pre-commit)"
-    PRE_COMMIT_STATE="unchanged (already present)"
+    PRE_COMMIT_STATE="$(project_hook_state "$GIT_HOOKS_DIR/pre-commit" "$PRE_COMMIT_WRAPPER")"
   else
     ln -sf "$PRE_COMMIT_WRAPPER" "$GIT_HOOKS_DIR/pre-commit"
     record_project_hook_install "pre-commit" "${GIT_HOOKS_DIR}/pre-commit"
     echo "pre-commit hook installed"
     PRE_COMMIT_STATE="attached"
   fi
-  if [[ -f "$PRE_PUSH_WRAPPER" ]]; then
-    if [[ -f "$GIT_HOOKS_DIR/pre-push" ]]; then
+  if [[ -x "$PRE_PUSH_WRAPPER" ]]; then
+    if [[ -e "$GIT_HOOKS_DIR/pre-push" || -L "$GIT_HOOKS_DIR/pre-push" ]]; then
       echo ".git/hooks/pre-push already exists, skip (manual overwrite: ln -sf $PRE_PUSH_WRAPPER $GIT_HOOKS_DIR/pre-push)"
-      PRE_PUSH_STATE="unchanged (already present)"
+      PRE_PUSH_STATE="$(project_hook_state "$GIT_HOOKS_DIR/pre-push" "$PRE_PUSH_WRAPPER")"
     else
       ln -sf "$PRE_PUSH_WRAPPER" "$GIT_HOOKS_DIR/pre-push"
       record_project_hook_install "pre-push" "${GIT_HOOKS_DIR}/pre-push"
@@ -409,15 +425,15 @@ elif [[ -n "${GIT_HOOKS_DIR}" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
       PRE_PUSH_STATE="attached"
     fi
   else
-    echo " ~/.vibeguard/pre-push does not exist, please run setup.sh first"
+    echo " ~/.vibeguard/pre-push is missing or not executable; run setup.sh first"
     PRE_PUSH_STATE="unavailable (run setup.sh first)"
   fi
 elif [[ -z "${GIT_HOOKS_DIR}" ]]; then
   echo "Non-git repository, skip"
   PRE_COMMIT_STATE="unavailable (not a git repository)"
   PRE_PUSH_STATE="unavailable (not a git repository)"
-elif [[ ! -f "$PRE_COMMIT_WRAPPER" ]]; then
-  echo " ~/.vibeguard/pre-commit does not exist, please run setup.sh first"
+elif [[ ! -x "$PRE_COMMIT_WRAPPER" ]]; then
+  echo " ~/.vibeguard/pre-commit is missing or not executable; run setup.sh first"
   PRE_COMMIT_STATE="unavailable (run setup.sh first)"
   PRE_PUSH_STATE="unavailable (run setup.sh first)"
 fi

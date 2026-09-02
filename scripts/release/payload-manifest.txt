@@ -36,6 +36,7 @@ scripts/lib/guard_packs.py
 scripts/lib/hook_config_model.py
 scripts/lib/hooks_manifest.py
 scripts/lib/install-state.sh
+scripts/lib/log_scope.sh
 scripts/lib/project_config.sh
 scripts/lib/runtime.sh
 scripts/lib/settings_json.py
@@ -59,6 +60,7 @@ scripts/setup/guard-packs.sh
 scripts/setup/install.sh
 scripts/setup/lib.sh
 scripts/setup/markdown-compat.sh
+scripts/setup/protection-status.sh
 scripts/setup/runtime-clean-pin.sh
 scripts/setup/runtime-install.sh
 scripts/setup/runtime_config_health.sh

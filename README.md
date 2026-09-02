@@ -55,6 +55,7 @@ expected outputs are documented in [Quickstart](docs/how/quickstart.md):
 export PATH="$HOME/.vibeguard/installed/bin:$PATH"
 bash ~/vibeguard/setup.sh doctor
 bash ~/vibeguard/setup.sh verify-install
+bash ~/vibeguard/setup.sh protection-status /path/to/project
 bash ~/vibeguard/setup.sh demo safe-bash
 vibeguard observe health --limit all
 ```
@@ -417,6 +418,7 @@ bash ~/vibeguard/scripts/install-health-report-scheduler.sh --install  # Opt in 
 
 # Verify / Uninstall
 bash ~/vibeguard/setup.sh doctor                      # Human-friendly report, exits 0 for compatibility
+bash ~/vibeguard/setup.sh protection-status "$PWD"   # Per-host state backed by current-project hook evidence
 bash ~/vibeguard/setup.sh --check                     # Compatibility alias for doctor
 bash ~/vibeguard/setup.sh verify-install              # CI/post-install check, exits 2 on broken required state
 bash ~/vibeguard/setup.sh verify-project              # Strict project check, exits 1/2 on degraded/broken
@@ -428,6 +430,11 @@ bash ~/vibeguard/setup.sh --clean                     # Uninstall
 `doctor` / `--check` reports a structured rollup (OK / INFO / WARN / FAIL /
 BROKEN / MISSING) plus a final `Verdict` line of `HEALTHY`, `DEGRADED`, or
 `BROKEN`. Recovery-only and explicitly optional gaps produce `DEGRADED`, and the Verdict names the first issue.
+`protection-status` is narrower: it reports Claude Code, Codex CLI, and Gemini
+CLI as `PROTECTED`, `DEGRADED`, or `UNPROTECTED` for one Git project. A host is
+only `PROTECTED` when its current configuration is canonical and that project
+contains a real VibeGuard event from the host; every other state prints the
+next action.
 `doctor` always exits 0 for backwards compatibility unless the checker
 itself cannot run. CI should use `verify-install` for post-install health gates
 or `verify-project --json` when it needs machine-readable strict project output.

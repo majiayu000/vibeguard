@@ -31,7 +31,7 @@ vg_log_scope_sha256_short() {
 vg_log_scope_project_log_file() {
   local log_root="$1"
   local project_ref="$2"
-  local project_id project_root mapping mapped_root
+  local project_id project_root direct_path mapping mapped_root mapping_error=""
 
   if vg_log_scope_is_hash "$project_ref"; then
     printf '%s/projects/%s/events.jsonl' "$log_root" "${project_ref:0:8}"
@@ -43,17 +43,31 @@ vg_log_scope_project_log_file() {
     project_root="$project_ref"
   fi
 
+  project_id="$(vg_log_scope_sha256_short "$project_root")"
+  direct_path="${log_root}/projects/${project_id}/events.jsonl"
+  if [[ -e "${direct_path}" ]]; then
+    printf '%s' "${direct_path}"
+    return 0
+  fi
+
   for mapping in "${log_root}/projects/"*/.project-root; do
     [[ -f "$mapping" ]] || continue
-    mapped_root="$(cat "$mapping" 2>/dev/null || true)"
+    if ! mapped_root="$(cat "$mapping")"; then
+      [[ -n "${mapping_error}" ]] || mapping_error="$mapping"
+      continue
+    fi
     if [[ "$mapped_root" == "$project_root" ]]; then
       printf '%s/events.jsonl' "$(dirname "$mapping")"
       return 0
     fi
   done
 
-  project_id="$(vg_log_scope_sha256_short "$project_root")"
-  printf '%s/projects/%s/events.jsonl' "$log_root" "$project_id"
+  if [[ -n "${mapping_error}" ]]; then
+    printf '%s\n' "unable to read project log mapping: ${mapping_error}" >&2
+    return 1
+  fi
+
+  printf '%s' "${direct_path}"
 }
 
 vg_resolve_log_file() {
