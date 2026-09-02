@@ -538,6 +538,22 @@ deterministic_log_out="$(
 assert_contains "${deterministic_log_out}" \
   "2026-08-31T01:01:30Z | pre-bash-guard | warn" \
   "deterministic project log takes precedence over a legacy mapping"
+rm -f "${PROTECTION_HASH_LOG}/events.jsonl"
+ln -s "${PROTECTION_OTHER_LOG}/events.jsonl" \
+  "${PROTECTION_HASH_LOG}/events.jsonl"
+symlinked_default_log_rc=0
+symlinked_default_log_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || symlinked_default_log_rc=$?
+assert_cmd "symlinked deterministic log fails protection status" \
+  test "${symlinked_default_log_rc}" -ne 0
+assert_contains "${symlinked_default_log_out}" \
+  "project event log must not be a symlink" \
+  "symlinked deterministic evidence fails visibly"
 rm -rf "${PROTECTION_HASH_LOG}"
 
 PROTECTION_UNREADABLE_OTHER_LOG="${PROTECTION_LOG_ROOT}/projects/00-unreadable-other"
@@ -616,8 +632,11 @@ assert_contains "${explicit_log_out}" \
   "2026-09-01T01:01:00Z | pre-bash-guard | pass" \
   "Codex evidence follows the active explicit log file"
 assert_contains "${explicit_log_out}" \
+  "2026-08-31T01:02:00Z | pre-bash-guard | pass" \
+  "Gemini evidence follows its canonical clean environment"
+assert_not_contains "${explicit_log_out}" \
   "2026-09-01T01:02:00Z | pre-write-guard | block" \
-  "Gemini evidence follows the inherited explicit log file"
+  "Gemini ignores explicit log overrides cleared by its canonical command"
 
 printf '%s' "${PROTECTION_STATUS_HOME}/other-repo" \
   > "${PROTECTION_EXPLICIT_LOG_DIR}/.project-root"
@@ -656,7 +675,7 @@ symlinked_explicit_log_out="$(
 assert_cmd "symlinked explicit log fails protection status" \
   test "${symlinked_explicit_log_rc}" -ne 0
 assert_contains "${symlinked_explicit_log_out}" \
-  "explicit project log is not associated with the requested project" \
+  "project event log must not be a symlink" \
   "symlinked explicit evidence fails visibly"
 rm -f "${PROTECTION_EXPLICIT_LOG_FILE}"
 mv "${PROTECTION_EXPLICIT_LOG_FILE}.valid" "${PROTECTION_EXPLICIT_LOG_FILE}"
@@ -768,26 +787,26 @@ rm -f \
   "${PROTECTION_STATUS_HOME}/.vibeguard/config.json"
 
 printf '%s\n' '{}' > "${PROTECTION_STATUS_HOME}/healthy-internal-config.json"
-printf '%s\n' '{' > "${PROTECTION_STATUS_HOME}/bad-deprecated-config.json"
-printf '%s\n' '{}' > "${PROTECTION_STATUS_HOME}/.vibeguard/config.json"
+printf '%s\n' '{}' > "${PROTECTION_STATUS_HOME}/healthy-deprecated-config.json"
+printf '%s\n' '{' > "${PROTECTION_STATUS_HOME}/.vibeguard/config.json"
 gemini_deprecated_config_rc=0
 gemini_deprecated_config_out="$(
   HOME="${PROTECTION_STATUS_HOME}" \
   PATH="${PROTECTION_BIN}:${PATH}" \
   VG_INTERNAL_CONFIG_FILE="${PROTECTION_STATUS_HOME}/healthy-internal-config.json" \
-  _VG_CONFIG_FILE="${PROTECTION_STATUS_HOME}/bad-deprecated-config.json" \
+  _VG_CONFIG_FILE="${PROTECTION_STATUS_HOME}/healthy-deprecated-config.json" \
   VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
   VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
     bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
 )" || gemini_deprecated_config_rc=$?
-assert_cmd "Gemini policy honors its surviving deprecated config override" \
+assert_cmd "Gemini policy ignores deprecated config cleared by its canonical command" \
   test "${gemini_deprecated_config_rc}" -ne 0
 assert_contains "${gemini_deprecated_config_out}" \
   "failed to evaluate project policy" \
-  "Gemini deprecated config override failure is visible"
+  "Gemini default config failure remains visible"
 rm -f \
   "${PROTECTION_STATUS_HOME}/healthy-internal-config.json" \
-  "${PROTECTION_STATUS_HOME}/bad-deprecated-config.json" \
+  "${PROTECTION_STATUS_HOME}/healthy-deprecated-config.json" \
   "${PROTECTION_STATUS_HOME}/.vibeguard/config.json"
 
 PROTECTION_HEALTHY_CONFIG="${PROTECTION_STATUS_HOME}/healthy-config.json"
@@ -1353,7 +1372,23 @@ assert_contains "${project_cwd_override_out}" "Codex CLI: DEGRADED" \
 
 PROTECTION_POLICY_OVERRIDE="${PROTECTION_STATUS_HOME}/policy-override.json"
 PROTECTION_GEMINI_POLICY_LOG="${PROTECTION_STATUS_HOME}/.vibeguard/projects/gemini-policy-project"
+printf '%s\n' '{"enforcement":"off"}' > "${PROTECTION_POLICY_OVERRIDE}"
+printf '%s\n' '{}' > "${PROTECTION_POLICY_PROJECT}/.vibeguard.json"
+project_override_recovery_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_PROJECT_CONFIG="${PROTECTION_POLICY_OVERRIDE}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${PROTECTION_POLICY_PROJECT}"
+)"
+assert_contains "${project_override_recovery_out}" \
+  "Update or remove the project policy in ${PROTECTION_POLICY_OVERRIDE}" \
+  "Gemini policy probing preserves the Claude and Codex override recovery source"
+
 printf '%s\n' '{}' > "${PROTECTION_POLICY_OVERRIDE}"
+printf '%s\n' '{"enforcement":"off"}' \
+  > "${PROTECTION_POLICY_PROJECT}/.vibeguard.json"
 mkdir -p "${PROTECTION_GEMINI_POLICY_LOG}"
 printf '%s' "${PROTECTION_POLICY_PROJECT}" \
   > "${PROTECTION_GEMINI_POLICY_LOG}/.project-root"

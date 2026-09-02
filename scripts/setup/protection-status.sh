@@ -222,6 +222,10 @@ latest_event_for() {
 
 event_summary_for_file() {
   local event_file="$1" summary=""
+  if [[ -L "${event_file}" ]]; then
+    printf 'ERROR: project event log must not be a symlink: %s\n' "${event_file}" >&2
+    return 2
+  fi
   if [[ -n "${event_file}" && -e "${event_file}" ]]; then
     if [[ ! -r "${event_file}" ]]; then
       printf 'ERROR: project event log is unreadable: %s\n' "${event_file}" >&2
@@ -259,12 +263,6 @@ validate_explicit_project_log() {
       "${log_file}" >&2
     return 1
   fi
-  if [[ -L "${log_file}" ]]; then
-    printf 'ERROR: explicit project log is not associated with the requested project: %s\n' \
-      "${log_file}" >&2
-    return 1
-  fi
-
   mapping="${canonical_log_dir}/.project-root"
   if [[ -e "${mapping}" ]]; then
     if ! mapped_root="$(<"${mapping}")" || [[ "${mapped_root}" != "${project_root}" ]]; then
@@ -294,8 +292,8 @@ elif ! event_summary="$(event_summary_for_log_root "${primary_log_root}")"; then
   exit 2
 fi
 gemini_log_root="${HOME}/.vibeguard"
-if [[ "${primary_uses_explicit_log}" -eq 1 \
-  || "${gemini_log_root}" == "${primary_log_root}" ]]; then
+if [[ "${primary_uses_explicit_log}" -eq 0 \
+  && "${gemini_log_root}" == "${primary_log_root}" ]]; then
   gemini_event_summary="${event_summary}"
 elif ! gemini_event_summary="$(event_summary_for_log_root "${gemini_log_root}")"; then
   exit 2
@@ -512,7 +510,7 @@ hook_policy_problem() {
   local host="$1" hook="$2" output status=0 enforcement user_config policy_cwd
   if [[ "${host}" == "gemini" ]]; then
     unset VIBEGUARD_PROJECT_CONFIG
-    user_config="${_VG_CONFIG_FILE:-${HOME}/.vibeguard/config.json}"
+    user_config="${HOME}/.vibeguard/config.json"
     policy_cwd="${project_root}"
   else
     user_config="${VG_INTERNAL_CONFIG_FILE:-${_VG_CONFIG_FILE:-${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}}}"

@@ -8,12 +8,13 @@ use crate::event_schema::field;
 use crate::time_utils::parse_iso_ts;
 
 type ClientEvent = (String, String, String, String);
+type TimedClientEvent = (u64, ClientEvent);
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
 fn latest_client_events(
     reader: impl BufRead,
 ) -> std::result::Result<Vec<ClientEvent>, Box<dyn std::error::Error>> {
-    let mut latest = BTreeMap::<String, ClientEvent>::new();
+    let mut latest = BTreeMap::<String, TimedClientEvent>::new();
     for (index, line) in reader.lines().enumerate() {
         let line = line?;
         let event = serde_json::from_str::<Value>(&line)
@@ -24,9 +25,8 @@ fn latest_client_events(
         let Some(ts) = string_field(&event, &[field::TS]) else {
             continue;
         };
-        if parse_iso_ts(ts).is_none() {
-            return Err(format!("invalid timestamp at line {}: {ts}", index + 1).into());
-        }
+        let parsed_ts = parse_iso_ts(ts)
+            .ok_or_else(|| format!("invalid timestamp at line {}: {ts}", index + 1))?;
         let Some(hook) = string_field(&event, &[field::HOOK]) else {
             continue;
         };
@@ -35,21 +35,24 @@ fn latest_client_events(
         };
         if latest
             .get(client)
-            .is_some_and(|(_, latest_ts, _, _)| latest_ts.as_str() > ts)
+            .is_some_and(|(latest_ts, _)| *latest_ts > parsed_ts)
         {
             continue;
         }
         latest.insert(
             client.to_string(),
             (
-                client.to_string(),
-                ts.to_string(),
-                hook.to_string(),
-                outcome.to_string(),
+                parsed_ts,
+                (
+                    client.to_string(),
+                    ts.to_string(),
+                    hook.to_string(),
+                    outcome.to_string(),
+                ),
             ),
         );
     }
-    Ok(latest.into_values().collect())
+    Ok(latest.into_values().map(|(_, event)| event).collect())
 }
 
 fn string_field<'a>(event: &'a Value, names: &[&str]) -> Option<&'a str> {
@@ -157,5 +160,23 @@ mod tests {
 
         let error = latest_client_events(input).expect_err("invalid timestamps must fail");
         assert!(error.to_string().contains("invalid timestamp at line 2"));
+    }
+
+    #[test]
+    fn compares_valid_timestamps_by_instant() {
+        let input = std::io::Cursor::new(concat!(
+            "{\"client\":\"claude\",\"ts\":\"2026-09-01T10:00:00+02:00\",\"hook\":\"older\",\"decision\":\"pass\"}\n",
+            "{\"client\":\"claude\",\"ts\":\"2026-09-01T09:00:00Z\",\"hook\":\"newer\",\"decision\":\"block\"}\n",
+        ));
+
+        assert_eq!(
+            latest_client_events(input).expect("valid offset timestamps should stream"),
+            vec![(
+                "claude".to_string(),
+                "2026-09-01T09:00:00Z".to_string(),
+                "newer".to_string(),
+                "block".to_string(),
+            )]
+        );
     }
 }
