@@ -183,6 +183,11 @@ if [[ "${VIBEGUARD_SKIP_PRECOMMIT:-0}" == "1" ]]; then
   precommit_skip_problem="Pre-commit enforcement is disabled by VIBEGUARD_SKIP_PRECOMMIT=1."
 fi
 
+precommit_timeout_problem=""
+if [[ "${VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR:-block}" == "warn" ]]; then
+  precommit_timeout_problem="Pre-commit timeout enforcement is downgraded by VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR=warn."
+fi
+
 resolve_effective_profile() {
   local policy_cwd="$1" output status=0 effective_profile
   output="$(
@@ -254,6 +259,11 @@ validate_explicit_project_log() {
       "${log_file}" >&2
     return 1
   fi
+  if [[ -L "${log_file}" ]]; then
+    printf 'ERROR: explicit project log is not associated with the requested project: %s\n' \
+      "${log_file}" >&2
+    return 1
+  fi
 
   mapping="${canonical_log_dir}/.project-root"
   if [[ -e "${mapping}" ]]; then
@@ -284,8 +294,8 @@ elif ! event_summary="$(event_summary_for_log_root "${primary_log_root}")"; then
   exit 2
 fi
 gemini_log_root="${HOME}/.vibeguard"
-if [[ "${primary_uses_explicit_log}" -eq 0 \
-  && "${gemini_log_root}" == "${primary_log_root}" ]]; then
+if [[ "${primary_uses_explicit_log}" -eq 1 \
+  || "${gemini_log_root}" == "${primary_log_root}" ]]; then
   gemini_event_summary="${event_summary}"
 elif ! gemini_event_summary="$(event_summary_for_log_root "${gemini_log_root}")"; then
   exit 2
@@ -502,7 +512,7 @@ hook_policy_problem() {
   local host="$1" hook="$2" output status=0 enforcement user_config policy_cwd
   if [[ "${host}" == "gemini" ]]; then
     unset VIBEGUARD_PROJECT_CONFIG
-    user_config="${HOME}/.vibeguard/config.json"
+    user_config="${_VG_CONFIG_FILE:-${HOME}/.vibeguard/config.json}"
     policy_cwd="${project_root}"
   else
     user_config="${VG_INTERNAL_CONFIG_FILE:-${_VG_CONFIG_FILE:-${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}}}"
@@ -591,6 +601,10 @@ host_problem() {
   fi
   if [[ -n "${precommit_skip_problem}" ]]; then
     printf '%s' "${precommit_skip_problem}"
+    return 0
+  fi
+  if [[ -n "${precommit_timeout_problem}" ]]; then
+    printf '%s' "${precommit_timeout_problem}"
     return 0
   fi
   result="$(profile_hook_problem "${host}" "${hooks}")" || status=$?
@@ -691,7 +705,7 @@ gemini_enabled=0
 gemini_configured=0
 gemini_settings_check_status=1
 gemini_settings_check_output=""
-if gemini_install_expected \
+if [[ -f "${GEMINI_ENABLED_MARKER}" ]] \
   || [[ -e "${GEMINI_WRAPPER}" ]] \
   || { [[ -f "${GEMINI_SETTINGS_FILE}" ]] \
     && grep -Fq 'run-hook-gemini.sh' "${GEMINI_SETTINGS_FILE}"; }; then
@@ -773,11 +787,20 @@ render_host() {
         printf '  Next: Unset VIBEGUARD_HOOK_DIR or set it to %s, then rerun protection-status.\n' \
           "${execution_root}/hooks"
         ;;
+      Selected\ runtime\ override\ VIBEGUARD_RUNTIME*)
+        printf '  Next: Unset VIBEGUARD_RUNTIME or replace it with a compatible runtime, then rerun protection-status.\n'
+        ;;
+      Selected\ policy\ runtime\ override\ VIBEGUARD_POLICY_RUNTIME*)
+        printf '  Next: Unset VIBEGUARD_POLICY_RUNTIME or replace it with a compatible runtime, then rerun protection-status.\n'
+        ;;
       Selected\ VibeGuard\ root\ override\ VIBEGUARD_DIR*)
         printf '  Next: Unset VIBEGUARD_DIR, then rerun protection-status.\n'
         ;;
       Pre-commit\ enforcement\ is\ disabled\ by\ VIBEGUARD_SKIP_PRECOMMIT=1.)
         printf '  Next: Unset VIBEGUARD_SKIP_PRECOMMIT, then rerun protection-status.\n'
+        ;;
+      Pre-commit\ timeout\ enforcement\ is\ downgraded\ by\ VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR=warn.)
+        printf '  Next: Unset VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR, then rerun protection-status.\n'
         ;;
       *)
         printf '  Next: %s\n' "${install_command}"

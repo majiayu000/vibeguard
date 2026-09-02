@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::io::{self, BufRead};
 
 use crate::event_schema::field;
+use crate::time_utils::parse_iso_ts;
 
 type ClientEvent = (String, String, String, String);
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
@@ -23,6 +24,9 @@ fn latest_client_events(
         let Some(ts) = string_field(&event, &[field::TS]) else {
             continue;
         };
+        if parse_iso_ts(ts).is_none() {
+            return Err(format!("invalid timestamp at line {}: {ts}", index + 1).into());
+        }
         let Some(hook) = string_field(&event, &[field::HOOK]) else {
             continue;
         };
@@ -142,5 +146,16 @@ mod tests {
                 "pass".to_string(),
             )]
         );
+    }
+
+    #[test]
+    fn rejects_records_with_invalid_timestamps() {
+        let input = std::io::Cursor::new(concat!(
+            "{\"client\":\"claude\",\"ts\":\"2026-08-31T08:00:00Z\",\"hook\":\"pre-bash-guard\",\"decision\":\"pass\"}\n",
+            "{\"client\":\"claude\",\"ts\":\"zzz\",\"hook\":\"pre-write-guard\",\"decision\":\"pass\"}\n",
+        ));
+
+        let error = latest_client_events(input).expect_err("invalid timestamps must fail");
+        assert!(error.to_string().contains("invalid timestamp at line 2"));
     }
 }

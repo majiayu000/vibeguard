@@ -598,6 +598,7 @@ printf '%s' "${REPO_DIR}" > "${PROTECTION_EXPLICIT_LOG_DIR}/.project-root"
 cat > "${PROTECTION_EXPLICIT_LOG_FILE}" <<'JSONL'
 {"ts":"2026-09-01T01:00:00Z","client":"claude","hook":"pre-edit-guard","decision":"block"}
 {"ts":"2026-09-01T01:01:00Z","client":"codex","hook":"pre-bash-guard","decision":"pass"}
+{"ts":"2026-09-01T01:02:00Z","client":"gemini","hook":"pre-write-guard","decision":"block"}
 JSONL
 explicit_log_out="$(
   HOME="${PROTECTION_STATUS_HOME}" \
@@ -615,8 +616,8 @@ assert_contains "${explicit_log_out}" \
   "2026-09-01T01:01:00Z | pre-bash-guard | pass" \
   "Codex evidence follows the active explicit log file"
 assert_contains "${explicit_log_out}" \
-  "2026-08-31T01:02:00Z | pre-bash-guard | pass" \
-  "Gemini evidence ignores inherited explicit log overrides"
+  "2026-09-01T01:02:00Z | pre-write-guard | block" \
+  "Gemini evidence follows the inherited explicit log file"
 
 printf '%s' "${PROTECTION_STATUS_HOME}/other-repo" \
   > "${PROTECTION_EXPLICIT_LOG_DIR}/.project-root"
@@ -640,6 +641,26 @@ assert_not_contains "${mismatched_explicit_log_out}" \
   "cross-project explicit evidence is never reported as current"
 printf '%s' "${REPO_DIR}" > "${PROTECTION_EXPLICIT_LOG_DIR}/.project-root"
 
+mv "${PROTECTION_EXPLICIT_LOG_FILE}" "${PROTECTION_EXPLICIT_LOG_FILE}.valid"
+ln -s "${PROTECTION_OTHER_LOG}/events.jsonl" "${PROTECTION_EXPLICIT_LOG_FILE}"
+symlinked_explicit_log_rc=0
+symlinked_explicit_log_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_PROJECT_LOG_DIR="${PROTECTION_EXPLICIT_LOG_DIR}" \
+  VIBEGUARD_LOG_FILE="${PROTECTION_EXPLICIT_LOG_FILE}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || symlinked_explicit_log_rc=$?
+assert_cmd "symlinked explicit log fails protection status" \
+  test "${symlinked_explicit_log_rc}" -ne 0
+assert_contains "${symlinked_explicit_log_out}" \
+  "explicit project log is not associated with the requested project" \
+  "symlinked explicit evidence fails visibly"
+rm -f "${PROTECTION_EXPLICIT_LOG_FILE}"
+mv "${PROTECTION_EXPLICIT_LOG_FILE}.valid" "${PROTECTION_EXPLICIT_LOG_FILE}"
+
 PROTECTION_BAD_RUNTIME="${PROTECTION_STATUS_HOME}/bad-runtime"
 printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "${PROTECTION_BAD_RUNTIME}"
 chmod +x "${PROTECTION_BAD_RUNTIME}"
@@ -659,6 +680,8 @@ assert_contains "${runtime_override_out}" "Gemini CLI: PROTECTED" \
   "Gemini ignores the runtime override removed by its adapter"
 assert_contains "${runtime_override_out}" "runtime override" \
   "an incompatible runtime override is explained"
+assert_contains "${runtime_override_out}" "Unset VIBEGUARD_RUNTIME" \
+  "an incompatible runtime override gives a direct recovery action"
 rm -f "${PROTECTION_BAD_RUNTIME}"
 
 PROTECTION_BAD_POLICY_RUNTIME="${PROTECTION_STATUS_HOME}/bad-policy-runtime"
@@ -686,6 +709,8 @@ assert_contains "${policy_runtime_override_out}" "Gemini CLI: PROTECTED" \
   "Gemini ignores the policy runtime override removed by its adapter"
 assert_contains "${policy_runtime_override_out}" "policy runtime override" \
   "an incompatible policy runtime override is explained"
+assert_contains "${policy_runtime_override_out}" "Unset VIBEGUARD_POLICY_RUNTIME" \
+  "an incompatible policy runtime override gives a direct recovery action"
 rm -f "${PROTECTION_BAD_POLICY_RUNTIME}"
 
 mv "${PROTECTION_BIN}/gemini" "${PROTECTION_BIN}/gemini.missing"
@@ -740,6 +765,29 @@ assert_contains "${gemini_default_config_out}" \
   "Gemini policy failure from its sanitized config is visible"
 rm -f \
   "${PROTECTION_STATUS_HOME}/custom-config.json" \
+  "${PROTECTION_STATUS_HOME}/.vibeguard/config.json"
+
+printf '%s\n' '{}' > "${PROTECTION_STATUS_HOME}/healthy-internal-config.json"
+printf '%s\n' '{' > "${PROTECTION_STATUS_HOME}/bad-deprecated-config.json"
+printf '%s\n' '{}' > "${PROTECTION_STATUS_HOME}/.vibeguard/config.json"
+gemini_deprecated_config_rc=0
+gemini_deprecated_config_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VG_INTERNAL_CONFIG_FILE="${PROTECTION_STATUS_HOME}/healthy-internal-config.json" \
+  _VG_CONFIG_FILE="${PROTECTION_STATUS_HOME}/bad-deprecated-config.json" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}" 2>&1
+)" || gemini_deprecated_config_rc=$?
+assert_cmd "Gemini policy honors its surviving deprecated config override" \
+  test "${gemini_deprecated_config_rc}" -ne 0
+assert_contains "${gemini_deprecated_config_out}" \
+  "failed to evaluate project policy" \
+  "Gemini deprecated config override failure is visible"
+rm -f \
+  "${PROTECTION_STATUS_HOME}/healthy-internal-config.json" \
+  "${PROTECTION_STATUS_HOME}/bad-deprecated-config.json" \
   "${PROTECTION_STATUS_HOME}/.vibeguard/config.json"
 
 PROTECTION_HEALTHY_CONFIG="${PROTECTION_STATUS_HOME}/healthy-config.json"
@@ -975,6 +1023,27 @@ assert_contains "${precommit_skip_out}" "VIBEGUARD_SKIP_PRECOMMIT=1" \
   "an active pre-commit skip is identified"
 assert_contains "${precommit_skip_out}" "Unset VIBEGUARD_SKIP_PRECOMMIT" \
   "an active pre-commit skip gives a direct recovery action"
+
+precommit_timeout_warn_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR=warn \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${precommit_timeout_warn_out}" "Claude Code: DEGRADED" \
+  "warn-only pre-commit timeouts degrade Claude protection"
+assert_contains "${precommit_timeout_warn_out}" "Codex CLI: DEGRADED" \
+  "warn-only pre-commit timeouts degrade Codex protection"
+assert_contains "${precommit_timeout_warn_out}" "Gemini CLI: DEGRADED" \
+  "warn-only pre-commit timeouts degrade Gemini protection"
+assert_contains "${precommit_timeout_warn_out}" \
+  "VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR=warn" \
+  "warn-only pre-commit timeouts are identified"
+assert_contains "${precommit_timeout_warn_out}" \
+  "Unset VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR" \
+  "warn-only pre-commit timeouts give a direct recovery action"
 
 cp "${PROTECTION_STATUS_HOME}/.claude/settings.json" \
   "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical"
@@ -1408,6 +1477,15 @@ assert_contains "${empty_protection_out}" "Codex CLI: UNPROTECTED" \
   "missing Codex integration is unprotected"
 assert_contains "${empty_protection_out}" "Gemini CLI: UNPROTECTED" \
   "disabled Gemini integration is unprotected"
+setup_intent_only_out="$(
+  HOME="${PROTECTION_EMPTY_HOME}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_EMPTY_HOME}/logs" \
+  VIBEGUARD_SETUP_GEMINI=1 \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${setup_intent_only_out}" "Gemini CLI: UNPROTECTED" \
+  "setup-only Gemini intent does not enable the live integration"
 assert_contains "${empty_protection_out}" \
   "bash ${REPO_DIR}/setup.sh --yes --host gemini --profile core" \
   "unprotected Gemini status gives one runnable profile-preserving action"
