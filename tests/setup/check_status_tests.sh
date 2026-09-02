@@ -540,6 +540,23 @@ assert_contains "${deterministic_log_out}" \
   "deterministic project log takes precedence over a legacy mapping"
 rm -rf "${PROTECTION_HASH_LOG}"
 
+PROTECTION_UNREADABLE_OTHER_LOG="${PROTECTION_LOG_ROOT}/projects/00-unreadable-other"
+mkdir -p "${PROTECTION_UNREADABLE_OTHER_LOG}"
+printf '%s' "${PROTECTION_STATUS_HOME}/unrelated-repo" \
+  > "${PROTECTION_UNREADABLE_OTHER_LOG}/.project-root"
+chmod 000 "${PROTECTION_UNREADABLE_OTHER_LOG}/.project-root"
+unreadable_unrelated_mapping_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${unreadable_unrelated_mapping_out}" "Claude Code: PROTECTED" \
+  "an unreadable unrelated mapping does not hide a later project match"
+chmod 600 "${PROTECTION_UNREADABLE_OTHER_LOG}/.project-root"
+rm -rf "${PROTECTION_UNREADABLE_OTHER_LOG}"
+
 chmod 000 "${PROTECTION_PROJECT_LOG}/.project-root"
 unreadable_mapping_rc=0
 unreadable_mapping_out="$(
@@ -902,6 +919,25 @@ assert_contains "${root_override_out}" "Gemini CLI: DEGRADED" \
 assert_contains "${root_override_out}" "VIBEGUARD_DIR" \
   "a stale VibeGuard root override is identified"
 rmdir "${PROTECTION_STALE_ROOT}"
+
+precommit_skip_out="$(
+  HOME="${PROTECTION_STATUS_HOME}" \
+  PATH="${PROTECTION_BIN}:${PATH}" \
+  VIBEGUARD_SKIP_PRECOMMIT=1 \
+  VIBEGUARD_LOG_DIR="${PROTECTION_LOG_ROOT}" \
+  VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" \
+    bash "${SETUP_SCRIPT}" protection-status "${REPO_DIR}"
+)"
+assert_contains "${precommit_skip_out}" "Claude Code: DEGRADED" \
+  "an active pre-commit skip degrades Claude protection"
+assert_contains "${precommit_skip_out}" "Codex CLI: DEGRADED" \
+  "an active pre-commit skip degrades Codex protection"
+assert_contains "${precommit_skip_out}" "Gemini CLI: DEGRADED" \
+  "an active pre-commit skip degrades Gemini protection"
+assert_contains "${precommit_skip_out}" "VIBEGUARD_SKIP_PRECOMMIT=1" \
+  "an active pre-commit skip is identified"
+assert_contains "${precommit_skip_out}" "Unset VIBEGUARD_SKIP_PRECOMMIT" \
+  "an active pre-commit skip gives a direct recovery action"
 
 cp "${PROTECTION_STATUS_HOME}/.claude/settings.json" \
   "${PROTECTION_STATUS_HOME}/.claude/settings.json.canonical"

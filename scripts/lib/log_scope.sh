@@ -31,7 +31,7 @@ vg_log_scope_sha256_short() {
 vg_log_scope_project_log_file() {
   local log_root="$1"
   local project_ref="$2"
-  local project_id project_root direct_path mapping mapped_root
+  local project_id project_root direct_path mapping mapped_root mapping_error=""
 
   if vg_log_scope_is_hash "$project_ref"; then
     printf '%s/projects/%s/events.jsonl' "$log_root" "${project_ref:0:8}"
@@ -53,14 +53,19 @@ vg_log_scope_project_log_file() {
   for mapping in "${log_root}/projects/"*/.project-root; do
     [[ -f "$mapping" ]] || continue
     if ! mapped_root="$(cat "$mapping")"; then
-      printf '%s\n' "unable to read project log mapping: $mapping" >&2
-      return 1
+      [[ -n "${mapping_error}" ]] || mapping_error="$mapping"
+      continue
     fi
     if [[ "$mapped_root" == "$project_root" ]]; then
       printf '%s/events.jsonl' "$(dirname "$mapping")"
       return 0
     fi
   done
+
+  if [[ -n "${mapping_error}" ]]; then
+    printf '%s\n' "unable to read project log mapping: ${mapping_error}" >&2
+    return 1
+  fi
 
   printf '%s' "${direct_path}"
 }

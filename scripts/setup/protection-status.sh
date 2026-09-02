@@ -167,6 +167,11 @@ if [[ -n "${VIBEGUARD_DIR:-}" ]]; then
   fi
 fi
 
+precommit_skip_problem=""
+if [[ "${VIBEGUARD_SKIP_PRECOMMIT:-0}" == "1" ]]; then
+  precommit_skip_problem="Pre-commit enforcement is disabled by VIBEGUARD_SKIP_PRECOMMIT=1."
+fi
+
 resolve_effective_profile() {
   local policy_cwd="$1" output status=0 effective_profile
   output="$(
@@ -537,6 +542,10 @@ host_problem() {
     printf '%s' "${active_root_override_problem}"
     return 0
   fi
+  if [[ -n "${precommit_skip_problem}" ]]; then
+    printf '%s' "${precommit_skip_problem}"
+    return 0
+  fi
   result="$(profile_hook_problem "${host}" "${hooks}")" || status=$?
   case "${status}" in
     0) ;;
@@ -719,6 +728,9 @@ render_host() {
         ;;
       Selected\ VibeGuard\ root\ override\ VIBEGUARD_DIR*)
         printf '  Next: Unset VIBEGUARD_DIR, then rerun protection-status.\n'
+        ;;
+      Pre-commit\ enforcement\ is\ disabled\ by\ VIBEGUARD_SKIP_PRECOMMIT=1.)
+        printf '  Next: Unset VIBEGUARD_SKIP_PRECOMMIT, then rerun protection-status.\n'
         ;;
       *)
         printf '  Next: %s\n' "${install_command}"
