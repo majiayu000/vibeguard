@@ -62,7 +62,7 @@ vibeguard observe health --limit all
 To protect another repository after VibeGuard is installed:
 
 ```bash
-bash ~/vibeguard/scripts/project-init.sh /path/to/project
+bash ~/vibeguard/setup.sh project-init /path/to/project
 ```
 
 ## Current status
@@ -443,7 +443,7 @@ Migration: `--check --strict` remains supported and maps to `verify-project`;
 | `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
 | `strict` | full + Claude Code count-active-constraints (SessionStart/U-32); Codex native hooks remain full | Maximum enforcement |
 
-`setup.sh` also prepares the shared pre-commit wrapper at `~/.vibeguard/pre-commit` and installs this repository's git `pre-commit` and `pre-push` hooks during setup. The git `pre-push` hook owns force-push / branch-deletion protection; `pre-bash-guard` does not regex-match `git push --force`. To attach the wrapper to another repository, use `scripts/project-init.sh` or that repository's own install step.
+`setup.sh` also prepares the shared pre-commit wrapper at `~/.vibeguard/pre-commit` and installs this repository's git `pre-commit` and `pre-push` hooks during setup. The git `pre-push` hook owns force-push / branch-deletion protection; `pre-bash-guard` does not regex-match `git push --force`. To attach the wrapper to another repository, use `setup.sh project-init` or that repository's own install step.
 
 ### Codex Integration
 
@@ -548,7 +548,7 @@ protection.
 Bootstrap another repository with project-specific guidance and the pre-commit wrapper:
 
 ```bash
-bash ~/vibeguard/scripts/project-init.sh /path/to/project
+bash ~/vibeguard/setup.sh project-init /path/to/project
 ```
 
 ### Local Contract Gate (contributors)

@@ -569,7 +569,7 @@ if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
         SETUP_ARG_COUNT=$((SETUP_ARG_COUNT + 1))
       fi
       ;;
-    doctor|verify-install|verify-project|verify-dev-repo|--check|--clean|--codex-status|packs|demo|--help|-h|help)
+    doctor|verify-install|verify-project|verify-dev-repo|project-init|--check|--clean|--codex-status|packs|demo|--help|-h|help)
       # Bootstrap already enforced payload provenance. These dispatcher
       # commands do not enter the install option parser.
       ;;

@@ -337,12 +337,12 @@ bash ~/vibeguard/setup.sh --clean
 | `full` | `core` + `stop-guard` + `learn-evaluator` + `post-build-check` | 完整防线 + 学习闭环 |
 | `strict` | `full` + Claude Code `count-active-constraints` (SessionStart/U-32)；Codex 原生 hooks 仍为 `full` | 最严格运行策略 |
 
-`setup.sh` 同时会准备共享的 pre-commit wrapper：`~/.vibeguard/pre-commit`，并给本仓库安装 git `pre-commit` 和 `pre-push` hooks。git `pre-push` hook 负责非快进推送/删除远端分支保护；`pre-bash-guard` 不用正则匹配 `git push --force`。要把 wrapper 接到其他仓库，用 `scripts/project-init.sh` 或目标仓库自己的安装步骤。
+`setup.sh` 同时会准备共享的 pre-commit wrapper：`~/.vibeguard/pre-commit`，并给本仓库安装 git `pre-commit` 和 `pre-push` hooks。git `pre-push` hook 负责非快进推送/删除远端分支保护；`pre-bash-guard` 不用正则匹配 `git push --force`。要把 wrapper 接到其他仓库，用 `setup.sh project-init` 或目标仓库自己的安装步骤。
 
 ### 给别的仓库做初始化
 
 ```bash
-bash ~/vibeguard/scripts/project-init.sh /path/to/project
+bash ~/vibeguard/setup.sh project-init /path/to/project
 ```
 
 这个脚本会检测语言、输出建议的项目级约束片段，并把 pre-commit wrapper 接到目标仓库里。

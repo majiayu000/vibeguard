@@ -41,8 +41,8 @@ bash ~/vibeguard/scripts/doctors/codex-doctor.sh
 
 ```bash
 cd /path/to/project
-bash ~/vibeguard/scripts/project-init.sh --no-hooks "$PWD"  # inspect only
-bash ~/vibeguard/scripts/project-init.sh "$PWD"
+bash ~/vibeguard/setup.sh project-init --no-hooks "$PWD"  # inspect only
+bash ~/vibeguard/setup.sh project-init "$PWD"
 ```
 
 The first command detects the project and prints a `Suggested agent guidance
@@ -52,14 +52,13 @@ modifies `AGENTS.md` or `CLAUDE.md`; review and save the snippet in the guidance
 file for the agent host you use. Open a new Claude Code or Codex session after
 saving that guidance so the agent loads the updated instructions and hooks.
 
-Run `bash ~/vibeguard/scripts/project-init.sh --help` for the complete command
+Run `bash ~/vibeguard/setup.sh project-init --help` for the complete command
 contract.
 
-`project-init.sh` only bootstraps repositories where it detects a known
-language marker such as `Cargo.toml`, `tsconfig.json`, `package.json`,
-`go.mod`, `pyproject.toml`, or `requirements.txt`. Shell-only, docs-only, and
-other unrecognized repositories print `No known language detected, skipping.`
-and do not get git hooks from this command.
+`project-init.sh` still attaches shared git hooks when the repository has no
+known language marker. It lists universal guards, omits language-specific
+guards and invented build/test commands, and prints that available checks are
+not the same as active protection.
 
 ## 4. Configure Runtime Thresholds
 

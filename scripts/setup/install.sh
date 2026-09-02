@@ -795,5 +795,5 @@ echo
 echo "User runtime tuning (~/.vibeguard/config.json or env vars):"
 printf '%s\n' "  VIBEGUARD_WRITE_MODE=warn|block                New-source write guard mode" "  VG_U16_WARN_LIMIT / VG_U16_LIMIT               U-16 advisory and hard limits"
 echo
-printf '%s\n' "Git Hooks:" "Automatically installed to VibeGuard repository (pre-commit + pre-push)" "Other projects: bash scripts/project-init.sh <project_dir>"
+printf '%s\n' "Git Hooks:" "Automatically installed to VibeGuard repository (pre-commit + pre-push)" "Other projects: bash setup.sh project-init <project_dir>"
 setup_lock_release
