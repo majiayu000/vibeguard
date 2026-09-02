@@ -82,9 +82,28 @@ state_runtime_path() {
 }
 
 state_runtime_supports() {
-  local runtime="$1" capability_out
+  local runtime="$1" capability_out command probe_out
   capability_out="$("${runtime}" setup-state-capabilities 2>/dev/null)" || return 1
-  [[ "${capability_out}" == "complete-snapshot-v2" ]]
+  [[ "${capability_out}" == "complete-snapshot-v2" ]] || return 1
+  for command in \
+    setup-state-init \
+    setup-state-list \
+    setup-state-list-project-hooks \
+    setup-state-list-symlinks-under \
+    setup-state-list-tracked-under \
+    setup-state-record-file \
+    setup-state-record-project-hook \
+    setup-state-check-drift \
+    setup-state-quarantine-count \
+    setup-state-validate-managed-tree-transactions \
+    setup-state-verify-managed-tree \
+    setup-state-generation \
+    setup-state-mark-complete; do
+    probe_out="$("${runtime}" "${command}" 2>&1 || true)"
+    if printf '%s\n' "${probe_out}" | grep -q "Unknown command"; then
+      return 1
+    fi
+  done
 }
 
 state_runtime() {

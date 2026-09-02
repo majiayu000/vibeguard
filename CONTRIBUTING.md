@@ -49,8 +49,7 @@ All relevant validation and regression suites should pass before you open a PR.
 # Core regression tests
 bash tests/test_hooks.sh
 bash tests/test_rust_guards.sh
-bash tests/test_setup.sh                 # fast local setup checks
-bash tests/test_setup.sh --shard full    # complete setup matrix
+bash tests/test_setup.sh
 bash tests/test_hook_health.sh
 
 # Focused unit / precision coverage

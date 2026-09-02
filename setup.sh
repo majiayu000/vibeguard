@@ -31,6 +31,7 @@ Commands:
   verify-install       Machine check for CI/post-install verification
   verify-project       Machine check for project health
   verify-dev-repo      Machine check for VibeGuard development repo health
+  protection-status    Show truthful per-host protection for this project
   --check              Compatibility alias for doctor
   --clean             Uninstall managed VibeGuard assets
   --codex-status      Show read-only Codex-specific status
@@ -65,6 +66,7 @@ Clean options:
 Examples:
   bash setup.sh --yes
   bash setup.sh doctor
+  bash setup.sh protection-status
   bash setup.sh verify-install
   bash setup.sh verify-project --json
   bash setup.sh --check --profile strict
@@ -162,6 +164,10 @@ case "${1:-}" in
     fi
     reject_no_summary_for_machine_check "verify-dev-repo" "$@"
     run_setup "check.sh" --strict --dev-repo "$@"
+    ;;
+  protection-status)
+    shift || true
+    run_setup "protection-status.sh" "$@"
     ;;
   --check)
     shift || true

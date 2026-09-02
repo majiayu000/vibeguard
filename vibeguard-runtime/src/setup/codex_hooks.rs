@@ -180,6 +180,27 @@ pub fn codex_hooks_count(args: &[String]) -> SetupResult<()> {
     Ok(())
 }
 
+pub fn profile_hook_scripts(args: &[String]) -> SetupResult<()> {
+    if args.len() != 2 {
+        return Err(
+            "Usage: vibeguard-runtime setup-codex-profile-hook-scripts <repo-dir> <profile>".into(),
+        );
+    }
+    let manifest = codex_manifest_data_for_profile(Path::new(&args[0]), Some(&args[1]))?;
+    let mut scripts = BTreeSet::new();
+    for spec in &manifest.specs {
+        let source = manifest
+            .script_targets
+            .get(&spec.script)
+            .ok_or_else(|| format!("Codex script target missing for {}", spec.script))?;
+        scripts.insert(source);
+    }
+    for script in scripts {
+        println!("{script}");
+    }
+    Ok(())
+}
+
 fn codex_manifest_data(repo_dir: &Path) -> SetupResult<CodexManifestData> {
     codex_manifest_data_for_profile(repo_dir, None)
 }

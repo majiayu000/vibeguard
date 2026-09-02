@@ -98,10 +98,52 @@ setup_runtime_version_matches() {
 }
 
 setup_runtime_supports() {
-  local runtime="$1" capability_out
+  local runtime="$1" capability_out probe_state="${TMPDIR:-/tmp}/vibeguard-runtime-probe.$$.json"
   capability_out="$("${runtime}" setup-state-capabilities 2>/dev/null)" || return 1
   [[ "${capability_out}" == "complete-snapshot-v2" ]] || return 1
-  setup_runtime_version_matches "${runtime}"
+  "${runtime}" setup-state-list-symlinks-under "${probe_state}" "${TMPDIR:-/tmp}" >/dev/null 2>&1 || return 1
+  setup_runtime_version_matches "${runtime}" || return 1
+
+  local command probe_out
+  for command in \
+    version \
+    setup-manifest-skill-links \
+    setup-md-remove \
+    setup-settings-check \
+    setup-settings-check-stale \
+    setup-claude-profile-hook-scripts \
+    setup-codex-config-check-hooks \
+    setup-codex-hooks-upsert \
+    setup-codex-hooks-check \
+    setup-codex-hooks-check-stale \
+    setup-codex-hooks-prune-stale-unmanaged \
+    setup-codex-hooks-check-timeouts \
+    setup-codex-profile-hook-scripts \
+    setup-gemini-hooks-upsert \
+    setup-gemini-hooks-check \
+    setup-gemini-hooks-remove \
+    setup-state-init \
+    setup-state-list-tracked-under \
+    setup-state-verify-managed-tree \
+    setup-state-quarantine-managed-tree \
+    setup-state-remove-managed-tree \
+    setup-state-quarantine-count \
+    setup-state-validate-managed-tree-transactions \
+    setup-state-release-quarantined-tree \
+    setup-state-generation \
+    setup-state-mark-complete \
+    setup-lock-acquire \
+    setup-lock-publish-owner \
+    setup-lock-release \
+    runtime-config-get-list \
+    runtime-config-validate \
+    latest-client-events; do
+    probe_out="$("${runtime}" "${command}" </dev/null 2>&1 || true)"
+    if printf '%s\n' "${probe_out}" | grep -q "Unknown command"; then
+      return 1
+    fi
+  done
+  return 0
 }
 
 setup_runtime() {
