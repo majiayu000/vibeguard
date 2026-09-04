@@ -15,6 +15,7 @@ VIBEGUARD_SETUP_DRY_RUN="${VIBEGUARD_SETUP_DRY_RUN:-0}"
 VIBEGUARD_SETUP_AUTO="${VIBEGUARD_SETUP_AUTO:-0}"
 VIBEGUARD_SETUP_FORCE_OVERWRITE="${VIBEGUARD_SETUP_FORCE_OVERWRITE:-0}"
 SETUP_RUNTIME_RELEASE_MANIFEST="vibeguard-runtime-releases.json"
+_VG_SETUP_RUNTIME_CACHE=""
 
 green() { printf '\033[32m%s\033[0m\n' "$1"; }
 yellow() { printf '\033[33m%s\033[0m\n' "$1"; }
@@ -22,6 +23,10 @@ red() { printf '\033[31m%s\033[0m\n' "$1"; }
 
 setup_runtime_path() {
   local candidate
+  if [[ -x "${_VG_SETUP_RUNTIME_CACHE}" ]]; then
+    printf '%s\n' "${_VG_SETUP_RUNTIME_CACHE}"
+    return 0
+  fi
   for candidate in \
     "${VIBEGUARD_SETUP_RUNTIME:-}" \
     "${_INSTALL_TMP:-}/bin/vibeguard-runtime" \
@@ -36,12 +41,14 @@ setup_runtime_path() {
     fi
     if [[ "${candidate}" == */* ]]; then
       if [[ -x "${candidate}" ]] && setup_runtime_supports "${candidate}"; then
+        _VG_SETUP_RUNTIME_CACHE="${candidate}"
         printf '%s\n' "${candidate}"
         return 0
       fi
     elif command -v "${candidate}" >/dev/null 2>&1; then
       candidate="$(command -v "${candidate}")"
       if setup_runtime_supports "${candidate}"; then
+        _VG_SETUP_RUNTIME_CACHE="${candidate}"
         printf '%s\n' "${candidate}"
         return 0
       fi
@@ -125,10 +132,11 @@ setup_runtime_supports() {
 
 setup_runtime() {
   local runtime
-  runtime="$(setup_runtime_path)" || {
+  setup_runtime_path >/dev/null || {
     red "  ERROR: vibeguard-runtime not found; run setup with --build-from-source or install a release binary." >&2
     return 127
   }
+  runtime="${_VG_SETUP_RUNTIME_CACHE}"
   "${runtime}" "$@"
 }
 
