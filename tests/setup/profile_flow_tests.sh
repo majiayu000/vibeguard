@@ -165,6 +165,76 @@ assert_cmd "project-init preserves foreign pre-commit hook" \
 assert_cmd "project-init preserves non-executable pre-push hook" \
   test ! -x "${project_init_existing_hooks_target}/.git/hooks/pre-push"
 
+project_init_push_only_target="${TMP_HOME}/project-init-push-only-target"
+mkdir -p "${project_init_push_only_target}"
+git -C "${project_init_push_only_target}" init >/dev/null
+mv "${HOME}/.vibeguard/pre-commit" "${HOME}/.vibeguard/pre-commit.hidden"
+project_init_push_only_out="$(
+  set +e
+  bash "${REPO_DIR}/scripts/project-init.sh" "${project_init_push_only_target}" 2>&1
+  status=$?
+  mv "${HOME}/.vibeguard/pre-commit.hidden" "${HOME}/.vibeguard/pre-commit"
+  exit "${status}"
+)"
+assert_contains "${project_init_push_only_out}" \
+  "Git pre-commit: unavailable (run setup.sh first)" \
+  "project-init reports missing pre-commit wrapper without blocking pre-push"
+assert_contains "${project_init_push_only_out}" "pre-push hook installed" \
+  "project-init still attaches pre-push when pre-commit wrapper is missing"
+assert_contains "${project_init_push_only_out}" "Git pre-push: attached" \
+  "project-init reports attached pre-push independently of pre-commit"
+assert_cmd "project-init does not invent a pre-commit hook without a wrapper" \
+  test ! -e "${project_init_push_only_target}/.git/hooks/pre-commit"
+assert_cmd "project-init attaches pre-push without a pre-commit wrapper" bash -c \
+  "[[ \"\$(readlink '${project_init_push_only_target}/.git/hooks/pre-push')\" == '${HOME}/.vibeguard/pre-push' ]]"
+
+project_init_push_present_target="${TMP_HOME}/project-init-push-present-target"
+mkdir -p "${project_init_push_present_target}/.git/hooks"
+git -C "${project_init_push_present_target}" init >/dev/null
+ln -sf "${HOME}/.vibeguard/pre-push" "${project_init_push_present_target}/.git/hooks/pre-push"
+mv "${HOME}/.vibeguard/pre-commit" "${HOME}/.vibeguard/pre-commit.hidden"
+project_init_push_present_out="$(
+  set +e
+  bash "${REPO_DIR}/scripts/project-init.sh" "${project_init_push_present_target}" 2>&1
+  status=$?
+  mv "${HOME}/.vibeguard/pre-commit.hidden" "${HOME}/.vibeguard/pre-commit"
+  exit "${status}"
+)"
+assert_contains "${project_init_push_present_out}" \
+  "Git pre-commit: unavailable (run setup.sh first)" \
+  "missing pre-commit wrapper does not rewrite live pre-push state"
+assert_contains "${project_init_push_present_out}" \
+  "Git pre-push: attached (already present)" \
+  "project-init keeps reporting an attached pre-push when pre-commit wrapper is missing"
+assert_not_contains "${project_init_push_present_out}" "pre-push hook installed" \
+  "project-init does not reinstall an already-attached pre-push hook"
+assert_cmd "project-init preserves an attached pre-push without a pre-commit wrapper" bash -c \
+  "[[ \"\$(readlink '${project_init_push_present_target}/.git/hooks/pre-push')\" == '${HOME}/.vibeguard/pre-push' ]]"
+
+project_init_dir_wrapper_target="${TMP_HOME}/project-init-dir-wrapper-target"
+mkdir -p "${project_init_dir_wrapper_target}"
+git -C "${project_init_dir_wrapper_target}" init >/dev/null
+mv "${HOME}/.vibeguard/pre-push" "${HOME}/.vibeguard/pre-push.hidden"
+mkdir "${HOME}/.vibeguard/pre-push"
+chmod 755 "${HOME}/.vibeguard/pre-push"
+project_init_dir_wrapper_out="$(
+  set +e
+  bash "${REPO_DIR}/scripts/project-init.sh" "${project_init_dir_wrapper_target}" 2>&1
+  status=$?
+  rmdir "${HOME}/.vibeguard/pre-push"
+  mv "${HOME}/.vibeguard/pre-push.hidden" "${HOME}/.vibeguard/pre-push"
+  exit "${status}"
+)"
+assert_contains "${project_init_dir_wrapper_out}" \
+  "Git pre-push: unavailable (run setup.sh first)" \
+  "project-init does not treat a wrapper directory as attachable pre-push protection"
+assert_not_contains "${project_init_dir_wrapper_out}" "pre-push hook installed" \
+  "project-init does not symlink a project hook to a wrapper directory"
+assert_contains "${project_init_dir_wrapper_out}" "pre-commit hook installed" \
+  "a corrupt pre-push wrapper does not block pre-commit attachment"
+assert_cmd "project-init does not install a pre-push hook to a directory wrapper" \
+  test ! -e "${project_init_dir_wrapper_target}/.git/hooks/pre-push"
+
 project_init_python_target="${TMP_HOME}/project-init-python-target"
 mkdir -p "${project_init_python_target}"
 printf '%s\n' '[project]' 'name = "project-init-python-target"' 'version = "0.1.0"' \
