@@ -93,6 +93,30 @@ assert_contains "${project_init_out}" "Git pre-commit: attached" "project-init r
 assert_contains "${project_init_out}" "cargo check" "project-init suggests the detected Rust build command"
 assert_not_contains "${project_init_out}" "pytest" "project-init does not invent a Python test command for Rust projects"
 
+project_init_rerun_out="$(bash "${REPO_DIR}/scripts/project-init.sh" "${project_init_target}" 2>&1)"
+assert_contains "${project_init_rerun_out}" \
+  "Git pre-commit: attached (already present)" \
+  "project-init reports live VibeGuard git protection on rerun"
+assert_contains "${project_init_rerun_out}" \
+  ".git/hooks/pre-commit already exists, skip" \
+  "project-init does not replace an attached VibeGuard pre-commit hook"
+assert_not_contains "${project_init_rerun_out}" "pre-commit hook installed" \
+  "project-init rerun does not reinstall an attached pre-commit hook"
+assert_cmd "project-init rerun keeps the VibeGuard pre-commit wrapper" bash -c \
+  "[[ \"\$(readlink '${project_init_target}/.git/hooks/pre-commit')\" == '${HOME}/.vibeguard/pre-commit' ]]"
+
+project_init_inspect_existing_out="$(
+  bash "${REPO_DIR}/setup.sh" project-init --no-hooks "${project_init_target}" 2>&1
+)"
+assert_contains "${project_init_inspect_existing_out}" \
+  "Git hook installation skipped (--no-hooks)" \
+  "project-init --no-hooks still reports that it did not write hooks"
+assert_contains "${project_init_inspect_existing_out}" \
+  "Git pre-commit: attached (already present)" \
+  "project-init --no-hooks reports live git protection when hooks are already attached"
+assert_cmd "project-init --no-hooks does not replace attached hooks" bash -c \
+  "[[ \"\$(readlink '${project_init_target}/.git/hooks/pre-commit')\" == '${HOME}/.vibeguard/pre-commit' ]]"
+
 setup_project_init_help="$(bash "${REPO_DIR}/setup.sh" project-init --help)"
 assert_contains "${setup_project_init_help}" "Usage: project-init.sh" "setup.sh project-init forwards --help"
 assert_contains "${setup_project_init_help}" "Unknown-language repositories still" "setup.sh project-init help documents unknown-language hook attachment"
@@ -111,7 +135,7 @@ printf 'claude-sentinel\n' > "${project_init_read_only_target}/CLAUDE.md"
 project_init_read_only_out="$(bash "${REPO_DIR}/setup.sh" project-init --no-hooks "${project_init_read_only_target}" 2>&1)"
 project_init_read_only_target_abs="$(cd "${project_init_read_only_target}" && pwd -P)"
 assert_contains "${project_init_read_only_out}" "Git hook installation skipped (--no-hooks)" "project-init read-only mode reports skipped writes"
-assert_contains "${project_init_read_only_out}" "Git pre-commit: skipped (--no-hooks)" "project-init --no-hooks reports inactive git protection"
+assert_contains "${project_init_read_only_out}" "Git pre-commit: not-attached" "project-init --no-hooks reports missing git protection instead of skipped writes"
 assert_contains "${project_init_read_only_out}" "(cd \"${project_init_read_only_target_abs}\" && bash \"${REPO_DIR}/setup.sh\" verify-project)" "project-init verification step targets the inspected project"
 assert_cmd "project-init read-only mode does not install pre-commit" test ! -e "${project_init_read_only_target}/.git/hooks/pre-commit"
 assert_cmd "project-init read-only mode does not install pre-push" test ! -e "${project_init_read_only_target}/.git/hooks/pre-push"

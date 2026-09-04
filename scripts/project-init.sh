@@ -364,8 +364,7 @@ echo "--- Git Hooks ---"
 PRE_COMMIT_WRAPPER="${HOME}/.vibeguard/pre-commit"
 PRE_PUSH_WRAPPER="${HOME}/.vibeguard/pre-push"
 GIT_HOOKS_DIR=""
-if [[ "${INSTALL_HOOKS}" -eq 1 ]] \
-  && git -C "${PROJECT_ROOT_ABS}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+if git -C "${PROJECT_ROOT_ABS}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   if ! GIT_HOOKS_DIR="$(git -C "${PROJECT_ROOT_ABS}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)" \
     || [[ -z "${GIT_HOOKS_DIR}" ]]; then
     echo "ERROR: unable to resolve Git hooks directory for ${PROJECT_ROOT_ABS}" >&2
@@ -397,12 +396,26 @@ project_hook_state() {
   fi
 }
 
+existing_hook_state() {
+  local hook_path="$1" expected_target="$2"
+  if [[ -e "${hook_path}" || -L "${hook_path}" ]]; then
+    project_hook_state "${hook_path}" "${expected_target}"
+  else
+    printf '%s\n' "not-attached"
+  fi
+}
+
 PRE_COMMIT_STATE="not-attached"
 PRE_PUSH_STATE="not-attached"
 if [[ "${INSTALL_HOOKS}" -eq 0 ]]; then
   echo "Git hook installation skipped (--no-hooks)"
-  PRE_COMMIT_STATE="skipped (--no-hooks)"
-  PRE_PUSH_STATE="skipped (--no-hooks)"
+  if [[ -z "${GIT_HOOKS_DIR}" ]]; then
+    PRE_COMMIT_STATE="unavailable (not a git repository)"
+    PRE_PUSH_STATE="unavailable (not a git repository)"
+  else
+    PRE_COMMIT_STATE="$(existing_hook_state "$GIT_HOOKS_DIR/pre-commit" "$PRE_COMMIT_WRAPPER")"
+    PRE_PUSH_STATE="$(existing_hook_state "$GIT_HOOKS_DIR/pre-push" "$PRE_PUSH_WRAPPER")"
+  fi
 elif [[ -n "${GIT_HOOKS_DIR}" ]] && [[ -x "$PRE_COMMIT_WRAPPER" ]]; then
   mkdir -p "$GIT_HOOKS_DIR"
   if [[ -e "$GIT_HOOKS_DIR/pre-commit" || -L "$GIT_HOOKS_DIR/pre-commit" ]]; then
