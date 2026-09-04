@@ -6,7 +6,7 @@ not just a local experiment.
 ## Rollout Order
 
 1. Install locally and complete the [Quickstart](quickstart.md).
-2. Bootstrap one low-risk repository with `scripts/project-init.sh`.
+2. Bootstrap one low-risk repository with `setup.sh project-init`.
 3. Set a repository `.vibeguard.json` profile and run VibeGuard in `minimal`
    or `core` until warnings are understood.
 4. Add `verify-install` and repository contract checks to CI.
@@ -86,12 +86,14 @@ For manifest or routing changes, use the focused contract checks listed in
 ## Repository Bootstrap
 
 ```bash
-bash ~/vibeguard/scripts/project-init.sh /path/to/project
+bash ~/vibeguard/setup.sh project-init /path/to/project
 ```
 
-`project-init.sh` prints project guidance and attaches the shared
-pre-commit/pre-push wrappers when they are available. When it prints a
-`Suggested project CLAUDE.md snippet`, save that snippet into the repository's
+`project-init.sh` prints available checks, preserves `AGENTS.md`/`CLAUDE.md`,
+and attaches the shared pre-commit/pre-push wrappers when they are available.
+Unknown-language repositories still get git-hook protection; only
+language-specific guards are omitted. When it prints a
+`Suggested agent guidance snippet`, save that snippet into the repository's
 `CLAUDE.md`, `AGENTS.md`, or equivalent project guidance file as a manual
 rollout step. Keep repository-specific facts in that repository's guidance
 file; do not put local machine facts in shared VibeGuard docs.

@@ -31,6 +31,7 @@ Commands:
   verify-install       Machine check for CI/post-install verification
   verify-project       Machine check for project health
   verify-dev-repo      Machine check for VibeGuard development repo health
+  project-init         Detect and attach VibeGuard to a project
   protection-status    Show truthful per-host protection for this project
   --check              Compatibility alias for doctor
   --clean             Uninstall managed VibeGuard assets
@@ -68,6 +69,7 @@ Examples:
   bash setup.sh doctor
   bash setup.sh protection-status
   bash setup.sh verify-install
+  bash setup.sh project-init /path/to/project
   bash setup.sh verify-project --json
   bash setup.sh --check --profile strict
   bash setup.sh --profile strict --languages rust,python
@@ -164,6 +166,10 @@ case "${1:-}" in
     fi
     reject_no_summary_for_machine_check "verify-dev-repo" "$@"
     run_setup "check.sh" --strict --dev-repo "$@"
+    ;;
+  project-init)
+    shift || true
+    VIBEGUARD_DIR="${REPO_DIR}" bash "${REPO_DIR}/scripts/project-init.sh" "$@"
     ;;
   protection-status)
     shift || true

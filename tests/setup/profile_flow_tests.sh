@@ -88,6 +88,38 @@ assert_contains "${project_init_out}" "Suggested agent guidance snippet" "projec
 assert_contains "${project_init_out}" "AGENTS.md or CLAUDE.md" "project-init names both supported guidance files"
 assert_cmd "project-init pre-commit hook targets VibeGuard wrapper" bash -c "[[ \"\$(readlink '${project_init_target}/.git/hooks/pre-commit')\" == '${HOME}/.vibeguard/pre-commit' ]]"
 assert_cmd "install-state records project-init hooks" bash -c "grep -q '${project_init_target}/.git/hooks/pre-commit' '${HOME}/.vibeguard/install-state.json'"
+assert_contains "${project_init_out}" "Available checks are files in the VibeGuard checkout" "project-init does not treat checkout inventory as live protection"
+assert_contains "${project_init_out}" "Git pre-commit: attached" "project-init reports attached git protection separately"
+assert_contains "${project_init_out}" "cargo check" "project-init suggests the detected Rust build command"
+assert_not_contains "${project_init_out}" "pytest" "project-init does not invent a Python test command for Rust projects"
+
+project_init_rerun_out="$(bash "${REPO_DIR}/scripts/project-init.sh" "${project_init_target}" 2>&1)"
+assert_contains "${project_init_rerun_out}" \
+  "Git pre-commit: attached (already present)" \
+  "project-init reports live VibeGuard git protection on rerun"
+assert_contains "${project_init_rerun_out}" \
+  ".git/hooks/pre-commit already exists, skip" \
+  "project-init does not replace an attached VibeGuard pre-commit hook"
+assert_not_contains "${project_init_rerun_out}" "pre-commit hook installed" \
+  "project-init rerun does not reinstall an attached pre-commit hook"
+assert_cmd "project-init rerun keeps the VibeGuard pre-commit wrapper" bash -c \
+  "[[ \"\$(readlink '${project_init_target}/.git/hooks/pre-commit')\" == '${HOME}/.vibeguard/pre-commit' ]]"
+
+project_init_inspect_existing_out="$(
+  bash "${REPO_DIR}/setup.sh" project-init --no-hooks "${project_init_target}" 2>&1
+)"
+assert_contains "${project_init_inspect_existing_out}" \
+  "Git hook installation skipped (--no-hooks)" \
+  "project-init --no-hooks still reports that it did not write hooks"
+assert_contains "${project_init_inspect_existing_out}" \
+  "Git pre-commit: attached (already present)" \
+  "project-init --no-hooks reports live git protection when hooks are already attached"
+assert_cmd "project-init --no-hooks does not replace attached hooks" bash -c \
+  "[[ \"\$(readlink '${project_init_target}/.git/hooks/pre-commit')\" == '${HOME}/.vibeguard/pre-commit' ]]"
+
+setup_project_init_help="$(bash "${REPO_DIR}/setup.sh" project-init --help)"
+assert_contains "${setup_project_init_help}" "Usage: project-init.sh" "setup.sh project-init forwards --help"
+assert_contains "${setup_project_init_help}" "Unknown-language repositories still" "setup.sh project-init help documents unknown-language hook attachment"
 
 project_init_read_only_target="${TMP_HOME}/project-init-read-only-target"
 mkdir -p "${project_init_read_only_target}"
@@ -98,12 +130,40 @@ name = "project-init-read-only-target"
 version = "0.1.0"
 edition = "2021"
 TOML
-project_init_read_only_out="$(bash "${REPO_DIR}/scripts/project-init.sh" --no-hooks "${project_init_read_only_target}" 2>&1)"
+printf 'guidance-sentinel\n' > "${project_init_read_only_target}/AGENTS.md"
+printf 'claude-sentinel\n' > "${project_init_read_only_target}/CLAUDE.md"
+project_init_read_only_out="$(bash "${REPO_DIR}/setup.sh" project-init --no-hooks "${project_init_read_only_target}" 2>&1)"
 project_init_read_only_target_abs="$(cd "${project_init_read_only_target}" && pwd -P)"
 assert_contains "${project_init_read_only_out}" "Git hook installation skipped (--no-hooks)" "project-init read-only mode reports skipped writes"
+assert_contains "${project_init_read_only_out}" "Git pre-commit: not-attached" "project-init --no-hooks reports missing git protection instead of skipped writes"
 assert_contains "${project_init_read_only_out}" "(cd \"${project_init_read_only_target_abs}\" && bash \"${REPO_DIR}/setup.sh\" verify-project)" "project-init verification step targets the inspected project"
 assert_cmd "project-init read-only mode does not install pre-commit" test ! -e "${project_init_read_only_target}/.git/hooks/pre-commit"
 assert_cmd "project-init read-only mode does not install pre-push" test ! -e "${project_init_read_only_target}/.git/hooks/pre-push"
+assert_cmd "project-init does not modify AGENTS.md" grep -qx "guidance-sentinel" "${project_init_read_only_target}/AGENTS.md"
+assert_cmd "project-init does not modify CLAUDE.md" grep -qx "claude-sentinel" "${project_init_read_only_target}/CLAUDE.md"
+
+project_init_existing_hooks_target="${TMP_HOME}/project-init-existing-hooks-target"
+mkdir -p "${project_init_existing_hooks_target}/.git/hooks"
+git -C "${project_init_existing_hooks_target}" init >/dev/null
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+  > "${project_init_existing_hooks_target}/.git/hooks/pre-commit"
+chmod +x "${project_init_existing_hooks_target}/.git/hooks/pre-commit"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+  > "${project_init_existing_hooks_target}/.git/hooks/pre-push"
+chmod -x "${project_init_existing_hooks_target}/.git/hooks/pre-push"
+project_init_existing_hooks_out="$(
+  bash "${REPO_DIR}/scripts/project-init.sh" "${project_init_existing_hooks_target}" 2>&1
+)"
+assert_contains "${project_init_existing_hooks_out}" \
+  "Git pre-commit: unverified (existing hook is not VibeGuard-owned)" \
+  "project-init does not claim foreign executable pre-commit protection"
+assert_contains "${project_init_existing_hooks_out}" \
+  "Git pre-push: inactive (existing hook is not executable)" \
+  "project-init does not claim non-executable pre-push protection"
+assert_cmd "project-init preserves foreign pre-commit hook" \
+  grep -qx 'exit 0' "${project_init_existing_hooks_target}/.git/hooks/pre-commit"
+assert_cmd "project-init preserves non-executable pre-push hook" \
+  test ! -x "${project_init_existing_hooks_target}/.git/hooks/pre-push"
 
 project_init_python_target="${TMP_HOME}/project-init-python-target"
 mkdir -p "${project_init_python_target}"
@@ -112,6 +172,7 @@ printf '%s\n' '[project]' 'name = "project-init-python-target"' 'version = "0.1.
 project_init_python_out="$(bash "${REPO_DIR}/scripts/project-init.sh" --no-hooks "${project_init_python_target}" 2>&1)"
 assert_contains "${project_init_python_out}" "[universal] check_dependency_layers.py" "project-init lists universal Python guards"
 assert_contains "${project_init_python_out}" "[python] check_duplicates.py" "project-init lists Python project guards"
+assert_not_contains "${project_init_python_out}" "pytest" "project-init does not invent pytest for Python projects"
 
 project_init_relative_target="${TMP_HOME}/project-init-relative-target"
 mkdir -p "${project_init_relative_target}"
@@ -186,6 +247,20 @@ project_init_worktree_out="$(
 assert_contains "${project_init_worktree_out}" "pre-commit hook installed" "project-init recognizes a linked Git worktree"
 assert_cmd "project-init installs hooks through Git's resolved hook directory" \
   test -L "${project_init_worktree_hooks}/pre-commit"
+
+project_init_unknown="${TMP_HOME}/project-init-unknown"
+mkdir -p "${project_init_unknown}"
+git -C "${project_init_unknown}" init >/dev/null
+printf '# docs only\n' > "${project_init_unknown}/README.md"
+project_init_unknown_out="$(bash "${REPO_DIR}/scripts/project-init.sh" "${project_init_unknown}" 2>&1)"
+assert_contains "${project_init_unknown_out}" "No known language marker detected." "project-init reports unknown-language repositories instead of silently succeeding"
+assert_not_contains "${project_init_unknown_out}" "No known language detected, skipping." "project-init no longer exits before git-hook attachment"
+assert_contains "${project_init_unknown_out}" "pre-commit hook installed" "unknown-language repositories still receive pre-commit protection"
+assert_contains "${project_init_unknown_out}" "pre-push hook installed" "unknown-language repositories still receive pre-push protection"
+assert_contains "${project_init_unknown_out}" "[universal]" "unknown-language repositories still list universal guards"
+assert_not_contains "${project_init_unknown_out}" "[python]" "unknown-language repositories do not invent language-specific guards"
+assert_cmd "unknown-language project-init attaches pre-commit" bash -c "[[ \"\$(readlink '${project_init_unknown}/.git/hooks/pre-commit')\" == '${HOME}/.vibeguard/pre-commit' ]]"
+
 upgrade_retired_skill="${HOME}/.codex/skills/plan-flow"
 mkdir -p "${upgrade_retired_skill}"
 printf 'managed before retirement\n' > "${upgrade_retired_skill}/SKILL.md"
@@ -219,6 +294,8 @@ assert_cmd "--clean preserves foreign repo pre-commit hook" bash -c "[[ \"\$(rea
 assert_cmd "--clean removes owned repo pre-push hook" test ! -e "${REPO_GIT_HOOK_DIR}/pre-push"
 assert_cmd "--clean removes tracked project-init pre-commit hook" test ! -e "${project_init_target}/.git/hooks/pre-commit"
 assert_cmd "--clean removes tracked project-init pre-push hook" test ! -e "${project_init_target}/.git/hooks/pre-push"
+assert_cmd "--clean removes unknown-language project-init pre-commit hook" test ! -e "${project_init_unknown}/.git/hooks/pre-commit"
+assert_cmd "--clean removes linked-worktree project-init pre-commit hook" test ! -e "${project_init_worktree_hooks}/pre-commit"
 assert_cmd "--clean removes ~/.vibeguard/run-hook.sh" test ! -e "${HOME}/.vibeguard/run-hook.sh"
 assert_cmd "--clean removes ~/.vibeguard/run-hook-codex.sh" test ! -e "${HOME}/.vibeguard/run-hook-codex.sh"
 assert_cmd "--clean removes ~/.vibeguard/pre-commit wrapper" test ! -e "${HOME}/.vibeguard/pre-commit"

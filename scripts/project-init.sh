@@ -22,8 +22,10 @@ usage() {
   printf '%s\n' \
     'Usage: project-init.sh [--no-hooks] [project_root]' \
     '' \
-    'Detect the project stack, print agent guidance, and attach the shared' \
-    'VibeGuard pre-commit and pre-push hooks when they are installed.' \
+    'Detect the project stack, print available checks versus attachable' \
+    'git-hook protection, and attach the shared pre-commit and pre-push' \
+    'hooks when they are installed. Unknown-language repositories still' \
+    'get git-hook protection; only language-specific guards are omitted.' \
     '' \
     'Options:' \
     '  --no-hooks  Inspect and print guidance without modifying Git hooks.' \
@@ -222,12 +224,14 @@ if [[ -f "pyproject.toml" ]] || [[ -f "requirements.txt" ]]; then
 fi
 
 if [[ ${#LANGS[@]} -eq 0 ]]; then
-  echo "No known language detected, skipping."
-  exit 0
+  echo "No known language marker detected."
+  echo "Looked for: Cargo.toml, tsconfig.json, package.json, go.mod, pyproject.toml, requirements.txt"
+  echo "Language-specific guards and repository build/test commands were not suggested."
+  echo "Universal guards and git-hook protection can still be attached."
+else
+  echo "Language detected: ${LANGS[*]}"
+  [[ ${#FRAMEWORKS[@]} -gt 0 ]] && echo "Framework detected: ${FRAMEWORKS[*]}"
 fi
-
-echo "Language detected: ${LANGS[*]}"
-[[ ${#FRAMEWORKS[@]} -gt 0 ]] && echo "Framework detected: ${FRAMEWORKS[*]}"
 echo
 
 # --- List available static guards ---
@@ -249,17 +253,20 @@ append_available_guards() {
 append_available_guards "${GUARDS_DIR}/universal" universal
 
 # Language Guard
-for lang in "${LANGS[@]}"; do
-  LANG_DIR=""
-  case "$lang" in
-    rust) LANG_DIR="$GUARDS_DIR/rust" ;;
-    typescript|javascript) LANG_DIR="$GUARDS_DIR/typescript" ;;
-    go) LANG_DIR="$GUARDS_DIR/go" ;;
-    python) LANG_DIR="$GUARDS_DIR/python" ;;
-  esac
-  [[ -n "${LANG_DIR}" ]] && append_available_guards "${LANG_DIR}" "${lang}"
-done
+if [[ ${#LANGS[@]} -gt 0 ]]; then
+  for lang in "${LANGS[@]}"; do
+    LANG_DIR=""
+    case "$lang" in
+      rust) LANG_DIR="$GUARDS_DIR/rust" ;;
+      typescript|javascript) LANG_DIR="$GUARDS_DIR/typescript" ;;
+      go) LANG_DIR="$GUARDS_DIR/go" ;;
+      python) LANG_DIR="$GUARDS_DIR/python" ;;
+    esac
+    [[ -n "${LANG_DIR}" ]] && append_available_guards "${LANG_DIR}" "${lang}"
+  done
+fi
 echo "${#AVAILABLE_GUARDS[@]} static guards available"
+echo "Available checks are files in the VibeGuard checkout, not proof this project is protected."
 echo
 
 # --- List installed Claude Code native rules ---
@@ -276,24 +283,27 @@ if [[ -d "$RULES_DIR/common" ]]; then
   done
 fi
 
-for lang in "${LANGS[@]}"; do
-  LANG_RULE_DIR=""
-  case "$lang" in
-    rust) LANG_RULE_DIR="$RULES_DIR/rust" ;;
-    typescript|javascript) LANG_RULE_DIR="$RULES_DIR/typescript" ;;
-    go|golang) LANG_RULE_DIR="$RULES_DIR/golang" ;;
-    python) LANG_RULE_DIR="$RULES_DIR/python" ;;
-  esac
-  if [[ -n "$LANG_RULE_DIR" ]] && [[ -d "$LANG_RULE_DIR" ]]; then
-    for rf in "$LANG_RULE_DIR"/*.md; do
-      [[ -f "$rf" ]] || continue
-      RC=$(grep -cE '^## [A-Z]+-[0-9]+' "$rf" 2>/dev/null || echo "0")
-      RULE_COUNT=$((RULE_COUNT + RC))
-      echo "[${lang}] $(basename "$rf"): ${RC} rules"
-    done
-  fi
-done
-echo "${RULE_COUNT} Claude Code rules found"
+if [[ ${#LANGS[@]} -gt 0 ]]; then
+  for lang in "${LANGS[@]}"; do
+    LANG_RULE_DIR=""
+    case "$lang" in
+      rust) LANG_RULE_DIR="$RULES_DIR/rust" ;;
+      typescript|javascript) LANG_RULE_DIR="$RULES_DIR/typescript" ;;
+      go|golang) LANG_RULE_DIR="$RULES_DIR/golang" ;;
+      python) LANG_RULE_DIR="$RULES_DIR/python" ;;
+    esac
+    if [[ -n "$LANG_RULE_DIR" ]] && [[ -d "$LANG_RULE_DIR" ]]; then
+      for rf in "$LANG_RULE_DIR"/*.md; do
+        [[ -f "$rf" ]] || continue
+        RC=$(grep -cE '^## [A-Z]+-[0-9]+' "$rf" 2>/dev/null || echo "0")
+        RULE_COUNT=$((RULE_COUNT + RC))
+        echo "[${lang}] $(basename "$rf"): ${RC} rules"
+      done
+    fi
+  done
+fi
+echo "${RULE_COUNT} Claude Code rule markers found in this home"
+echo "Rule files are not the same as active host protection."
 echo
 
 # --- Report existing project guidance without modifying it ---
@@ -343,7 +353,9 @@ if [[ "$ENTRY_POINTS" -gt 1 ]]; then
 fi
 
 echo "## VibeGuard coverage"
-echo "${#AVAILABLE_GUARDS[@]} static guards available; ${RULE_COUNT} Claude Code rules found"
+echo "- Available static guards: ${#AVAILABLE_GUARDS[@]} (checkout inventory, not live enforcement)"
+echo "- Claude Code rule markers found in this home: ${RULE_COUNT}"
+echo "- Project git-hook attachment is reported by project-init after this snippet"
 echo '```'
 echo "Review and save this snippet in AGENTS.md or CLAUDE.md for the agent host you use."
 echo
@@ -352,8 +364,7 @@ echo "--- Git Hooks ---"
 PRE_COMMIT_WRAPPER="${HOME}/.vibeguard/pre-commit"
 PRE_PUSH_WRAPPER="${HOME}/.vibeguard/pre-push"
 GIT_HOOKS_DIR=""
-if [[ "${INSTALL_HOOKS}" -eq 1 ]] \
-  && git -C "${PROJECT_ROOT_ABS}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+if git -C "${PROJECT_ROOT_ABS}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   if ! GIT_HOOKS_DIR="$(git -C "${PROJECT_ROOT_ABS}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)" \
     || [[ -z "${GIT_HOOKS_DIR}" ]]; then
     echo "ERROR: unable to resolve Git hooks directory for ${PROJECT_ROOT_ABS}" >&2
@@ -369,33 +380,82 @@ record_project_hook_install() {
   fi
 }
 
+project_hook_state() {
+  local hook_path="$1" expected_target="$2" actual_target=""
+  if [[ ! -x "${hook_path}" ]]; then
+    printf '%s\n' "inactive (existing hook is not executable)"
+  elif [[ ! -L "${hook_path}" ]]; then
+    printf '%s\n' "unverified (existing hook is not VibeGuard-owned)"
+  else
+    actual_target="$(readlink "${hook_path}" 2>/dev/null || true)"
+    if [[ "${actual_target}" == "${expected_target}" ]]; then
+      printf '%s\n' "attached (already present)"
+    else
+      printf '%s\n' "unverified (existing hook is not VibeGuard-owned)"
+    fi
+  fi
+}
+
+existing_hook_state() {
+  local hook_path="$1" expected_target="$2"
+  if [[ -e "${hook_path}" || -L "${hook_path}" ]]; then
+    project_hook_state "${hook_path}" "${expected_target}"
+  else
+    printf '%s\n' "not-attached"
+  fi
+}
+
+PRE_COMMIT_STATE="not-attached"
+PRE_PUSH_STATE="not-attached"
 if [[ "${INSTALL_HOOKS}" -eq 0 ]]; then
   echo "Git hook installation skipped (--no-hooks)"
-elif [[ -n "${GIT_HOOKS_DIR}" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
+  if [[ -z "${GIT_HOOKS_DIR}" ]]; then
+    PRE_COMMIT_STATE="unavailable (not a git repository)"
+    PRE_PUSH_STATE="unavailable (not a git repository)"
+  else
+    PRE_COMMIT_STATE="$(existing_hook_state "$GIT_HOOKS_DIR/pre-commit" "$PRE_COMMIT_WRAPPER")"
+    PRE_PUSH_STATE="$(existing_hook_state "$GIT_HOOKS_DIR/pre-push" "$PRE_PUSH_WRAPPER")"
+  fi
+elif [[ -n "${GIT_HOOKS_DIR}" ]] && [[ -x "$PRE_COMMIT_WRAPPER" ]]; then
   mkdir -p "$GIT_HOOKS_DIR"
-  if [[ -f "$GIT_HOOKS_DIR/pre-commit" ]]; then
+  if [[ -e "$GIT_HOOKS_DIR/pre-commit" || -L "$GIT_HOOKS_DIR/pre-commit" ]]; then
     echo ".git/hooks/pre-commit already exists, skip (manual override: ln -sf $PRE_COMMIT_WRAPPER $GIT_HOOKS_DIR/pre-commit)"
+    PRE_COMMIT_STATE="$(project_hook_state "$GIT_HOOKS_DIR/pre-commit" "$PRE_COMMIT_WRAPPER")"
   else
     ln -sf "$PRE_COMMIT_WRAPPER" "$GIT_HOOKS_DIR/pre-commit"
     record_project_hook_install "pre-commit" "${GIT_HOOKS_DIR}/pre-commit"
     echo "pre-commit hook installed"
+    PRE_COMMIT_STATE="attached"
   fi
-  if [[ -f "$PRE_PUSH_WRAPPER" ]]; then
-    if [[ -f "$GIT_HOOKS_DIR/pre-push" ]]; then
+  if [[ -x "$PRE_PUSH_WRAPPER" ]]; then
+    if [[ -e "$GIT_HOOKS_DIR/pre-push" || -L "$GIT_HOOKS_DIR/pre-push" ]]; then
       echo ".git/hooks/pre-push already exists, skip (manual overwrite: ln -sf $PRE_PUSH_WRAPPER $GIT_HOOKS_DIR/pre-push)"
+      PRE_PUSH_STATE="$(project_hook_state "$GIT_HOOKS_DIR/pre-push" "$PRE_PUSH_WRAPPER")"
     else
       ln -sf "$PRE_PUSH_WRAPPER" "$GIT_HOOKS_DIR/pre-push"
       record_project_hook_install "pre-push" "${GIT_HOOKS_DIR}/pre-push"
       echo "pre-push hook installed"
+      PRE_PUSH_STATE="attached"
     fi
   else
-    echo " ~/.vibeguard/pre-push does not exist, please run setup.sh first"
+    echo " ~/.vibeguard/pre-push is missing or not executable; run setup.sh first"
+    PRE_PUSH_STATE="unavailable (run setup.sh first)"
   fi
 elif [[ -z "${GIT_HOOKS_DIR}" ]]; then
   echo "Non-git repository, skip"
-elif [[ ! -f "$PRE_COMMIT_WRAPPER" ]]; then
-  echo " ~/.vibeguard/pre-commit does not exist, please run setup.sh first"
+  PRE_COMMIT_STATE="unavailable (not a git repository)"
+  PRE_PUSH_STATE="unavailable (not a git repository)"
+elif [[ ! -x "$PRE_COMMIT_WRAPPER" ]]; then
+  echo " ~/.vibeguard/pre-commit is missing or not executable; run setup.sh first"
+  PRE_COMMIT_STATE="unavailable (run setup.sh first)"
+  PRE_PUSH_STATE="unavailable (run setup.sh first)"
 fi
+echo
+
+echo "--- Active project protection ---"
+echo "Git pre-commit: ${PRE_COMMIT_STATE}"
+echo "Git pre-push: ${PRE_PUSH_STATE}"
+echo "Agent-host hooks are not claimed here. Inspect live install state with: bash \"${VIBEGUARD_DIR}/setup.sh\" doctor"
 echo
 
 echo "--- Next steps ---"
