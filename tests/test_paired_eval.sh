@@ -408,24 +408,37 @@ dry_run_out="$(
   cd "${REPO_DIR}"
   env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \
     --candidate U-32 \
-    --placebo-candidate SEC-18 \
     --dry-run \
     --artifact-root "${TMP_DIR}/runs"
 )"
 
 grep -qF "Paired runs: target-with, target-without, non-target-with, non-target-without" <<<"${dry_run_out}"
 grep -qF "Removal assertions: file_set=pass, presence=pass, definition_site=pass, file_diff=pass, definition_count=pass" <<<"${dry_run_out}"
-grep -qF "Cross references (13):" <<<"${dry_run_out}"
+grep -qF "Cross references (12):" <<<"${dry_run_out}"
 grep -qF "Empty-shell rule files:" <<<"${dry_run_out}"
 grep -qF "Target samples: 0" <<<"${dry_run_out}"
-grep -qF "Non-target samples: 32" <<<"${dry_run_out}"
+grep -qF "Non-target samples: 36" <<<"${dry_run_out}"
 grep -qF "Producer model:" <<<"${dry_run_out}"
 grep -qF "Judge model: not required for dry-run" <<<"${dry_run_out}"
 grep -qF "Judge prompt digest:" <<<"${dry_run_out}"
 grep -qF "Rule text characters: with=" <<<"${dry_run_out}"
-grep -qF "Placebo candidate: SEC-18" <<<"${dry_run_out}"
 grep -qF "Verdict: not produced in dry-run" <<<"${dry_run_out}"
 test ! -e "${TMP_DIR}/runs"
+
+# U-32 is now shorter; the former SEC-18 placebo must fail length matching.
+# Keep the evaluator's integrity gate rather than padding a production rule.
+set +e
+shortened_placebo_out="$(
+  cd "${REPO_DIR}"
+  env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \
+    --candidate U-32 --placebo-candidate SEC-18 --dry-run \
+    --artifact-root "${TMP_DIR}/shortened-placebo-runs" 2>&1
+)"
+shortened_placebo_rc=$?
+set -e
+test "${shortened_placebo_rc}" -ne 0
+grep -qF "placebo length ratio" <<<"${shortened_placebo_out}"
+test ! -e "${TMP_DIR}/shortened-placebo-runs"
 
 set +e
 placebo_out="$(
@@ -454,7 +467,9 @@ placebo_cross_refs_out="$(
 placebo_cross_refs_rc=$?
 set -e
 test "${placebo_cross_refs_rc}" -ne 0
-grep -qF "placebo cross references exceed max_cross_refs" <<<"${placebo_cross_refs_out}"
+# The shorter U-32 now fails length matching before the cross-reference gate.
+# test_u32_cross_reference_boundary still verifies its cross-reference limit.
+grep -qF "placebo length ratio" <<<"${placebo_cross_refs_out}"
 test ! -e "${TMP_DIR}/placebo-cross-ref-runs"
 
 set +e

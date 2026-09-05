@@ -51,7 +51,7 @@ Analyze user needs and generate a structured implementation plan. No coding, jus
 
 ## VibeGuard Constraints
 
-- Each new file/class in the plan must be marked "Searched without duplicates"
+- Search for existing implementations before proposing new files or classes; cite useful reuse evidence without a required marker.
 - No backward compatibility layer planned
 - Do not plan additional features beyond what is needed
 - Naming follows target language specifications (Python snake_case, API boundary camelCase)

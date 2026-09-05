@@ -53,32 +53,22 @@ Before saying "fixed" or "done", produce fresh verification evidence.
 - "It passed earlier"
 - "It is fixed in theory"
 
-**Nyquist rule** (inspired by GSD):
-- Every task or step needs a verification command that finishes within **60 seconds**
-- If you cannot verify quickly, the task is probably too large and needs to be split
+**Verification scope:**
+- Choose a focused command that proves the changed behavior using the project's verification policy.
+- A slow but relevant check does not by itself require splitting the task.
 - Example commands: `cargo test --lib`, `curl -s localhost:8080/health`, `python -m pytest tests/test_x.py -x`
 
 **Mechanical checks**:
 - Whenever you claim a fix or completion, check whether this conversation contains the matching command output.
 - If not, run verification first and only then claim success.
-- Every ExecPlan step must include a `verify_cmd` field (see `exec-plan.md`).
+- Describe the verification evidence for planned changes; do not require a schema field for ordinary work.
 
-## W-13: Analysis paralysis guard (strict)
-If there are 7+ consecutive read-only actions (Read / Glob / Grep) with no write action, you must either act or report a blocker.
+## W-13: Review unproductive exploration (guideline)
+Consecutive Read / Glob / Grep events are an observation, not proof of analysis paralysis. The hook may prompt a progress check after its configured threshold, but it does not know the user's task or the value of the evidence gathered.
 
-**Trigger**: the PostToolUse hook counts consecutive research-only tool usage in the current session.
+Continue necessary reading for analysis, review, research, and debugging. Summarize findings when ready. Begin edits only when the user authorized them and the evidence supports the change. Never write a file to reset a tool counter or invent a blocker because a read threshold was reached.
 
-**Correct responses**:
-- Start editing code or writing files
-- Tell the user what blocker is preventing progress
-- If more reading is genuinely required, explain why the earlier reading was insufficient
-
-**Downgrade path** (U-32 compliance):
-- `VIBEGUARD_SUPPRESS_PARALYSIS=1` skips the detector entirely. Use it for explicitly read-only agent roles such as architecture review, code review, research, or audit agents where the expected output is a written conclusion rather than a file edit.
-
-**Anti-patterns**:
-- Reading 10 files in a row without producing either a change or a conclusion
-- Jumping between files in search of "perfect understanding" without ever starting the work
+If repeated exploration is yielding no useful evidence, change the search strategy or report the actual missing prerequisite. `VIBEGUARD_SUPPRESS_PARALYSIS=1` is available when the observation is unhelpful.
 
 ## W-04: Test first (guideline)
 For new features, prefer writing the failing test first, then writing the minimum implementation needed to pass it.

@@ -263,7 +263,7 @@
       "modules": ["hooks-full"]
     },
     "strict": {
-      "description": "Maximum enforcement — full hooks plus Claude Code U-32 SessionStart constraint budget; Codex native hooks remain full",
+      "description": "Full hooks plus advisory Claude Code U-32 SessionStart constraint inventory; Codex native hooks remain full",
       "extends": "full",
       "modules": []
     }

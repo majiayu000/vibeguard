@@ -19,8 +19,8 @@ CLI, and the opt-in Gemini CLI BeforeTool adapter are supported.
 | `pre-write-guard.sh` | PreToolUse(Write) | Remind you to search for existing implementation before creating a new source code file. | native |
 | `post-edit-guard.sh` | PostToolUse(Edit) | Detect quality problems after editing: unwrap, console.log, hard-coded path, Go error discard, oversized diff, repeated editing of the same file (churn), W-15 consecutive same-file edit loop. | native |
 | `post-write-guard.sh` | PostToolUse(Write) | Detect duplicate definitions and files with the same name after creating a new file. | native |
-| `analysis-paralysis-guard.sh` | PostToolUse(Read|Glob|Grep) | Detect excessive exploration without progress and prompt the agent to act. | unsupported |
-| `count_active_constraints.sh` | SessionStart | Count effective task constraints loaded into agent context; warn over the U-32 budget in core/full profiles and hard-block in strict profile. | unsupported |
+| `analysis-paralysis-guard.sh` | PostToolUse(Read|Glob|Grep) | Report long read streaks as advisory observations while preserving the requested task scope. | unsupported |
+| `count_active_constraints.sh` | SessionStart | Estimate candidate instruction constraints from files; emit advisory context in every profile without claiming observed loading. | unsupported |
 | `post-build-check.sh` | PostToolUse(Edit/Write) | Automatically run the build check corresponding to the language after editing. | native |
 | `skills-loader.sh` | Manual optional | Optional first read prompt script; not registered to hooks by default. | unsupported |
 | `stop-guard.sh` | Stop | Record uncommitted source code changes as a non-blocking Stop signal; emit a W-16 advisory when the session edited source files but ran no verification command. | native |

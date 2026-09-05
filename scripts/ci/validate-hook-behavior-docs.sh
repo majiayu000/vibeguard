@@ -168,7 +168,7 @@ require_present "README.md" 'Strict: full hooks + Claude Code U-32 SessionStart 
   "README strict profile snippet must describe the strict-only U-32 hook"
 require_absent "README.md" '| `strict` | same hook set as full |' \
   "README strict profile table must not hide the strict-only U-32 hook"
-require_present "README.md" '| `strict` | full + Claude Code count-active-constraints (SessionStart/U-32); Codex native hooks remain full | Maximum enforcement |' \
+require_present "README.md" '| `strict` | full + advisory Claude Code count-active-constraints (SessionStart/U-32); Codex native hooks remain full | Full protection with instruction diagnostics |' \
   "README strict profile table must describe the strict-only U-32 hook"
 require_present "README.md" 'vibeguard observe health --limit all         # Project health snapshot (24 hours)' \
   "README project health command must preserve the complete 24-hour event window"
@@ -206,11 +206,11 @@ require_present "docs/reference/observability-harness.md" '| Which hook is slow?
   "observability guide must use a duration-reporting slow-hook command"
 require_absent "schemas/install-modules.json" 'same hook set as full' \
   "install modules profile description must not hide the strict-only U-32 hook"
-require_present "schemas/install-modules.json" 'Maximum enforcement — full hooks plus Claude Code U-32 SessionStart constraint budget; Codex native hooks remain full' \
+require_present "schemas/install-modules.json" 'Full hooks plus advisory Claude Code U-32 SessionStart constraint inventory; Codex native hooks remain full' \
   "install modules profile description must describe the strict-only U-32 hook"
 require_absent "schemas/vibeguard-project.schema.json" 'strict=same hook set as full' \
   "project schema profile description must not hide the strict-only U-32 hook"
-require_present "schemas/vibeguard-project.schema.json" 'strict=full plus Claude Code U-32 SessionStart constraint budget; Codex native hooks remain full' \
+require_present "schemas/vibeguard-project.schema.json" 'strict=full plus advisory Claude Code U-32 SessionStart constraint inventory; Codex native hooks remain full' \
   "project schema profile description must describe the strict-only U-32 hook"
 
 require_present "hooks/manifest.json" 'Record uncommitted source code changes as a non-blocking Stop signal; emit a W-16 advisory when the session edited source files but ran no verification command.' \
