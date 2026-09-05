@@ -129,7 +129,7 @@ AI:   → tries to create auth_service.py
       ✗ VibeGuard denies — points to an authorized discard workflow with an exact deletion plan
 
       → keeps reading files without acting
-      ⚠ VibeGuard escalates — force a concrete next step or report blocker
+      ⚠ VibeGuard escalates — review whether reading adds evidence; preserve read-only scope
 
       → claims done without verifying
       ⚠ VibeGuard gates — run build/test before finishing
@@ -154,7 +154,7 @@ Inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engine
 
 ### Rule Injection (active from session start)
 
-Claude Code's `full` and `strict` profiles expose the native rule set from `rules/claude-rules/` through `~/.claude/rules/vibeguard/`; `core` (the default) and `minimal` do not front-inject that tree. Every profile receives a smaller shared global core for scope, factuality, error visibility, safety, preservation, and verification. The installer then adds a host-specific section: Claude Code receives profile-aware native-rule and slash-command guidance, while Codex receives `AGENTS.md`, bundled-skill retirement, and native-hook capability guidance. Project facts and exact test commands stay in the nearest repository instructions.
+Every Claude Code profile keeps the native rule source outside automatic discovery. Read the relevant files under `~/.vibeguard/installed/rules/claude-rules/` on demand; user-managed native rules remain intact. Every profile receives a smaller shared global core for scope, factuality, error visibility, safety, preservation, and verification. The installer then adds a host-specific section: Claude Code receives on-demand native-rule and slash-command guidance, while Codex receives `AGENTS.md`, bundled-skill retirement, and native-hook capability guidance. Project facts and exact test commands stay in the nearest repository instructions.
 
 Canonical references for this contract:
 - Install/runtime contract: `schemas/install-modules.json`
@@ -176,7 +176,7 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 | AI adds `unwrap()`, hardcoded paths | `post-edit-guard` | **Warn** — with fix instructions |
 | AI adds `console.log` / `print()` debug statements | `post-edit-guard` | **Warn** — use logger instead |
 | AI creates duplicate definitions after a new file write | `post-write-guard` | **Warn** — detect duplicate symbols and same-name files |
-| AI keeps reading/searching without acting | `analysis-paralysis-guard` | **Escalate** — force a concrete next step or blocker report |
+| AI keeps reading/searching without acting | `analysis-paralysis-guard` | **Advise** — continue useful evidence gathering within scope; report only real blockers |
 | AI edits code in `full` / `strict` profile | `post-build-check` | **Warn** — run language-appropriate build check |
 | `git commit` | `pre-commit-guard` | **Block** — staged-file quality checks use a 10s timeout; build checks use a separate 60s timeout |
 | AI tries to finish with unverified changes | `stop-guard` | **Signal** — logs a Stop reminder; the Stop hook exits 0 to avoid feedback loops |
@@ -448,7 +448,7 @@ Migration: `--check --strict` remains supported and maps to `verify-project`;
 | `minimal` | pre-write, pre-edit, pre-bash + post-edit, post-write | Lightweight Bash/file protection |
 | `core` (default) | minimal + Claude Code analysis-paralysis (unsupported by native Codex hooks) | Standard development |
 | `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
-| `strict` | full + Claude Code count-active-constraints (SessionStart/U-32); Codex native hooks remain full | Maximum enforcement |
+| `strict` | full + advisory Claude Code count-active-constraints (SessionStart/U-32); Codex native hooks remain full | Full protection with instruction diagnostics |
 
 `setup.sh` also prepares the shared pre-commit wrapper at `~/.vibeguard/pre-commit` and installs this repository's git `pre-commit` and `pre-push` hooks during setup. The git `pre-push` hook owns force-push / branch-deletion protection; `pre-bash-guard` does not regex-match `git push --force`. To attach the wrapper to another repository, use `setup.sh project-init` or that repository's own install step.
 

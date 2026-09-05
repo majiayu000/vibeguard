@@ -71,7 +71,7 @@ VibeGuard 现在明确分成两层：
 
 ### 1. 规则注入
 
-Claude Code 的 `full` 和 `strict` profile 会把 `rules/claude-rules/` 中的原生规则暴露到 `~/.claude/rules/vibeguard/`；默认的 `core` profile 和 `minimal` profile 不会前置注入这棵规则树。所有 profile 的全局高上下文文件都会接收一份较小的共享核心，覆盖范围、事实真实性、错误可见性、安全、内容保留和验证；安装器再按宿主追加专属说明：Claude Code 获得与 profile 一致的原生规则和 slash command 指引，Codex 获得 `AGENTS.md`、托管 Skill 和原生 hook 能力边界。项目事实与准确测试命令仍由最近的仓库级说明提供。
+Claude Code 的所有 profile 都使用精简全局指令，详细规则保留在 `~/.vibeguard/installed/rules/claude-rules/` 中按需读取；更强的 Hook 档位不会自动注入整棵规则树，用户管理的原生规则仍会保留。所有 profile 的全局高上下文文件都会接收一份较小的共享核心，覆盖范围、事实真实性、错误可见性、安全、内容保留和验证；安装器再按宿主追加专属说明：Claude Code 获得按需读取规则和 slash command 指引，Codex 获得 `AGENTS.md`、托管 Skill 和原生 hook 能力边界。项目事实与准确测试命令仍由最近的仓库级说明提供。
 
 当前 canonical 参考入口：
 - 安装/运行时契约：`schemas/install-modules.json`
@@ -93,7 +93,7 @@ Claude Code 的 `full` 和 `strict` profile 会把 `rules/claude-rules/` 中的�
 | AI 编辑后引入 `unwrap()`、硬编码路径等问题 | `post-edit-guard` | **告警**，直接给修复建议 |
 | AI 编辑后留下 `console.log` / `print()` | `post-edit-guard` | **告警**，要求换成正式日志方案 |
 | AI 新建文件后出现重复定义或重名文件 | `post-write-guard` | **告警**，提示重复实现 |
-| AI 连续搜索/读取却迟迟不行动 | `analysis-paralysis-guard` | **升级**，要求明确下一步或说明阻塞 |
+| AI 连续搜索/读取却迟迟不行动 | `analysis-paralysis-guard` | **提醒**，允许继续收集有效证据，保留只读范围，仅报告真实阻塞 |
 | `full` / `strict` 档位下编辑源码 | `post-build-check` | **告警**，自动跑对应语言的构建检查 |
 | `git commit` | `pre-commit-guard` | **拦截**，staged-only 质量检查超时 10 秒；构建检查独立超时 60 秒 |
 | AI 想结束但还没有验证改动 | `stop-guard` | **信号**，记录 Stop 提醒；Stop hook 退出 0 以避免反馈循环 |

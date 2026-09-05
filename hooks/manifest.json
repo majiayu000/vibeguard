@@ -181,7 +181,7 @@
       "install_targets": ["hooks-post"],
       "config_exposure": {"disabled_hook": true},
       "trigger": "PostToolUse(Read|Glob|Grep)",
-      "responsibilities": "Detect excessive exploration without progress and prompt the agent to act.",
+      "responsibilities": "Report long read streaks as advisory observations while preserving the requested task scope.",
       "decision_types": ["pass", "warn"],
       "app_server": {"role": "analysis_observer"},
       "claude": {
@@ -199,8 +199,8 @@
       "install_targets": [],
       "config_exposure": {"disabled_hook": true},
       "trigger": "SessionStart",
-      "responsibilities": "Count effective task constraints loaded into agent context; warn over the U-32 budget in core/full profiles and hard-block in strict profile.",
-      "decision_types": ["pass", "warn", "block"],
+      "responsibilities": "Estimate candidate instruction constraints from files; emit advisory context in every profile without claiming observed loading.",
+      "decision_types": ["pass", "warn"],
       "claude": {
         "enabled": true,
         "event": "SessionStart",

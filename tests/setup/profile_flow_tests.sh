@@ -331,14 +331,18 @@ assert_contains "${install_default_lang_out}" "compact core (core profile)" "cor
 assert_cmd "core profile does not front-inject Python native rules" test ! -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
 assert_cmd "core profile does not front-inject Go native rules" test ! -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
 
-# The full rule text stays opt-in under the full/strict profiles.
+# Full hooks do not expand the global instruction payload.
 install_full_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full)"
-assert_contains "${install_full_lang_out}" "manifest rules -> ~/.claude/rules/vibeguard/" "full profile install writes manifest native rules"
-assert_cmd "full profile includes Python native rules" test -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
-assert_cmd "full profile includes Go native rules" test -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
-# Switching back to core removes the previously front-injected tree.
+assert_contains "${install_full_lang_out}" "compact core (full profile)" "full profile keeps compact instructions"
+assert_cmd "full profile does not front-inject Python native rules" test ! -e "${HOME}/.claude/rules/vibeguard/python/quality.md"
+assert_cmd "full profile does not front-inject Go native rules" test ! -e "${HOME}/.claude/rules/vibeguard/golang/quality.md"
+# A prior managed projection is retired while custom user rules survive.
+mkdir -p "${HOME}/.claude/rules/vibeguard/python" "${HOME}/.claude/rules/vibeguard/custom"
+ln -s "${HOME}/.vibeguard/installed/rules/claude-rules/python/quality.md" "${HOME}/.claude/rules/vibeguard/python/quality.md"
+printf '%s\n' 'User-owned approval requirement' > "${HOME}/.claude/rules/vibeguard/custom/owner.md"
 install_core_again_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core)"
 assert_cmd "core profile removes previously injected Python native rules" test ! -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
+assert_cmd "profile update preserves user-owned rules" grep -qx "User-owned approval requirement" "${HOME}/.claude/rules/vibeguard/custom/owner.md"
 assert_cmd "core profile hooks match manifest" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target profile-hooks:core
 BASH_C_PROFILE_SETTINGS="${TMP_HOME}/bash-c-profile-settings.json"
 python3 - "${HOME}/.claude/settings.json" "${BASH_C_PROFILE_SETTINGS}" <<'PY'
@@ -529,8 +533,8 @@ assert_cmd "core --languages Codex AGENTS.md rule banner matches selected rules"
 header "setup install --languages rust"
 install_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full --languages rust)"
 assert_contains "${install_lang_out}" "Languages: rust" "--languages parameter takes effect"
-assert_cmd "--languages keeps common native rules" test -L "${HOME}/.claude/rules/vibeguard/common/security.md"
-assert_cmd "--languages installs selected Rust native rules" test -L "${HOME}/.claude/rules/vibeguard/rust/quality.md"
+assert_cmd "--languages keeps common rules outside native discovery" test ! -e "${HOME}/.claude/rules/vibeguard/common/security.md"
+assert_cmd "--languages keeps selected Rust rules outside native discovery" test ! -e "${HOME}/.claude/rules/vibeguard/rust/quality.md"
 assert_cmd "--languages removes unselected Python native rules" test ! -e "${HOME}/.claude/rules/vibeguard/python/quality.md"
 assert_cmd "--languages removes unselected Go native rules" test ! -e "${HOME}/.claude/rules/vibeguard/golang/quality.md"
 assert_cmd "--languages after installation --check executable" bash -c "bash '${REPO_DIR}/setup.sh' --check >/dev/null 2>&1"
@@ -542,6 +546,7 @@ assert_contains "${clean_lang_out}" "VibeGuard cleaned." "languages profile clea
 header "setup install --profile full"
 install_full_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full)"
 assert_contains "${install_full_out}" "Profile: full" "full profile parameter takes effect"
+assert_cmd "full profile keeps the canonical rule source available" test -f "${HOME}/.vibeguard/installed/rules/claude-rules/common/security.md"
 assert_cmd "full profile configuration full hooks" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target full-hooks
 assert_cmd "full profile hooks match manifest" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target profile-hooks:full
 assert_cmd "full profile enable stop-guard" grep -q "stop-guard.sh" "${HOME}/.claude/settings.json"
@@ -565,6 +570,7 @@ install_strict_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile strict)"
 assert_contains "${install_strict_out}" "Profile: strict" "strict profile parameter takes effect"
 assert_cmd "strict profile still configures full hooks" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target full-hooks
 assert_cmd "strict profile hooks match manifest" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target profile-hooks:strict
+assert_cmd "strict profile does not front-inject common rules" test ! -e "${HOME}/.claude/rules/vibeguard/common/security.md"
 assert_cmd "strict profile enables U-32 constraint budget hook" grep -q "count_active_constraints.sh" "${HOME}/.claude/settings.json"
 assert_cmd "strict profile check catches missing U-32 constraint hook" assert_profile_hook_missing_after_remove count_active_constraints.sh profile-hooks:strict
 strict_missing_out="$(bash "${REPO_DIR}/setup.sh" --check --strict 2>&1 || true)"

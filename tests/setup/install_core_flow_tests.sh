@@ -791,13 +791,12 @@ assert_not_contains "${default_scheduler_check_out}" "[WARN] Scheduled GC" "--ch
 
 dev_linked_home="${TMP_HOME}/dev-linked-home"
 mkdir -p "${dev_linked_home}"
-# GH-541: the native rule tree is only front-injected under full/strict, so use
-# the full profile here to exercise dev-linked rule-symlink target resolution.
+# Dev-linked full mode preserves compact prompts while using live hook sources.
 dev_linked_out="$(HOME="${dev_linked_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --dev-linked --profile full)"
 assert_contains "${dev_linked_out}" "Mode: dev-linked repo (execution uses live repository paths)" "--dev-linked mode is visible during setup"
 assert_cmd "--dev-linked writes explicit execution mode" grep -q '^dev-linked-repo$' "${dev_linked_home}/.vibeguard/execution-mode"
 assert_cmd "--dev-linked Claude skill targets repo" bash -c "[[ \"\$(readlink '${dev_linked_home}/.claude/skills/eval-harness')\" == '${REPO_DIR}/skills/eval-harness' ]]"
-assert_cmd "--dev-linked native rule targets repo" bash -c "[[ \"\$(readlink '${dev_linked_home}/.claude/rules/vibeguard/common/security.md')\" == '${REPO_DIR}/rules/claude-rules/common/security.md' ]]"
+assert_cmd "--dev-linked full profile keeps native rule discovery compact" test ! -e "${dev_linked_home}/.claude/rules/vibeguard/common/security.md"
 assert_cmd "--dev-linked host rules point to live routing contract" grep -qF "${REPO_DIR}/workflows/references/routing-contract.md" "${dev_linked_home}/.claude/CLAUDE.md" "${dev_linked_home}/.codex/AGENTS.md"
 dev_linked_check_out="$(HOME="${dev_linked_home}" bash "${REPO_DIR}/setup.sh" --check)"
 assert_contains "${dev_linked_check_out}" "[INFO] Execution mode: dev-linked repo (explicit opt-in)" "--check visibly marks dev-linked mode"

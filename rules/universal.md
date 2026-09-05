@@ -8,7 +8,7 @@ Reference index for VibeGuard rules that apply across languages, workflows, and 
 
 | ID | Rule | Severity | Summary |
 | --- | ---- | -------- | ------- |
-| U-01 | Do not change public API signatures | Strict | Unless the user explicitly requests a breaking change and accepts a MAJOR version bump, do not change public function signatures. |
+| U-01 | Respect the requested API contract | Strict | Preserve public APIs unless the requested change includes changing them. |
 | U-02 | Do not extract abstractions for code that appears only once | Strict | Three lines of duplication are better than one premature abstraction. |
 | U-03 | Do not replace readable duplication with macros | Strict | Macros reduce readability and IDE support. |
 | U-04 | Do not add features the user did not ask for | Strict | Keep bug-fix scope tight. |
@@ -23,21 +23,21 @@ Reference index for VibeGuard rules that apply across languages, workflows, and 
 | U-13 | Environment variable names diverge across entry points | Medium | For example, `SERVER_DB_PATH` and `DESKTOP_DB_PATH` point at different defaults. |
 | U-14 | CLI default path uses a different base directory than GUI/server | Medium | Different entry points use different base directories. |
 | U-15 | Prefer immutability | Guideline | Create new objects instead of mutating existing ones. |
-| U-16 | Keep file size under control | Guideline | 200-400 lines is typical, 800 lines is the hard ceiling. |
+| U-16 | Keep file size under control | Guideline | The default guard advises above 400 lines and blocks new files or growth above 800 lines, subject to the project's configured limit. |
 | U-17 | Handle errors completely | Strict | See U-29 for canonical error-handling guidance. |
 | U-18 | Validate inputs | Guideline | Validate all user input at system boundaries. |
-| U-19 | Use the Repository pattern | Guideline | Encapsulate data access in a Repository layer. |
-| U-20 | Keep API response shapes consistent | Guideline | Use a standard envelope such as `{ data, error, meta }`. |
-| U-21 | Commit messages must follow the Lore protocol | Strict | Record why the change exists, not just what changed. |
-| U-22 | Test coverage | Strict | New code must reach at least 80% line coverage. |
+| U-19 | Follow the project's data-access boundaries | Guideline | Use the project's established data-access pattern. |
+| U-20 | Keep API response shapes consistent | Guideline | Follow the existing API contract and error conventions. |
+| U-21 | Follow the project's commit convention | Strict | Explain why the change exists and follow the repository's commit format. |
+| U-22 | Verify changed behavior | Strict | Cover changed behavior, important failure paths, and regressions with the project's existing tests and tools. |
 | U-23 | No silent degradation | Strict | See U-29 for canonical no-silent-degradation guidance. |
-| U-24 | No aliases | Strict | Do not keep function, type, command, or directory aliases. |
+| U-24 | Keep naming changes within scope | Guideline | Follow the project's naming and compatibility policy. |
 | U-25 | Fix build failures first | Strict | When a build failure is detected, you must fix the build before continuing any other edits. |
 | U-26 | Declaration-execution completeness | Strict | When you declare framework components such as configs, traits, persistence layers, or state containers, you must also finish the startup... |
 | U-29 | Error-driven downgrade paths must be observable at error level | Strict | If an error causes user-visible missing data or incorrect output, you must log it at `error` level or raise it. |
 | U-30 | Cross-boundary Pydantic models must use `extra="allow"` | Strict | Any Pydantic model that receives external or cross-boundary data must set `extra="allow"` so `model_validate()` does not silently drop un... |
 | U-31 | Cache keys must include code version | Strict | When builder or generation logic changes, old cache entries must invalidate automatically. |
-| U-32 | Rule overload threshold + absolute-language detection | Strict | Keep the effective constraint set for a single agent task at 15 or fewer items. |
+| U-32 | Review instruction overload | Guideline | Treat instruction counts as a file-based estimate, not proof of runtime loading, semantic conflict, or task failure. |
 | U-33 | Code search defaults to glob/grep; large codebases require structural navigation | Strict | For agent code retrieval, plain glob/grep driven by the model remains the default for small and medium single-repository work. |
 
 ## Workflow and process rules
@@ -49,10 +49,10 @@ Reference index for VibeGuard rules that apply across languages, workflows, and 
 | W-03 | Verify before claiming completion | Strict | Before saying "fixed" or "done", produce fresh verification evidence. |
 | W-04 | Test first | Guideline | For new features, prefer writing the failing test first, then writing the minimum implementation needed to pass it. |
 | W-05 | Sub-agent context isolation | Guideline | When using sub-agents, give each child only the minimum context required for its task. |
-| W-10 | Require four confirmations before publish, deletion, or remote deploy | Strict | Before any irreversible or high-risk action, confirm four items with the user and wait for explicit approval. |
+| W-10 | Confirm the concrete action and reuse existing authorization | Strict | Before publishing, deploying, deleting data, or changing an external system, establish the exact target, intended change, and authorizati... |
 | W-11 | LLM output must separate facts, inferences, and suggestions | Strict | When an agent produces an analysis report, technical judgment, or architecture recommendation, it must label the source of confidence for... |
 | W-12 | Protect test integrity | Strict | When tests fail, fix the production code rather than manipulating the test harness. |
-| W-13 | Analysis paralysis guard | Strict | If there are 7+ consecutive read-only actions (Read / Glob / Grep) with no write action, you must either act or report a blocker. |
+| W-13 | Review unproductive exploration | Guideline | Consecutive Read / Glob / Grep events are an observation, not proof of analysis paralysis. |
 | W-14 | Single-writer repository ownership | Strict | Concurrent writers make repository state and review evidence ambiguous even when their intended file sets do not overlap. |
 | W-15 | Low-information loop detection | Strict | If the information gain shrinks for three consecutive rounds, stop that direction and report it. |
 | W-16 | Verification commands must come from this session | Strict | When you say "fixed", "done", or "verified", you must cite command output produced in this session. |
