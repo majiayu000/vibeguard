@@ -748,6 +748,33 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+header "seed entries fill gaps without resetting live counts"
+SEED_MERGE="${TMPDIR_TEST}/seed-merge.json"
+LIVE_MERGE="${TMPDIR_TEST}/live-merge.json"
+cat > "$SEED_MERGE" <<'JSON'
+{"rules":{"RS-03":{"samples":99,"stage":"warn"},"JS-EMPTY-CATCH":{"samples":0,"stage":"experimental"}}}
+JSON
+cat > "$LIVE_MERGE" <<'JSON'
+{"rules":{"RS-03":{"samples":5,"stage":"error"}}}
+JSON
+merge_out="$(python3 - "$TRACKER" "$SEED_MERGE" "$LIVE_MERGE" <<'PY'
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+tracker_path, seed_path, live_path = map(Path, sys.argv[1:])
+spec = importlib.util.spec_from_file_location("vg_precision_tracker", tracker_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+scorecard = json.loads(live_path.read_text(encoding="utf-8"))
+merged = module.merge_missing_seed_rules(scorecard, seed_path)
+print(json.dumps(merged["rules"], sort_keys=True))
+PY
+)"
+assert_contains "$merge_out" '"JS-EMPTY-CATCH": {"samples": 0, "stage": "experimental"}' "missing seed detector is copied into a live scorecard"
+assert_contains "$merge_out" '"RS-03": {"samples": 5, "stage": "error"}' "existing scorecard counts are not reset by seed merge"
+
 # =========================================================
 echo
 echo "=============================="

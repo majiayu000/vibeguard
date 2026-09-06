@@ -80,16 +80,27 @@ fn try_block_closing_braces(chars: &[char]) -> HashSet<usize> {
     closings
 }
 
+fn catch_follows_try_or_edit_snippet_boundary(
+    chars: &[char],
+    try_closings: &HashSet<usize>,
+    start: usize,
+) -> bool {
+    let Some(previous) = previous_non_whitespace_index(chars, start) else {
+        return true;
+    };
+    if try_closings.contains(&previous) {
+        return true;
+    }
+    chars[previous] == '}' && previous_non_whitespace_index(chars, previous).is_none()
+}
+
 fn is_empty_catch_clause(
     chars: &[char],
     try_closings: &HashSet<usize>,
     start: usize,
     end: usize,
 ) -> bool {
-    let Some(previous) = previous_non_whitespace_index(chars, start) else {
-        return false;
-    };
-    if !try_closings.contains(&previous) {
+    if !catch_follows_try_or_edit_snippet_boundary(chars, try_closings, start) {
         return false;
     }
 
@@ -396,6 +407,25 @@ mod tests {
                 "try { run(); } catch (error) {}\n",
                 "try { run(); } catch (error) { report(error); }\n",
             ),
+            0
+        );
+        assert_eq!(
+            introduced_empty_catch_count("catch (error) { report(error); }", "catch (error) {}",),
+            1
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "} catch (error) { report(error); }",
+                "} catch (error) {}",
+            ),
+            1
+        );
+        assert_eq!(
+            introduced_empty_catch_count("catch (error) {}", "catch (error) { report(error); }"),
+            0
+        );
+        assert_eq!(
+            empty_catch_count("foo() {} catch (error) {}"),
             0
         );
         assert_eq!(empty_catch_count("try { run(); } catch (error) {}"), 1);

@@ -156,5 +156,5 @@
       "notes": "Semantic no-silent-degradation rule with no independent mechanical hook. Do not infer precision from JS-EMPTY-CATCH syntax events."
     }
   },
-  "_updated_ts": "2026-03-24T00:00:00Z"
+  "_updated_ts": "2026-09-06T00:00:00Z"
 }

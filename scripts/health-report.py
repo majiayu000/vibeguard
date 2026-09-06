@@ -271,6 +271,12 @@ def load_scorecard(path: Path, seed_path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise HealthReportError(f"scorecard {target} must be a JSON object")
     data.setdefault("rules", {})
+    if (
+        path.exists()
+        and seed_path.exists()
+        and path.resolve() == DEFAULT_SCORECARD_FILE.resolve()
+    ):
+        return _PT.merge_missing_seed_rules(data, seed_path)
     return data
 
 

@@ -149,3 +149,27 @@ fn post_edit_does_not_warn_when_empty_catch_is_filled_in() {
     assert_eq!(events.last().unwrap()["decision"], "pass");
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn post_edit_warns_when_handler_snippet_becomes_empty() {
+    let (root, repo, log_root, log_file) = case_paths("post-edit-empty-catch-handler-snippet");
+    let source = repo.join("src/service.mjs");
+    fs::create_dir_all(source.parent().unwrap()).unwrap();
+    fs::write(&source, "try { run(); } catch (error) { report(error); }\n").unwrap();
+    let input = edit_input(
+        source.to_string_lossy().as_ref(),
+        "catch (error) { report(error); }",
+        "catch (error) { }",
+    );
+    let out = run_post_edit(&repo, &log_root, &log_file, &input);
+
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("[JS-EMPTY-CATCH]"),
+        "emptying a catch handler snippet must warn: {stdout}"
+    );
+    let events = parse_test_event_log(&log_file);
+    assert_eq!(events.last().unwrap()["decision"], "warn");
+    let _ = fs::remove_dir_all(root);
+}
