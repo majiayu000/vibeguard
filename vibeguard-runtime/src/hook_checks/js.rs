@@ -15,6 +15,10 @@ pub(crate) fn empty_catch_count(source: &str) -> usize {
     count_empty_catch_clauses(&code)
 }
 
+pub(crate) fn introduced_empty_catch_count(old_source: &str, new_source: &str) -> usize {
+    empty_catch_count(new_source).saturating_sub(empty_catch_count(old_source))
+}
+
 fn count_empty_catch_clauses(code: &str) -> usize {
     let chars = code.chars().collect::<Vec<_>>();
     let try_closings = try_block_closing_braces(&chars);
@@ -366,6 +370,34 @@ mod tests {
 
     #[test]
     fn empty_catches_are_code_aware() {
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { run(); } catch (error) {}\nconst ready = true;\n",
+                "try { run(); } catch (error) {}\nconst ready = false;\n",
+            ),
+            0
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "const ready = true;\n",
+                "try { run(); } catch (error) {}\nconst ready = true;\n",
+            ),
+            1
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { run(); } catch (error) { report(error); }\n",
+                "try { run(); } catch (error) {}\n",
+            ),
+            1
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { run(); } catch (error) {}\n",
+                "try { run(); } catch (error) { report(error); }\n",
+            ),
+            0
+        );
         assert_eq!(empty_catch_count("try { run(); } catch (error) {}"), 1);
         assert_eq!(empty_catch_count("try { run(); } catch {}"), 1);
         assert_eq!(empty_catch_count("try { run(); } catch { report(); }"), 0);

@@ -38,7 +38,6 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 <!-- vibeguard-generated-compact-rules:start -->
 | ID | Severity | Rule |
 |----|----------|------|
-| U-17 | Strict | Handle errors completely. Do not swallow exceptions silently. |
 | U-29 | Strict | No silent degradation: errors causing user-visible missing data or wrong output must `error` or raise, not `warning` + fallback. |
 | W-02 | Strict | After 3 consecutive failed fixes on the same problem, stop and challenge the hypothesis or architecture. |
 | W-03 | Strict | Verify before claiming completion: produce fresh command output proving the claim. |

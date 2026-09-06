@@ -8,7 +8,7 @@ use crate::event_schema::{decision, status};
 use crate::hook_checks::common::{
     count_lines, is_pre_edit_u16_source, is_test_path, nested_str, read_lossy_file,
 };
-use crate::hook_checks::write::empty_exception_warning;
+use crate::hook_checks::write::empty_exception_edit_warning;
 use crate::hook_orchestrator::context::RuntimeContext;
 use crate::hook_orchestrator::post_edit_history::{
     count_prior_warn_events, detect_history_warnings, read_post_edit_history_events,
@@ -61,7 +61,7 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
     };
 
     detect_stateless_warnings(&file_path, &new_string, &mut warnings);
-    detect_empty_exception(&file_path, &new_string, &mut warnings);
+    detect_empty_exception(&file_path, &old_string, &new_string, &mut warnings);
     detect_history_warnings(
         ctx,
         start,
@@ -136,28 +136,13 @@ fn detect_stateless_warnings(file_path: &str, new_string: &str, warnings: &mut V
     detect_u16_size(file_path, warnings);
 }
 
-fn detect_empty_exception(file_path: &str, new_string: &str, warnings: &mut Vec<String>) {
-    let extension = Path::new(file_path)
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default();
-    if !matches!(extension, "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs") {
-        return;
-    }
-    let content = if Path::new(file_path).is_file() {
-        match read_lossy_file(file_path) {
-            Ok(content) => content,
-            Err(error) => {
-                warnings.push(format!(
-                    "[U-17] [review] [this-file] OBSERVATION: the edited JavaScript file could not be inspected for empty exception handlers: {error}\nFIX: verify the file is readable and rerun the edit\nDO NOT: assume swallowed-exception detection passed"
-                ));
-                return;
-            }
-        }
-    } else {
-        new_string.to_string()
-    };
-    if let Some(warning) = empty_exception_warning(file_path, &content) {
+fn detect_empty_exception(
+    file_path: &str,
+    old_string: &str,
+    new_string: &str,
+    warnings: &mut Vec<String>,
+) {
+    if let Some(warning) = empty_exception_edit_warning(file_path, old_string, new_string) {
         warnings.push(warning);
     }
 }

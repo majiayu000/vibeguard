@@ -24,7 +24,6 @@ COMPACT_END_MARKER = "<!-- vibeguard-generated-compact-rules:end -->"
 VIBEGUARD_START_MARKER = "<!-- vibeguard-start -->"
 VIBEGUARD_END_MARKER = "<!-- vibeguard-end -->"
 COMPACT_RULE_IDS = (
-    "U-17",
     "U-29",
     "W-02",
     "W-03",
