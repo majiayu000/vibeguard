@@ -424,10 +424,7 @@ mod tests {
             introduced_empty_catch_count("catch (error) {}", "catch (error) { report(error); }"),
             0
         );
-        assert_eq!(
-            empty_catch_count("foo() {} catch (error) {}"),
-            0
-        );
+        assert_eq!(empty_catch_count("foo() {} catch (error) {}"), 0);
         assert_eq!(empty_catch_count("try { run(); } catch (error) {}"), 1);
         assert_eq!(empty_catch_count("try { run(); } catch {}"), 1);
         assert_eq!(empty_catch_count("try { run(); } catch { report(); }"), 0);
