@@ -160,12 +160,12 @@ require_present "scripts/setup/install.sh" 'Install full (including Stop signal/
   "scripts/setup/install.sh usage comments must describe Stop signal"
 require_absent "scripts/setup/install.sh" 'Strict mode (same hook set as full)' \
   "scripts/setup/install.sh usage comments must not hide the strict-only U-32 hook"
-require_present "scripts/setup/install.sh" 'Strict mode (full hooks + Claude Code U-32 SessionStart constraint budget)' \
-  "scripts/setup/install.sh usage comments must describe the strict-only U-32 hook"
+require_present "scripts/setup/install.sh" 'Strict mode (full hooks + advisory Claude Code U-32 SessionStart constraint budget)' \
+  "scripts/setup/install.sh usage comments must describe the strict-only advisory U-32 hook"
 require_absent "README.md" 'Strict: same hook set as full' \
   "README strict profile snippet must not hide the strict-only U-32 hook"
-require_present "README.md" 'Strict: full hooks + Claude Code U-32 SessionStart constraint budget' \
-  "README strict profile snippet must describe the strict-only U-32 hook"
+require_present "README.md" 'Strict: full hooks + advisory Claude Code U-32 SessionStart constraint budget' \
+  "README strict profile snippet must describe the strict-only advisory U-32 hook"
 require_absent "README.md" '| `strict` | same hook set as full |' \
   "README strict profile table must not hide the strict-only U-32 hook"
 require_present "README.md" '| `strict` | full + advisory Claude Code count-active-constraints (SessionStart/U-32); Codex native hooks remain full | Full protection with instruction diagnostics |' \
@@ -186,8 +186,8 @@ require_absent "docs/README_CN.md" '与 `full` 相同 hook 集合' \
   "Chinese README strict profile table must not hide the strict-only U-32 hook"
 require_absent "docs/README_CN.md" '与 full 相同 hook 集合' \
   "Chinese README strict profile table must not hide the old unquoted strict wording"
-require_present "docs/README_CN.md" '`full` + Claude Code `count-active-constraints` (SessionStart/U-32)；Codex 原生 hooks 仍为 `full`' \
-  "Chinese README strict profile table must describe the strict-only U-32 hook"
+require_present "docs/README_CN.md" '`full` + Claude Code `count-active-constraints` (SessionStart/U-32，仅提示)；Codex 原生 hooks 仍为 `full`' \
+  "Chinese README strict profile table must describe the strict-only advisory U-32 hook"
 require_present "docs/README_CN.md" 'vibeguard observe health --limit all' \
   "Chinese README project health command must preserve the complete event window"
 require_present "docs/README_CN.md" 'vibeguard observe summary --limit all' \

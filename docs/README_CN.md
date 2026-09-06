@@ -302,9 +302,9 @@ Rust/Cargo 构建。
 bash ~/vibeguard/setup.sh                              # 默认 core profile
 bash ~/vibeguard/setup.sh --profile minimal           # 最轻量 Bash/文件闸门 + 文件 post-hooks
 bash ~/vibeguard/setup.sh --profile full              # 增加 Stop 信号、Build Check、学习闭环
-bash ~/vibeguard/setup.sh --profile strict            # full hooks + Claude Code U-32 SessionStart 约束预算
+bash ~/vibeguard/setup.sh --profile strict            # full hooks + Claude Code U-32 SessionStart 约束预算（仅提示）
 
-# 只安装指定语言规则/guards
+# 记录所选语言；详细规则留在已安装源码树中，不再前注入
 bash ~/vibeguard/setup.sh --languages rust,python
 bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
 
@@ -342,7 +342,7 @@ Git 项目确实记录过该宿主的 VibeGuard hook 事件时，才会显示 `P
 | `minimal` | `pre-write` + `pre-edit` + `pre-bash` + `post-edit` + `post-write` | 最轻量 Bash/文件保护 |
 | `core` | `minimal` + Claude Code `analysis-paralysis`（Codex 原生 hooks 不支持） | 默认开发档 |
 | `full` | `core` + `stop-guard` + `learn-evaluator` + `post-build-check` | 完整防线 + 学习闭环 |
-| `strict` | `full` + Claude Code `count-active-constraints` (SessionStart/U-32)；Codex 原生 hooks 仍为 `full` | 最严格运行策略 |
+| `strict` | `full` + Claude Code `count-active-constraints` (SessionStart/U-32，仅提示)；Codex 原生 hooks 仍为 `full` | 完整防护并提供指令诊断 |
 
 `setup.sh` 同时会准备共享的 pre-commit wrapper：`~/.vibeguard/pre-commit`，并给本仓库安装 git `pre-commit` 和 `pre-push` hooks。git `pre-push` hook 负责非快进推送/删除远端分支保护；`pre-bash-guard` 不用正则匹配 `git push --force`。要把 wrapper 接到其他仓库，用 `setup.sh project-init` 或目标仓库自己的安装步骤。
 
