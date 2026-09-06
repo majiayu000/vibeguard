@@ -71,7 +71,7 @@ VibeGuard 现在明确分成两层：
 
 ### 1. 规则注入
 
-Claude Code 的 `full` 和 `strict` profile 会把 `rules/claude-rules/` 中的原生规则暴露到 `~/.claude/rules/vibeguard/`；默认的 `core` profile 和 `minimal` profile 不会前置注入这棵规则树。所有 profile 的全局高上下文文件都会接收一份较小的共享核心，覆盖范围、事实真实性、错误可见性、安全、内容保留和验证；安装器再按宿主追加专属说明：Claude Code 获得与 profile 一致的原生规则和 slash command 指引，Codex 获得 `AGENTS.md`、托管 Skill 和原生 hook 能力边界。项目事实与准确测试命令仍由最近的仓库级说明提供。
+Claude Code 的所有 profile 都使用精简全局指令，详细规则保留在 `~/.vibeguard/installed/rules/claude-rules/` 中按需读取；更强的 Hook 档位不会自动注入整棵规则树，用户管理的原生规则仍会保留。所有 profile 的全局高上下文文件都会接收一份较小的共享核心，覆盖范围、事实真实性、错误可见性、安全、内容保留和验证；安装器再按宿主追加专属说明：Claude Code 获得按需读取规则和 slash command 指引，Codex 获得 `AGENTS.md`、托管 Skill 和原生 hook 能力边界。项目事实与准确测试命令仍由最近的仓库级说明提供。
 
 当前 canonical 参考入口：
 - 安装/运行时契约：`schemas/install-modules.json`
@@ -93,7 +93,7 @@ Claude Code 的 `full` 和 `strict` profile 会把 `rules/claude-rules/` 中的�
 | AI 编辑后引入 `unwrap()`、硬编码路径等问题 | `post-edit-guard` | **告警**，直接给修复建议 |
 | AI 编辑后留下 `console.log` / `print()` | `post-edit-guard` | **告警**，要求换成正式日志方案 |
 | AI 新建文件后出现重复定义或重名文件 | `post-write-guard` | **告警**，提示重复实现 |
-| AI 连续搜索/读取却迟迟不行动 | `analysis-paralysis-guard` | **升级**，要求明确下一步或说明阻塞 |
+| AI 连续搜索/读取却迟迟不行动 | `analysis-paralysis-guard` | **提醒**，允许继续收集有效证据，保留只读范围，仅报告真实阻塞 |
 | `full` / `strict` 档位下编辑源码 | `post-build-check` | **告警**，自动跑对应语言的构建检查 |
 | `git commit` | `pre-commit-guard` | **拦截**，staged-only 质量检查超时 10 秒；构建检查独立超时 60 秒 |
 | AI 想结束但还没有验证改动 | `stop-guard` | **信号**，记录 Stop 提醒；Stop hook 退出 0 以避免反馈循环 |
@@ -302,9 +302,9 @@ Rust/Cargo 构建。
 bash ~/vibeguard/setup.sh                              # 默认 core profile
 bash ~/vibeguard/setup.sh --profile minimal           # 最轻量 Bash/文件闸门 + 文件 post-hooks
 bash ~/vibeguard/setup.sh --profile full              # 增加 Stop 信号、Build Check、学习闭环
-bash ~/vibeguard/setup.sh --profile strict            # full hooks + Claude Code U-32 SessionStart 约束预算
+bash ~/vibeguard/setup.sh --profile strict            # full hooks + Claude Code U-32 SessionStart 约束预算（仅提示）
 
-# 只安装指定语言规则/guards
+# 记录所选语言；详细规则留在已安装源码树中，不再前注入
 bash ~/vibeguard/setup.sh --languages rust,python
 bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
 
@@ -342,7 +342,7 @@ Git 项目确实记录过该宿主的 VibeGuard hook 事件时，才会显示 `P
 | `minimal` | `pre-write` + `pre-edit` + `pre-bash` + `post-edit` + `post-write` | 最轻量 Bash/文件保护 |
 | `core` | `minimal` + Claude Code `analysis-paralysis`（Codex 原生 hooks 不支持） | 默认开发档 |
 | `full` | `core` + `stop-guard` + `learn-evaluator` + `post-build-check` | 完整防线 + 学习闭环 |
-| `strict` | `full` + Claude Code `count-active-constraints` (SessionStart/U-32)；Codex 原生 hooks 仍为 `full` | 最严格运行策略 |
+| `strict` | `full` + Claude Code `count-active-constraints` (SessionStart/U-32，仅提示)；Codex 原生 hooks 仍为 `full` | 完整防护并提供指令诊断 |
 
 `setup.sh` 同时会准备共享的 pre-commit wrapper：`~/.vibeguard/pre-commit`，并给本仓库安装 git `pre-commit` 和 `pre-push` hooks。git `pre-push` hook 负责非快进推送/删除远端分支保护；`pre-bash-guard` 不用正则匹配 `git push --force`。要把 wrapper 接到其他仓库，用 `setup.sh project-init` 或目标仓库自己的安装步骤。
 

@@ -1,7 +1,7 @@
 # Common Behavioral Constraints
 
-## U-01: Do not change public API signatures (strict)
-Unless the user explicitly requests a breaking change and accepts a MAJOR version bump, do not change public function signatures.
+## U-01: Respect the requested API contract (strict)
+Preserve public APIs unless the requested change includes changing them. Use the project's versioning policy; do not demand a version bump or compatibility layer for every authorized breaking change.
 
 ## U-02: Do not extract abstractions for code that appears only once (strict)
 Three lines of duplication are better than one premature abstraction. Wait until the third repetition before extracting.
@@ -34,8 +34,8 @@ If the intent is unclear, mark it as DEFER or ask the user to clarify.
 Create new objects instead of mutating existing ones. Treat function parameters as read-only.
 
 ## U-16: Keep file size under control (guideline)
-**Compact guidance:** Keep file size under control: 200-400 lines typical, 800 lines hard ceiling. Files above 800 must be split.
-200-400 lines is typical, 800 lines is the hard ceiling. Files above 800 lines must be split.
+**Compact guidance:** Keep changes localized. The configured size guard blocks new oversized files and growth beyond its limit; existing oversized files may be edited without growth.
+The default guard advises above 400 lines and blocks new files or growth above 800 lines, subject to the project's configured limit. An existing oversized file may remain oversized when a change keeps or reduces its line count. Do not split unrelated code merely because the file is already over the limit. When growth is necessary, agree on an in-scope decomposition or use the owner's explicit project limit.
 
 ## U-17: Handle errors completely (strict)
 **Compact guidance:** Handle errors completely. Do not swallow exceptions silently.
@@ -44,30 +44,30 @@ See U-29 for canonical error-handling guidance. U-17 keeps the compatibility-lev
 ## U-18: Validate inputs (guideline)
 Validate all user input at system boundaries. Internal code can trust framework guarantees.
 
-## U-19: Use the Repository pattern (guideline)
-Encapsulate data access in a Repository layer. Business logic should not operate directly on the database.
+## U-19: Follow the project's data-access boundaries (guideline)
+Use the project's established data-access pattern. Add a Repository layer only when the requested design needs one; a database call alone does not require a new abstraction.
 
 ## U-20: Keep API response shapes consistent (guideline)
-Use a standard envelope such as `{ data, error, meta }`. Standardize error codes.
+Follow the existing API contract and error conventions. Do not impose a universal response envelope or add an error-code registry unless the project requires it.
 
-## U-21: Commit messages must follow the Lore protocol (strict)
-Record why the change exists, not just what changed. Use the repository's Lore trailers to preserve constraints, rejected alternatives, confidence, and verification evidence.
+## U-21: Follow the project's commit convention (strict)
+Explain why the change exists and follow the repository's commit format. Include Lore trailers only when that repository explicitly requires them; do not impose them on every project.
 
-## U-22: Test coverage (strict)
-**Compact guidance:** New code minimum 80% line coverage; critical paths 100%.
-New code must reach at least 80% line coverage. Critical paths require 100% coverage.
+## U-22: Verify changed behavior (strict)
+**Compact guidance:** Use the project's coverage policy and meaningful checks for changed behavior; no universal percentage or file-count quota.
+Cover changed behavior, important failure paths, and regressions with the project's existing tests and tools. Preserve explicit coverage targets and test-first requirements. Documentation, configuration, and mechanical edits need checks appropriate to their actual effect, not tests that mirror the implementation.
 
-**Mechanical checks (agent execution rules)**:
-- After modifying a source file, check whether a matching `*.test.*` or `*.spec.*` file exists.
-- If not, and the file contains business logic rather than pure types/constants/styles, mark it as DEFER and tell the user.
-- If a refactor touches more than three files, add at least one unit test that covers the changed core path.
-- If you refactor hook or module interfaces, update every test mock that depends on the module shape as well (see TS-14).
+**Mechanical checks (agent execution rules):**
+- Run the relevant existing checks and report gaps precisely.
+- Add regression coverage when needed to prove the changed behavior.
+- Do not require a matching test filename for each source file or a new test solely because a refactor touched a fixed number of files.
+- Preserve test integrity and update affected fixtures when the requested behavior changes.
 
 ## U-23: No silent degradation (strict)
 See U-29 for canonical no-silent-degradation guidance. Unsupported strategies or configurations must fail explicitly or be marked as DEFER; do not invent default fallback semantics.
 
-## U-24: No aliases (strict)
-Do not keep function, type, command, or directory aliases. If you find the old name, replace it everywhere and delete the alias.
+## U-24: Keep naming changes within scope (guideline)
+Follow the project's naming and compatibility policy. Remove obsolete aliases when that is part of the authorized change; do not rename unrelated APIs, commands, or directories simply because an alias exists.
 
 ## U-25: Fix build failures first (strict)
 **Compact guidance:** Fix build failures first before any other edit; do not add new code while build is red.
@@ -101,44 +101,18 @@ When you declare framework components such as configs, traits, persistence layer
 - `ThreadManager` exposes `persist()` but nothing ever calls it, leaving dead code.
 - GC receives `project_root` but never propagates it to child tasks, causing functional downgrade.
 
-## U-32: Rule overload threshold + absolute-language detection (strict)
-Keep the effective constraint set for a single agent task at 15 or fewer items. If the live task context exceeds 15 constraints, warn and split lower-frequency material into path-scoped child files, skills, hooks, or verify scripts. If it exceeds 30 constraints, block and require decomposition before continuing. When a rule uses absolute language such as "always", "never", or "must", it also needs a downgrade path so the system does not create an illusion of control.
+## U-32: Review instruction overload (guideline)
+Treat instruction counts as a file-based estimate, not proof of runtime loading, semantic conflict, or task failure. The automatic hook is advisory in every profile, including strict.
 
-**Sources**:
-- arXiv 2605.06445 (Constraint Decay, 2026-05-09 RSS scout): across 80 greenfield and 20 feature tasks over 8 web frameworks, stronger agents lost about 30 assertion-pass-rate points as structured constraints accumulated; data-layer defects were the dominant failure mode.
-- Addy Osmani, "How to Write a Good Spec": the curse of instructions. Ten rules can be obeyed less reliably than five.
-- Anthropic Claude Code Best Practices: a bloated `CLAUDE.md` causes Claude to ignore the instructions that actually matter.
-- Martin Fowler, "Context Engineering": illusion of control is an anti-pattern. LLMs are probabilistic systems, so absolute language creates false guarantees.
+**Review guidance:**
+- Identify the actual conflicting or irrelevant instruction and the task it affects before proposing edits.
+- Preserve owner requirements. A long, coherent instruction set does not automatically need splitting.
+- Keep low-frequency details in the existing source or a relevant skill; do not create another policy layer solely to lower a count.
+- State separately what is present, configured for discovery, and observed loaded.
+- Continue authorized work when no substantive conflict blocks it. Do not rewrite global instructions merely to clear a numeric threshold.
 
-**Mechanical checks**:
-1. Count the actual task-loaded constraint set: global memory files, project `AGENTS.md`/`CLAUDE.md`, active skill files, and path-scoped native rules that match the current task files.
-2. If the live task context contains more than 15 effective constraints, emit a U-32 warning and recommend moving lower-frequency material to path-scoped child files, skills, hooks, or verify scripts.
-3. If the live task context contains more than 30 effective constraints, block the task until the constraint set is decomposed.
-4. If a rule file contains more than 30 entries, recommend decomposing it into path-scoped child files (for example, only load Rust rules for `*.rs`).
-5. If a rule uses absolute phrasing such as "ensure X", "never do Y", or "must be 100%", attach both:
-   - A downgrade path: "If X is not feasible, fall back to Y and mark it stale."
-   - An observability hook: a verification command or guard script that proves whether the rule is actually being followed.
-6. If a global `CLAUDE.md` or `AGENTS.md` file grows beyond 100 lines, move material into skills or path-scoped rule files.
-7. Run `bash hooks/count_active_constraints.sh` through the strict hook profile, or run `python3 scripts/constraints/count_active_constraints.py --root . --include-canonical-rules --gc-report` manually, to inspect the current budget and downgrade candidates.
-
-**Repair order**:
-1. Count the current task's effective constraints before adding any new persistent instruction.
-2. Audit the current rule set and annotate trigger frequency for each rule from access logs.
-3. Candidate low-frequency rules (zero hits in the last 30 days) for removal or demotion into a skill.
-4. Verify whether high-frequency rules use absolute language without a downgrade path.
-5. Split large files by language or domain (`common/`, `rust/`, `python/`, `security/`) and attach path frontmatter where possible.
-
-**Additional checks**:
-1. Before adding a persistent rule, first confirm it is a high-frequency, stable, cross-task constraint; otherwise prefer a skill, hook, or verify script.
-2. Long workflow templates, one-off playbooks, and low-frequency knowledge should not live permanently in `CLAUDE.md` or `AGENTS.md`; convert them into an index plus on-demand documents.
-
-**Anti-patterns**:
-- A single file accumulates 50+ rules and expects all of them to remain active at once.
-- New rules are added without deleting stale rules, relying on overlap to resolve conflict.
-- A rule says "must never do X" but offers no answer for unavoidable edge cases.
-- Suggestions or conventions get promoted to strict rules in an attempt to force compliance, which makes them easier to ignore.
-- Low-frequency specialized workflows stay in persistent context instead of moving to a skill, hook, or verify script.
-- A second summary repeats the canonical rule text and drifts away from the real source.
+**Inspection tools:**
+Run `bash hooks/count_active_constraints.sh` for advisory context, or `python3 scripts/constraints/count_active_constraints.py --root . --include-canonical-rules --gc-report` for a maintainer inventory. Thresholds identify candidates for review. A maintainer may explicitly choose the offline `--fail-on-block` budget check; automatic task hooks never impose that choice.
 
 ## U-33: Code search defaults to glob/grep; large codebases require structural navigation (strict)
 

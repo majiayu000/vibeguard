@@ -36,34 +36,21 @@ _claude_source_path() {
   printf '%s/%s\n' "$(_claude_execution_root)" "$1"
 }
 
-_protect_rule_file_overwrite() {
-  local src="$1" dest="$2" label="$3"
-  [[ -e "${dest}" && ! -L "${dest}" ]] || return 0
-
-  if [[ -f "${src}" ]] && cmp -s "${src}" "${dest}"; then
-    rm -f "${dest}"
-    return 0
-  fi
-
-  if _force_overwrite_enabled; then
-    yellow "  FORCE: replacing local rule copy ${dest}"
-    rm -f "${dest}"
-    return 0
-  fi
-
-  red "  ERROR: refusing to overwrite modified local rule file: ${dest}"
-  red "  Re-run with --force-overwrite only if this local ${label} rule copy should be replaced."
-  return 1
-}
-
 _remove_rule_subtree_if_safe() {
   local src_dir="$1" dest_dir="$2" label="$3"
   [[ -d "${dest_dir}" ]] || return 0
 
-  local file rel src_file
+  local file rel src_file actual_target
   while IFS= read -r file; do
     [[ -e "${file}" || -L "${file}" ]] || continue
-    [[ -L "${file}" ]] && continue
+    if [[ -L "${file}" ]]; then
+      actual_target="$(readlink "${file}")" || return 1
+      case "${actual_target}" in
+        "${REPO_DIR}/rules/claude-rules/"*|"${HOME}/.vibeguard/installed/rules/claude-rules/"*) continue ;;
+      esac
+      red "  ERROR: refusing to remove unmanaged rule symlink: ${file} -> ${actual_target}"
+      return 1
+    fi
     rel="${file#"${dest_dir}/"}"
     src_file="${src_dir}/${rel}"
     if [[ -f "${src_file}" ]] && cmp -s "${src_file}" "${file}"; then
@@ -184,75 +171,10 @@ _check_claude_rule_symlink_targets() {
   fi
 }
 
-_rule_label_is_selected() {
-  local label="$1" selected_labels="$2"
-  while IFS= read -r selected_label; do
-    [[ "${selected_label}" == "${label}" ]] && return 0
-  done <<< "${selected_labels}"
-  return 1
-}
-
-# GH-541: the full native rule text (~126 constraints across rules/claude-rules/**)
-# is only front-injected under the full/strict profiles. The default (core) and
-# minimal profiles rely on the shared compact core plus Claude host guidance
-# synced into ~/.claude/CLAUDE.md, keeping the live payload within the U-32
-# budget. The full-text tree stays installed under ~/.vibeguard and is opt-in.
-_claude_profile_injects_full_rule_tree() {
-  case "${PROFILE:-core}" in
-    full|strict) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 _rule_dest_is_declared() {
   local dest_rel="$1" rule_links="$2"
   printf '%s\n' "${rule_links}" \
     | awk -F '\t' -v dest_rel="${dest_rel}" '$2 == dest_rel { found = 1 } END { exit(found ? 0 : 1) }'
-}
-
-_cleanup_unlisted_rule_files() {
-  local dest_dir="$1" label="$2" rule_links="$3"
-  [[ -d "${dest_dir}" ]] || return 0
-
-  local file rel actual_target
-  while IFS= read -r file; do
-    [[ -e "${file}" || -L "${file}" ]] || continue
-    rel="${file#"${dest_dir}/"}"
-    rel="${label}/${rel}"
-    if _rule_dest_is_declared "${rel}" "${rule_links}"; then
-      continue
-    fi
-    if [[ -L "${file}" ]]; then
-      actual_target="$(readlink "${file}" 2>/dev/null || true)"
-      if [[ -z "${actual_target}" || "${actual_target}" == "${REPO_DIR}/rules/claude-rules/"* || "${actual_target}" == "${HOME}/.vibeguard/installed/rules/claude-rules/"* || ! -e "${file}" ]]; then
-        yellow "  Removed stale manifest rule symlink: ${file}"
-        rm -f "${file}"
-      else
-        yellow "  Preserved unmanaged rule symlink not present in manifest: ${file} -> ${actual_target}"
-      fi
-      continue
-    fi
-    if _force_overwrite_enabled; then
-      yellow "  FORCE: removing stale local rule copy ${file}"
-      rm -f "${file}"
-    else
-      red "  ERROR: refusing to remove local rule file not present in manifest: ${file}"
-      red "  Re-run with --force-overwrite only if this local ${label} rule copy should be removed."
-      return 1
-    fi
-  done < <(find "${dest_dir}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
-}
-
-_install_manifest_rule_file() {
-  local source_path="$1" dest_rel="$2" label="$3" rules_dest="$4"
-  local src
-  src="$(_claude_source_path "${source_path}")"
-  local dest="${rules_dest}/${dest_rel}"
-
-  mkdir -p "$(dirname "${dest}")"
-  _protect_rule_file_overwrite "${src}" "${dest}" "${label}" || return 1
-  ln -sf "${src}" "${dest}"
-  state_record_file "${dest}" "${source_path}" "symlink"
 }
 
 _clean_command_symlink_if_managed() {
@@ -305,54 +227,21 @@ install_claude_home_assets() {
   green "  vg shortcut commands -> ~/.claude/commands/vg"
   echo
 
-  echo "Step 5.5: Install native rules (symlinked)"
+  echo "Step 5.5: Keep global instructions compact"
   local rules_dest="${HOME}/.claude/rules/vibeguard"
-  local rule_links selected_labels all_labels source_path dest_rel label installed_count
-
+  local all_labels label
   mkdir -p "${rules_dest}"
 
-  if _claude_profile_injects_full_rule_tree; then
-    rule_links="$(manifest_rule_links_checked "${LANGUAGES:-}")" || return 1
-    selected_labels="$(manifest_rule_labels_checked "${LANGUAGES:-}")" || return 1
-    all_labels="$(manifest_rule_labels_checked "")" || return 1
-
-    while IFS= read -r label; do
-      [[ -n "${label}" ]] || continue
-      if _rule_label_is_selected "${label}" "${selected_labels}"; then
-        continue
-      fi
-      if [[ -d "${rules_dest}/${label}" ]]; then
-        _remove_rule_subtree_if_safe "$(_claude_source_path "rules/claude-rules/${label}")" "${rules_dest}/${label}" "${label}" || return 1
-        yellow "  ${label}/ removed (not in --languages filter)"
-      fi
-    done <<< "${all_labels}"
-
-    while IFS= read -r label; do
-      [[ -n "${label}" ]] || continue
-      _cleanup_unlisted_rule_files "${rules_dest}/${label}" "${label}" "${rule_links}" || return 1
-    done <<< "${selected_labels}"
-
-    installed_count=0
-    while IFS=$'\t' read -r source_path dest_rel label; do
-      [[ -n "${source_path}" && -n "${dest_rel}" && -n "${label}" ]] || continue
-      _install_manifest_rule_file "${source_path}" "${dest_rel}" "${label}" "${rules_dest}" || return 1
-      installed_count=$((installed_count + 1))
-    done <<< "${rule_links}"
-    green "  manifest rules -> ~/.claude/rules/vibeguard/ (${installed_count} files, symlinked, ${PROFILE} profile)"
-  else
-    # GH-541: compact core default — remove any previously front-injected full
-    # rule tree so switching down from full/strict shrinks the live payload.
-    # The shared compact core plus Claude host guidance in ~/.claude/CLAUDE.md
-    # is the always-on surface; custom/ user rules below are preserved.
-    all_labels="$(manifest_rule_labels_checked "")" || return 1
-    while IFS= read -r label; do
-      [[ -n "${label}" ]] || continue
-      if [[ -d "${rules_dest}/${label}" ]]; then
-        _remove_rule_subtree_if_safe "$(_claude_source_path "rules/claude-rules/${label}")" "${rules_dest}/${label}" "${label}" || return 1
-      fi
-    done <<< "${all_labels}"
-    green "  compact core (${PROFILE} profile): shared core + Claude host guidance via ~/.claude/CLAUDE.md; full rule text opt-in with --profile full|strict"
-  fi
+  # Profiles select hooks, not a larger prompt. Remove only managed native-rule
+  # projections; the installed source tree and custom user rules remain available.
+  all_labels="$(manifest_rule_labels_checked "")" || return 1
+  while IFS= read -r label; do
+    [[ -n "${label}" ]] || continue
+    if [[ -d "${rules_dest}/${label}" ]]; then
+      _remove_rule_subtree_if_safe "$(_claude_source_path "rules/claude-rules/${label}")" "${rules_dest}/${label}" "${label}" || return 1
+    fi
+  done <<< "${all_labels}"
+  green "  compact core (${PROFILE} profile): shared core + Claude host guidance; read detailed rules from the installed source only when relevant"
 
   if [[ -d "${rules_dest}" ]]; then
     if [[ -d "${VIBEGUARD_HOME}/user-rules" ]]; then
@@ -379,13 +268,7 @@ claude_rule_id_count() {
 }
 
 claude_rule_count_for_banner() {
-  local rules_dest="${HOME}/.claude/rules/vibeguard"
   local total=0 dir_count rule_links source_path dest_rel label
-
-  if _claude_profile_injects_full_rule_tree && [[ "${VIBEGUARD_SETUP_DRY_RUN}" != "1" && -d "${rules_dest}" ]]; then
-    claude_rule_id_count "${rules_dest}"
-    return 0
-  fi
 
   rule_links="$(manifest_rule_links_checked "${LANGUAGES:-}")" || return 1
   while IFS=$'\t' read -r source_path dest_rel label; do
@@ -496,38 +379,23 @@ check_claude_home_installation() {
   fi
 
   local rules_dest="${HOME}/.claude/rules/vibeguard"
-  local rule_file_count actual_rule_count claude_md declared_count
-  local symlink_count copy_count front_injected_count labels label label_count
+  local actual_rule_count claude_md declared_count
+  local front_injected_count labels label label_count
   if [[ -d "${rules_dest}" ]]; then
-    if _claude_profile_injects_full_rule_tree; then
-      rule_file_count=$(find "${rules_dest}" -name "*.md" \( -type f -o -type l \) 2>/dev/null | wc -l | tr -d ' ')
-      symlink_count=$(find "${rules_dest}" -name "*.md" -type l 2>/dev/null | wc -l | tr -d ' ')
-      copy_count=$((rule_file_count - symlink_count))
-      if [[ "${rule_file_count}" -ge 7 ]]; then
-        green "[OK] ${rule_file_count} native rule files in ~/.claude/rules/vibeguard/ (${symlink_count} symlinked)"
-      else
-        yellow "[PARTIAL] Only ${rule_file_count} native rule files (expected 7+)"
-      fi
-      if [[ "${copy_count}" -gt 0 ]]; then
-        yellow "[DRIFT] ${copy_count} rule files are copies instead of symlinks — re-run setup.sh to fix"
-      fi
-      actual_rule_count=$(claude_rule_id_count "${rules_dest}")
+    front_injected_count=0
+    labels="$(manifest_rule_labels_checked "")" || return 1
+    while IFS= read -r label; do
+      [[ -n "${label}" ]] || continue
+      [[ -d "${rules_dest}/${label}" ]] || continue
+      label_count=$(claude_rule_id_count "${rules_dest}/${label}")
+      front_injected_count=$((front_injected_count + label_count))
+    done <<< "${labels}"
+    if [[ "${front_injected_count}" -eq 0 ]]; then
+      green "[OK] compact core profile does not front-inject native rule tree"
     else
-      front_injected_count=0
-      labels="$(manifest_rule_labels_checked "")" || return 1
-      while IFS= read -r label; do
-        [[ -n "${label}" ]] || continue
-        [[ -d "${rules_dest}/${label}" ]] || continue
-        label_count=$(claude_rule_id_count "${rules_dest}/${label}")
-        front_injected_count=$((front_injected_count + label_count))
-      done <<< "${labels}"
-      if [[ "${front_injected_count}" -eq 0 ]]; then
-        green "[OK] compact core profile does not front-inject native rule tree"
-      else
-        yellow "[DRIFT] compact core profile has ${front_injected_count} front-injected native rule(s); re-run setup.sh --yes --profile ${PROFILE}"
-      fi
-      actual_rule_count=$(claude_rule_count_for_banner)
+      yellow "[DRIFT] compact core profile has ${front_injected_count} front-injected native rule(s); re-run setup.sh --yes --profile ${PROFILE}"
     fi
+    actual_rule_count=$(claude_rule_count_for_banner)
     _check_claude_rule_symlink_targets
 
     claude_md="${CLAUDE_DIR}/CLAUDE.md"

@@ -304,7 +304,7 @@ hook_warn_out="$(env "${hook_no_ci_env[@]}" HOME="${WARN_HOME}" VIBEGUARD_PROJEC
 JSON
 )"
 assert_contains "${hook_warn_out}" "hookSpecificOutput" "hook emits additional context on warning"
-assert_contains "${hook_warn_out}" "effective task constraints=16" "hook warning includes constraint count"
+assert_contains "${hook_warn_out}" "estimated candidate constraints=16" "hook warning includes constraint count"
 assert_exit_zero "hook warning log carries the U-32 rule id" python3 -c 'import json, pathlib, sys; events = [json.loads(line) for path in pathlib.Path(sys.argv[1]).rglob("events.jsonl") for line in path.read_text(encoding="utf-8").splitlines()]; raise SystemExit(not events or events[-1].get("reason") != "U-32 constraints=16")' "${TMP_ROOT}/logs-warn"
 # GH-683: without a strict profile, exceeding the block budget must surface as
 # injected context (exit 0), not a failed hook — core/full users still see it.
@@ -313,37 +313,24 @@ hook_softblock_out="$(env "${hook_no_ci_env[@]}" HOME="${BLOCK_HOME}" VIBEGUARD_
 JSON
 )"
 assert_contains "${hook_softblock_out}" "hookSpecificOutput" "non-strict profile surfaces block budget as context"
-assert_contains "${hook_softblock_out}" "VIBEGUARD U-32 block" "non-strict block context names the U-32 status"
+assert_contains "${hook_softblock_out}" "VIBEGUARD U-32 advisory" "non-strict block context names the U-32 status"
 
 mkdir -p "${BLOCK_HOME}/.vibeguard"
 printf '{\n  "profile": "strict"\n}\n' > "${BLOCK_HOME}/.vibeguard/install-state.json"
 
-hook_block_err="${TMP_ROOT}/hook-block.err"
-set +e
-env "${hook_no_ci_env[@]}" HOME="${BLOCK_HOME}" VIBEGUARD_PROJECT_ROOT="${BLOCK_REPO}" VIBEGUARD_LOG_DIR="${TMP_ROOT}/logs-block" bash "${HOOK}" <<'JSON' 2>"${hook_block_err}" >/dev/null
-{"hook_event_name":"SessionStart"}
-JSON
-hook_block_rc=$?
-set -e
-TOTAL=$((TOTAL + 1))
-if [[ "${hook_block_rc}" -eq 2 ]] && grep -qF "[BLOCKED] VIBEGUARD U-32 block" "${hook_block_err}"; then
-  green "hook blocks when strict budget exceeds 30"
-  PASS=$((PASS + 1))
-else
-  red "hook blocks when strict budget exceeds 30"
-  FAIL=$((FAIL + 1))
-fi
-
-# Explicit env override still wins over the installed profile.
-hook_override_out="$(env "${hook_no_ci_env[@]}" HOME="${BLOCK_HOME}" VIBEGUARD_U32_STRICT=0 VIBEGUARD_PROJECT_ROOT="${BLOCK_REPO}" VIBEGUARD_LOG_DIR="${TMP_ROOT}/logs-override" bash "${HOOK}" <<'JSON'
+# Strict is also advisory: real output, exit behavior, and logged decision must agree.
+hook_strict_out="$(env "${hook_no_ci_env[@]}" HOME="${BLOCK_HOME}" VIBEGUARD_PROJECT_ROOT="${BLOCK_REPO}" VIBEGUARD_LOG_DIR="${TMP_ROOT}/logs-strict" bash "${HOOK}" <<'JSON'
 {"hook_event_name":"SessionStart"}
 JSON
 )"
-assert_contains "${hook_override_out}" "hookSpecificOutput" "VIBEGUARD_U32_STRICT=0 downgrades strict block to context"
-header "GH-541 rule-delivery budget (compact core default vs full-tree opt-in)"
+assert_contains "${hook_strict_out}" "hookSpecificOutput" "strict session continues with advisory context above 30 candidates"
+assert_contains "${hook_strict_out}" "not evidence of what the host actually loaded" "hook states the loading evidence boundary"
+assert_not_contains "${hook_strict_out}" "[BLOCKED]" "strict count cannot demand a blocked task"
+assert_exit_zero "strict advisory logs warn, never a false block" python3 -c 'import json, pathlib, sys; events = [json.loads(line) for path in pathlib.Path(sys.argv[1]).rglob("events.jsonl") for line in path.read_text().splitlines()]; assert events and events[-1]["decision"] == "warn"; assert not any(e["decision"] == "block" for e in events)' "${TMP_ROOT}/logs-strict"
+header "GH-541 rule-delivery budget (compact profiles vs on-demand source)"
 # The default (core/minimal) Claude profile injects only the shared compact core
 # plus Claude host guidance into ~/.claude/CLAUDE.md; the full rules/claude-rules
-# tree is opt-in under full/strict. This asserts the actual production content:
+# tree remains outside native discovery in every profile. This asserts the actual production content:
 # semantic deduplication keeps the compact core at the 15-constraint advisory
 # boundary, while the full common/ tree — the payload the default profile must
 # NOT front-inject — still exceeds the block threshold.
@@ -362,12 +349,12 @@ if [[ -f "${CLAUDE_COMPACT_SRC}" && -f "${CODEX_COMPACT_SRC}" ]]; then
   make_repo "${CLAUDE_CORE_REPO}"
   cp "${CLAUDE_COMPACT_SRC}" "${CLAUDE_CORE_HOME}/.claude/CLAUDE.md"
   claude_core_json="$(python3 "${COUNTER}" --root "${CLAUDE_CORE_REPO}" --home "${CLAUDE_CORE_HOME}" --host claude --json)"
-  assert_contains "${claude_core_json}" '"total": 19' "Python counter reports the exact Claude payload budget"
+  assert_contains "${claude_core_json}" '"total": 18' "Python counter reports the exact Claude payload budget"
   assert_contains "${claude_core_json}" '"status": "warn"' "Claude payload truthfully reports its advisory budget status"
   claude_compact_ids="$(printf '%s' "${claude_core_json}" | python3 -c 'import json, sys; print(",".join(item["id"] for item in json.load(sys.stdin)["constraints"] if item["id"]))')"
   assert_exit_zero "Claude payload retains every compact constraint ID" test "${claude_compact_ids}" = "U-17,U-29,W-02,W-03,W-12,W-16,SEC-01,SEC-02,SEC-11,SEC-13"
   claude_runtime_json="$("${RUNTIME_BIN}" active-constraints --root "${CLAUDE_CORE_REPO}" --home "${CLAUDE_CORE_HOME}" --host claude --json)"
-  assert_contains "${claude_runtime_json}" '"total": 19' "production counter matches the exact Claude payload count"
+  assert_contains "${claude_runtime_json}" '"total": 18' "production counter matches the exact Claude payload count"
 
   CODEX_CORE_HOME="${TMP_ROOT}/home-gh541-codex-core"
   CODEX_CORE_REPO="${TMP_ROOT}/repo-gh541-codex-core"

@@ -28,9 +28,9 @@
       "description": "Function parameters or return values use `any`."
     },
     "U-01": {
-      "name": "Do not change public API signatures",
+      "name": "Respect the requested API contract",
       "severity": "Strict",
-      "description": "Unless the user explicitly requests a breaking change and accepts a MAJOR version bump, do not change public function signatures."
+      "description": "Preserve public APIs unless the requested change includes changing them."
     },
     "W-01": {
       "name": "No fixes without root cause",
@@ -328,9 +328,9 @@
       "description": "If the intent is unclear, mark it as DEFER or ask the user to clarify."
     },
     "W-10": {
-      "name": "Require four confirmations before publish, deletion, or remote deploy",
+      "name": "Confirm the concrete action and reuse existing authorization",
       "severity": "Strict",
-      "description": "Before any irreversible or high-risk action, confirm four items with the user and wait for explicit approval."
+      "description": "Before publishing, deploying, deleting data, or changing an external system, establish the exact target, intended change, and authorizati..."
     },
     "GO-11": {
       "name": "`context.Background()` is used outside entry points",
@@ -428,9 +428,9 @@
       "description": "For example, `SERVER_DB_PATH` and `DESKTOP_DB_PATH` point at different defaults."
     },
     "W-13": {
-      "name": "Analysis paralysis guard",
-      "severity": "Strict",
-      "description": "If there are 7+ consecutive read-only actions (Read / Glob / Grep) with no write action, you must either act or report a blocker."
+      "name": "Review unproductive exploration",
+      "severity": "Guideline",
+      "description": "Consecutive Read / Glob / Grep events are an observation, not proof of analysis paralysis."
     },
     "RS-14": {
       "name": "Declaration-execution gap",
@@ -475,7 +475,7 @@
     "U-16": {
       "name": "Keep file size under control",
       "severity": "Guideline",
-      "description": "Keep file size under control: 200-400 lines typical, 800 lines hard ceiling. Files above 800 must be split."
+      "description": "Keep changes localized. The configured size guard blocks new oversized files and growth beyond its limit; existing oversized files may be edited without growth."
     },
     "W-16": {
       "name": "Verification commands must come from this session",
@@ -513,9 +513,9 @@
       "description": "Output-only evaluations miss systemic failures."
     },
     "U-19": {
-      "name": "Use the Repository pattern",
+      "name": "Follow the project's data-access boundaries",
       "severity": "Guideline",
-      "description": "Encapsulate data access in a Repository layer."
+      "description": "Use the project's established data-access pattern."
     },
     "W-19": {
       "name": "AGENTS.md / CLAUDE.md sustainable size and pairing",
@@ -530,7 +530,7 @@
     "U-20": {
       "name": "Keep API response shapes consistent",
       "severity": "Guideline",
-      "description": "Use a standard envelope such as `{ data, error, meta }`."
+      "description": "Follow the existing API contract and error conventions."
     },
     "W-20": {
       "name": "Long tasks must pin runtime, tools, and rules",
@@ -538,9 +538,9 @@
       "description": "Long-running agent tasks must freeze the execution surface at the start of the task so a mid-flight runtime, tool, or rule change cannot..."
     },
     "U-21": {
-      "name": "Commit messages must follow the Lore protocol",
+      "name": "Follow the project's commit convention",
       "severity": "Strict",
-      "description": "Record why the change exists, not just what changed."
+      "description": "Explain why the change exists and follow the repository's commit format."
     },
     "W-21": {
       "name": "Evidence must be provably executed, not merely cited",
@@ -548,9 +548,9 @@
       "description": "Evidence must be provably executed, not merely cited. Verify \"decisive\" claims through an out-of-session channel before naming a mechanism."
     },
     "U-22": {
-      "name": "Test coverage",
+      "name": "Verify changed behavior",
       "severity": "Strict",
-      "description": "New code minimum 80% line coverage; critical paths 100%."
+      "description": "Use the project's coverage policy and meaningful checks for changed behavior; no universal percentage or file-count quota."
     },
     "U-23": {
       "name": "No silent degradation",
@@ -558,9 +558,9 @@
       "description": "See U-29 for canonical no-silent-degradation guidance."
     },
     "U-24": {
-      "name": "No aliases",
-      "severity": "Strict",
-      "description": "Do not keep function, type, command, or directory aliases."
+      "name": "Keep naming changes within scope",
+      "severity": "Guideline",
+      "description": "Follow the project's naming and compatibility policy."
     },
     "U-25": {
       "name": "Fix build failures first",
@@ -593,9 +593,9 @@
       "description": "When builder or generation logic changes, old cache entries must invalidate automatically."
     },
     "U-32": {
-      "name": "Rule overload threshold + absolute-language detection",
-      "severity": "Strict",
-      "description": "Keep the effective constraint set for a single agent task at 15 or fewer items."
+      "name": "Review instruction overload",
+      "severity": "Guideline",
+      "description": "Treat instruction counts as a file-based estimate, not proof of runtime loading, semantic conflict, or task failure."
     },
     "U-33": {
       "name": "Code search defaults to glob/grep; large codebases require structural navigation",

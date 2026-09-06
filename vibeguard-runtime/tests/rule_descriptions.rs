@@ -79,7 +79,8 @@ fn fixture_log_with_reason(reason: &str) -> PathBuf {
 fn summary_and_health_translate_rule_reasons_without_hiding_unknown_reasons() {
     let log_path = fixture_log();
     let expected = concat!(
-        "U-32: Keep the effective constraint set for a single agent task at 15 or fewer items. ",
+        "U-32: Treat instruction counts as a file-based estimate, not proof of runtime loading, ",
+        "semantic conflict, or task failure. ",
         "(constraints=31)"
     );
     let legacy_w14 = concat!(

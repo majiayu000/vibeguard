@@ -115,6 +115,9 @@ print("w13-triage-ok")
 PY
 )"
 assert_contains "$read_out" "ANALYSIS PARALYSIS" "Read streak still triggers W-13 warning"
+assert_contains "$read_out" "Preserve read-only scope" "runtime warning preserves a read-only task"
+assert_contains "$read_out" "Continue reading when it adds relevant evidence" "runtime warning permits useful research"
+assert_not_contains "$read_out" "You must choose" "runtime warning cannot demand edits or a fabricated blocker"
 assert_contains "$read_events" "W-13 paralysis 2x" "W-13 warning reason is logged"
 assert_contains "$triage_out" "w13-triage-ok" "W-13 warning projects into triage"
 

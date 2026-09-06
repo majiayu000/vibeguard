@@ -529,15 +529,29 @@ source "${REPO_DIR}/tests/setup/cleanup_failure_tests.sh"
 
 bash "${REPO_DIR}/setup.sh" --yes --profile full >/dev/null
 
+# An external user symlink inside a formerly managed category is never retired.
+_USER_RULE="${TMP_HOME}/external-user-rule.md"
+printf 'owner approval rule\n' > "${_USER_RULE}"
+mkdir -p "${HOME}/.claude/rules/vibeguard/common"
+ln -s "${_USER_RULE}" "${HOME}/.claude/rules/vibeguard/common/owner.md"
+external_rule_rc=0
+external_rule_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full 2>&1)" || external_rule_rc=$?
+assert_cmd "compact setup rejects unowned symlink retirement" test "${external_rule_rc}" -ne 0
+assert_contains "${external_rule_out}" "refusing to remove unmanaged rule symlink" "ownership conflict has a concrete explanation"
+assert_cmd "compact setup preserves external symlink" test -L "${HOME}/.claude/rules/vibeguard/common/owner.md"
+assert_cmd "compact setup preserves external rule content" grep -qx 'owner approval rule' "${_USER_RULE}"
+rm "${HOME}/.claude/rules/vibeguard/common/owner.md"
+
 _CUSTOM_RULE="${HOME}/.claude/rules/vibeguard/common/security.md"
+mkdir -p "$(dirname "${_CUSTOM_RULE}")"
 rm -f "${_CUSTOM_RULE}"
 printf 'local custom security rule\n' > "${_CUSTOM_RULE}"
 rule_protect_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full 2>&1 || true)"
-assert_contains "${rule_protect_out}" "refusing to overwrite modified local rule file" "setup refuses to overwrite modified local rule copies"
+assert_contains "${rule_protect_out}" "refusing to remove modified local rule file" "setup refuses to overwrite modified local rule copies"
 assert_cmd "modified local rule copy remains a regular file" bash -c "[ -f '${_CUSTOM_RULE}' ] && [ ! -L '${_CUSTOM_RULE}' ]"
 rule_force_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full --force-overwrite 2>&1)"
-assert_contains "${rule_force_out}" "FORCE: replacing local rule copy" "--force-overwrite reports local rule replacement"
-assert_cmd "--force-overwrite restores rule symlink" test -L "${_CUSTOM_RULE}"
+assert_contains "${rule_force_out}" "compact core (full profile)" "--force-overwrite completes compact delivery"
+assert_cmd "--force-overwrite retires the replaced native projection" test ! -e "${_CUSTOM_RULE}"
 
 header "codex config helper failure propagates"
 _FAILING_CODEX_CONFIG_RUNTIME="${TMP_HOME}/failing-codex-config-runtime"

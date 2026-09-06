@@ -195,7 +195,7 @@ class RepositoryRemovalTest(unittest.TestCase):
                     cross_ref_rules.add(rule_id)
 
         self.assertEqual(len(empty_shells), 10)
-        self.assertEqual(len(cross_ref_rules), 30)
+        self.assertEqual(len(cross_ref_rules), 29)
 
     def test_u32_cross_reference_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -206,7 +206,7 @@ class RepositoryRemovalTest(unittest.TestCase):
                 Path(tmp) / "candidate",
             )
 
-        self.assertEqual(len(evidence["cross_references"]), 13)
+        self.assertEqual(len(evidence["cross_references"]), 12)
         self.assertTrue(paired.cross_reference_limit_exceeded(evidence, 4))
         fixture = {"cross_references": [f"fixture.md:{line}" for line in range(1, 5)]}
         self.assertFalse(paired.cross_reference_limit_exceeded(fixture, 4))

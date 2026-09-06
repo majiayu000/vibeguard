@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # VibeGuard SessionStart/UserPromptSubmit Hook — U-32 live constraint budget
 #
-# Counts the effective constraints that can enter the current agent context.
-# >15 emits an advisory; >30 emits a warning under core/full profiles and a
-# hard block under the strict profile (override via VIBEGUARD_U32_STRICT).
+# Estimates candidate constraints from configured files. Counts are diagnostics,
+# not evidence of runtime loading or task failure. Every profile is advisory.
 
 set -euo pipefail
 
@@ -55,28 +54,7 @@ if [[ "${STATUS}" == "ok" ]]; then
   exit 0
 fi
 
-MESSAGE="VIBEGUARD U-32 ${STATUS}: effective task constraints=${TOTAL} (warn>${WARN_THRESHOLD}, block>${BLOCK_THRESHOLD}). Split low-frequency rules into path-scoped files, skills, or hooks before adding more persistent instructions. Top sources: ${SUMMARY}"
+MESSAGE="VIBEGUARD U-32 advisory: estimated candidate constraints=${TOTAL} (review thresholds: ${WARN_THRESHOLD}/${BLOCK_THRESHOLD}). This is a file-based estimate, not evidence of what the host actually loaded or a reason to stop this task. Review conflicting or irrelevant guidance when it affects the requested work; preserve owner requirements and continue within the authorized scope. Top sources: ${SUMMARY}"
 
-# Hard-block semantics are opt-in: default follows the installed profile so
-# core/full users get the budget signal as context instead of a failed hook.
-_vg_u32_strict_default() {
-  local state_file="${VIBEGUARD_HOME:-${HOME}/.vibeguard}/install-state.json"
-  local profile=""
-  if [[ -f "${state_file}" ]]; then
-    profile=$(grep -o '"profile"[[:space:]]*:[[:space:]]*"[a-z]*"' "${state_file}" 2>/dev/null \
-      | tail -1 | grep -o '"[a-z]*"$' | tr -d '"' || true)
-  fi
-  if [[ "${profile}" == "strict" ]]; then printf '1'; else printf '0'; fi
-}
-
-if [[ "${STATUS}" == "block" ]]; then
-  vg_log "count-active-constraints" "${HOOK_EVENT}" "block" "U-32 constraints=${TOTAL}" "${SUMMARY}"
-  if [[ "${VIBEGUARD_U32_STRICT:-$(_vg_u32_strict_default)}" == "1" ]]; then
-    printf '%s\n' "[BLOCKED] ${MESSAGE}" >&2
-    exit 2
-  fi
-else
-  vg_log "count-active-constraints" "${HOOK_EVENT}" "warn" "U-32 constraints=${TOTAL}" "${SUMMARY}"
-fi
-
+vg_log "count-active-constraints" "${HOOK_EVENT}" "warn" "U-32 constraints=${TOTAL}" "${SUMMARY}"
 printf '%s' "${MESSAGE}" | "$_VIBEGUARD_RUNTIME" hook-context "${HOOK_EVENT}"

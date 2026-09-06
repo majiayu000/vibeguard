@@ -2,7 +2,7 @@
 # VibeGuard PostToolUse(Read) Hook — Analysis Paralysis Guard
 #
 # Borrowed from GSD: detect consecutive Read calls without any Write/Edit action.
-# After 5+ consecutive reads, warn the agent to either write code or report a blocker.
+# After the configured read threshold, emit a non-blocking progress observation.
 #
 # Mechanism: count recent events in session log. If the last N tool uses are all
 # Read/Glob/Grep (research tools) with no Write/Edit/Bash interleaved, trigger warning.
@@ -118,7 +118,7 @@ if [[ "$CONSECUTIVE" -ge "$THRESHOLD" ]]; then
   fi
 
   if [[ "$CB_STATUS" -eq 0 ]]; then
-    WARNING="[ANALYSIS PARALYSIS] There have been ${CONSECUTIVE} consecutive read-only operations (Read/Glob/Grep) without any writes. You may be stuck in a \"read-read\" loop. You must choose: (1) Start writing code/editing files (2) Report the blocker to the user and explain where it is stuck."
+    WARNING="[ANALYSIS PARALYSIS] There have been ${CONSECUTIVE} consecutive read-only operations (Read/Glob/Grep) without any writes. You may be stuck in a \"read-read\" loop. Tool counts do not establish whether useful progress was made. Continue reading when it adds relevant evidence, or summarize findings when ready. Preserve read-only scope; do not create or edit files to reset this counter. Report a blocker only when a real missing prerequisite prevents the requested outcome."
 
     vg_log "analysis-paralysis-guard" "${TOOL_NAME}" "warn" "W-13 paralysis ${CONSECUTIVE}x" ""
     if ! vg_cb_record_block "analysis-paralysis-guard"; then

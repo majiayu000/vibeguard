@@ -59,11 +59,6 @@ The schema includes a `version` field. The validator refuses to run on a version
 
 ## Precedence (informational)
 
-Effective prompt rules are resolved in this order, with later layers winning on conflict:
+Instruction loading and precedence belong to the host. A role prompt or skill does not automatically override the user's request or an applicable repository instruction. Resolve the actual host's instruction chain and preserve explicit authorization; `AGENTS.override.md` has Codex-specific discovery semantics rather than being a universal overlay.
 
-1. `templates/AGENTS.md` (project root)
-2. Role prompt under `agents/<role>.md`
-3. Skill-specific instructions in a `SKILL.md`
-4. Runtime overlay (`AGENTS.override.md`, ad-hoc additions in session)
-
-The validator only checks layer 1 and layer 2. Skill and overlay validation is out of scope for this contract.
+The validator checks template and role structure only. It does not establish runtime loading, semantic precedence, or behavioral compliance.

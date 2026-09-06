@@ -407,8 +407,9 @@ fn summary_human_and_json_render_deterministic_counts_and_durations() {
         "codex: 2 times",
         "1x  force push denied",
         concat!(
-            "1x  U-16: Keep file size under control: 200-400 lines typical, 800 lines hard ",
-            "ceiling. Files above 800 must be split. (file too large)"
+            "1x  U-16: Keep changes localized. The configured size guard blocks new oversized ",
+            "files and growth beyond its limit; existing oversized files may be edited ",
+            "without growth. (file too ..."
         ),
     ] {
         assert!(
@@ -507,8 +508,9 @@ fn health_human_renders_risk_distributions_unknowns_and_truncation() {
         "{text}"
     );
     let cleaned = format!(
-        "U-16: Keep file size under control: 200-400 lines typical, 800 lines hard ceiling. \
-         Files above 800 must be split. ({} secret)",
+        "U-16: Keep changes localized. The configured size guard blocks new oversized files \
+         and growth beyond its limit; existing oversized files may be edited without growth. \
+         ({} secret)",
         "x".repeat(120)
     );
     let expected_reason = format!("{}...", cleaned.chars().take(177).collect::<String>());

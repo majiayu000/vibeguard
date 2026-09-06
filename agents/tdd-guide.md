@@ -35,8 +35,8 @@ Guide the RED → GREEN → IMPROVE loop to ensure test-driven development.
 
 ## Coverage target
 
-- Minimum 80% line coverage for new code
-- 100% coverage of critical path (error handling, boundary conditions)
+- Follow the project's explicit coverage targets and test-first policy.
+- Cover changed behavior, regressions, and important failure paths with meaningful tests; do not impose a universal percentage.
 
 ## VibeGuard Constraints
 

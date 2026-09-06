@@ -1,73 +1,24 @@
-# Publish / Destructive-Action Confirmation Rules
+# Publish / Destructive-Action Authorization Rules
 
-## W-10: Require four confirmations before publish, deletion, or remote deploy (strict)
+## W-10: Confirm the concrete action and reuse existing authorization (strict)
 
-Before any irreversible or high-risk action, confirm four items with the user and wait for explicit approval.
+Before publishing, deploying, deleting data, or changing an external system, establish the exact target, intended change, and authorization from the user's request and the current conversation. Prepare a concrete, reviewable result before requesting a missing approval.
 
-**Trigger actions**:
-- `cargo publish`, `npm publish`, or `pypi upload`
-- `gh release create` or Git tag creation
-- `ssh` remote commands that are not read-only
-- `docker push` or production deployment
-- `rm -rf` or bulk file deletion
-- Database `DROP`, `TRUNCATE`, or bulk `DELETE`
-- DNS, CDN, or domain-configuration changes
+**Actions requiring this check:**
+- Package publication, releases, tags, image pushes, and production deployment.
+- Remote commands that modify a system, bulk deletion, and destructive database operations.
+- DNS, CDN, domain, and other externally visible configuration changes.
 
-**Four-point checklist**:
+**Execution guidance:**
+1. Use an existing explicit approval when it covers the same target, scope, and action. Do not ask again or require a fixed confirmation template.
+2. Interpret short approvals such as “ship it” using the concrete result already discussed. If the target or operation is still ambiguous, ask one focused question.
+3. Prepare artifacts, inspect differences, and complete independent authorized checks before asking for a missing final approval.
+4. Ask again only for a material change in target, scope, risk, or an approval explicitly reserved for a later step. Permission to edit does not imply permission to deploy; permission to create a PR does not imply permission to merge it.
+5. Preserve mandatory organizational approvals and runtime safety controls. Conversational authorization does not bypass a configured guard or host permission boundary.
+6. Report the actual result with the relevant artifact or deployment evidence.
 
-### 1. Target artifact
-Clearly state what will be published, deleted, or deployed.
-```
-Publish target: my-crate v0.3.1 -> crates.io
-```
-
-### 2. Change scope
-Summarize the changes included in this operation.
-```
-Scope:
-- Adds the insights command
-- Fixes session-ingestion retry logic
-- 3 files changed, 0 breaking changes
-```
-
-### 3. Untouched items
-State what this operation must not affect so the user can verify the boundary.
-```
-Untouched:
-- Existing CLI command interfaces remain unchanged
-- Database schema remains unchanged
-- Environment variables remain unchanged
-```
-
-### 4. Execution approval
-Ask directly and wait for an explicit affirmative response.
-```
-If the summary above is correct, I will run `cargo publish`. Continue?
-```
-
-**Template**:
-```
---- Publish Confirmation ---
-Target: [artifact and target environment]
-Scope: [summary of change set]
-Untouched: [what must remain unaffected]
-Command: [command that will be executed]
----
-Do you approve execution?
-```
-
-**Anti-patterns**:
-- The user says "ship it" and you immediately run `cargo publish` without the checklist.
-- You SSH into a server and edit config files without confirming target and scope.
-- You bulk-delete files without listing what will be removed.
-
-**Exceptions**:
-- Local or development-only targets (`localhost`, `dev`) can skip the checklist.
-- `--dry-run` commands can run directly because they do not create side effects.
-- Repeated operations already explicitly approved in the same conversation (for example, "future patch versions can be released directly").
-
-**Mechanical checks (agent execution rules)**:
-- If a command matches one of the trigger actions, interrupt execution.
-- Fill out the four-point confirmation template and show it to the user.
-- Only continue after the user gives an explicit yes.
-- Report the result afterward, including success/failure and artifact links when relevant.
+**Examples:**
+- The user approves publishing the already-reviewed package version to the named registry: execute the authorized release without another ritual.
+- The user approves a staging change, then the target changes to production: obtain the missing production approval.
+- The user requests remote diagnosis only: remain read-only.
+- Dry runs and independent read-only preparation can proceed within the requested scope.
