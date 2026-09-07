@@ -8,7 +8,7 @@
       "type": "string",
       "enum": ["minimal", "core", "full", "strict"],
       "default": "core",
-      "description": "Runtime enforcement profile. minimal=pre-hooks only, core=standard runtime hooks, full=core plus stop/build hooks, strict=full plus advisory Claude Code U-32 SessionStart constraint inventory; Codex native hooks remain full"
+      "description": "Runtime enforcement profile. minimal=pre-hooks only, core=standard runtime hooks, full=core plus Stop hooks, strict=full plus advisory Claude Code U-32 SessionStart constraint inventory; Codex native hooks remain full"
     },
     "enforcement": {
       "type": "string",
@@ -32,7 +32,6 @@
           "analysis-paralysis-guard",
           "count-active-constraints",
           "learn-evaluator",
-          "post-build-check",
           "post-edit-guard",
           "post-write-guard",
           "pre-bash-guard",
@@ -106,7 +105,6 @@
               "analysis-paralysis-guard",
               "count-active-constraints",
               "learn-evaluator",
-              "post-build-check",
               "post-edit-guard",
               "post-write-guard",
               "pre-bash-guard",

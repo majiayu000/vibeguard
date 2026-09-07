@@ -86,6 +86,8 @@ git -C "$repo" add src/legacy.rs
 capture_staged "$repo"
 assert_contains "status=$CAPTURED_STATUS" "status=1" "legacy oversized file growth blocks"
 assert_contains "$CAPTURED_OUTPUT" "legacy_growth" "legacy growth names block reason"
+assert_contains "$CAPTURED_OUTPUT" "Search for an existing module" "staged gate offers reuse first"
+assert_contains "$CAPTURED_OUTPUT" "Do not refactor unrelated code" "staged gate preserves scope"
 
 repo="$(make_repo same-size)"
 write_lines "$repo/src/legacy.rs" 1463

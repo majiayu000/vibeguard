@@ -28,14 +28,11 @@ Fix: use `strings.Builder` or `strings.Join`.
 ## GO-08: `defer` inside loops (high)
 This risks resource leaks because deferred calls wait until the function returns. Fix: extract the loop body into a helper so each `defer` runs at the right scope.
 
-## GO-09: Functions longer than 80 lines (medium)
-Fix: extract helper functions so each function stays under 80 lines.
+## GO-09: Review functions with mixed responsibilities (guideline)
+Use function length as a review hint. Extract a meaningful responsibility when it improves the current change; do not split a cohesive function merely to meet an 80-line target.
 
 ## GO-10: Package-level `init()` has side effects (medium)
 Network or file I/O happens in `init()`. Fix: move it into an explicit initialization function controlled by the caller.
 
 ## GO-11: `context.Background()` is used outside entry points (medium)
 Fix: thread a `context.Context` through the call chain as the first argument. Non-entry functions should not create root contexts.
-
-## GO-12: Struct fields are not ordered by size (low)
-This wastes memory due to alignment padding. Fix: sort fields in descending size order when it is reasonable to do so.

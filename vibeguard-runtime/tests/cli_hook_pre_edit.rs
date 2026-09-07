@@ -164,7 +164,7 @@ fn pre_edit_check_invalid_limits_use_documented_defaults() {
     let hard_out = run_pre_edit_check_args(&hard_input, &["invalid", "400", &hard_log_arg]);
     assert_eq!(hard_out.status.code(), Some(0));
     assert!(
-        String::from_utf8_lossy(&hard_out.stdout).contains("~801 lines (limit: 800)"),
+        String::from_utf8_lossy(&hard_out.stdout).contains("800 -> 801 lines (limit: 800)"),
         "{}",
         String::from_utf8_lossy(&hard_out.stdout)
     );
@@ -371,7 +371,7 @@ fn pre_edit_check_positive_delta_blocks_above_u16_hard_limit() {
     assert_eq!(out.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("[U-16] block"), "{stdout}");
-    assert!(stdout.contains("~801 lines"), "{stdout}");
+    assert!(stdout.contains("10 -> 801 lines"), "{stdout}");
     assert_eq!(parse_events(&log_file)[0]["decision"], "block");
     let _ = fs::remove_dir_all(root);
 }
@@ -457,7 +457,7 @@ fn pre_edit_check_replace_all_counts_every_occurrence() {
     assert_eq!(out.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("[U-16] block"), "{stdout}");
-    assert!(stdout.contains("~801 lines"), "{stdout}");
+    assert!(stdout.contains("799 -> 801 lines"), "{stdout}");
     assert_eq!(parse_events(&log_file)[0]["decision"], "block");
     let _ = fs::remove_dir_all(root);
 }

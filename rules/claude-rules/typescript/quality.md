@@ -13,8 +13,8 @@ Async calls lack error handling. Fix: use `await` plus `try/catch`, or add `.cat
 ## TS-03: `==` instead of `===` (medium)
 Loose equality is used outside explicit null checks. Fix: switch to `===`. `== null` remains acceptable for null/undefined checks.
 
-## TS-04: Oversized component larger than 300 lines (medium)
-React component is too large. Fix: split it into smaller components and custom hooks so each component stays under 300 lines.
+## TS-04: Review components with mixed responsibilities (guideline)
+Split components or hooks when independent responsibilities make the requested behavior difficult to maintain or test. A component over 300 lines is a review signal, not an automatic refactoring requirement.
 
 ## TS-05: Repeated fetch / API call patterns across the codebase (medium)
 Fix: extract a shared API client helper or hook.
@@ -22,8 +22,9 @@ Fix: extract a shared API client helper or hook.
 ## TS-06: `useEffect` has missing or overly broad dependencies (medium)
 Fix: declare the dependency array precisely. If dependencies are too broad, stabilize them with `useCallback` / `useMemo`.
 
-## TS-07: Large arrays are mapped during render without memoization (low)
-Fix: cache the mapped result with `useMemo`, or move the array transformation out of render.
+## TS-07: Optimize render calculations when there is a demonstrated cost (guideline)
+Use measurement or a concrete expensive render path to justify memoization. Account for the project's compiler and existing optimizations.
+Fix: optimize the measured bottleneck. Skip adding `useMemo` solely because an array is mapped during render.
 
 ## TS-08: Bypassing type checks with `as any` or `@ts-ignore` (high)
 Fix: replace the bypass with correct types or type guards. If absolutely necessary, use `as unknown as T` and explain why.

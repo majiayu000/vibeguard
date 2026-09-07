@@ -195,11 +195,11 @@ vg_post_edit_detect_u16_size() {
 
   if [[ "$total" -gt "$limit" ]]; then
     vg_post_edit_append_warning "[U-16] [review] [this-file] OBSERVATION: file has ${total} lines, exceeding ${limit}-line limit
-FIX: Split into focused submodules by responsibility; plan as a separate task
-DO NOT: Start splitting now — finish the current task first, then refactor"
+FIX: Keep this task localized; for further growth reuse an existing module, extract a related responsibility, or propose an explicitly authorized file-specific limit
+DO NOT: Refactor unrelated code, compress statements, or remove useful comments just to meet the line count"
   elif [[ "$limit" -le "$base_limit" && "$total" -gt "$warn_limit" ]]; then
     vg_post_edit_append_warning "[U-16] [advisory] [this-file] OBSERVATION: file has ${total} lines, exceeding the ${warn_limit}-line typical range while staying under the ${limit}-line hard limit
 FIX: Keep the current change localized; plan a split if this file keeps growing
-DO NOT: Start splitting now — finish the current task first, then refactor"
+DO NOT: Refactor unrelated code, compress statements, or remove useful comments just to meet the line count"
   fi
 }

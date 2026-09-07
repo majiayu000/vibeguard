@@ -163,7 +163,7 @@ Canonical references for this contract:
 
 ### Hooks — Real-Time Interception
 
-Most hooks trigger automatically during AI operations. `skills-loader` remains an optional manual hook. Every Codex profile deploys native Bash/apply_patch/PermissionRequest and file PostToolUse hooks; `full` and `strict` additionally deploy post-build and Stop hooks. Read-only exploration hooks remain Claude Code or app-server-wrapper only:
+Most hooks trigger automatically during AI operations. `skills-loader` and `post-build-check` are manual diagnostics. Builds are task-directed: use the project command after a coherent change and before completion; the pre-commit build gate remains active. Every Codex profile deploys native Bash/apply_patch/PermissionRequest and file PostToolUse hooks; `full` and `strict` additionally deploy Stop hooks. Read-only exploration hooks remain Claude Code or app-server-wrapper only:
 
 | Scenario | Hook | Result |
 |----------|------|--------|
@@ -177,7 +177,6 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 | AI adds `console.log` / `print()` debug statements | `post-edit-guard` | **Warn** — use logger instead |
 | AI creates duplicate definitions after a new file write | `post-write-guard` | **Warn** — detect duplicate symbols and same-name files |
 | AI keeps reading/searching without acting | `analysis-paralysis-guard` | **Advise** — continue useful evidence gathering within scope; report only real blockers |
-| AI edits code in `full` / `strict` profile | `post-build-check` | **Warn** — run language-appropriate build check |
 | `git commit` | `pre-commit-guard` | **Block** — staged-file quality checks use a 10s timeout; build checks use a separate 60s timeout |
 | AI tries to finish with unverified changes | `stop-guard` | **Signal** — logs a Stop reminder; the Stop hook exits 0 to avoid feedback loops |
 | Session ends in `full` / `strict` profile | `learn-evaluator` | **Evaluate** — collect metrics and detect correction signals |
@@ -447,7 +446,7 @@ Migration: `--check --strict` remains supported and maps to `verify-project`;
 |---------|----------------|----------|
 | `minimal` | pre-write, pre-edit, pre-bash + post-edit, post-write | Lightweight Bash/file protection |
 | `core` (default) | minimal + Claude Code analysis-paralysis (unsupported by native Codex hooks) | Standard development |
-| `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
+| `full` | core + stop-guard, learn-evaluator | Full defense + learning |
 | `strict` | full + advisory Claude Code count-active-constraints (SessionStart/U-32); Codex native hooks remain full | Full protection with instruction diagnostics |
 
 `setup.sh` also prepares the shared pre-commit wrapper at `~/.vibeguard/pre-commit` and installs this repository's git `pre-commit` and `pre-push` hooks during setup. The git `pre-push` hook owns force-push / branch-deletion protection; `pre-bash-guard` does not regex-match `git push --force`. To attach the wrapper to another repository, use `setup.sh project-init` or that repository's own install step.
@@ -481,7 +480,7 @@ not remote telemetry, does not upload data, and does not replace behavior eval
 gates. If the selected runtime lacks `observe value`, it renders an explicit
 evidence-unavailable state with an update/build action.
 
-Hooks live in `~/.codex/hooks.json` (requires `[features].hooks = true` in `config.toml`). All profiles install the Bash/apply_patch gates and file post-hooks below; the `post-build-check` and `Stop` rows are installed only by `full` and `strict`:
+Hooks live in `~/.codex/hooks.json` (requires `[features].hooks = true` in `config.toml`). All profiles install the Bash/apply_patch gates and file post-hooks below; the `Stop` rows are installed only by `full` and `strict`:
 
 | Event | Hook | Function |
 |-------|------|----------|
@@ -489,7 +488,6 @@ Hooks live in `~/.codex/hooks.json` (requires `[features].hooks = true` in `conf
 | `PermissionRequest(Bash)` | `pre-bash-guard.sh` | Fail-closed approval gate for dangerous commands |
 | `PreToolUse(Edit/Write via apply_patch)` | `pre-edit-guard.sh`, `pre-write-guard.sh` | File existence and search-first gates before patching |
 | `PermissionRequest(Edit/Write via apply_patch)` | `pre-edit-guard.sh`, `pre-write-guard.sh` | Fail-closed approval gate before privileged patching |
-| `PostToolUse(Bash/apply_patch)` | `post-build-check.sh` | Build failure detection after commands or patches |
 | `PostToolUse(Edit/Write via apply_patch)` | `post-edit-guard.sh`, `post-write-guard.sh` | Post-patch quality and duplicate checks |
 | `Stop` | `stop-guard.sh` | Uncommitted changes signal (logs a `gate` event, non-blocking Stop) |
 | `Stop` | `learn-evaluator.sh` | Session metrics collection |
@@ -538,7 +536,7 @@ protection.
 - `--strategy noop`: pure pass-through for debugging
 - Runtime: Rust-only via `vibeguard-runtime`; there is no Python app-server wrapper fallback.
 - App-server wrapper is optional and mainly for external orchestrators that already speak `codex app-server`
-- App-server wrapper scope today: Bash approval interception; `applyPatchApproval` / `item/fileChange/requestApproval` file-change guards mapped to `pre-edit`, `pre-write`, `post-edit`, and `post-write`; proxy-native `analysis-paralysis` warnings for read-only command streaks; post-turn stop/build feedback with explicit `thread/session/turn` propagation.
+- App-server wrapper scope today: Bash approval interception; `applyPatchApproval` / `item/fileChange/requestApproval` file-change guards mapped to `pre-edit`, `pre-write`, `post-edit`, and `post-write`; proxy-native `analysis-paralysis` warnings for read-only command streaks; post-turn stop/learning feedback with explicit `thread/session/turn` propagation.
 - Guard mode: `VIBEGUARD_CODEX_GUARD_MODE=guarded` by default. `decline` / `denied` tells Codex to continue the turn with a warning; `strict` upgrades file changes to `cancel` / `abort`; `advisory` emits warnings without blocking.
 - Default local protection should use native Codex hooks in `~/.codex/hooks.json`
 - Still unsupported on native Codex path: `Read`/`Glob`/`Grep` hooks such as `analysis-paralysis`

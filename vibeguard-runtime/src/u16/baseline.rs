@@ -50,6 +50,19 @@ pub(crate) fn evaluate_u16_baseline(
     U16BaselineDecision::LegacyDebt
 }
 
+pub(crate) const U16_REPAIR_GUIDANCE: &str = "Search for an existing module that owns the added behavior. If appropriate, extract only a responsibility related to this change. If no sensible in-scope split exists, propose a file-specific limit for the owner; reuse explicit authorization, never raise it merely to pass. Do not refactor unrelated code, compress statements, or remove useful comments to bypass the limit.";
+
+pub(crate) fn block_context(
+    file_path: &str,
+    old_lines: usize,
+    new_lines: usize,
+    limit: usize,
+) -> String {
+    format!(
+        "VIBEGUARD [U-16] block: {file_path}: {old_lines} -> {new_lines} lines (limit: {limit}). New oversized files and over-limit growth are blocked. Do NOT proceed with this change. {U16_REPAIR_GUIDANCE}"
+    )
+}
+
 pub(crate) fn legacy_debt_context(
     file_path: &str,
     old_lines: usize,
@@ -57,7 +70,7 @@ pub(crate) fn legacy_debt_context(
     limit: usize,
 ) -> String {
     format!(
-        "VIBEGUARD [U-16] [advisory] [U16_LEGACY_DEBT] OBSERVATION: legacy oversized file {} remains over the {limit}-line hard limit but did not grow ({old_lines} -> {new_lines} lines)\nSCOPE: keep the current change localized; continue reducing this file in focused follow-up work\nACTION: NONE - advisory only, continue without acknowledgement",
+        "VIBEGUARD [U-16] [advisory] [U16_LEGACY_DEBT] OBSERVATION: legacy oversized file {} remains over the {limit}-line hard limit but did not grow ({old_lines} -> {new_lines} lines)\nSCOPE: keep the current change localized; do not refactor unrelated code solely because this file is oversized\nACTION: NONE - advisory only, continue without acknowledgement",
         u16_display_name(file_path)
     )
 }
@@ -155,6 +168,7 @@ pub(crate) fn run_cli(args: &[String]) -> HandlerResult {
                 finding.path, finding.old_lines, finding.new_lines, finding.limit, finding.reason
             );
         }
+        eprintln!("U-16: {U16_REPAIR_GUIDANCE}");
         process::exit(1);
     }
 

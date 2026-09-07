@@ -17,7 +17,6 @@ pub(crate) struct AppServerHookCatalog {
     pub file_post_edit: String,
     pub file_post_write: String,
     pub analysis_observer: String,
-    pub post_turn_build: String,
     pub post_turn: Vec<String>,
     required: BTreeSet<String>,
 }
@@ -70,12 +69,7 @@ fn parse_app_server_hook_catalog(json: &str) -> Result<AppServerHookCatalog, Str
             .ok_or_else(|| format!("hooks/manifest.json hook {name} missing app_server.role"))?;
         if !matches!(
             role,
-            "command_pre"
-                | "file_pre"
-                | "file_post"
-                | "analysis_observer"
-                | "post_turn_build"
-                | "post_turn"
+            "command_pre" | "file_pre" | "file_post" | "analysis_observer" | "post_turn"
         ) {
             return Err(format!(
                 "hooks/manifest.json hook {name} has unsupported app_server.role {role}"
@@ -110,7 +104,6 @@ fn parse_app_server_hook_catalog(json: &str) -> Result<AppServerHookCatalog, Str
         file_post_edit: take_single_role(&mut roles, "file_post", Some("Edit"))?,
         file_post_write: take_single_role(&mut roles, "file_post", Some("Write"))?,
         analysis_observer: take_single_role(&mut roles, "analysis_observer", None)?,
-        post_turn_build: take_single_role(&mut roles, "post_turn_build", None)?,
         post_turn: take_many_role(&mut roles, "post_turn")?,
         required,
     };
@@ -409,7 +402,6 @@ mod tests {
         assert_eq!(catalog.file_post_edit, "post-edit-guard.sh");
         assert_eq!(catalog.file_post_write, "post-write-guard.sh");
         assert_eq!(catalog.analysis_observer, "analysis-paralysis-guard.sh");
-        assert_eq!(catalog.post_turn_build, "post-build-check.sh");
         assert_eq!(catalog.post_turn, ["stop-guard.sh", "learn-evaluator.sh"]);
         assert_eq!(
             catalog.required,
@@ -526,10 +518,10 @@ mod tests {
         }
 
         let env = HashMap::from([("VIBEGUARD_PROFILE".to_string(), "core".to_string())]);
-        let decision = evaluate_hook_policy("post-build-check.sh", repo.to_str(), &env);
+        let decision = evaluate_hook_policy("learn-evaluator.sh", repo.to_str(), &env);
 
         assert!(
-            matches!(decision, HookPolicyDecision::Skip(reason) if reason.contains("profile=core excludes post-build-check"))
+            matches!(decision, HookPolicyDecision::Skip(reason) if reason.contains("profile=core excludes learn-evaluator"))
         );
         if let Err(err) = fs::remove_dir_all(&repo) {
             panic!("temp policy dir should be removed: {err}");
@@ -565,10 +557,10 @@ mod tests {
             .expect("project config should be written");
         let env = HashMap::from([("VIBEGUARD_PROFILE".to_string(), "full".to_string())]);
 
-        let decision = evaluate_hook_policy("post-build-check.sh", repo.to_str(), &env);
+        let decision = evaluate_hook_policy("learn-evaluator.sh", repo.to_str(), &env);
 
         assert!(
-            matches!(decision, HookPolicyDecision::Skip(reason) if reason.contains("profile=core excludes post-build-check"))
+            matches!(decision, HookPolicyDecision::Skip(reason) if reason.contains("profile=core excludes learn-evaluator"))
         );
         fs::remove_dir_all(repo).expect("temp repo should be removed");
     }

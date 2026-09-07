@@ -65,40 +65,24 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-header "B-003 single-value signals over text recall"
+header "B-003 proportional evidence checks"
 assert_file_matches "$RULE_FILE" \
-  'single-value signals persisted to disk' \
-  "W-21 prefers persisted single-value signals"
+  'not a second mandatory verification pass' \
+  "W-21 does not duplicate successful verification"
 assert_file_matches "$RULE_FILE" \
-  'Fabrication risk grows with output length' \
-  "W-21 explains why long output is weaker evidence"
-
-header "B-004 accusing the environment is a red flag"
+  'does not trigger a fixed-count session termination' \
+  "Falsification does not automatically terminate a session"
 assert_file_matches "$RULE_FILE" \
-  'Accusing the environment is a red flag' \
-  "W-21 flags harness/hook accusations"
-assert_file_matches "$RULE_FILE" \
-  'never instruct a user to disable a hook' \
-  "W-21 blocks hook-disabling advice without out-of-session proof"
-
-header "B-005 session kill criterion"
-assert_file_matches "$RULE_FILE" \
-  'Session kill criterion' \
-  "W-21 defines a session kill criterion"
-assert_file_matches "$RULE_FILE" \
-  'falsified \*\*2 times\*\*' \
-  "W-21 sets the kill threshold at 2 falsified theories"
-assert_file_matches "$RULE_FILE" \
-  'Recover state from disk artifacts' \
-  "W-21 requires recovery from disk artifacts"
+  'obtain concrete evidence of that malfunction' \
+  "Hook malfunction claims still need evidence"
 
 header "B-006 W-01 step 0"
 assert_file_matches "$WORKFLOW_RULE" \
   '^0\. \*\*Channel trust check\*\*' \
   "W-01 protocol starts at step 0"
 assert_file_matches "$WORKFLOW_RULE" \
-  'my own reading or context is degraded' \
-  "W-01 step 0 names self-degradation as the first hypothesis"
+  'Consider reading mistakes and environment faults on their evidence' \
+  "W-01 checks observation and environment evidence"
 assert_file_matches "$WORKFLOW_RULE" \
   '^1\. \*\*Root-cause investigation\*\*' \
   "W-01 keeps the original root-cause investigation phase"
@@ -122,7 +106,7 @@ else
 fi
 
 TOTAL=$((TOTAL + 1))
-if grep -Eq '^\| W-20 \| Long tasks must pin runtime' "$GENERATED_UNIVERSAL"; then
+if grep -Eq '^\| W-20 \| Pin execution surfaces' "$GENERATED_UNIVERSAL"; then
   green "W-20 still belongs to the execution-pinning rule (no ID collision)"
   PASS=$((PASS + 1))
 else

@@ -303,6 +303,18 @@ fn codex_manifest_value_for_profile(
             .ok_or("hook codex.enabled must be boolean")?;
         validate_codex_optional_fields(codex)?;
         if !enabled {
+            // Ownership survives disabling registration so setup can remove managed entries.
+            if let Some(requested) = codex.get("script").and_then(Value::as_str) {
+                let expected = format!("vibeguard-{script}");
+                if requested != expected {
+                    return Err(format!(
+                        "Codex script must equal {expected} for canonical script {script}"
+                    )
+                    .into());
+                }
+                managed_scripts.insert(requested.to_string());
+                script_targets.insert(requested.to_string(), script.clone());
+            }
             continue;
         }
         let profile_allowed = if let Some(profile) = selected_profile {

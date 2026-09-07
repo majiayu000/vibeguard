@@ -622,10 +622,19 @@ fn settings_remove_stale_installed(data: &mut Value) -> bool {
 }
 
 fn claude_managed_scripts(repo_dir: &Path) -> SetupResult<BTreeSet<String>> {
-    Ok(claude_specs(repo_dir, None)?
-        .into_iter()
-        .map(|spec| spec.script)
-        .collect())
+    let manifest: Value = serde_json::from_str(&std::fs::read_to_string(
+        repo_dir.join("hooks/manifest.json"),
+    )?)?;
+    // Ownership survives disabling a hook; manual opt-ins stay user-owned.
+    let hooks = manifest["hooks"]
+        .as_array()
+        .ok_or("hooks manifest must contain a hooks array")?;
+    let mut scripts = BTreeSet::new();
+    for item in hooks.iter().filter(|item| item["kind"] == "hook") {
+        let script = item["script"].as_str().ok_or("hook script missing")?;
+        scripts.insert(script.to_owned());
+    }
+    Ok(scripts)
 }
 
 fn settings_spec_identity(spec: &ClaudeSpec) -> (String, String, String) {

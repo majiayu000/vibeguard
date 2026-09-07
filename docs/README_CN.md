@@ -80,7 +80,7 @@ Claude Code 的所有 profile 都使用精简全局指令，详细规则保留�
 
 ### 2. Hooks 实时拦截
 
-多数 hooks 都是在 AI 操作过程中自动触发。`skills-loader` 是可选的手动脚本；所有 Codex profile 都会部署原生 Bash/apply_patch/PermissionRequest 和文件 PostToolUse hooks，`full` 与 `strict` 还会部署 post-build 和 Stop hooks。读操作相关 hooks 仍只在 Claude Code 或 app-server wrapper 路径生效：
+多数 hooks 都是在 AI 操作过程中自动触发。`skills-loader` 与 `post-build-check` 是手动诊断脚本；完成一组相关修改后使用项目验证命令，提交时的构建闸门继续保留；所有 Codex profile 都会部署原生 Bash/apply_patch/PermissionRequest 和文件 PostToolUse hooks，`full` 与 `strict` 还会部署 Stop hooks。读操作相关 hooks 仍只在 Claude Code 或 app-server wrapper 路径生效：
 
 | 场景 | Hook | 结果 |
 |------|------|------|
@@ -94,7 +94,6 @@ Claude Code 的所有 profile 都使用精简全局指令，详细规则保留�
 | AI 编辑后留下 `console.log` / `print()` | `post-edit-guard` | **告警**，要求换成正式日志方案 |
 | AI 新建文件后出现重复定义或重名文件 | `post-write-guard` | **告警**，提示重复实现 |
 | AI 连续搜索/读取却迟迟不行动 | `analysis-paralysis-guard` | **提醒**，允许继续收集有效证据，保留只读范围，仅报告真实阻塞 |
-| `full` / `strict` 档位下编辑源码 | `post-build-check` | **告警**，自动跑对应语言的构建检查 |
 | `git commit` | `pre-commit-guard` | **拦截**，staged-only 质量检查超时 10 秒；构建检查独立超时 60 秒 |
 | AI 想结束但还没有验证改动 | `stop-guard` | **信号**，记录 Stop 提醒；Stop hook 退出 0 以避免反馈循环 |
 | `full` / `strict` 档位下会话结束 | `learn-evaluator` | **评估**，收集指标并识别纠错信号 |
@@ -228,7 +227,7 @@ VibeGuard 会同时给 Claude Code 和 Codex CLI 安装技能与 hooks。
 
 ### Codex Hooks
 
-`~/.codex/hooks.json` 中当前会按 profile 部署以下 VibeGuard 管理的 hook。Bash/apply_patch 闸门与文件 post-hooks 属于所有 profile；`post-build-check` 和 `Stop` 两类只由 `full`、`strict` 安装：
+`~/.codex/hooks.json` 中当前会按 profile 部署以下 VibeGuard 管理的 hook。Bash/apply_patch 闸门与文件 post-hooks 属于所有 profile；`Stop` hooks只由 `full`、`strict` 安装：
 
 | 事件 | Hook | 作用 |
 |------|------|------|
@@ -236,7 +235,6 @@ VibeGuard 会同时给 Claude Code 和 Codex CLI 安装技能与 hooks。
 | `PermissionRequest(Bash)` | `pre-bash-guard.sh` | 危险命令审批前的 fail-closed 闸门 |
 | `PreToolUse(Edit/Write via apply_patch)` | `pre-edit-guard.sh`、`pre-write-guard.sh` | patch 前检查文件存在性和 search-first |
 | `PermissionRequest(Edit/Write via apply_patch)` | `pre-edit-guard.sh`、`pre-write-guard.sh` | 需要额外权限的 patch 审批前闸门 |
-| `PostToolUse(Bash/apply_patch)` | `post-build-check.sh` | 命令或 patch 后的构建失败检测 |
 | `PostToolUse(Edit/Write via apply_patch)` | `post-edit-guard.sh`、`post-write-guard.sh` | patch 后质量检查与重复实现检查 |
 | `Stop` | `stop-guard.sh` | 未验证改动信号（记录 `gate` 事件，但 Stop 不阻塞） |
 | `Stop` | `learn-evaluator.sh` | 会话指标与纠错信号采集 |
@@ -258,7 +256,7 @@ Codex 中的 hook 命令名会使用 `vibeguard-*.sh` 命名空间，避免与�
 - `--strategy vibeguard`：默认模式，在外层补上 command、file-change、analysis-loop、post-turn gate
 - `--strategy noop`：纯透传，方便调试
 - app-server wrapper 是可选编排外壳，主要给已经使用 `codex app-server` 协议的上层系统
-- 当前 app-server wrapper 已覆盖：Bash 审批拦截，`applyPatchApproval` / `item/fileChange/requestApproval` 文件变更审批，`pre-edit`、`pre-write`、`post-edit`、`post-write`，读命令循环的 `analysis-paralysis` 提醒，以及 turn 结束后的 stop/build 反馈。
+- 当前 app-server wrapper 已覆盖：Bash 审批拦截，`applyPatchApproval` / `item/fileChange/requestApproval` 文件变更审批，`pre-edit`、`pre-write`、`post-edit`、`post-write`，读命令循环的 `analysis-paralysis` 提醒，以及 turn 结束后的 stop/learning 反馈。
 - 运行时是 Rust-only 的 `vibeguard-runtime` 子命令，不再保留 Python app-server wrapper 兼容入口。
 - 本地默认保护应使用 `~/.codex/hooks.json` 里的 Codex 原生 hooks
 - 原生 Codex 路径仍不支持：`Read`/`Glob`/`Grep` 这类 hook，例如 `analysis-paralysis`
@@ -341,7 +339,7 @@ Git 项目确实记录过该宿主的 VibeGuard hook 事件时，才会显示 `P
 |---------|----------|----------|
 | `minimal` | `pre-write` + `pre-edit` + `pre-bash` + `post-edit` + `post-write` | 最轻量 Bash/文件保护 |
 | `core` | `minimal` + Claude Code `analysis-paralysis`（Codex 原生 hooks 不支持） | 默认开发档 |
-| `full` | `core` + `stop-guard` + `learn-evaluator` + `post-build-check` | 完整防线 + 学习闭环 |
+| `full` | `core` + `stop-guard` + `learn-evaluator` | 完整防线 + 学习闭环 |
 | `strict` | `full` + Claude Code `count-active-constraints` (SessionStart/U-32，仅提示)；Codex 原生 hooks 仍为 `full` | 完整防护并提供指令诊断 |
 
 `setup.sh` 同时会准备共享的 pre-commit wrapper：`~/.vibeguard/pre-commit`，并给本仓库安装 git `pre-commit` 和 `pre-push` hooks。git `pre-push` hook 负责非快进推送/删除远端分支保护；`pre-bash-guard` 不用正则匹配 `git push --force`。要把 wrapper 接到其他仓库，用 `setup.sh project-init` 或目标仓库自己的安装步骤。

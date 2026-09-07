@@ -112,7 +112,7 @@ fn full_manifest() -> Value {
     json!({
         "hooks": [
             {
-                "script": "pre-a.sh",
+                "script": "pre-a.sh", "kind": "hook",
                 "claude": {
                     "enabled": true,
                     "event": "PreToolUse",
@@ -121,7 +121,7 @@ fn full_manifest() -> Value {
                 }
             },
             {
-                "script": "post-a.sh",
+                "script": "post-a.sh", "kind": "hook",
                 "claude": {
                     "enabled": true,
                     "event": "PostToolUse",
@@ -130,7 +130,7 @@ fn full_manifest() -> Value {
                 }
             },
             {
-                "script": "full-a.sh",
+                "script": "full-a.sh", "kind": "hook",
                 "claude": {
                     "enabled": true,
                     "event": "Stop",
@@ -139,7 +139,7 @@ fn full_manifest() -> Value {
                 }
             },
             {
-                "script": "strict-a.sh",
+                "script": "strict-a.sh", "kind": "hook",
                 "claude": {
                     "enabled": true,
                     "event": "SessionStart",
@@ -147,7 +147,7 @@ fn full_manifest() -> Value {
                     "profiles": ["strict"]
                 }
             },
-            {"script": "disabled.sh", "claude": {"enabled": false}}
+            {"script": "disabled.sh", "kind": "hook", "claude": {"enabled": false}}
         ]
     })
 }
@@ -155,7 +155,7 @@ fn full_manifest() -> Value {
 fn single_manifest() -> Value {
     json!({
         "hooks": [{
-            "script": "pre-a.sh",
+            "script": "pre-a.sh", "kind": "hook",
             "claude": {
                 "enabled": true,
                 "event": "PreToolUse",

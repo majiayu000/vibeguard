@@ -26,6 +26,19 @@ fn manifest_rejects_requested_canonical_script_mismatch() {
         Err(error) => error,
     };
     assert!(error.to_string().contains("for canonical script"));
+    let hook = manifest["hooks"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|hook| {
+            hook.pointer("/codex/script").and_then(Value::as_str) == Some("vibeguard-mismatched.sh")
+        })
+        .unwrap();
+    hook["codex"]["enabled"] = Value::Bool(false);
+    let error = codex_manifest_value(&manifest)
+        .err()
+        .expect("disabled ownership mismatch must fail");
+    assert!(error.to_string().contains("for canonical script"));
 }
 
 #[test]

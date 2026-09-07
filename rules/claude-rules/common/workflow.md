@@ -7,7 +7,7 @@
 Every bug fix must identify the root cause before changing code. Do not make blind "let's try this" patches.
 
 **Debugging protocol**:
-0. **Channel trust check** — before naming any mechanism, confirm the observation signals themselves are trustworthy. If tool outputs look self-contradictory (the same file shows different content, line numbers drift, output repeats or looks garbled), the FIRST hypothesis must be "my own reading or context is degraded", verified through an out-of-session channel — exit codes, file hashes, the on-disk session transcript, or git — before hypothesizing that the filesystem, harness, or hooks are broken. See W-21.
+0. **Channel trust check** — if observations are inconsistent, inspect the original output or rerun the smallest relevant check before naming a mechanism. Consider reading mistakes and environment faults on their evidence. See W-21.
 1. **Root-cause investigation** — read the error message, reproduce consistently, inspect recent changes, trace the data flow
 2. **Pattern analysis** — find a working reference implementation and compare it line by line
 3. **Hypothesis validation** — form one hypothesis, run the smallest test that can prove or disprove it, then switch hypotheses if needed
@@ -193,49 +193,11 @@ If the information gain shrinks for three consecutive rounds, stop that directio
 
 ## W-16: Verification commands must come from this session (strict)
 **Compact guidance:** Verification commands must come from this session. "Earlier passed" / "should work" do not count.
-When you say "fixed", "done", or "verified", you must cite command output produced in this session. Memory, "it passed earlier", or "it should work" do not count.
+Apply W-03 using actual command output produced in this session for the current change. Identify the command, result, and relevant limitation. Consult W-21 only when the evidence's provenance is uncertain; no duplicate verification artifact is required.
 
-**Sources** (four-source convergence, 2026-04-16):
-- Anthropic Claude Code Best Practices: verification is the **single highest-leverage thing**
-- Addy Osmani, "Trust, But Verify": blind trust in AI code leads to defects
-- Addy Osmani, "80% Problem": comprehension debt makes the final 20% easy to rubber-stamp
-- Martin Fowler, "Harness Engineering": both sensor-only and feedforward-only systems fail; you need both channels
+**FIX / SKIP**: Rerun checks affected by later changes and correct unsupported completion claims. Do not repeat an unchanged, already successful relevant check solely for bookkeeping.
 
-**Relation to W-03**:
-- W-03 says "verification is mandatory"
-- W-16 adds "verification must be fresh" — it must be generated within the current session boundary
-
-**Forbidden claim patterns**:
-- "This command passed earlier" — the code changed, so earlier output is stale
-- "Based on experience, this should work" — no execution means no verification
-- "The tests used to pass" — not relevant after the current changes
-- Referencing memory, conversation summary, or `git log` instead of actual command output
-
-**Correct claim pattern**:
-```
-Fixed: `cargo test --lib auth` passed in this session (tool output from Bash call N in this conversation)
-```
-
-**Mechanical checks (agent execution rules)**:
-- If output includes "fixed", "done", or "verified", trace backward and confirm this session contains the matching command execution.
-- If not, run verification first and only then make the claim.
-- For test and build checks, you need exit code 0 or an equivalent positive success signal, not merely the absence of error logs.
-
-**Rationalizations to reject**:
-- "The code is simple, so it does not need to run." -> simple code can still fail because of environment or dependency drift.
-- "I already reasoned it through, so it is fine." -> static reasoning does not cover runtime behavior.
-- "The app does not run locally." -> at minimum run a non-runtime check such as `cargo check`, `tsc --noEmit`, or `go build ./...`.
-- "Tests do not cover this path." -> add a minimal reproduction command such as `curl` or a Python REPL check.
-- "I ran it a few minutes ago." -> after code changes, old output is stale.
-- "CI will run it." -> CI happens later; local completion claims need local evidence.
-- "A teammate or an earlier commit already verified it." -> cross-person and cross-session evidence does not count as current-session verification.
-
-**Observability hook**: `hooks/stop-guard.sh` emits a W-16 advisory at Stop when the session edited source files but ran no verification command (issue #674 measured 1-file sessions ending unverified 4-5x more often than >10-file sessions). Advisory only; `VIBEGUARD_SUPPRESS_STOP_VERIFY=1` opts out for exploratory sessions.
-
-**Lightweight fallback** (Bridge R2.8 — fresh-context self-review):
-Use fresh-context self-review only for documentation-only or design-only changes where no command can prove the claim. It cannot replace command execution for code, configuration, setup, migration, or runtime behavior changes.
-
-The fallback must leave an auditable artifact, such as a transcript link/id, captured clean-context output, or a reviewer note with the exact prompt and verdict. Without that artifact, the fallback is only another unsupported claim. This evidence is weaker than command execution but stronger than a bare assertion.
+`hooks/stop-guard.sh` emits an advisory when source was edited without a recorded verification command. It does not establish that the checks were sufficient or passed.
 
 ## W-17: Fewer smarter gates beat more mechanical gates (strict)
 When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one more overlapping rule.

@@ -23,7 +23,7 @@ Reference index for VibeGuard rules that apply across languages, workflows, and 
 | U-13 | Environment variable names diverge across entry points | Medium | For example, `SERVER_DB_PATH` and `DESKTOP_DB_PATH` point at different defaults. |
 | U-14 | CLI default path uses a different base directory than GUI/server | Medium | Different entry points use different base directories. |
 | U-15 | Prefer immutability | Guideline | Create new objects instead of mutating existing ones. |
-| U-16 | Keep file size under control | Guideline | The default guard advises above 400 lines and blocks new files or growth above 800 lines, subject to the project's configured limit. |
+| U-16 | Keep file size under control | Guideline | Use the project's configured limit when present. |
 | U-17 | Handle errors completely | Strict | See U-29 for canonical error-handling guidance. |
 | U-18 | Validate inputs | Guideline | Validate all user input at system boundaries. |
 | U-19 | Follow the project's data-access boundaries | Guideline | Use the project's established data-access pattern. |
@@ -32,11 +32,11 @@ Reference index for VibeGuard rules that apply across languages, workflows, and 
 | U-22 | Verify changed behavior | Strict | Cover changed behavior, important failure paths, and regressions with the project's existing tests and tools. |
 | U-23 | No silent degradation | Strict | See U-29 for canonical no-silent-degradation guidance. |
 | U-24 | Keep naming changes within scope | Guideline | Follow the project's naming and compatibility policy. |
-| U-25 | Fix build failures first | Strict | When a build failure is detected, you must fix the build before continuing any other edits. |
-| U-26 | Declaration-execution completeness | Strict | When you declare framework components such as configs, traits, persistence layers, or state containers, you must also finish the startup... |
+| U-25 | Resolve build failures at a coherent change boundary | Strict | Cross-file changes may temporarily fail to build. |
+| U-26 | Declaration-execution completeness | Strict | A config, trait, persistence method, or state field only needs the integration required by the requested behavior and the project's archi... |
 | U-29 | Error-driven downgrade paths must be observable at error level | Strict | If an error causes user-visible missing data or incorrect output, you must log it at `error` level or raise it. |
-| U-30 | Cross-boundary Pydantic models must use `extra="allow"` | Strict | Any Pydantic model that receives external or cross-boundary data must set `extra="allow"` so `model_validate()` does not silently drop un... |
-| U-31 | Cache keys must include code version | Strict | When builder or generation logic changes, old cache entries must invalidate automatically. |
+| U-30 | Make unknown-field handling explicit at data boundaries | Strict | Choose unknown-field handling from the data contract, and prevent accidental loss of fields the consumer needs. |
+| U-31 | Invalidate caches when result semantics change | Strict | When a change alters a cached result's meaning or representation, ensure stale entries cannot be reused as current output. |
 | U-32 | Review instruction overload | Guideline | Treat instruction counts as a file-based estimate, not proof of runtime loading, semantic conflict, or task failure. |
 | U-33 | Code search defaults to glob/grep; large codebases require structural navigation | Strict | For agent code retrieval, plain glob/grep driven by the model remains the default for small and medium single-repository work. |
 
@@ -55,17 +55,17 @@ Reference index for VibeGuard rules that apply across languages, workflows, and 
 | W-13 | Review unproductive exploration | Guideline | Consecutive Read / Glob / Grep events are an observation, not proof of analysis paralysis. |
 | W-14 | Single-writer repository ownership | Strict | Concurrent writers make repository state and review evidence ambiguous even when their intended file sets do not overlap. |
 | W-15 | Low-information loop detection | Strict | If the information gain shrinks for three consecutive rounds, stop that direction and report it. |
-| W-16 | Verification commands must come from this session | Strict | When you say "fixed", "done", or "verified", you must cite command output produced in this session. |
+| W-16 | Verification commands must come from this session | Strict | Apply W-03 using actual command output produced in this session for the current change. |
 | W-17 | Fewer smarter gates beat more mechanical gates | Strict | When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one mor... |
 | W-18 | Evaluations must validate path, not only output | Strict | Output-only evaluations miss systemic failures. |
 | W-19 | AGENTS.md / CLAUDE.md sustainable size and pairing | Strict | Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when they grow past sustainable size, accumulate unpaired prohi... |
-| W-20 | Long tasks must pin runtime, tools, and rules | Strict | Long-running agent tasks must freeze the execution surface at the start of the task so a mid-flight runtime, tool, or rule change cannot... |
-| W-21 | Evidence must be provably executed, not merely cited | Strict | A long-context session can fabricate an experiment it never ran and then reason confidently from that fabricated observation. |
+| W-20 | Pin execution surfaces for explicitly reproducible experiments | Guideline | Capture runtime, tool, and rule versions when the user or project requires a reproducible experiment or controlled comparison. |
+| W-21 | Evidence must be provably executed, not merely cited | Strict | W-03/W-16 define the verification requirement. |
 | W-30 | Harness audits must measure boundary, fidelity, and stability | Strict | Agent harness evaluation must audit the trajectory, not only final task completion. |
 | W-37 | Agent learning must draw from successful and failed trajectories | Strict | An agent memory or experience layer that feeds future inference must learn from both successful and failed trajectories. |
 | W-38 | Tool-need recognition and tool-call execution are separate metrics | Strict | Tool-use evals must distinguish whether an agent recognized that a tool was needed from whether it actually called the tool. |
 | W-41 | Long-term vibe coding production should expose five invariants | Guideline | Long-term production workflows that rely on vibe-coding style agent iteration should make five risk-control invariants visible before tre... |
-| W-42 | Long-horizon artifact workflows must measure fidelity at checkpoints | Strict | Agent workflows that repeatedly modify and hand off the same artifact must measure semantic fidelity at fixed checkpoints. |
+| W-42 | Verify important invariants across artifact handoffs | Guideline | For repeated edits or handoffs, verify the facts, behavior, formulas, and other properties the user expects to preserve. |
 
 ## FIX / SKIP / DEFER guidance
 

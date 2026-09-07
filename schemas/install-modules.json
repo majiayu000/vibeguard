@@ -110,13 +110,12 @@
     {
       "id": "hooks-full",
       "kind": "hooks",
-      "description": "Full profile hooks (stop gate, learn evaluator, build check)",
+      "description": "Full profile hooks (stop advisory and learn evaluator)",
       "paths": [
         "hooks/stop-guard.sh",
-        "hooks/learn-evaluator.sh",
-        "hooks/post-build-check.sh"
+        "hooks/learn-evaluator.sh"
       ],
-      "target": "settings.json:Stop+PostToolUse",
+      "target": "settings.json:Stop",
       "defaultInstall": false,
       "profiles": ["full", "strict"],
       "cost": "medium",

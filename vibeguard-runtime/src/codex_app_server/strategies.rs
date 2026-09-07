@@ -12,7 +12,6 @@ use regex::Regex;
 use serde_json::{Value, json};
 use std::error::Error;
 use std::path::Path;
-use std::process::Command;
 
 struct AnalysisParalysisStrategy {
     read_re: Regex,
@@ -307,7 +306,6 @@ impl CommandApprovalStrategy {
 struct PostTurnFeedbackStrategy {
     hooks: HookRunner,
     hooks_at_turn_end: Vec<String>,
-    build_hook: String,
 }
 
 impl PostTurnFeedbackStrategy {
@@ -317,12 +315,6 @@ impl PostTurnFeedbackStrategy {
         for hook_name in &self.hooks_at_turn_end {
             let result = self.hooks.run(hook_name, &json!({}), Some(cwd), &env);
             messages.extend(feedback_messages(hook_name, &result));
-        }
-        for rel in changed_files(cwd) {
-            let payload =
-                json!({"tool_input": {"file_path": Path::new(cwd).join(rel).to_string_lossy()}});
-            let result = self.hooks.run(&self.build_hook, &payload, Some(cwd), &env);
-            messages.extend(feedback_messages(&self.build_hook, &result));
         }
         if messages.is_empty() {
             return None;
@@ -336,32 +328,6 @@ impl PostTurnFeedbackStrategy {
             "turnId": thread.turn_id,
         }))
     }
-}
-
-fn changed_files(cwd: &str) -> Vec<String> {
-    let mut changed = std::collections::BTreeSet::new();
-    for args in [
-        ["diff", "--name-only", "HEAD"].as_slice(),
-        ["diff", "--name-only", "--cached"].as_slice(),
-        ["ls-files", "--others", "--exclude-standard"].as_slice(),
-    ] {
-        let Ok(output) = Command::new("git").arg("-C").arg(cwd).args(args).output() else {
-            continue;
-        };
-        if !output.status.success() {
-            continue;
-        }
-        for line in String::from_utf8_lossy(&output.stdout).lines() {
-            let line = line.trim();
-            if matches!(
-                Path::new(line).extension().and_then(|s| s.to_str()),
-                Some("rs" | "py" | "ts" | "tsx" | "js" | "jsx" | "go")
-            ) {
-                changed.insert(line.to_string());
-            }
-        }
-    }
-    changed.into_iter().collect()
 }
 
 pub struct VibeGuardGateStrategy {
@@ -390,7 +356,6 @@ impl VibeGuardGateStrategy {
             post_turn_strategy: PostTurnFeedbackStrategy {
                 hooks,
                 hooks_at_turn_end: catalog.post_turn,
-                build_hook: catalog.post_turn_build,
             },
         })
     }

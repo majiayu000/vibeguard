@@ -29,7 +29,7 @@ bash ~/vibeguard/setup.sh --profile strict
 |---------|----------|
 | `minimal` | Critical pre-action interception with the smallest hook surface |
 | `core` | Default local development profile |
-| `full` | Adds stop/build/learning feedback for teams ready to review more signals |
+| `full` | Adds stop/learning feedback for teams ready to review more signals |
 | `strict` | Full hooks plus advisory Claude Code instruction-budget diagnostics |
 
 The setup commands configure the local install profile. For per-repository

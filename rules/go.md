@@ -20,10 +20,9 @@ These rules do not replace native linters. Treat lint-equivalent entries as agen
 | GO-06 | `append` in loops without preallocated capacity | Low | `append` in loops without preallocated capacity |
 | GO-07 | String concatenation with `+` instead of `strings.Builder` | Low | String concatenation with `+` instead of `strings.Builder` |
 | GO-08 | `defer` inside loops | High | This risks resource leaks because deferred calls wait until the function returns. |
-| GO-09 | Functions longer than 80 lines | Medium | Functions longer than 80 lines |
+| GO-09 | Review functions with mixed responsibilities | Guideline | Use function length as a review hint. |
 | GO-10 | Package-level `init()` has side effects | Medium | Network or file I/O happens in `init()`. |
 | GO-11 | `context.Background()` is used outside entry points | Medium | `context.Background()` is used outside entry points |
-| GO-12 | Struct fields are not ordered by size | Low | This wastes memory due to alignment padding. |
 
 ## Verification command
 

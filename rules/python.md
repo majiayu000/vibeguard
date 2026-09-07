@@ -14,16 +14,15 @@ These rules do not replace native linters. Treat lint-equivalent entries as agen
 | --- | ---- | -------- | ------- |
 | PY-01 | Mutable default parameters | High | `def f(x=[])` shares state across calls. |
 | PY-02 | Bare `except` blocks | Medium | `except:` or `except Exception` without logging or re-raising. |
-| PY-03 | `await` inside loops without `gather()` / `TaskGroup` | Medium | Serial waiting wastes time. |
+| PY-03 | Consider concurrency for independent async work | Guideline | Parallelize independent operations when it improves the current task and respects rate limits, ordering, and resource ownership. |
 | PY-04 | God class larger than 500 lines | Medium | More than 10 public methods. |
 | PY-05 | Repeated try/except patterns across many locations | Medium | Repeated try/except patterns across many locations |
 | PY-06 | Rebuilding regexes inside loops | Low | Rebuilding regexes inside loops |
 | PY-07 | String concatenation inside loops | Low | String concatenation inside loops |
 | PY-08 | Use of `eval()`, `exec()`, or `__import__()` | High | This dynamically executes untrusted code. |
-| PY-09 | Functions longer than 50 lines | Medium | Functions longer than 50 lines |
+| PY-09 | Review functions with mixed responsibilities | Guideline | Length is a review signal, not a reason to extract helpers by itself. |
 | PY-10 | Nesting deeper than 4 levels | Medium | Nesting deeper than 4 levels |
 | PY-11 | File operations without a `with` context manager | Medium | File operations without a `with` context manager |
-| PY-12 | Repeated calls to `len()`, `keys()`, or `values()` inside loops | Low | Repeated calls to `len()`, `keys()`, or `values()` inside loops |
 | PY-13 | Dead compatibility shim | Medium | A file that only re-exports symbols from another module and adds no behavior should be removed after migration is complete. |
 
 ## Python-adjacent global rules
@@ -32,8 +31,8 @@ These are global IDs with Python-specific scope in the canonical rule set:
 
 | ID | Rule | Severity | Summary |
 | --- | ---- | -------- | ------- |
-| U-30 | Cross-boundary Pydantic models must use `extra="allow"` | Strict | Any Pydantic model that receives external or cross-boundary data must set `extra="allow"` so `model_validate()` does not silently drop un... |
-| U-31 | Cache keys must include code version | Strict | When builder or generation logic changes, old cache entries must invalidate automatically. |
+| U-30 | Make unknown-field handling explicit at data boundaries | Strict | Choose unknown-field handling from the data contract, and prevent accidental loss of fields the consumer needs. |
+| U-31 | Invalidate caches when result semantics change | Strict | When a change alters a cached result's meaning or representation, ensure stale entries cannot be reused as current output. |
 
 ## Verification command
 

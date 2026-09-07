@@ -156,7 +156,7 @@ if site_index.exists():
     )
     expected_site_fragments = [
         (f'<div class="num">{rule_count}</div><div class="lbl">native rules</div>', "native rule stat"),
-        (f"{rule_count} constraints auto-loaded", "native rule layer count"),
+        (f"{rule_count} rules available on demand", "native rule layer count"),
         (f'<div class="num">{hook_count}</div><div class="lbl">Codex hook entries</div>', "Codex hook stat"),
     ]
     for fragment, label in expected_site_fragments:

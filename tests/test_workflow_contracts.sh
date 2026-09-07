@@ -297,28 +297,20 @@ template = (repo / "workflows/plan-flow/references/execplan-template.md").read_t
 pinning_rule = (repo / "rules/claude-rules/common/execution-pinning.md").read_text(
     encoding="utf-8"
 )
-installed_root = '${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}'
-if command.count(installed_root) < 5:
-    raise SystemExit("ExecPlan does not resolve its installed VibeGuard source in init/update/status")
-if command.count('--rules-dir') != 3:
-    raise SystemExit("ExecPlan does not pin the installed rules directory in all drift commands")
-state_artifact_root = '${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/execplan/'
-if state_artifact_root not in command or state_artifact_root not in template:
-    raise SystemExit("ExecPlan does not route snapshots outside the target repository")
-if '--snapshot artifacts/' in command or '--tool-inventory artifacts/' in command:
-    raise SystemExit("ExecPlan retains a target-repository artifact destination")
-if "--snapshot .vibeguard/" in pinning_rule or "--tool-inventory .vibeguard/" in pinning_rule:
-    raise SystemExit("W-20 rule retains a non-ignored process-artifact example")
-rule_artifact_root = '${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/runtime-pinning/<project-name>/'
-if pinning_rule.count(rule_artifact_root) < 2:
-    raise SystemExit("W-20 rule does not route process artifacts outside the target repository")
-if '<task>-runtime.snapshot' not in pinning_rule or '<task>-tool-inventory.txt' not in pinning_rule:
-    raise SystemExit("W-20 rule does not namespace process artifacts by task")
+if "Ordinary ExecPlans do not require runtime snapshots or tool inventories." not in command:
+    raise SystemExit("ExecPlan still requires ordinary task snapshots")
+if "check_runtime_drift.sh" in command or "**W-20 Runtime Snapshot**" in template:
+    raise SystemExit("ExecPlan retains automatic drift execution or mandatory fields")
+if "explicitly reproducible experiment" not in command:
+    raise SystemExit("ExecPlan does not distinguish requested reproducibility")
+if "Task duration, step count, delegation, and cross-session planning alone do not require snapshots." not in pinning_rule:
+    raise SystemExit("W-20 retains ordinary-task snapshot triggers")
+
 PY
-  printf '\033[32m  PASS: ExecPlan drift checks resolve the installed guard and rules\033[0m\n'
+  printf '\033[32m  PASS: ExecPlan snapshots are limited to requested reproducibility\033[0m\n'
   PASS=$((PASS + 1))
 else
-  printf '\033[31m  FAIL: ExecPlan drift checks resolve the installed guard and rules\033[0m\n'
+  printf '\033[31m  FAIL: ExecPlan snapshots are limited to requested reproducibility\033[0m\n'
   FAIL=$((FAIL + 1))
 fi
 

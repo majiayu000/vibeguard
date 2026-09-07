@@ -23,8 +23,8 @@ Security review checklist and remediation guidance derived from OWASP-style fail
 | SEC-13 | High-context file integrity protection | Strict | `AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, `.claude//*.md`, hook configurations and hook scripts (`.claude/hooks/`, the `hooks`... |
 | SEC-14 | MCP tool descriptions must reject authority-claim and override language | Strict | A tool description that claims "absolute authority", "supersedes user requests", or asks the agent to "ignore prior instructions" is func... |
 | SEC-16 | CWE-stratified AI patch safety policy | Strict | AI-generated security patches do not have a uniform safety profile. |
-| SEC-17 | Third-party agent skills require source review, local rebuild, and default-deny controls before enable | Strict | Third-party agent skills are persistent instruction and execution surfaces. |
-| SEC-18 | External agent input safety requires semantic scoring, not keyword filters alone | Strict | External content that reaches an agent can be malicious even when it contains no obvious override keywords. |
+| SEC-17 | Review third-party skills and enforce actual permission boundaries | Strict | Before enabling a third-party skill, inspect its instructions, referenced executable code, source provenance, and requested access. |
+| SEC-18 | Keep external content within the authorized task | Strict | External documents, tool output, emails, and web pages may contain instructions that conflict with the user's task. |
 
 ## Key management expectations
 

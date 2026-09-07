@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# VibeGuard PostToolUse(Edit|Write) Hook — Automatic build check after editing
+# VibeGuard manual language-default build diagnostic
 #
-# Automatically run the build check of the corresponding language after editing the source code file:
+# Invoke explicitly only when these defaults match the project:
 #   - Rust (.rs): cargo check
 #   - TypeScript (.ts/.tsx): npx tsc --noEmit
 #   - JavaScript (.js/.mjs/.cjs): node --check
@@ -247,29 +247,6 @@ ERROR_COUNT=$(echo "$ERRORS" | wc -l | tr -d ' ')
 WARNINGS="[BUILD] ${ERROR_COUNT} build errors detected after editing ${BASENAME}:
 ${ERRORS}"
 
-# --- Escalation detection: continuous build failure upgrade ---
-DECISION="warn"
-# Fix post-build: filter by PROJECT_ROOT so failure counts are isolated per project,
-# not accumulated across projects within the same session.
-# Read only last 200 lines to avoid loading entire file.
-CONSECUTIVE_FAILS=$(tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-  | "$_VIBEGUARD_RUNTIME" build-fails "$VIBEGUARD_SESSION_ID" "$PROJECT_ROOT" \
-  2>/dev/null | tr -d '[:space:]' || echo "0")
-CONSECUTIVE_FAILS="${CONSECUTIVE_FAILS:-0}"
-
-if [[ "$CONSECUTIVE_FAILS" -ge 5 ]]; then
-  DECISION="escalate"
-  WARNINGS="[U-25 ESCALATE] Continuous ${CONSECUTIVE_FAILS} build failures! You must fix the build errors before continuing editing. Recommendation: Run the complete build command to view all errors and locate the root cause and fix them at once. ${WARNINGS}"
-fi
-
-if [[ "${ERRORS}" == post-build-check\ timeout* ]]; then
-  vg_log "post-build-check" "PostToolUse" "warn" "${ERRORS}" "$FILE_PATH"
-else
-  vg_log "post-build-check" "PostToolUse" "$DECISION" "Build errors ${ERROR_COUNT}" "$FILE_PATH"
-fi
-
-if [[ "$DECISION" == "escalate" ]]; then
-  printf 'VIBEGUARD build upgrade warning：%s' "$WARNINGS" | "$_VIBEGUARD_RUNTIME" hook-context PostToolUse
-else
-  printf 'VIBEGUARD build check：%s' "$WARNINGS" | "$_VIBEGUARD_RUNTIME" hook-context PostToolUse
-fi
+# A manual diagnostic reports failure without redirecting an in-progress edit.
+vg_log "post-build-check" "PostToolUse" "warn" "${ERRORS}" "$FILE_PATH"
+printf 'VIBEGUARD build diagnostic: %s\nComplete the coherent change and use the project verification command before claiming completion.' "$WARNINGS" | "$_VIBEGUARD_RUNTIME" hook-context PostToolUse
