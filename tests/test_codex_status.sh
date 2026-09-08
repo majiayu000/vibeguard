@@ -149,12 +149,13 @@ for profile in minimal full strict; do
   assert_contains "${profile_status_out}" "Installed profile: ${profile}" "standalone status reads ${profile} from install-state"
   assert_contains "${profile_status_out}" "VibeGuard-managed Codex hooks semantic check passed" "standalone status validates ${profile} physical hooks"
   assert_contains "${profile_status_out}" "Repair command: bash setup.sh --yes --profile ${profile}" "${profile} repair command preserves profile"
+  profile_hooks="$(cat "${HOME}/.codex/hooks.json")"
+  assert_not_contains "${profile_hooks}" "vibeguard-post-build-check.sh" "${profile} physical hooks exclude automatic post-build"
   case "${profile}" in
     minimal)
       assert_cmd "minimal physical hooks exclude Stop" bash -c "! grep -q 'vibeguard-stop-guard.sh' '${HOME}/.codex/hooks.json'"
       ;;
     full|strict)
-      assert_cmd "${profile} physical hooks include post-build" grep -q 'vibeguard-post-build-check.sh' "${HOME}/.codex/hooks.json"
       assert_cmd "${profile} physical hooks include Stop" grep -q 'vibeguard-stop-guard.sh' "${HOME}/.codex/hooks.json"
       ;;
   esac
