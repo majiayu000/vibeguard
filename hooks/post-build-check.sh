@@ -11,6 +11,14 @@
 
 set -euo pipefail
 
+# Manual diagnostics are not host-dispatched wrappers. Pin unknown caller
+# identity before sourcing log.sh so parent-process inference cannot claim
+# Claude/Codex attribution for a direct Bash invocation.
+export VIBEGUARD_CLI="${VIBEGUARD_CLI:-unknown}"
+export VIBEGUARD_CLIENT="${VIBEGUARD_CLIENT:-unknown}"
+export VIBEGUARD_CLIENT_VARIANT="${VIBEGUARD_CLIENT_VARIANT:-unknown}"
+export VIBEGUARD_CALLER_EVIDENCE="${VIBEGUARD_CALLER_EVIDENCE:-manual-diagnostic}"
+
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${HOOK_DIR}/log.sh"
 source "${HOOK_DIR}/_lib/timeout.sh"

@@ -6,9 +6,9 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-mod hook_identity;
 mod managed_block;
 
+use crate::setup::hook_command_identity;
 use managed_block::{managed_blocks, marker_range, replace_managed_block, validate_managed_source};
 
 const RULE_COUNT_PLACEHOLDER: &str = "__VIBEGUARD_RULE_COUNT__";
@@ -687,18 +687,18 @@ fn settings_entry_has_script(entry: &Value, script: &str) -> bool {
 }
 
 fn settings_hook_is_script(hook: &Value, script: &str) -> bool {
-    hook.get("command")
-        .and_then(Value::as_str)
-        .is_some_and(|command| hook_identity::command_invokes_script(command, script))
+    hook.get("command").and_then(Value::as_str).is_some_and(|command| {
+        hook_command_identity::command_invokes_script(command, script, "run-hook.sh")
+    })
 }
 
 fn settings_hook_managed_script<'a>(
     hook: &Value,
     managed_scripts: &'a BTreeSet<String>,
 ) -> Option<&'a str> {
-    hook.get("command")
-        .and_then(Value::as_str)
-        .and_then(|command| hook_identity::managed_script_from_command(command, managed_scripts))
+    hook.get("command").and_then(Value::as_str).and_then(|command| {
+        hook_command_identity::managed_script_from_command(command, managed_scripts, "run-hook.sh")
+    })
 }
 
 fn settings_is_canonical(command: &str, script: &str) -> bool {

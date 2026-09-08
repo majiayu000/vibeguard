@@ -1,5 +1,5 @@
 use crate::setup::support::{
-    SetupResult, basename, home_dir, read_json_object, shell_quote, shell_split, write_json_atomic,
+    SetupResult, home_dir, read_json_object, shell_quote, shell_split, write_json_atomic,
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -719,20 +719,11 @@ fn codex_has_entry(
 }
 
 pub(crate) fn codex_command_is_managed(managed_scripts: &BTreeSet<String>, command: &str) -> bool {
-    let parts = shell_split(command);
-    for (idx, token) in parts.iter().enumerate() {
-        if basename(token) == "run-hook-codex.sh"
-            && let Some(next) = parts.get(idx + 1)
-            && managed_scripts.contains(basename(next))
-        {
-            return true;
-        }
-        let base = basename(token);
-        if managed_scripts.contains(base) {
-            return true;
-        }
-    }
-    false
+    crate::setup::hook_command_identity::command_is_managed(
+        managed_scripts,
+        command,
+        "run-hook-codex.sh",
+    )
 }
 
 pub(crate) fn codex_managed_scripts(repo_dir: &Path) -> SetupResult<BTreeSet<String>> {

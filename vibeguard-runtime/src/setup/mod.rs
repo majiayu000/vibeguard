@@ -4,6 +4,7 @@ pub mod codex_config;
 pub mod codex_hooks;
 pub mod codex_hooks_health;
 pub mod gemini_hooks;
+pub mod hook_command_identity;
 pub mod install_state;
 pub mod lock_lifecycle;
 pub mod managed_tree_remove;

@@ -472,8 +472,8 @@ RS-14 Guard (automatically detects Category 4 gaps)
 U-25 rules (resident, effective for all sessions)
   ↓ When the build fails
 Skill knowledge (providing specific repair strategies)
-  ↓ 5 consecutive failures
-Hook upgrade (forced warning, interrupting Agent cycle)
+  ↓ At a coherent change boundary
+Project verification command (task-directed; post-build-check.sh is optional manual)
 ```
 
 ## File list

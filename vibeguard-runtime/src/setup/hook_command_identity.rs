@@ -1,18 +1,19 @@
 use crate::setup::support::{basename, shell_split};
 use std::collections::BTreeSet;
 
-pub(super) fn command_invokes_script(command: &str, script: &str) -> bool {
+pub(crate) fn command_invokes_script(command: &str, script: &str, wrapper_name: &str) -> bool {
     let parts = shell_split(command);
-    parts_invokes_script(&parts, script)
+    parts_invokes_script(&parts, script, wrapper_name)
 }
 
-pub(super) fn managed_script_from_command<'a>(
+pub(crate) fn managed_script_from_command<'a>(
     command: &str,
     managed_scripts: &'a BTreeSet<String>,
+    wrapper_name: &str,
 ) -> Option<&'a str> {
     let parts = shell_split(command);
     for (index, token) in parts.iter().enumerate() {
-        if basename(token) != "run-hook.sh" || !wrapper_is_invoked(&parts, index) {
+        if basename(token) != wrapper_name || !wrapper_is_invoked(&parts, index) {
             continue;
         }
         let Some(next) = parts.get(index + 1) else {
@@ -34,9 +35,17 @@ pub(super) fn managed_script_from_command<'a>(
     None
 }
 
-fn parts_invokes_script(parts: &[String], script: &str) -> bool {
+pub(crate) fn command_is_managed(
+    managed_scripts: &BTreeSet<String>,
+    command: &str,
+    wrapper_name: &str,
+) -> bool {
+    managed_script_from_command(command, managed_scripts, wrapper_name).is_some()
+}
+
+fn parts_invokes_script(parts: &[String], script: &str, wrapper_name: &str) -> bool {
     for (index, token) in parts.iter().enumerate() {
-        if basename(token) == "run-hook.sh"
+        if basename(token) == wrapper_name
             && wrapper_is_invoked(parts, index)
             && parts
                 .get(index + 1)
@@ -144,17 +153,24 @@ fn is_shell(token: &str) -> bool {
 mod tests {
     use super::*;
 
-    fn managed_scripts() -> BTreeSet<String> {
+    fn claude_managed() -> BTreeSet<String> {
         BTreeSet::from(["pre-bash-guard.sh".to_string()])
+    }
+
+    fn codex_managed() -> BTreeSet<String> {
+        BTreeSet::from([
+            "vibeguard-pre-bash-guard.sh".to_string(),
+            "vibeguard-post-build-check.sh".to_string(),
+        ])
     }
 
     #[test]
     fn env_prefix_counts_as_wrapper_invocation() {
         let command = "env VIBEGUARD_FOO=1 /tmp/.vibeguard/run-hook.sh pre-bash-guard.sh";
 
-        assert!(command_invokes_script(command, "pre-bash-guard.sh"));
+        assert!(command_invokes_script(command, "pre-bash-guard.sh", "run-hook.sh"));
         assert_eq!(
-            managed_script_from_command(command, &managed_scripts()),
+            managed_script_from_command(command, &claude_managed(), "run-hook.sh"),
             Some("pre-bash-guard.sh")
         );
     }
@@ -163,9 +179,13 @@ mod tests {
     fn env_wrapped_tool_argument_does_not_count_as_wrapper_invocation() {
         let command = "env node /custom/audit.js /tmp/.vibeguard/run-hook.sh pre-bash-guard.sh";
 
-        assert!(!command_invokes_script(command, "pre-bash-guard.sh"));
+        assert!(!command_invokes_script(
+            command,
+            "pre-bash-guard.sh",
+            "run-hook.sh"
+        ));
         assert_eq!(
-            managed_script_from_command(command, &managed_scripts()),
+            managed_script_from_command(command, &claude_managed(), "run-hook.sh"),
             None
         );
     }
@@ -174,9 +194,13 @@ mod tests {
     fn shell_c_command_string_does_not_count_as_wrapper_invocation() {
         let command = "bash -c /tmp/.vibeguard/run-hook.sh pre-bash-guard.sh";
 
-        assert!(!command_invokes_script(command, "pre-bash-guard.sh"));
+        assert!(!command_invokes_script(
+            command,
+            "pre-bash-guard.sh",
+            "run-hook.sh"
+        ));
         assert_eq!(
-            managed_script_from_command(command, &managed_scripts()),
+            managed_script_from_command(command, &claude_managed(), "run-hook.sh"),
             None
         );
     }
@@ -185,10 +209,48 @@ mod tests {
     fn shell_non_command_option_counts_as_wrapper_invocation() {
         let command = "bash -e /tmp/.vibeguard/run-hook.sh pre-bash-guard.sh";
 
-        assert!(command_invokes_script(command, "pre-bash-guard.sh"));
+        assert!(command_invokes_script(command, "pre-bash-guard.sh", "run-hook.sh"));
         assert_eq!(
-            managed_script_from_command(command, &managed_scripts()),
+            managed_script_from_command(command, &claude_managed(), "run-hook.sh"),
             Some("pre-bash-guard.sh")
         );
+    }
+
+    #[test]
+    fn codex_wrapper_and_direct_script_are_managed() {
+        assert!(command_is_managed(
+            &codex_managed(),
+            "bash /tmp/run-hook-codex.sh vibeguard-pre-bash-guard.sh",
+            "run-hook-codex.sh"
+        ));
+        assert!(command_is_managed(
+            &codex_managed(),
+            "env VIBEGUARD_PROFILE=full bash /tmp/run-hook-codex.sh vibeguard-post-build-check.sh",
+            "run-hook-codex.sh"
+        ));
+        assert!(command_is_managed(
+            &codex_managed(),
+            "bash ~/.vibeguard/installed/hooks/vibeguard-post-build-check.sh",
+            "run-hook-codex.sh"
+        ));
+    }
+
+    #[test]
+    fn codex_argument_only_mention_is_not_managed() {
+        assert!(!command_is_managed(
+            &codex_managed(),
+            "node /custom/audit.js vibeguard-post-build-check.sh",
+            "run-hook-codex.sh"
+        ));
+        assert!(!command_is_managed(
+            &codex_managed(),
+            "python /tmp/user_hook.py --label vibeguard-pre-bash-guard.sh",
+            "run-hook-codex.sh"
+        ));
+        assert!(!command_is_managed(
+            &codex_managed(),
+            "env node /custom/audit.js /tmp/run-hook-codex.sh vibeguard-post-build-check.sh",
+            "run-hook-codex.sh"
+        ));
     }
 }
