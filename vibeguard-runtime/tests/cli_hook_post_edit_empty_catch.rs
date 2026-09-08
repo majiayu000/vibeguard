@@ -293,5 +293,96 @@ fn pre_edit_keeps_empty_catch_review_alongside_size_advisory() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("[JS-EMPTY-CATCH]"), "{stdout}");
     assert!(stdout.contains("U-16"), "{stdout}");
+    let events = parse_test_event_log(&log_file);
+    assert!(
+        events.last().unwrap()["reason"]
+            .as_str()
+            .unwrap()
+            .contains("JS-EMPTY-CATCH")
+    );
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn empty_catch_advisory_survives_log_failure() {
+    let (root, repo, log_root, _) = case_paths("empty-catch-log-failure");
+    let source = repo.join("service.js");
+    fs::write(&source, "try { run(); } catch (e) { report(e); }").unwrap();
+    let blocker = root.join("not-directory");
+    fs::write(&blocker, "blocked").unwrap();
+    let out = run_pre_edit(
+        &repo,
+        &log_root,
+        &blocker.join("events.jsonl"),
+        &edit_input(source.to_str().unwrap(), "report(e);", ""),
+    );
+    assert!(out.status.success(), "{out:?}");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("[JS-EMPTY-CATCH]"), "{stdout}");
+    assert!(
+        stdout.contains("internal") || stdout.contains("INTERNAL"),
+        "{stdout}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn native_patch_retains_context_for_the_pre_edit_detector() {
+    let cases = [
+        (
+            "try { first(); } catch {}\ntry { second(); } catch (e) {\n  report(e);\n}\n",
+            "@@\n try { first(); } catch {}\n try { second(); } catch (e) {\n-  report(e);\n }",
+            1,
+        ),
+        ("const ready = true;\n", "+try { run(); } catch {}", 1),
+        (
+            "try { first(); } catch {}\nconst keep = true;\ntry { second(); } catch (e) {\n  report(e);\n}\n",
+            "@@\n-try { first(); } catch {}\n+try { first(); } catch { report(); }\n const keep = true;\n@@\n try { second(); } catch (e) {\n-  report(e);\n }",
+            1,
+        ),
+        (
+            "class C {\n  catch(e) { report(e); }\n}\n",
+            "@@\n class C {\n-  catch(e) { report(e); }\n+  catch(e) {}\n }",
+            0,
+        ),
+    ];
+    for event in ["PreToolUse", "PermissionRequest"] {
+        for (before, body, expected_warnings) in cases {
+            let (root, repo, log_root, log_file) = case_paths(event);
+            let source = repo.join("service.js");
+            fs::write(&source, before).unwrap();
+            let patch = format!(
+                "*** Begin Patch\n*** Update File: {}\n{}\n*** End Patch",
+                source.display(),
+                body
+            );
+            let raw = json!({"hook_event_name": event, "tool_name": "apply_patch", "tool_input": {"command": patch}});
+            let mut child = bin()
+                .args(["codex-normalize-apply-patch", "vibeguard-pre-edit-guard.sh"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .as_mut()
+                .unwrap()
+                .write_all(raw.to_string().as_bytes())
+                .unwrap();
+            let normalized = child.wait_with_output().unwrap();
+            assert!(normalized.status.success(), "{normalized:?}");
+            let inputs = String::from_utf8(normalized.stdout).unwrap();
+            let mut warnings = 0;
+            for input in inputs.lines() {
+                let out = run_pre_edit(&repo, &log_root, &log_file, input);
+                assert!(out.status.success(), "{out:?}");
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                assert!(!stdout.contains("interception"), "{stdout}");
+                warnings += usize::from(stdout.contains("[JS-EMPTY-CATCH]"));
+            }
+            assert_eq!(warnings, expected_warnings, "{event}: {body}");
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
 }

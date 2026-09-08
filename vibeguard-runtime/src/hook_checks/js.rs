@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Clone, Copy)]
 enum LexState {
@@ -11,18 +11,65 @@ enum LexState {
 }
 
 pub(crate) fn empty_catch_count(source: &str) -> usize {
-    let code = mask_javascript_non_code(source);
-    count_empty_catch_clauses(&code)
+    catch_clauses(source)
+        .iter()
+        .filter(|clause| clause.empty)
+        .count()
 }
 
 pub(crate) fn introduced_empty_catch_count(old_source: &str, new_source: &str) -> usize {
-    empty_catch_count(new_source).saturating_sub(empty_catch_count(old_source))
+    if old_source.is_empty() {
+        return empty_catch_count(new_source);
+    }
+    let old_chars: Vec<_> = old_source.chars().collect();
+    let new_chars: Vec<_> = new_source.chars().collect();
+    let prefix = old_chars
+        .iter()
+        .zip(&new_chars)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let suffix = old_chars[prefix..]
+        .iter()
+        .rev()
+        .zip(new_chars[prefix..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    // Preserve untouched handlers and match the remaining clauses by their try block
+    // and binding; repairing a different handler must not cancel a new empty one.
+    let mut previous: HashMap<String, VecDeque<bool>> = HashMap::new();
+    for clause in catch_clauses(old_source) {
+        previous
+            .entry(clause.identity)
+            .or_default()
+            .push_back(clause.empty);
+    }
+    catch_clauses(new_source)
+        .into_iter()
+        .filter(|clause| {
+            let was_empty = previous
+                .get_mut(&clause.identity)
+                .and_then(VecDeque::pop_front);
+            clause.empty
+                && clause.end > prefix
+                && clause.start < new_chars.len() - suffix
+                && was_empty != Some(true)
+        })
+        .count()
 }
 
-fn count_empty_catch_clauses(code: &str) -> usize {
+struct CatchClause {
+    identity: String,
+    start: usize,
+    end: usize,
+    empty: bool,
+}
+
+fn catch_clauses(source: &str) -> Vec<CatchClause> {
+    let code = mask_javascript_non_code(source);
     let chars = code.chars().collect::<Vec<_>>();
+    let original = source.chars().collect::<Vec<_>>();
     let try_closings = try_block_closing_braces(&chars);
-    let mut count = 0;
+    let mut clauses = Vec::new();
     let mut index = 0;
     while index < chars.len() {
         if !is_identifier_start(chars[index]) {
@@ -34,17 +81,40 @@ fn count_empty_catch_clauses(code: &str) -> usize {
         while index < chars.len() && is_identifier_continue(chars[index]) {
             index += 1;
         }
-        if chars[start..index].iter().collect::<String>() == "catch"
-            && is_empty_catch_clause(&chars, &try_closings, start, index)
-        {
-            count += 1;
+        if chars[start..index].iter().collect::<String>() != "catch" {
+            continue;
         }
+        let Some(try_start) = previous_non_whitespace_index(&chars, start)
+            .and_then(|previous| try_closings.get(&previous))
+            .copied()
+        else {
+            continue;
+        };
+        let mut cursor = skip_whitespace(&chars, index);
+        if chars.get(cursor) == Some(&'(') {
+            let Some(binding_end) = balanced_end(&chars, cursor, '(', ')') else {
+                continue;
+            };
+            cursor = skip_whitespace(&chars, binding_end);
+        }
+        if chars.get(cursor) != Some(&'{') {
+            continue;
+        }
+        let Some(end) = balanced_end(&chars, cursor, '{', '}') else {
+            continue;
+        };
+        clauses.push(CatchClause {
+            identity: original[try_start..cursor].iter().collect(),
+            start,
+            end,
+            empty: chars.get(skip_whitespace(&chars, cursor + 1)) == Some(&'}'),
+        });
     }
-    count
+    clauses
 }
 
-fn try_block_closing_braces(chars: &[char]) -> HashSet<usize> {
-    let mut closings = HashSet::new();
+fn try_block_closing_braces(chars: &[char]) -> HashMap<usize, usize> {
+    let mut closings = HashMap::new();
     let mut blocks = Vec::new();
     let mut pending_try = false;
     let mut index = 0;
@@ -64,12 +134,12 @@ fn try_block_closing_braces(chars: &[char]) -> HashSet<usize> {
         }
         match chars[index] {
             '{' => {
-                blocks.push(pending_try);
+                blocks.push(pending_try.then_some(index));
                 pending_try = false;
             }
             '}' => {
-                if blocks.pop() == Some(true) {
-                    closings.insert(index);
+                if let Some(Some(start)) = blocks.pop() {
+                    closings.insert(index, start);
                 }
                 pending_try = false;
             }
@@ -78,32 +148,6 @@ fn try_block_closing_braces(chars: &[char]) -> HashSet<usize> {
         index += 1;
     }
     closings
-}
-
-fn is_empty_catch_clause(
-    chars: &[char],
-    try_closings: &HashSet<usize>,
-    start: usize,
-    end: usize,
-) -> bool {
-    if !previous_non_whitespace_index(chars, start)
-        .is_some_and(|previous| try_closings.contains(&previous))
-    {
-        return false;
-    }
-
-    let mut cursor = skip_whitespace(chars, end);
-    if chars.get(cursor) == Some(&'(') {
-        let Some(binding_end) = balanced_end(chars, cursor, '(', ')') else {
-            return false;
-        };
-        cursor = skip_whitespace(chars, binding_end);
-    }
-    if chars.get(cursor) != Some(&'{') {
-        return false;
-    }
-    cursor = skip_whitespace(chars, cursor + 1);
-    chars.get(cursor) == Some(&'}')
 }
 
 fn previous_non_whitespace_index(chars: &[char], before: usize) -> Option<usize> {
@@ -366,6 +410,38 @@ fn push_masked_escape(masked: &mut String, next: Option<char>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn catches_are_compared_independently_of_other_handlers() {
+        let old = "try { first(); } catch {}\ntry { second(); } catch (e) { report(e); }";
+        for new in [
+            "try { first(); } catch { report(); }\ntry { second(); } catch (e) {}",
+            "try { second(); } catch (e) {}",
+        ] {
+            assert_eq!(introduced_empty_catch_count(old, new), 1);
+        }
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { first(); } catch {}\ntry { second(); } catch {}",
+                "try { second(); } catch {}",
+            ),
+            0
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { run(\"first\"); } catch {}\ntry { run(\"second\"); } catch { report(); }",
+                "try { run(\"second\"); } catch {}",
+            ),
+            1
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { first(); } catch {}",
+                "try { changed(); } catch {}",
+            ),
+            0
+        );
+    }
 
     #[test]
     fn empty_catches_are_code_aware() {

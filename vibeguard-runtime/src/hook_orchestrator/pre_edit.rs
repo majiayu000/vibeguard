@@ -112,7 +112,8 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
         };
         empty_exception_edit_warning(&file_path, &content, &result)
     } else {
-        None
+        // Context-free insertion hunks append to the file in apply_patch.
+        empty_exception_edit_warning(&file_path, &content, &format!("{content}\n{new_string}"))
     };
 
     if let Some(context_or_reason) =
@@ -123,12 +124,14 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
                 block_with_log(ctx, start, &log_reason, &file_path, &output)?;
             }
             PreEditU16Result::Advisory {
-                log_reason,
+                mut log_reason,
                 mut context,
             } => {
                 if let Some(warning) = &empty_catch_warning {
                     context.push('\n');
                     context.push_str(warning);
+                    log_reason.push('\n');
+                    log_reason.push_str(warning);
                 }
                 if let Err(err) = append_hook_event(
                     ctx,
@@ -149,7 +152,7 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
     }
 
     if let Some(context) = empty_catch_warning {
-        append_hook_event(
+        if let Err(err) = append_hook_event(
             ctx,
             HookKind::PreEdit,
             decision::WARN,
@@ -157,8 +160,11 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
             &context,
             &file_path,
             elapsed_ms(start),
-        )?;
-        print_hook_context("PreToolUse", &context)?;
+        ) {
+            print_internal_warning(ctx, Some(&context), &err.to_string())?;
+        } else {
+            print_hook_context("PreToolUse", &context)?;
+        }
         return Ok(());
     }
 

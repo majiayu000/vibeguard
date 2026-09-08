@@ -3,6 +3,7 @@
 pub mod adapter;
 pub mod diag;
 
+use crate::codex_app_server::core::unified_diff_hunks;
 use crate::hook_checks::common::{read_stdin, truncate_chars};
 use serde_json::{Map, Value, json};
 
@@ -188,6 +189,7 @@ struct PatchChange {
     new_path: Option<String>,
     added_lines: Vec<String>,
     removed_lines: Vec<String>,
+    diff: String,
 }
 
 impl PatchChange {
@@ -198,6 +200,7 @@ impl PatchChange {
             new_path: None,
             added_lines: Vec::new(),
             removed_lines: Vec::new(),
+            diff: String::new(),
         }
     }
 }
@@ -232,6 +235,10 @@ fn parse_apply_patch(command: &str) -> Vec<PatchChange> {
         let Some(change) = current.as_mut() else {
             continue;
         };
+        if line.starts_with(['+', '-', ' ']) || line.starts_with("@@") {
+            change.diff.push_str(line);
+            change.diff.push('\n');
+        }
         if let Some(path) = line.strip_prefix("*** Move to: ") {
             change.new_path = Some(path.trim().to_string());
         } else if let Some(added) = line.strip_prefix('+') {
@@ -307,7 +314,30 @@ fn normalized_apply_patch_payloads(hook_name: &str, payload: &Map<String, Value>
             .collect();
     }
 
-    if hook_name.contains("pre-edit") || hook_name.contains("post-edit") {
+    if hook_name.contains("pre-edit") {
+        return changes
+            .iter()
+            .filter(|change| change.kind != "add")
+            .flat_map(|change| {
+                if change.kind == "delete" {
+                    return vec![normalized_tool_payload(payload, "Edit", json!({
+                        "file_path": change.path, "old_string": "", "new_string": "",
+                        "vibeguard_line_delta": 0,
+                    }))];
+                }
+                unified_diff_hunks(&change.diff).into_iter().map(|hunk| {
+                    normalized_tool_payload(payload, "Edit", json!({
+                        "file_path": change.path,
+                        "old_string": hunk.old_string,
+                        "new_string": hunk.new_string,
+                        "vibeguard_line_delta": change.added_lines.len() as i64 - change.removed_lines.len() as i64,
+                    }))
+                }).collect::<Vec<_>>()
+            })
+            .collect();
+    }
+
+    if hook_name.contains("post-edit") {
         return changes
             .into_iter()
             .filter(|change| change.kind != "add")
