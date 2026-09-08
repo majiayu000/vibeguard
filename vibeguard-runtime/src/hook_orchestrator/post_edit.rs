@@ -8,7 +8,6 @@ use crate::event_schema::{decision, status};
 use crate::hook_checks::common::{
     count_lines, is_pre_edit_u16_source, is_test_path, nested_str, read_lossy_file,
 };
-use crate::hook_checks::write::empty_exception_edit_warning;
 use crate::hook_orchestrator::context::RuntimeContext;
 use crate::hook_orchestrator::post_edit_history::{
     count_prior_warn_events, detect_history_warnings, read_post_edit_history_events,
@@ -61,7 +60,6 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
     };
 
     detect_stateless_warnings(&file_path, &new_string, &mut warnings);
-    detect_empty_exception(&file_path, &old_string, &new_string, &mut warnings);
     detect_history_warnings(
         ctx,
         start,
@@ -134,17 +132,6 @@ fn detect_stateless_warnings(file_path: &str, new_string: &str, warnings: &mut V
     detect_stubs(file_path, new_string, warnings);
     detect_large_edit(new_string, warnings);
     detect_u16_size(file_path, warnings);
-}
-
-fn detect_empty_exception(
-    file_path: &str,
-    old_string: &str,
-    new_string: &str,
-    warnings: &mut Vec<String>,
-) {
-    if let Some(warning) = empty_exception_edit_warning(file_path, old_string, new_string) {
-        warnings.push(warning);
-    }
 }
 
 fn detect_rust(file_path: &str, new_string: &str, warnings: &mut Vec<String>) {

@@ -10,6 +10,7 @@ use crate::hook_checks::common::{
     read_lossy_file,
 };
 use crate::hook_checks::scan::find_project_dir;
+use crate::hook_checks::write::empty_exception_edit_warning;
 use crate::hook_orchestrator::context::RuntimeContext;
 use crate::hook_orchestrator::{
     HookKind, Result, append_hook_event, elapsed_ms, print_policy_decision_kv,
@@ -100,6 +101,20 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
         return Ok(());
     }
 
+    // Inspect the proposed result while the original file and edit location are known.
+    // Post-edit snippets cannot locate a deletion or distinguish catch methods.
+    let empty_catch_warning = if !old_string.is_empty() {
+        let replace_all = data["tool_input"]["replace_all"].as_bool().unwrap_or(false);
+        let result = if replace_all {
+            content.replace(&old_string, &new_string)
+        } else {
+            content.replacen(&old_string, &new_string, 1)
+        };
+        empty_exception_edit_warning(&file_path, &content, &result)
+    } else {
+        None
+    };
+
     if let Some(context_or_reason) =
         pre_edit_u16_result(&data, &file_path, &content, &old_string, &new_string)
     {
@@ -109,8 +124,12 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
             }
             PreEditU16Result::Advisory {
                 log_reason,
-                context,
+                mut context,
             } => {
+                if let Some(warning) = &empty_catch_warning {
+                    context.push('\n');
+                    context.push_str(warning);
+                }
                 if let Err(err) = append_hook_event(
                     ctx,
                     HookKind::PreEdit,
@@ -126,6 +145,20 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
                 }
             }
         }
+        return Ok(());
+    }
+
+    if let Some(context) = empty_catch_warning {
+        append_hook_event(
+            ctx,
+            HookKind::PreEdit,
+            decision::WARN,
+            status::WARN,
+            &context,
+            &file_path,
+            elapsed_ms(start),
+        )?;
+        print_hook_context("PreToolUse", &context)?;
         return Ok(());
     }
 

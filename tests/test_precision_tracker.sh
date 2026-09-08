@@ -775,6 +775,28 @@ PY
 assert_contains "$merge_out" '"JS-EMPTY-CATCH": {"samples": 0, "stage": "experimental"}' "missing seed detector is copied into a live scorecard"
 assert_contains "$merge_out" '"RS-03": {"samples": 5, "stage": "error"}' "existing scorecard counts are not reset by seed merge"
 
+header "malformed live rule map must not be repaired"
+malformed_out="$(python3 - "$TRACKER" "$SEED_MERGE" <<'PYTEST'
+import importlib.util
+import sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("tracker", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+for value in [[], "broken", None, 42]:
+    scorecard = {"rules": value}
+    try:
+        module.merge_missing_seed_rules(scorecard, Path(sys.argv[2]))
+    except ValueError as exc:
+        assert "rules must be a JSON object" in str(exc)
+        assert scorecard["rules"] is value
+    else:
+        raise AssertionError("malformed rules accepted")
+print("malformed rules rejected and preserved")
+PYTEST
+)"
+assert_contains "$malformed_out" "malformed rules rejected and preserved" "invalid evidence is not overwritten"
+
 # =========================================================
 echo
 echo "=============================="

@@ -211,8 +211,7 @@ def merge_missing_seed_rules(
         return scorecard
     rules = scorecard.setdefault("rules", {})
     if not isinstance(rules, dict):
-        scorecard["rules"] = dict(seed_rules)
-        return scorecard
+        raise ValueError("scorecard rules must be a JSON object")
     for rule_id, entry in seed_rules.items():
         if rule_id not in rules:
             rules[rule_id] = entry

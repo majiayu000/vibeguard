@@ -506,8 +506,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     zero_trigger_rules: list[dict[str, Any]] = []
     if args.days >= ZERO_TRIGGER_MIN_DAYS and not no_data:
         for rule in sorted(scorecard.get("rules", {})):
-            if rule not in observed:
-                entry = scorecard["rules"][rule]
+            entry = scorecard["rules"][rule]
+            if rule not in observed and entry.get("mechanical", True):
                 zero_trigger_rules.append(
                     {
                         "rule": rule,

@@ -145,6 +145,7 @@
       "notes": "Edit-scoped empty catch detector; U-17 compatibility alias. Precision is unknown until at least 20 classified samples exist."
     },
     "U-29": {
+      "mechanical": false,
       "stage": "experimental",
       "precision": null,
       "samples": 0,

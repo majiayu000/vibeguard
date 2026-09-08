@@ -68,7 +68,7 @@ CLI, and the opt-in Gemini CLI BeforeTool adapter are supported.
 | `run-hook-codex.sh` | Codex wrapper | Codex output format adapter (decision:block to permissionDecision:deny). | - |
 | `run-hook-gemini.sh` | Gemini wrapper | Gemini BeforeTool routing and output adapter (decision:block to decision:deny). | - |
 | `pre-bash-guard.sh` | PreToolUse(Bash) | Intercept destructive local cleanup commands: dangerous rm -rf paths, git clean -f, and batch git checkout/restore .; force-push protection lives in the git pre-push hook. | native |
-| `pre-edit-guard.sh` | PreToolUse(Edit) | Block editing of non-existent files (anti-hallucination). | native |
+| `pre-edit-guard.sh` | PreToolUse(Edit) | Block editing of non-existent files; review newly introduced empty catch handlers using the complete proposed edit. | native |
 | `pre-write-guard.sh` | PreToolUse(Write) | Remind you to search for existing implementation before creating a new source code file. | native |
 | `post-edit-guard.sh` | PostToolUse(Edit) | Detect quality problems after editing: unwrap, console.log, hard-coded path, Go error discard, oversized diff, repeated editing of the same file (churn), W-15 consecutive same-file edit loop. | native |
 | `post-write-guard.sh` | PostToolUse(Write) | Detect duplicate definitions and files with the same name after creating a new file. | native |
