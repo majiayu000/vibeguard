@@ -305,13 +305,9 @@ fn pre_edit_check_with_readers(
         return Ok(());
     }
 
-    let move_destination =
-        nested_str(&data, "tool_input.vibeguard_move_destination").unwrap_or_default();
-    let w12_path = if !move_destination.is_empty() && is_test_infra_path(&move_destination) {
-        move_destination.as_str()
-    } else {
-        file_path.as_str()
-    };
+    let move_w12 = nested_str(&data, "tool_input.vibeguard_move_destination")
+        .filter(|dest| is_test_infra_path(dest));
+    let w12_path = move_w12.as_deref().unwrap_or(file_path.as_str());
     if is_test_infra_path(w12_path) {
         write_pre_edit_block(
             log_file,

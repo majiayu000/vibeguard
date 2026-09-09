@@ -56,7 +56,7 @@ _codex_write_normalized_inputs() {
 # Combine advisory contexts from multi-file apply_patch fan-out instead of
 # keeping only the first non-empty adapted output.
 _codex_merge_adapted_advisory() {
-  local accumulated="$1" next="$2"
+  local accumulated="$1" next="$2" payload merged status=0
   if [[ -z "${accumulated}" ]]; then
     printf '%s' "${next}"
     return 0
@@ -65,56 +65,16 @@ _codex_merge_adapted_advisory() {
     printf '%s' "${accumulated}"
     return 0
   fi
-  python3 -c '
-import json, sys
-
-def context(obj):
-    if not isinstance(obj, dict):
-        return ""
-    hook_specific = obj.get("hookSpecificOutput")
-    if isinstance(hook_specific, dict):
-        value = hook_specific.get("additionalContext")
-        if isinstance(value, str) and value:
-            return value
-    value = obj.get("systemMessage")
-    return value if isinstance(value, str) else ""
-
-try:
-    left = json.loads(sys.argv[1])
-    right = json.loads(sys.argv[2])
-except Exception:
-    print(sys.argv[1])
-    raise SystemExit(0)
-
-left_context = context(left)
-right_context = context(right)
-if not left_context:
-    print(sys.argv[2])
-    raise SystemExit(0)
-if not right_context:
-    print(sys.argv[1])
-    raise SystemExit(0)
-if left_context == right_context:
-    merged_context = left_context
-else:
-    merged_context = left_context + "\n" + right_context
-
-out = dict(left) if isinstance(left, dict) else {}
-hook_specific = out.get("hookSpecificOutput")
-if not isinstance(hook_specific, dict):
-    hook_specific = {}
-else:
-    hook_specific = dict(hook_specific)
-if isinstance(right, dict):
-    right_hook = right.get("hookSpecificOutput")
-    if isinstance(right_hook, dict) and "hookEventName" in right_hook and "hookEventName" not in hook_specific:
-        hook_specific["hookEventName"] = right_hook["hookEventName"]
-hook_specific["additionalContext"] = merged_context
-out["hookSpecificOutput"] = hook_specific
-if isinstance(out.get("systemMessage"), str):
-    out["systemMessage"] = merged_context
-print(json.dumps(out, ensure_ascii=False))
-' "${accumulated}" "${next}" 2>/dev/null || printf '%s' "${accumulated}"
+  payload=$(printf '[%s,%s]' "${accumulated}" "${next}")
+  if declare -F codex_runtime_stdin >/dev/null 2>&1; then
+    merged="$(codex_runtime_stdin "codex-merge-adapted-advisory" "${payload}")" || status=$?
+    if [[ "${status}" -eq 0 && -n "${merged}" ]]; then
+      printf '%s' "${merged}"
+      return 0
+    fi
+  fi
+  # Runtime merge unavailable: retain the first advisory rather than inventing JSON.
+  printf '%s' "${accumulated}"
 }
 
 codex_run_hook() {

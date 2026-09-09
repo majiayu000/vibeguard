@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 #[derive(Clone, Copy)]
 enum LexState {
@@ -34,31 +34,79 @@ pub(crate) fn introduced_empty_catch_count(old_source: &str, new_source: &str) -
         .zip(new_chars[prefix..].iter().rev())
         .take_while(|(a, b)| a == b)
         .count();
-    // Preserve untouched handlers and match the remaining clauses by their try block;
-    // repairing a different handler must not cancel a new empty one.
-    let mut previous: HashMap<String, VecDeque<bool>> = HashMap::new();
-    for clause in catch_clauses(old_source) {
-        previous
-            .entry(clause.identity)
-            .or_default()
-            .push_back(clause.empty);
-    }
+    // Preserve untouched handlers; correlate edited ones by try-body identity plus
+    // preceding context so duplicate try bodies do not share one FIFO queue.
+    let old_edited: Vec<_> = catch_clauses(old_source)
+        .into_iter()
+        .filter(|clause| clause.end > prefix && clause.start < old_chars.len() - suffix)
+        .collect();
+    let mut unmatched_old: Vec<Option<CatchClause>> =
+        old_edited.into_iter().map(Some).collect();
     catch_clauses(new_source)
         .into_iter()
+        .filter(|clause| clause.end > prefix && clause.start < new_chars.len() - suffix)
         .filter(|clause| {
-            let was_empty = previous
-                .get_mut(&clause.identity)
-                .and_then(VecDeque::pop_front);
-            clause.empty
-                && clause.end > prefix
-                && clause.start < new_chars.len() - suffix
-                && was_empty != Some(true)
+            if !clause.empty {
+                // Still consume the best prior match so later empties stay aligned.
+                let _ = take_best_prior_match(&mut unmatched_old, clause, &old_chars);
+                return false;
+            }
+            let was_empty = take_best_prior_match(&mut unmatched_old, clause, &old_chars)
+                .map(|prior| prior.empty);
+            was_empty != Some(true)
         })
+        .count()
+}
+
+fn take_best_prior_match(
+    unmatched_old: &mut [Option<CatchClause>],
+    new_clause: &CatchClause,
+    old_chars: &[char],
+) -> Option<CatchClause> {
+    let mut best: Option<(usize, i64)> = None;
+    for (index, candidate) in unmatched_old.iter().enumerate() {
+        let Some(old_clause) = candidate.as_ref() else {
+            continue;
+        };
+        let score = clause_match_score(old_clause, new_clause, old_chars);
+        if best.is_none_or(|(_, best_score)| score > best_score) {
+            best = Some((index, score));
+        }
+    }
+    let (index, score) = best?;
+    if score < 0 {
+        return None;
+    }
+    unmatched_old[index].take()
+}
+
+fn clause_match_score(old_clause: &CatchClause, new_clause: &CatchClause, old_chars: &[char]) -> i64 {
+    let context_score = shared_suffix_len(
+        &preceding_context(old_chars, old_clause.try_start),
+        &new_clause.preceding,
+    ) as i64;
+    let identity_bonus = i64::from(old_clause.identity == new_clause.identity) * 64;
+    let distance = (old_clause.start as i64 - new_clause.start as i64).abs();
+    identity_bonus + context_score * 4 - distance
+}
+
+fn preceding_context(chars: &[char], try_start: usize) -> String {
+    let start = try_start.saturating_sub(48);
+    chars[start..try_start].iter().collect()
+}
+
+fn shared_suffix_len(left: &str, right: &str) -> usize {
+    left.chars()
+        .rev()
+        .zip(right.chars().rev())
+        .take_while(|(a, b)| a == b)
         .count()
 }
 
 struct CatchClause {
     identity: String,
+    preceding: String,
+    try_start: usize,
     start: usize,
     end: usize,
     empty: bool,
@@ -105,8 +153,11 @@ fn catch_clauses(source: &str) -> Vec<CatchClause> {
         };
         // Identity is the try block only so binding-only renames of an already-empty
         // handler (catch (error) {} → catch {} / catch (e) {}) stay matched.
+        // preceding context disambiguates duplicate try bodies across handlers.
         clauses.push(CatchClause {
             identity: original[try_start..=try_close].iter().collect(),
+            preceding: preceding_context(&original, try_start),
+            try_start,
             start,
             end,
             empty: chars.get(skip_whitespace(&chars, cursor + 1)) == Some(&'}'),
@@ -454,6 +505,20 @@ mod tests {
             introduced_empty_catch_count(
                 "try { run(); } catch (error) {}",
                 "try { run(); } catch (e) {}",
+            ),
+            0
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "function a(){try{run()}catch{}} function b(){try{run()}catch{report()}}",
+                "function b(){try{run()}catch{}}",
+            ),
+            1
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "function a(){try{run()}catch{}} function b(){try{run()}catch{report()}}",
+                "function a(){try{run()}catch{}}",
             ),
             0
         );

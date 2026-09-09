@@ -235,6 +235,80 @@ pub fn adapt_permission_request(args: &[String]) -> Result {
     Ok(())
 }
 
+/// Merge two adapted Codex advisory JSON payloads, concatenating distinct contexts.
+pub fn merge_adapted_advisory(args: &[String]) -> Result {
+    ensure_no_args(args, "Usage: vibeguard-runtime codex-merge-adapted-advisory")?;
+    let input = read_stdin()?;
+    let Value::Array(items) = serde_json::from_str::<Value>(&input)
+        .map_err(|_| "Usage: stdin must be a JSON array of two advisory payloads")?
+    else {
+        return Err("Usage: stdin must be a JSON array of two advisory payloads".into());
+    };
+    if items.len() != 2 {
+        return Err("Usage: stdin must be a JSON array of two advisory payloads".into());
+    }
+    let merged = merge_adapted_advisory_values(&items[0], &items[1]);
+    print_json(&merged)?;
+    Ok(())
+}
+
+fn advisory_context(value: &Value) -> &str {
+    value
+        .get("hookSpecificOutput")
+        .and_then(Value::as_object)
+        .and_then(|hook| hook.get("additionalContext"))
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .or_else(|| value.get("systemMessage").and_then(Value::as_str))
+        .unwrap_or("")
+}
+
+fn merge_adapted_advisory_values(left: &Value, right: &Value) -> Value {
+    let left_context = advisory_context(left);
+    let right_context = advisory_context(right);
+    if left_context.is_empty() {
+        return right.clone();
+    }
+    if right_context.is_empty() {
+        return left.clone();
+    }
+    let merged_context = if left_context == right_context {
+        left_context.to_string()
+    } else {
+        format!("{left_context}\n{right_context}")
+    };
+
+    let mut out = left.as_object().cloned().unwrap_or_default();
+    let mut hook_specific = out
+        .get("hookSpecificOutput")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(right_hook) = right
+        .get("hookSpecificOutput")
+        .and_then(Value::as_object)
+        && right_hook.contains_key("hookEventName")
+        && !hook_specific.contains_key("hookEventName")
+    {
+        hook_specific.insert(
+            "hookEventName".to_string(),
+            right_hook["hookEventName"].clone(),
+        );
+    }
+    hook_specific.insert(
+        "additionalContext".to_string(),
+        Value::String(merged_context.clone()),
+    );
+    out.insert(
+        "hookSpecificOutput".to_string(),
+        Value::Object(hook_specific),
+    );
+    if out.get("systemMessage").and_then(Value::as_str).is_some() {
+        out.insert("systemMessage".to_string(), Value::String(merged_context));
+    }
+    Value::Object(out)
+}
+
 fn adapt_permission_request_result(input: &str) -> (i32, CodexAdaptedOutput) {
     let Ok(Value::Object(object)) = serde_json::from_str::<Value>(input) else {
         return (
@@ -328,5 +402,26 @@ mod tests {
         let (status, output) = adapt_output_for_event("PostToolUse", "{");
         assert_eq!(status, ADAPTER_FAILURE_STATUS);
         assert_eq!(output, CodexAdaptedOutput::Empty);
+    }
+
+    #[test]
+    fn merge_adapted_advisory_concatenates_distinct_contexts() {
+        let left = json!({
+            "systemMessage": "first",
+            "hookSpecificOutput": {"additionalContext": "first"},
+        });
+        let right = json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": "second",
+            },
+        });
+        let merged = merge_adapted_advisory_values(&left, &right);
+        assert_eq!(merged["systemMessage"], "first\nsecond");
+        assert_eq!(
+            merged["hookSpecificOutput"]["additionalContext"],
+            "first\nsecond"
+        );
+        assert_eq!(merged["hookSpecificOutput"]["hookEventName"], "PostToolUse");
     }
 }
