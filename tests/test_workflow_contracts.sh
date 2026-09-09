@@ -299,8 +299,14 @@ pinning_rule = (repo / "rules/claude-rules/common/execution-pinning.md").read_te
 )
 if "Ordinary ExecPlans do not require runtime snapshots or tool inventories." not in command:
     raise SystemExit("ExecPlan still requires ordinary task snapshots")
-if "check_runtime_drift.sh" in command or "**W-20 Runtime Snapshot**" in template:
-    raise SystemExit("ExecPlan retains automatic drift execution or mandatory fields")
+if "**W-20 Runtime Snapshot**" in template:
+    raise SystemExit("ExecPlan template retains mandatory W-20 Runtime Snapshot fields")
+# Experiment-scoped resume drift is allowed only when gated on recorded W-20 evidence.
+if "check_runtime_drift.sh" in command:
+    if "If Context records W-20 experiment evidence paths" not in command:
+        raise SystemExit("ExecPlan drift check is not gated on recorded experiment evidence")
+    if "ordinary ExecPlans skip this check" not in command:
+        raise SystemExit("ExecPlan does not exempt ordinary plans from drift checks")
 if "explicitly reproducible experiment" not in command:
     raise SystemExit("ExecPlan does not distinguish requested reproducibility")
 if "Task duration, step count, delegation, and cross-session planning alone do not require snapshots." not in pinning_rule:

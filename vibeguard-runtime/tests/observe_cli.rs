@@ -407,9 +407,9 @@ fn summary_human_and_json_render_deterministic_counts_and_durations() {
         "codex: 2 times",
         "1x  force push denied",
         concat!(
-            "1x  U-16: Keep the 400-line advisory and 800-line hard limit. Existing oversized ",
-            "files may be edited without growth; do not refactor unrelated code to pass ",
-            "the guard. (file too large)"
+            "1x  U-16: Keep the project's configured size limits (defaults: 400-line ",
+            "advisory, 800-line hard limit). Existing oversized files may be edited ",
+            "without growth; do not refactor unrela..."
         ),
     ] {
         assert!(
@@ -508,9 +508,9 @@ fn health_human_renders_risk_distributions_unknowns_and_truncation() {
         "{text}"
     );
     let cleaned = format!(
-        "U-16: Keep the 400-line advisory and 800-line hard limit. Existing oversized files \
-         may be edited without growth; do not refactor unrelated code to pass the guard. \
-         ({} secret)",
+        "U-16: Keep the project's configured size limits (defaults: 400-line advisory, \
+         800-line hard limit). Existing oversized files may be edited without growth; \
+         do not refactor unrelated code to pass the guard. ({} secret)",
         "x".repeat(120)
     );
     let expected_reason = format!("{}...", cleaned.chars().take(177).collect::<String>());
