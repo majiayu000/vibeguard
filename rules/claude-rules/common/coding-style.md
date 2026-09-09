@@ -34,7 +34,7 @@ If the intent is unclear, mark it as DEFER or ask the user to clarify.
 Create new objects instead of mutating existing ones. Treat function parameters as read-only.
 
 ## U-16: Keep file size under control (guideline)
-**Compact guidance:** Keep the 400-line advisory and 800-line hard limit. Existing oversized files may be edited without growth; do not refactor unrelated code to pass the guard.
+**Compact guidance:** Keep the project's configured size limits (defaults: 400-line advisory, 800-line hard limit). Existing oversized files may be edited without growth; do not refactor unrelated code to pass the guard.
 Use the project's configured limit when present. Block new oversized files, crossings of the limit, and growth of existing oversized files. Allow equal-size edits and reductions of legacy oversized files.
 
 **When blocked**:

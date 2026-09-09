@@ -465,7 +465,7 @@
     "U-16": {
       "name": "Keep file size under control",
       "severity": "Guideline",
-      "description": "Keep the 400-line advisory and 800-line hard limit. Existing oversized files may be edited without growth; do not refactor unrelated code to pass the guard."
+      "description": "Keep the project's configured size limits (defaults: 400-line advisory, 800-line hard limit). Existing oversized files may be edited without growth; do not refactor unrelated code to pass the guard."
     },
     "W-16": {
       "name": "Verification commands must come from this session",

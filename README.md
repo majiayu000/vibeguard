@@ -401,7 +401,7 @@ evidence of impact on the user's project. Keep it separate from local
 # Profiles
 bash ~/vibeguard/setup.sh                              # Install (default: core profile)
 bash ~/vibeguard/setup.sh --profile minimal           # Minimal: Bash/file gates + file post-hooks
-bash ~/vibeguard/setup.sh --profile full              # Full: adds Stop signal + Build Check + learning
+bash ~/vibeguard/setup.sh --profile full              # Full: adds Stop signal + learning
 bash ~/vibeguard/setup.sh --profile strict            # Strict: full hooks + advisory Claude Code U-32 SessionStart constraint budget
 
 # Language selection (records selected languages; detailed rules stay in the installed source and are not front-injected)

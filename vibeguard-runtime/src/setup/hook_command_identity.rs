@@ -168,7 +168,11 @@ mod tests {
     fn env_prefix_counts_as_wrapper_invocation() {
         let command = "env VIBEGUARD_FOO=1 /tmp/.vibeguard/run-hook.sh pre-bash-guard.sh";
 
-        assert!(command_invokes_script(command, "pre-bash-guard.sh", "run-hook.sh"));
+        assert!(command_invokes_script(
+            command,
+            "pre-bash-guard.sh",
+            "run-hook.sh"
+        ));
         assert_eq!(
             managed_script_from_command(command, &claude_managed(), "run-hook.sh"),
             Some("pre-bash-guard.sh")
@@ -209,7 +213,11 @@ mod tests {
     fn shell_non_command_option_counts_as_wrapper_invocation() {
         let command = "bash -e /tmp/.vibeguard/run-hook.sh pre-bash-guard.sh";
 
-        assert!(command_invokes_script(command, "pre-bash-guard.sh", "run-hook.sh"));
+        assert!(command_invokes_script(
+            command,
+            "pre-bash-guard.sh",
+            "run-hook.sh"
+        ));
         assert_eq!(
             managed_script_from_command(command, &claude_managed(), "run-hook.sh"),
             Some("pre-bash-guard.sh")

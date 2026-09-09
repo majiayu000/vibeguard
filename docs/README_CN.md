@@ -299,7 +299,7 @@ Rust/Cargo 构建。
 # Profiles
 bash ~/vibeguard/setup.sh                              # 默认 core profile
 bash ~/vibeguard/setup.sh --profile minimal           # 最轻量 Bash/文件闸门 + 文件 post-hooks
-bash ~/vibeguard/setup.sh --profile full              # 增加 Stop 信号、Build Check、学习闭环
+bash ~/vibeguard/setup.sh --profile full              # 增加 Stop 信号、学习闭环
 bash ~/vibeguard/setup.sh --profile strict            # full hooks + Claude Code U-32 SessionStart 约束预算（仅提示）
 
 # 记录所选语言；详细规则留在已安装源码树中，不再前注入

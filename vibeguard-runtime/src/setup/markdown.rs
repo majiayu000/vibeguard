@@ -687,18 +687,26 @@ fn settings_entry_has_script(entry: &Value, script: &str) -> bool {
 }
 
 fn settings_hook_is_script(hook: &Value, script: &str) -> bool {
-    hook.get("command").and_then(Value::as_str).is_some_and(|command| {
-        hook_command_identity::command_invokes_script(command, script, "run-hook.sh")
-    })
+    hook.get("command")
+        .and_then(Value::as_str)
+        .is_some_and(|command| {
+            hook_command_identity::command_invokes_script(command, script, "run-hook.sh")
+        })
 }
 
 fn settings_hook_managed_script<'a>(
     hook: &Value,
     managed_scripts: &'a BTreeSet<String>,
 ) -> Option<&'a str> {
-    hook.get("command").and_then(Value::as_str).and_then(|command| {
-        hook_command_identity::managed_script_from_command(command, managed_scripts, "run-hook.sh")
-    })
+    hook.get("command")
+        .and_then(Value::as_str)
+        .and_then(|command| {
+            hook_command_identity::managed_script_from_command(
+                command,
+                managed_scripts,
+                "run-hook.sh",
+            )
+        })
 }
 
 fn settings_is_canonical(command: &str, script: &str) -> bool {

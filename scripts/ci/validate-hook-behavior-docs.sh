@@ -47,8 +47,10 @@ require_present "README.md" '| `Stop` | `stop-guard.sh` | Uncommitted changes si
   "README.md Codex hook table must explain stop-guard logs gate events without blocking Stop"
 require_absent "README.md" 'Stop Gate' \
   "README.md must not use the old Stop Gate wording"
-require_present "README.md" 'Full: adds Stop signal + Build Check + learning' \
+require_present "README.md" 'Full: adds Stop signal + learning' \
   "README.md installation example must describe Stop signal"
+require_absent "README.md" 'Full: adds Stop signal + Build Check + learning' \
+  "README.md installation example must not advertise automatic Build Check for full"
 require_absent "README.md" 'Dangerous shell/git commands (`rm -rf`, `push --force`, `reset --hard`)' \
   "README.md summary must not advertise reset/force-push as one pre-bash command bucket"
 require_present "README.md" 'Dangerous shell/git operations (`rm -rf` dangerous paths, `git clean -f`, non-fast-forward pushes)' \
@@ -84,8 +86,10 @@ require_present "docs/README_CN.md" '| `Stop` | `stop-guard.sh` | 未验证改�
   "docs/README_CN.md Codex hook table must explain non-blocking Stop behavior"
 require_absent "docs/README_CN.md" 'Stop Gate' \
   "docs/README_CN.md must not use the old Stop Gate wording"
-require_present "docs/README_CN.md" '增加 Stop 信号、Build Check、学习闭环' \
+require_present "docs/README_CN.md" '增加 Stop 信号、学习闭环' \
   "docs/README_CN.md installation example must describe Stop signal"
+require_absent "docs/README_CN.md" '增加 Stop 信号、Build Check、学习闭环' \
+  "docs/README_CN.md installation example must not advertise automatic Build Check for full"
 require_present "docs/README_CN.md" '| AI 创建新的 `.py/.ts/.rs/.go/.js` 文件 | `pre-write-guard` | 默认 **告警**' \
   "docs/README_CN.md must describe L1 new-source behavior as warn-by-default"
 require_absent "docs/README_CN.md" '| AI 执行 `git push --force`、`rm -rf`、`git clean -fd`、批量 `git checkout/restore .` | `pre-bash-guard`' \
@@ -156,8 +160,10 @@ require_present "docs/CLAUDE.md.example" '| git `pre-push` detects non-fast-forw
 
 require_absent "scripts/setup/install.sh" 'Stop Gate' \
   "scripts/setup/install.sh usage comments must not use the old Stop Gate wording"
-require_present "scripts/setup/install.sh" 'Install full (including Stop signal/Build Check)' \
+require_present "scripts/setup/install.sh" 'Install full (including Stop signal)' \
   "scripts/setup/install.sh usage comments must describe Stop signal"
+require_absent "scripts/setup/install.sh" 'Install full (including Stop signal/Build Check)' \
+  "scripts/setup/install.sh usage comments must not advertise automatic Build Check for full"
 require_absent "scripts/setup/install.sh" 'Strict mode (same hook set as full)' \
   "scripts/setup/install.sh usage comments must not hide the strict-only U-32 hook"
 require_present "scripts/setup/install.sh" 'Strict mode (full hooks + advisory Claude Code U-32 SessionStart constraint budget)' \
@@ -247,8 +253,12 @@ require_present "docs/assets/demo.cast" 'DENIED: decision=block' \
 require_present "docs/assets/demo.cast" 'shell executor was never started' \
   "demo cast must prove the destructive command was not executed"
 
-require_present "scripts/setup/targets/claude-home.sh" 'Stop signal + Build check + Learn evaluator' \
-  "setup status must avoid the old Stop gate wording"
+require_present "scripts/setup/targets/claude-home.sh" 'Stop signal + Learn evaluator' \
+  "setup status must describe full-profile Stop and Learn hooks"
+require_absent "scripts/setup/targets/claude-home.sh" 'Stop signal + Build check + Learn evaluator' \
+  "setup status must not advertise automatic Build Check for full"
+require_absent "schemas/install-modules.json" 'stop gate + learn evaluator + build check' \
+  "install-modules full profile must not advertise automatic Build Check"
 
 if [[ "$failures" -gt 0 ]]; then
   exit 1

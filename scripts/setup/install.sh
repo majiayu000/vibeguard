@@ -3,7 +3,7 @@ set -euo pipefail
 # VibeGuard Setup Script
 # One-click deployment of anti-hallucination specifications to ~/.claude/ and ~/.codex/
 # bash setup.sh # Install (default core)
-# bash setup.sh --profile full # Install full (including Stop signal/Build Check)
+# bash setup.sh --profile full # Install full (including Stop signal)
 # bash setup.sh --profile minimal # Minimal installation (pre-hooks only)
 # bash setup.sh --profile strict # Strict mode (full hooks + advisory Claude Code U-32 SessionStart constraint budget)
 # bash setup.sh --build-from-source # Build vibeguard-runtime with cargo instead of downloading a release binary

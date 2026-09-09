@@ -257,7 +257,7 @@
       ]
     },
     "full": {
-      "description": "Full defense — core + stop gate + learn evaluator + build check",
+      "description": "Full defense — core + stop gate + learn evaluator",
       "extends": "core",
       "modules": ["hooks-full"]
     },
