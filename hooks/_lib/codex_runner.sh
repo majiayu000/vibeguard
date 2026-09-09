@@ -53,6 +53,70 @@ _codex_write_normalized_inputs() {
   return 1
 }
 
+# Combine advisory contexts from multi-file apply_patch fan-out instead of
+# keeping only the first non-empty adapted output.
+_codex_merge_adapted_advisory() {
+  local accumulated="$1" next="$2"
+  if [[ -z "${accumulated}" ]]; then
+    printf '%s' "${next}"
+    return 0
+  fi
+  if [[ -z "${next}" ]]; then
+    printf '%s' "${accumulated}"
+    return 0
+  fi
+  python3 -c '
+import json, sys
+
+def context(obj):
+    if not isinstance(obj, dict):
+        return ""
+    hook_specific = obj.get("hookSpecificOutput")
+    if isinstance(hook_specific, dict):
+        value = hook_specific.get("additionalContext")
+        if isinstance(value, str) and value:
+            return value
+    value = obj.get("systemMessage")
+    return value if isinstance(value, str) else ""
+
+try:
+    left = json.loads(sys.argv[1])
+    right = json.loads(sys.argv[2])
+except Exception:
+    print(sys.argv[1])
+    raise SystemExit(0)
+
+left_context = context(left)
+right_context = context(right)
+if not left_context:
+    print(sys.argv[2])
+    raise SystemExit(0)
+if not right_context:
+    print(sys.argv[1])
+    raise SystemExit(0)
+if left_context == right_context:
+    merged_context = left_context
+else:
+    merged_context = left_context + "\n" + right_context
+
+out = dict(left) if isinstance(left, dict) else {}
+hook_specific = out.get("hookSpecificOutput")
+if not isinstance(hook_specific, dict):
+    hook_specific = {}
+else:
+    hook_specific = dict(hook_specific)
+if isinstance(right, dict):
+    right_hook = right.get("hookSpecificOutput")
+    if isinstance(right_hook, dict) and "hookEventName" in right_hook and "hookEventName" not in hook_specific:
+        hook_specific["hookEventName"] = right_hook["hookEventName"]
+hook_specific["additionalContext"] = merged_context
+out["hookSpecificOutput"] = hook_specific
+if isinstance(out.get("systemMessage"), str):
+    out["systemMessage"] = merged_context
+print(json.dumps(out, ensure_ascii=False))
+' "${accumulated}" "${next}" 2>/dev/null || printf '%s' "${accumulated}"
+}
+
 codex_run_hook() {
   local hook_name="$1" hook_path="$2" input="$3"
   shift 3
@@ -65,7 +129,7 @@ codex_run_hook() {
     return 0
   fi
 
-  local first_adapted_output=""
+  local merged_adapted_output=""
   local normalized_input normalized_payload_file hook_output hook_exit hook_err_file hook_err event_name
   local adapted_status adapted_output finalized_output
   while IFS= read -r normalized_input || [[ -n "${normalized_input:-}" ]]; do
@@ -202,7 +266,7 @@ codex_run_hook() {
           printf '%s\n' "${adapted_output}"
           return 0
         fi
-        [[ -n "${first_adapted_output}" ]] || first_adapted_output="${adapted_output}"
+        merged_adapted_output="$(_codex_merge_adapted_advisory "${merged_adapted_output}" "${adapted_output}")"
       fi
     elif [[ "${event_name}" == "PermissionRequest" ]]; then
       if [[ ${adapted_status} -ne 0 ]]; then
@@ -220,7 +284,7 @@ codex_run_hook() {
           printf '%s\n' "${adapted_output}"
           return 0
         fi
-        [[ -n "${first_adapted_output}" ]] || first_adapted_output="${adapted_output}"
+        merged_adapted_output="$(_codex_merge_adapted_advisory "${merged_adapted_output}" "${adapted_output}")"
       fi
     elif [[ "${event_name}" == "PostToolUse" ]]; then
       if [[ ${adapted_status} -ne 0 ]]; then
@@ -235,13 +299,13 @@ codex_run_hook() {
           printf '%s\n' "${adapted_output}"
           return 0
         fi
-        [[ -n "${first_adapted_output}" ]] || first_adapted_output="${adapted_output}"
+        merged_adapted_output="$(_codex_merge_adapted_advisory "${merged_adapted_output}" "${adapted_output}")"
       fi
     else
-      [[ -n "${first_adapted_output}" ]] || first_adapted_output="${adapted_output}"
+      merged_adapted_output="$(_codex_merge_adapted_advisory "${merged_adapted_output}" "${adapted_output}")"
     fi
   done <"${normalized_file}"
 
   rm -f "${normalized_file}" 2>/dev/null || true
-  [[ -z "${first_adapted_output}" ]] || printf '%s\n' "${first_adapted_output}"
+  [[ -z "${merged_adapted_output}" ]] || printf '%s\n' "${merged_adapted_output}"
 }

@@ -258,33 +258,51 @@ impl FileChangeApprovalStrategy {
             "update" => {
                 let pre_hook = self.catalog.file_pre_edit.as_str();
                 let post_hook = self.catalog.file_post_edit.as_str();
-                for hunk in unified_diff_hunks(&patch.diff) {
-                    let pre_payload = json!({
-                        "tool_input": {
-                            "file_path": path,
-                            "old_string": hunk.old_string,
-                            "new_string": hunk.new_string,
-                        }
+                let hunks = unified_diff_hunks(&patch.diff);
+                // Evaluate the complete multi-hunk patch in one pre-edit call so
+                // try/catch introductions split across hunks are still reviewed.
+                if !hunks.is_empty() {
+                    let first = &hunks[0];
+                    let mut tool_input = json!({
+                        "file_path": path,
+                        "old_string": first.old_string,
+                        "new_string": first.new_string,
                     });
+                    if hunks.len() > 1 {
+                        let patch_hunks: Vec<Value> = hunks
+                            .iter()
+                            .map(|hunk| {
+                                json!({
+                                    "old_string": hunk.old_string,
+                                    "new_string": hunk.new_string,
+                                })
+                            })
+                            .collect();
+                        tool_input["vibeguard_patch_hunks"] = Value::Array(patch_hunks);
+                    }
+                    let pre_payload = json!({ "tool_input": tool_input });
                     let pre = self.hooks.run(pre_hook, &pre_payload, cwd, env);
                     let blocked = self.is_blocking_pre_result(&pre);
                     results.push((pre_hook.into(), "pre", pre));
-                    if blocked {
-                        break;
-                    }
-                    if run_post_hooks {
-                        let post_payload = json!({
-                            "tool_input": {
-                                "file_path": path,
-                                "old_string": hunk.old_string,
-                                "new_string": if hunk.added_string.is_empty() { hunk.new_string } else { hunk.added_string },
-                            }
-                        });
-                        results.push((
-                            post_hook.into(),
-                            "post",
-                            self.hooks.run(post_hook, &post_payload, cwd, env),
-                        ));
+                    if !blocked && run_post_hooks {
+                        for hunk in &hunks {
+                            let post_payload = json!({
+                                "tool_input": {
+                                    "file_path": path,
+                                    "old_string": hunk.old_string,
+                                    "new_string": if hunk.added_string.is_empty() {
+                                        hunk.new_string.clone()
+                                    } else {
+                                        hunk.added_string.clone()
+                                    },
+                                }
+                            });
+                            results.push((
+                                post_hook.into(),
+                                "post",
+                                self.hooks.run(post_hook, &post_payload, cwd, env),
+                            ));
+                        }
                     }
                 }
             }

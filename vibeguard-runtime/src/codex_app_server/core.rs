@@ -308,11 +308,18 @@ pub fn resolve_tool_path(path: &str, cwd: Option<&str>) -> String {
     }
 }
 
+/// True for unified-diff file headers (`--- a/path`, `+++ b/path`), not for
+/// apply_patch content lines that remove source text beginning with `--`
+/// (encoded as `---retries;`).
+pub fn is_unified_diff_file_header(line: &str) -> bool {
+    line == "---" || line == "+++" || line.starts_with("--- ") || line.starts_with("+++ ")
+}
+
 pub fn split_unified_diff(diff: &str) -> (String, String) {
     let mut old_lines = Vec::new();
     let mut new_lines = Vec::new();
     for line in diff.lines() {
-        if line.starts_with("---") || line.starts_with("+++") || line.starts_with("@@") {
+        if is_unified_diff_file_header(line) || line.starts_with("@@") {
             continue;
         }
         if let Some(rest) = line.strip_prefix('-') {
@@ -350,7 +357,7 @@ pub fn unified_diff_hunks(diff: &str) -> Vec<DiffHunk> {
     };
 
     for line in diff.lines() {
-        if line.starts_with("---") || line.starts_with("+++") {
+        if is_unified_diff_file_header(line) {
             continue;
         }
         if line.starts_with("@@") {
@@ -545,5 +552,24 @@ mod tests {
         assert_eq!(guarded.file_change_decline(), "decline");
         assert_eq!(strict.file_change_decline(), "cancel");
         assert_eq!(strict.apply_patch_decline(), "abort");
+    }
+
+    #[test]
+    fn unified_diff_hunks_preserve_dash_prefixed_source_lines() {
+        let hunks = unified_diff_hunks("@@\n try {\n   work();\n---retries;\n } catch {}\n");
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(
+            hunks[0].old_string,
+            "try {\n  work();\n--retries;\n} catch {}"
+        );
+        assert_eq!(hunks[0].new_string, "try {\n  work();\n} catch {}");
+    }
+
+    #[test]
+    fn unified_diff_hunks_still_skip_standard_file_headers() {
+        let hunks = unified_diff_hunks("--- a/src/lib.rs\n+++ b/src/lib.rs\n@@\n-old\n+new\n");
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].old_string, "old");
+        assert_eq!(hunks[0].new_string, "new");
     }
 }

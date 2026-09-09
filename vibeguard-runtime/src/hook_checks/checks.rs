@@ -305,13 +305,20 @@ fn pre_edit_check_with_readers(
         return Ok(());
     }
 
-    if is_test_infra_path(&file_path) {
+    let move_destination =
+        nested_str(&data, "tool_input.vibeguard_move_destination").unwrap_or_default();
+    let w12_path = if !move_destination.is_empty() && is_test_infra_path(&move_destination) {
+        move_destination.as_str()
+    } else {
+        file_path.as_str()
+    };
+    if is_test_infra_path(w12_path) {
         write_pre_edit_block(
             log_file,
             "Test Infrastructure File Protection (W-12)",
-            &file_path,
+            w12_path,
             &format!(
-                "VIBEGUARD W-12 interception: Modification of test infrastructure files - {file_path} is prohibited. AI agents must not modify test framework configuration files such as conftest.py/jest.config/pytest.ini/.coveragerc. Such modifications may cause tests to be bypassed instead of actually fixing code problems. Please fix the code under test rather than manipulating the test framework."
+                "VIBEGUARD W-12 interception: Modification of test infrastructure files - {w12_path} is prohibited. AI agents must not modify test framework configuration files such as conftest.py/jest.config/pytest.ini/.coveragerc. Such modifications may cause tests to be bypassed instead of actually fixing code problems. Please fix the code under test rather than manipulating the test framework."
             ),
         )?;
         return Ok(());
