@@ -40,8 +40,7 @@ pub(crate) fn introduced_empty_catch_count(old_source: &str, new_source: &str) -
         .into_iter()
         .filter(|clause| clause.end > prefix && clause.start < old_chars.len() - suffix)
         .collect();
-    let mut unmatched_old: Vec<Option<CatchClause>> =
-        old_edited.into_iter().map(Some).collect();
+    let mut unmatched_old: Vec<Option<CatchClause>> = old_edited.into_iter().map(Some).collect();
     catch_clauses(new_source)
         .into_iter()
         .filter(|clause| clause.end > prefix && clause.start < new_chars.len() - suffix)
@@ -80,7 +79,11 @@ fn take_best_prior_match(
     unmatched_old[index].take()
 }
 
-fn clause_match_score(old_clause: &CatchClause, new_clause: &CatchClause, old_chars: &[char]) -> i64 {
+fn clause_match_score(
+    old_clause: &CatchClause,
+    new_clause: &CatchClause,
+    old_chars: &[char],
+) -> i64 {
     let context_score = shared_suffix_len(
         &preceding_context(old_chars, old_clause.try_start),
         &new_clause.preceding,

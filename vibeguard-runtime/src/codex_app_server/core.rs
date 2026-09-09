@@ -315,7 +315,10 @@ pub fn is_unified_diff_file_header(line: &str) -> bool {
     if line == "---" || line == "+++" {
         return true;
     }
-    if let Some(path) = line.strip_prefix("--- ").or_else(|| line.strip_prefix("+++ ")) {
+    if let Some(path) = line
+        .strip_prefix("--- ")
+        .or_else(|| line.strip_prefix("+++ "))
+    {
         return is_unified_diff_header_path(path);
     }
     false
@@ -571,14 +574,19 @@ mod tests {
     #[test]
     fn unified_diff_hunks_preserve_dash_prefixed_source_lines() {
         for removal in ["---retries;", "--- retries;"] {
-            let hunks = unified_diff_hunks(&format!("@@\n try {{\n   work();\n{removal}\n }} catch {{}}\n"));
+            let hunks = unified_diff_hunks(&format!(
+                "@@\n try {{\n   work();\n{removal}\n }} catch {{}}\n"
+            ));
             assert_eq!(hunks.len(), 1, "{removal}");
             assert_eq!(
                 hunks[0].old_string,
                 format!("try {{\n  work();\n{}\n}} catch {{}}", &removal[1..]),
                 "{removal}"
             );
-            assert_eq!(hunks[0].new_string, "try {\n  work();\n} catch {}", "{removal}");
+            assert_eq!(
+                hunks[0].new_string, "try {\n  work();\n} catch {}",
+                "{removal}"
+            );
         }
     }
 

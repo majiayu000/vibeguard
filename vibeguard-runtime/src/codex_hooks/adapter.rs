@@ -237,7 +237,10 @@ pub fn adapt_permission_request(args: &[String]) -> Result {
 
 /// Merge two adapted Codex advisory JSON payloads, concatenating distinct contexts.
 pub fn merge_adapted_advisory(args: &[String]) -> Result {
-    ensure_no_args(args, "Usage: vibeguard-runtime codex-merge-adapted-advisory")?;
+    ensure_no_args(
+        args,
+        "Usage: vibeguard-runtime codex-merge-adapted-advisory",
+    )?;
     let input = read_stdin()?;
     let Value::Array(items) = serde_json::from_str::<Value>(&input)
         .map_err(|_| "Usage: stdin must be a JSON array of two advisory payloads")?
@@ -284,9 +287,7 @@ fn merge_adapted_advisory_values(left: &Value, right: &Value) -> Value {
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    if let Some(right_hook) = right
-        .get("hookSpecificOutput")
-        .and_then(Value::as_object)
+    if let Some(right_hook) = right.get("hookSpecificOutput").and_then(Value::as_object)
         && right_hook.contains_key("hookEventName")
         && !hook_specific.contains_key("hookEventName")
     {
