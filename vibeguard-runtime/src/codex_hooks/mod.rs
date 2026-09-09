@@ -320,19 +320,67 @@ fn normalized_apply_patch_payloads(hook_name: &str, payload: &Map<String, Value>
             .filter(|change| change.kind != "add")
             .flat_map(|change| {
                 if change.kind == "delete" {
-                    return vec![normalized_tool_payload(payload, "Edit", json!({
-                        "file_path": change.path, "old_string": "", "new_string": "",
-                        "vibeguard_line_delta": 0,
-                    }))];
+                    return vec![normalized_tool_payload(
+                        payload,
+                        "Edit",
+                        json!({
+                            "file_path": change.path, "old_string": "", "new_string": "",
+                            "vibeguard_line_delta": 0,
+                        }),
+                    )];
                 }
-                unified_diff_hunks(&change.diff).into_iter().map(|hunk| {
-                    normalized_tool_payload(payload, "Edit", json!({
+                let line_delta =
+                    change.added_lines.len() as i64 - change.removed_lines.len() as i64;
+                let hunks = unified_diff_hunks(&change.diff);
+                // Context-only moves/updates have @@ hunks with no +/- lines. Still emit a
+                // payload so W-12 and other path checks see the file being touched.
+                if hunks.is_empty() {
+                    return vec![normalized_tool_payload(
+                        payload,
+                        "Edit",
+                        json!({
+                            "file_path": change.path,
+                            "old_string": "",
+                            "new_string": "",
+                            "vibeguard_line_delta": line_delta,
+                        }),
+                    )];
+                }
+                // Multi-hunk patches must be evaluated as one proposed file result; fanning
+                // out per hunk against the original file can miss try/catch split across hunks.
+                if hunks.len() > 1 {
+                    let patch_hunks: Vec<Value> = hunks
+                        .iter()
+                        .map(|hunk| {
+                            json!({
+                                "old_string": hunk.old_string,
+                                "new_string": hunk.new_string,
+                            })
+                        })
+                        .collect();
+                    return vec![normalized_tool_payload(
+                        payload,
+                        "Edit",
+                        json!({
+                            "file_path": change.path,
+                            "old_string": hunks[0].old_string,
+                            "new_string": hunks[0].new_string,
+                            "vibeguard_patch_hunks": patch_hunks,
+                            "vibeguard_line_delta": line_delta,
+                        }),
+                    )];
+                }
+                let hunk = &hunks[0];
+                vec![normalized_tool_payload(
+                    payload,
+                    "Edit",
+                    json!({
                         "file_path": change.path,
                         "old_string": hunk.old_string,
                         "new_string": hunk.new_string,
-                        "vibeguard_line_delta": change.added_lines.len() as i64 - change.removed_lines.len() as i64,
-                    }))
-                }).collect::<Vec<_>>()
+                        "vibeguard_line_delta": line_delta,
+                    }),
+                )]
             })
             .collect();
     }
@@ -613,5 +661,56 @@ mod tests {
         );
         assert_eq!(edit_payloads[0]["tool_input"]["new_string"], "new");
         assert_eq!(edit_payloads[0]["tool_input"]["vibeguard_line_delta"], 0);
+    }
+
+    #[test]
+    fn normalize_pre_edit_emits_payload_for_context_only_move() {
+        let payload = json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "apply_patch",
+            "tool_input": {
+                "command": "*** Begin Patch\n*** Update File: jest.config.ts\n*** Move to: configs/jest.config.ts\n@@\n export default {};\n*** End Patch"
+            },
+        })
+        .as_object()
+        .expect("payload object")
+        .clone();
+
+        let edit_payloads =
+            normalized_apply_patch_payloads("vibeguard-pre-edit-guard.sh", &payload);
+        assert_eq!(edit_payloads.len(), 1);
+        assert_eq!(edit_payloads[0]["tool_name"], "Edit");
+        assert_eq!(
+            edit_payloads[0]["tool_input"]["file_path"],
+            "jest.config.ts"
+        );
+        assert_eq!(edit_payloads[0]["tool_input"]["old_string"], "");
+        assert_eq!(edit_payloads[0]["tool_input"]["new_string"], "");
+    }
+
+    #[test]
+    fn normalize_pre_edit_keeps_multi_hunk_update_as_one_payload() {
+        let payload = json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "apply_patch",
+            "tool_input": {
+                "command": "*** Begin Patch\n*** Update File: src/service.js\n@@\n-function run() {\n+try {\n   work();\n }\n@@\n }\n+catch {}\n*** End Patch"
+            },
+        })
+        .as_object()
+        .expect("payload object")
+        .clone();
+
+        let edit_payloads =
+            normalized_apply_patch_payloads("vibeguard-pre-edit-guard.sh", &payload);
+        assert_eq!(edit_payloads.len(), 1);
+        let hunks = edit_payloads[0]["tool_input"]["vibeguard_patch_hunks"]
+            .as_array()
+            .expect("combined hunks");
+        assert_eq!(hunks.len(), 2);
+        assert_eq!(hunks[0]["old_string"], "function run() {\n  work();\n}");
+        assert_eq!(hunks[0]["new_string"], "try {\n  work();\n}");
+        assert_eq!(hunks[1]["old_string"], "}");
+        assert_eq!(hunks[1]["new_string"], "}\ncatch {}");
     }
 }

@@ -345,6 +345,11 @@ fn native_patch_retains_context_for_the_pre_edit_detector() {
             "@@\n class C {\n-  catch(e) { report(e); }\n+  catch(e) {}\n }",
             0,
         ),
+        (
+            "function run() {\n  work();\n}\n",
+            "@@\n-function run() {\n+try {\n   work();\n }\n@@\n }\n+catch {}\n",
+            1,
+        ),
     ];
     for event in ["PreToolUse", "PermissionRequest"] {
         for (before, body, expected_warnings) in cases {

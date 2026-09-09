@@ -34,8 +34,8 @@ pub(crate) fn introduced_empty_catch_count(old_source: &str, new_source: &str) -
         .zip(new_chars[prefix..].iter().rev())
         .take_while(|(a, b)| a == b)
         .count();
-    // Preserve untouched handlers and match the remaining clauses by their try block
-    // and binding; repairing a different handler must not cancel a new empty one.
+    // Preserve untouched handlers and match the remaining clauses by their try block;
+    // repairing a different handler must not cancel a new empty one.
     let mut previous: HashMap<String, VecDeque<bool>> = HashMap::new();
     for clause in catch_clauses(old_source) {
         previous
@@ -84,10 +84,10 @@ fn catch_clauses(source: &str) -> Vec<CatchClause> {
         if chars[start..index].iter().collect::<String>() != "catch" {
             continue;
         }
-        let Some(try_start) = previous_non_whitespace_index(&chars, start)
-            .and_then(|previous| try_closings.get(&previous))
-            .copied()
-        else {
+        let Some(try_close) = previous_non_whitespace_index(&chars, start) else {
+            continue;
+        };
+        let Some(&try_start) = try_closings.get(&try_close) else {
             continue;
         };
         let mut cursor = skip_whitespace(&chars, index);
@@ -103,8 +103,10 @@ fn catch_clauses(source: &str) -> Vec<CatchClause> {
         let Some(end) = balanced_end(&chars, cursor, '{', '}') else {
             continue;
         };
+        // Identity is the try block only so binding-only renames of an already-empty
+        // handler (catch (error) {} → catch {} / catch (e) {}) stay matched.
         clauses.push(CatchClause {
-            identity: original[try_start..cursor].iter().collect(),
+            identity: original[try_start..=try_close].iter().collect(),
             start,
             end,
             empty: chars.get(skip_whitespace(&chars, cursor + 1)) == Some(&'}'),
@@ -438,6 +440,20 @@ mod tests {
             introduced_empty_catch_count(
                 "try { first(); } catch {}",
                 "try { changed(); } catch {}",
+            ),
+            0
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { run(); } catch (error) {}",
+                "try { run(); } catch {}",
+            ),
+            0
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { run(); } catch (error) {}",
+                "try { run(); } catch (e) {}",
             ),
             0
         );

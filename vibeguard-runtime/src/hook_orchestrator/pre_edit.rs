@@ -103,18 +103,8 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
 
     // Inspect the proposed result while the original file and edit location are known.
     // Post-edit snippets cannot locate a deletion or distinguish catch methods.
-    let empty_catch_warning = if !old_string.is_empty() {
-        let replace_all = data["tool_input"]["replace_all"].as_bool().unwrap_or(false);
-        let result = if replace_all {
-            content.replace(&old_string, &new_string)
-        } else {
-            content.replacen(&old_string, &new_string, 1)
-        };
-        empty_exception_edit_warning(&file_path, &content, &result)
-    } else {
-        // Context-free insertion hunks append to the file in apply_patch.
-        empty_exception_edit_warning(&file_path, &content, &format!("{content}\n{new_string}"))
-    };
+    let empty_catch_warning =
+        proposed_empty_catch_warning(&data, &file_path, &content, &old_string, &new_string);
 
     if let Some(context_or_reason) =
         pre_edit_u16_result(&data, &file_path, &content, &old_string, &new_string)
@@ -181,6 +171,51 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
     }
 
     Ok(())
+}
+
+fn proposed_empty_catch_warning(
+    data: &Value,
+    file_path: &str,
+    content: &str,
+    old_string: &str,
+    new_string: &str,
+) -> Option<String> {
+    if let Some(hunks) = data
+        .get("tool_input")
+        .and_then(|value| value.get("vibeguard_patch_hunks"))
+        .and_then(Value::as_array)
+    {
+        let mut result = content.to_string();
+        for hunk in hunks {
+            let hunk_old = hunk.get("old_string").and_then(Value::as_str).unwrap_or("");
+            let hunk_new = hunk.get("new_string").and_then(Value::as_str).unwrap_or("");
+            if hunk_old.is_empty() {
+                // Context-free insertion hunks append to the file in apply_patch.
+                result = format!("{result}\n{hunk_new}");
+            } else {
+                result = result.replacen(hunk_old, hunk_new, 1);
+            }
+        }
+        return empty_exception_edit_warning(file_path, content, &result);
+    }
+
+    // Context-only moves/updates emit empty strings so path guards still run.
+    if old_string.is_empty() && new_string.is_empty() {
+        return None;
+    }
+
+    if !old_string.is_empty() {
+        let replace_all = data["tool_input"]["replace_all"].as_bool().unwrap_or(false);
+        let result = if replace_all {
+            content.replace(old_string, new_string)
+        } else {
+            content.replacen(old_string, new_string, 1)
+        };
+        return empty_exception_edit_warning(file_path, content, &result);
+    }
+
+    // Context-free insertion hunks append to the file in apply_patch.
+    empty_exception_edit_warning(file_path, content, &format!("{content}\n{new_string}"))
 }
 
 enum PreEditU16Result {
