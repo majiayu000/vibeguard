@@ -214,7 +214,7 @@
       "script": "post-build-check.sh",
       "kind": "hook",
       "install_targets": [],
-      "config_exposure": {"disabled_hook": false},
+      "config_exposure": {"disabled_hook": true},
       "trigger": "Manual diagnostic",
       "responsibilities": "Optional language-default build diagnostic; never registered after individual edits. Prefer the project's verification command at a coherent change boundary.",
       "decision_types": ["pass", "warn"],

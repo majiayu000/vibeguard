@@ -25,7 +25,8 @@ An ExecPlan records:
 It does not require a routing object, fixed handoff fields, or delegation lanes.
 Cross-session planning does not require a runtime snapshot. Only an explicitly
 reproducible experiment follows W-20 and records its relevant evidence paths.
-Ordinary init, update, and status operations do not run drift checks.
+Ordinary init, update, and status operations do not run drift checks unless the
+ExecPlan already records experiment evidence.
 
 ## Resume
 
@@ -33,7 +34,7 @@ When a new session resumes:
 
 1. Read the ExecPlan and live `git status`.
 2. Refresh remote facts that may have changed.
-3. For an explicitly reproducible experiment, check the recorded execution conditions; otherwise continue without a snapshot.
+3. When Context records W-20 experiment evidence, check those execution conditions before claiming comparable results; otherwise continue without a snapshot.
 4. Confirm the target is still authorized and relevant.
 5. Continue from the first pending milestone.
 6. Run focused verification after each change.

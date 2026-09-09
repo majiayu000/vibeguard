@@ -82,6 +82,8 @@ Appends discoveries and status changes during execution.
 
 1. **Read ExecPlan**
    - Read the ExecPlan file specified by $ARGUMENTS
+   - If Context records W-20 experiment evidence paths, run `bash "${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}/guards/universal/check_runtime_drift.sh" check --snapshot <recorded snapshot> --tool-inventory <recorded tool inventory> --rules-dir "${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}/rules/claude-rules"` before treating the plan as comparable
+   - If drift is detected for a recorded experiment, show it and stop for a human decision; ordinary ExecPlans skip this check
    - Parse the current Progress and Concrete Steps status
 
 2. **Identify update type**
@@ -117,6 +119,8 @@ View a summary of execution progress.
 
 1. **Read ExecPlan**
    - Read the ExecPlan file specified by $ARGUMENTS
+   - If Context records W-20 experiment evidence paths, run `bash "${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}/guards/universal/check_runtime_drift.sh" check --snapshot <recorded snapshot> --tool-inventory <recorded tool inventory> --rules-dir "${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}/rules/claude-rules"` before reporting comparable resumable status
+   - If drift is detected for a recorded experiment, show it and stop for a human decision; ordinary ExecPlans skip this check
 
 2. **Output progress report**
    ```

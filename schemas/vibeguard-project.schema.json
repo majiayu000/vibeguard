@@ -32,6 +32,7 @@
           "analysis-paralysis-guard",
           "count-active-constraints",
           "learn-evaluator",
+          "post-build-check",
           "post-edit-guard",
           "post-write-guard",
           "pre-bash-guard",
@@ -42,7 +43,7 @@
         ]
       },
       "default": [],
-      "description": "Hook names to disable (without .sh extension). e.g. [\"post-edit-guard\", \"analysis-paralysis-guard\"]"
+      "description": "Hook names to disable (without .sh extension). e.g. [\"post-edit-guard\", \"analysis-paralysis-guard\"]. post-build-check is accepted for legacy configs and is a no-op because the hook is manual-only."
     },
     "disabled_rules": {
       "type": "array",
@@ -105,6 +106,7 @@
               "analysis-paralysis-guard",
               "count-active-constraints",
               "learn-evaluator",
+              "post-build-check",
               "post-edit-guard",
               "post-write-guard",
               "pre-bash-guard",

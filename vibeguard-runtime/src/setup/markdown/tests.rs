@@ -294,6 +294,32 @@ mod setup_markdown_tests {
     }
 
     #[test]
+    fn profile_repair_preserves_shell_script_argument_only_hook_name() -> SetupResult<()> {
+        let repo_dir = repo_dir()?;
+        let full_specs = claude_specs(repo_dir, Some("full"))?;
+        let mut data = settings_data_with_specs(&full_specs);
+        let command = "bash /custom/audit.sh post-build-check.sh";
+        data["hooks"]["PostToolUse"]
+            .as_array_mut()
+            .expect("PostToolUse entries")
+            .push(serde_json::json!({
+                "matcher": "Edit",
+                "hooks": [{
+                    "type": "command",
+                    "command": command,
+                }]
+            }));
+
+        assert!(settings_has_profile_hooks(repo_dir, &data, "full")?);
+        let desired = full_specs.iter().map(settings_spec_identity).collect();
+        assert!(!settings_remove_unprofiled_hooks(
+            repo_dir, &mut data, &desired
+        )?);
+        assert!(serde_json::to_string(&data)?.contains(command));
+        Ok(())
+    }
+
+    #[test]
     fn profile_repair_preserves_unmanaged_wrapper_argument() -> SetupResult<()> {
         let repo_dir = repo_dir()?;
         let core_specs = claude_specs(repo_dir, Some("core"))?;

@@ -28,7 +28,7 @@ pub(crate) fn managed_script_from_command<'a>(
         let Some(script) = managed_scripts.get(token_base) else {
             continue;
         };
-        if looks_like_direct_script(&parts, index) || shell_invokes_wrapper(&parts, index) {
+        if looks_like_direct_script(&parts, index) {
             return Some(script);
         }
     }
@@ -54,10 +54,10 @@ fn parts_invokes_script(parts: &[String], script: &str, wrapper_name: &str) -> b
             return true;
         }
     }
-    parts.iter().enumerate().any(|(index, token)| {
-        basename(token) == script
-            && (looks_like_direct_script(parts, index) || shell_invokes_wrapper(parts, index))
-    })
+    parts
+        .iter()
+        .enumerate()
+        .any(|(index, token)| basename(token) == script && looks_like_direct_script(parts, index))
 }
 
 fn looks_like_direct_script(parts: &[String], index: usize) -> bool {
@@ -67,10 +67,6 @@ fn looks_like_direct_script(parts: &[String], index: usize) -> bool {
             .checked_sub(1)
             .is_some_and(|previous| is_shell(&parts[previous]))
         || (index == 0 && token.ends_with(".sh"))
-}
-
-fn shell_invokes_wrapper(parts: &[String], index: usize) -> bool {
-    index >= 2 && is_shell(&parts[index - 2]) && !parts[index - 1].starts_with('-')
 }
 
 fn wrapper_is_invoked(parts: &[String], index: usize) -> bool {
@@ -259,6 +255,31 @@ mod tests {
             &codex_managed(),
             "env node /custom/audit.js /tmp/run-hook-codex.sh vibeguard-post-build-check.sh",
             "run-hook-codex.sh"
+        ));
+    }
+
+    #[test]
+    fn shell_launched_script_argument_is_not_managed() {
+        let managed = BTreeSet::from(["post-build-check.sh".to_string()]);
+        assert!(!command_is_managed(
+            &managed,
+            "bash /custom/audit.sh post-build-check.sh",
+            "run-hook.sh"
+        ));
+        assert!(!command_is_managed(
+            &managed,
+            "sh /tmp/user-hook.sh --label post-build-check.sh",
+            "run-hook.sh"
+        ));
+        assert!(command_is_managed(
+            &managed,
+            "bash /tmp/.vibeguard/run-hook.sh post-build-check.sh",
+            "run-hook.sh"
+        ));
+        assert!(command_is_managed(
+            &managed,
+            "bash ~/.vibeguard/installed/hooks/post-build-check.sh",
+            "run-hook.sh"
         ));
     }
 }
