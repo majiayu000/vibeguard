@@ -73,16 +73,16 @@ native_permission_out="$(
 assert_contains "${native_permission_out}" '"hookEventName": "PermissionRequest"' "run-hook-codex preserves native PermissionRequest output"
 assert_contains "${native_permission_out}" 'native permission deny reached Codex' "run-hook-codex preserves native PermissionRequest deny message"
 
-cat > "${TMP_FAKE_REPO_POSTTOOL}/hooks/post-build-check.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_POSTTOOL}/hooks/post-edit-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 cat >/dev/null
 printf '{'
 HOOK
-chmod +x "${TMP_FAKE_REPO_POSTTOOL}/hooks/post-build-check.sh"
+chmod +x "${TMP_FAKE_REPO_POSTTOOL}/hooks/post-edit-guard.sh"
 posttool_bad_diag="${TMP_DIR}/posttool-bad.jsonl"
 bad_posttool_out="$({
   printf '{"hook_event_name":"PostToolUse","tool_input":{"command":"cargo check"}}' \
-    | HOME="${TMP_HOME_POSTTOOL}" VIBEGUARD_CODEX_DIAG_FILE="${posttool_bad_diag}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-post-build-check.sh
+    | HOME="${TMP_HOME_POSTTOOL}" VIBEGUARD_CODEX_DIAG_FILE="${posttool_bad_diag}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-post-edit-guard.sh
 } 2>/dev/null)"
 assert_contains "${bad_posttool_out}" '"decision": "block"' "invalid PostToolUse hook output emits visible feedback"
 assert_contains "${bad_posttool_out}" 'could not be adapted' "invalid PostToolUse hook output explains adapter failure"

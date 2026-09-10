@@ -58,7 +58,7 @@ else
   codex_hook_status() { return 0; }
   codex_hook_status_from_output() { return 0; }
 fi
-if ! declare -F resolve_codex_hook_name >/dev/null 2>&1; then resolve_codex_hook_name() { case "$1" in vibeguard-pre-bash-guard.sh|vibeguard-pre-edit-guard.sh|vibeguard-pre-write-guard.sh|vibeguard-post-edit-guard.sh|vibeguard-post-write-guard.sh|vibeguard-post-build-check.sh|vibeguard-stop-guard.sh|vibeguard-learn-evaluator.sh) printf '%s\n' "${1#vibeguard-}" ;; *) return 1 ;; esac; }; fi
+if ! declare -F resolve_codex_hook_name >/dev/null 2>&1; then resolve_codex_hook_name() { case "$1" in vibeguard-pre-bash-guard.sh|vibeguard-pre-edit-guard.sh|vibeguard-pre-write-guard.sh|vibeguard-post-edit-guard.sh|vibeguard-post-write-guard.sh|vibeguard-stop-guard.sh|vibeguard-learn-evaluator.sh) printf '%s\n' "${1#vibeguard-}" ;; *) return 1 ;; esac; }; fi
 if ! declare -F codex_hook_status_from_output >/dev/null 2>&1; then
   codex_hook_status_from_output() { return 0; }
 fi

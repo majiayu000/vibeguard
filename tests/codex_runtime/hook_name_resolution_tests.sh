@@ -89,7 +89,7 @@ for item in manifest["hooks"]:
     print(f'{codex["script"]}\t{item["script"]}\t{event}')
 PY
 )
-assert_codex_name_equal "${name_mapping_count}" "8" "all manifest Codex hook names are covered"
+assert_codex_name_equal "${name_mapping_count}" "7" "all manifest Codex hook names are covered"
 
 alias_count="$(find "${REPO_DIR}/hooks" -maxdepth 1 -type f -name 'vibeguard-*.sh' | wc -l | tr -d '[:space:]')"
 assert_codex_name_equal "${alias_count}" "0" "canonical resolution has no physical alias shells"

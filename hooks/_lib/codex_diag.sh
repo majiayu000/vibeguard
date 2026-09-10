@@ -70,7 +70,6 @@ resolve_codex_hook_name() {
     vibeguard-pre-write-guard.sh) printf '%s\n' "pre-write-guard.sh" ;;
     vibeguard-post-edit-guard.sh) printf '%s\n' "post-edit-guard.sh" ;;
     vibeguard-post-write-guard.sh) printf '%s\n' "post-write-guard.sh" ;;
-    vibeguard-post-build-check.sh) printf '%s\n' "post-build-check.sh" ;;
     vibeguard-stop-guard.sh) printf '%s\n' "stop-guard.sh" ;;
     vibeguard-learn-evaluator.sh) printf '%s\n' "learn-evaluator.sh" ;;
     *) return 1 ;;
