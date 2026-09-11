@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788672682026,
+  "lastUpdate": 1789126999859,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -64889,6 +64889,225 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 10,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "27b5195cb3544d5bce864cdfa08194623286fe5c",
+          "message": "fix: scope empty-catch warnings to the current edit (#799)\n\n* fix: scope empty-catch warnings to the current edit\n\nUnrelated edits no longer re-report historical empty catches, and\nthe compact Agent surface keeps U-29 instead of duplicating U-17.\n\nCloses #789\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* test: keep post-edit empty-catch coverage under the file-size gate\n\nThe self-application size check caps runtime CLI tests at 800 lines,\nso move the new empty-catch cases into a sibling file.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: detect handler-only empty catches and keep the detector classifiable\n\nEdit snippets that start at catch were previously invisible, and\nJS-EMPTY-CATCH was not a recognized rule id in observe or triage.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* style: rustfmt empty-catch unit assertions\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: preserve file context when reviewing empty catches\n\nReview proposed edits before mutation so body deletions and catch-named methods retain their surrounding syntax. Keep semantic rules out of trigger-based downgrades and reject malformed scorecard maps without replacing evidence.\n\nTested: cargo check; cargo test; precision tracker and health report tests; local-contract-check --quick; hook manifest, workflow, and documentation gates\nSigned-off-by: VibeGuard Agent <1835304752@qq.com>\n\n* fix: carry empty-catch review through Codex and observability\n\nRetain patch hunk context for native pre-edit checks and compare individual catch clauses instead of cancelling unrelated counts. Preserve advisory evidence during size warnings and log failures, and recognize the detector in Prometheus and scoped suppressions.\n\nTested: cargo check; cargo test (775 passed); Codex runtime (209 passed); hook and manifest validators; manifest and workflow contracts; strict documentation freshness\nSigned-off-by: VibeGuard Agent <1835304752@qq.com>\n\n* fix: close Codex empty-catch and context-only apply_patch gaps\n\nEvaluate multi-hunk patches as one proposed file, emit pre-edit payloads for context-only moves so W-12 still runs, and match empty catches by try block so binding-only renames are not new introductions.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: close remaining Codex apply_patch review gaps\n\nEvaluate complete multi-hunk app-server patches, keep W-12 on move destinations, parse dash-prefixed source lines, and merge multi-file advisories.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: clear local-review blockers on empty-catch PR\n\nMove Codex advisory merging into the Rust runtime, keep checks.rs under\nU-16, treat spaced decrement removals as diff content, and correlate\nduplicate try bodies by preceding context instead of FIFO identity.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: rustfmt core, adapter, and js for Core CI\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n---------\n\nSigned-off-by: VibeGuard Agent <1835304752@qq.com>\nCo-authored-by: Cursor <cursoragent@cursor.com>",
+          "timestamp": "2026-09-11T19:14:35+08:00",
+          "tree_id": "44b6e3ca7daa21c69497c4145bc1f4b50df6b1a2",
+          "url": "https://github.com/majiayu000/vibeguard/commit/27b5195cb3544d5bce864cdfa08194623286fe5c"
+        },
+        "date": 1789126998257,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 58,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 59,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 59,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 68,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 68,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 68,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 58,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 59,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 59,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 62,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 69,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 69,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 59,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 59,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 59,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 49,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 51,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 51,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write 5000 P50",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write 5000 P95",
+            "value": 67,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write 5000 P99",
+            "value": 67,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 88,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 88,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 60,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 60,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 60,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 9,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 9,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 9,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 9,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 9,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 9,
             "unit": "ms"
           }
         ]
