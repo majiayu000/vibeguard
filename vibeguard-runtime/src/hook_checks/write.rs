@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::hook_checks::common::{
     count_lines, is_source_path, is_test_path, nested_str, read_stdin, write_log_event,
 };
-use crate::hook_checks::js::empty_catch_count;
+use crate::hook_checks::js::introduced_empty_catch_count;
 use crate::hook_checks::scan::find_project_dir;
 use crate::hook_checks::write_scan::{
     duplicate_definition_scan, scan_project_files, scan_project_files_with_same_name,
@@ -166,7 +166,7 @@ pub(crate) fn evaluate_post_write(
         );
     }
 
-    if let Some(exception_warning) = empty_exception_warning(file_path, content) {
+    if let Some(exception_warning) = empty_exception_edit_warning(file_path, "", content) {
         warnings.push(exception_warning);
     }
 
@@ -188,18 +188,22 @@ pub(crate) fn evaluate_post_write(
     }
 }
 
-pub(crate) fn empty_exception_warning(file_path: &str, content: &str) -> Option<String> {
+pub(crate) fn empty_exception_edit_warning(
+    file_path: &str,
+    old_string: &str,
+    new_string: &str,
+) -> Option<String> {
     if !matches!(
         extension(file_path).as_str(),
         "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs"
-    ) || !content.contains("catch")
+    ) || !(old_string.contains("catch") || new_string.contains("catch"))
     {
         return None;
     }
-    let count = empty_catch_count(content);
+    let count = introduced_empty_catch_count(old_string, new_string);
     (count > 0).then(|| {
         format!(
-            "[U-17] [review] [this-file] OBSERVATION: {count} empty exception handler(s) swallow errors\nFIX: handle, report, or rethrow each caught error\nDO NOT: leave the catch block empty"
+            "[JS-EMPTY-CATCH] [review] [this-edit] OBSERVATION: this edit introduces {count} empty catch block(s).\nFIX: If the failure affects the requested behavior, use the project's existing error path. If it is intentionally best-effort and does not affect correctness, leave it unchanged and briefly explain why.\nDO NOT: modify pre-existing catch blocks, create logging infrastructure, add error wrapper types, change public APIs, or edit callers outside this task."
         )
     })
 }

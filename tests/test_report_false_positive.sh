@@ -47,6 +47,7 @@ cat > "$EVENT_LOG" <<'JSONL'
 {"schema_version":1,"ts":"2026-06-19T00:00:02Z","session":"s1","event_id":"evt-layer-token","hook":"pre-write-guard","tool":"Write","decision":"warn","status":"warn","path":"src/new.rs","reason":"VIBEGUARD [L1] [advisory] new source file detected"}
 {"schema_version":1,"ts":"2026-06-19T00:00:03Z","session":"s1","event_id":"evt-detail-path","code":"VG-POLICY-DETAIL-PATH","rule_id":"RS-03","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","detail":"src/lib.rs||delta=12","reason":"VIBEGUARD [RS-03] unwrap"}
 {"schema_version":1,"ts":"2026-06-19T00:00:04Z","session":"s1","event_id":"evt-legacy-detail","code":"VG-POLICY-LEGACY-DETAIL","rule_id":"RS-03","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","detail":"Edit src/foo.ts","reason":"VIBEGUARD [RS-03] unwrap"}
+{"schema_version":1,"ts":"2026-09-06T00:00:00Z","session":"s1","event_id":"evt-js-empty-catch","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","path":"src/service.mjs","reason":"[JS-EMPTY-CATCH] [review] [this-edit] OBSERVATION: this edit introduces 1 empty catch block(s)."}
 JSONL
 
 PREFIX_EVENT_LOG="${TMP_DIR}/events-prefix.jsonl"
@@ -96,6 +97,9 @@ assert_not_contains "$detail_path_out" "src/lib.rs||delta=12" "markdown does not
 legacy_detail_out="$(python3 "$SCRIPT" evt-legacy-detail --event-log "$EVENT_LOG")"
 assert_contains "$legacy_detail_out" "path: \`unknown\`" "markdown does not treat legacy free-form detail as path"
 assert_not_contains "$legacy_detail_out" "path: \`Edit src/foo.ts\`" "markdown does not report free-form detail as path"
+
+js_empty_catch_out="$(python3 "$SCRIPT" evt-js-empty-catch --event-log "$EVENT_LOG")"
+assert_contains "$js_empty_catch_out" "rule_id: \`JS-EMPTY-CATCH\`" "markdown extracts JS-EMPTY-CATCH from reason"
 
 prefix_rule_out="$(python3 "$SCRIPT" RS-03 --event-log "$PREFIX_EVENT_LOG")"
 assert_contains "$prefix_rule_out" "path: \`docs/match.rs\`" "rule lookup matches whole token"

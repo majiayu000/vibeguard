@@ -234,6 +234,51 @@ else
 fi
 assert_not_contains "${scoped_patch_out}" 'additionalContext' "apply_patch scoped suppression clears native advisory context"
 
+header "run-hook-codex merges advisories across multi-file apply_patch"
+TMP_HOME_MERGE="${TMP_DIR}/home-merge"
+TMP_FAKE_REPO_MERGE="${TMP_DIR}/fake-repo-merge"
+mkdir -p "${TMP_HOME_MERGE}/.vibeguard" "${TMP_FAKE_REPO_MERGE}/hooks"
+printf '%s' "${TMP_FAKE_REPO_MERGE}" > "${TMP_HOME_MERGE}/.vibeguard/repo-path"
+
+cat > "${TMP_FAKE_REPO_MERGE}/hooks/pre-edit-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+payload="$(cat)"
+python3 - <<'PY' "${payload}"
+import json, sys
+payload = json.loads(sys.argv[1])
+path = payload["tool_input"]["file_path"]
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "additionalContext": f"advisory for {path}",
+    }
+}))
+PY
+HOOK
+chmod +x "${TMP_FAKE_REPO_MERGE}/hooks/pre-edit-guard.sh"
+
+merge_patch_input="$(python3 - <<'PY'
+import json
+patch = """*** Begin Patch
+*** Update File: src/a.js
+@@
+-try { work(); } catch (e) { log(e); }
++try { work(); } catch (e) {}
+*** Update File: src/b.js
+@@
+-try { work(); } catch (e) { log(e); }
++try { work(); } catch (e) {}
+*** End Patch"""
+print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_input":{"command":patch}}))
+PY
+)"
+merge_patch_out="$(
+  printf '%s' "${merge_patch_input}" \
+    | HOME="${TMP_HOME_MERGE}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-edit-guard.sh
+)"
+assert_contains "${merge_patch_out}" 'advisory for src/a.js' "multi-file apply_patch keeps first file advisory"
+assert_contains "${merge_patch_out}" 'advisory for src/b.js' "multi-file apply_patch keeps second file advisory"
+
 run_wrapper() {
   local app_repo="$1"
   local child_script="$2"

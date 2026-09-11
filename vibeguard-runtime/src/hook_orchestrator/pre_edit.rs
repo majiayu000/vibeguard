@@ -10,6 +10,7 @@ use crate::hook_checks::common::{
     read_lossy_file,
 };
 use crate::hook_checks::scan::find_project_dir;
+use crate::hook_checks::write::empty_exception_edit_warning;
 use crate::hook_orchestrator::context::RuntimeContext;
 use crate::hook_orchestrator::{
     HookKind, Result, append_hook_event, elapsed_ms, print_policy_decision_kv,
@@ -47,14 +48,21 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
         return Ok(());
     }
 
-    if is_test_infra_path(&file_path) {
+    let move_destination =
+        nested_str(&data, "tool_input.vibeguard_move_destination").unwrap_or_default();
+    let w12_path = if !move_destination.is_empty() && is_test_infra_path(&move_destination) {
+        move_destination.as_str()
+    } else {
+        file_path.as_str()
+    };
+    if is_test_infra_path(w12_path) {
         block_with_log(
             ctx,
             start,
             "Test Infrastructure File Protection (W-12)",
-            &file_path,
+            w12_path,
             &format!(
-                "VIBEGUARD W-12 interception: Modification of test infrastructure files - {file_path} is prohibited. AI agents must not modify test framework configuration files such as conftest.py/jest.config/pytest.ini/.coveragerc. Such modifications may cause tests to be bypassed instead of actually fixing code problems. Please fix the code under test rather than manipulating the test framework."
+                "VIBEGUARD W-12 interception: Modification of test infrastructure files - {w12_path} is prohibited. AI agents must not modify test framework configuration files such as conftest.py/jest.config/pytest.ini/.coveragerc. Such modifications may cause tests to be bypassed instead of actually fixing code problems. Please fix the code under test rather than manipulating the test framework."
             ),
         )?;
         return Ok(());
@@ -100,6 +108,11 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
         return Ok(());
     }
 
+    // Inspect the proposed result while the original file and edit location are known.
+    // Post-edit snippets cannot locate a deletion or distinguish catch methods.
+    let empty_catch_warning =
+        proposed_empty_catch_warning(&data, &file_path, &content, &old_string, &new_string);
+
     if let Some(context_or_reason) =
         pre_edit_u16_result(&data, &file_path, &content, &old_string, &new_string)
     {
@@ -108,9 +121,15 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
                 block_with_log(ctx, start, &log_reason, &file_path, &output)?;
             }
             PreEditU16Result::Advisory {
-                log_reason,
-                context,
+                mut log_reason,
+                mut context,
             } => {
+                if let Some(warning) = &empty_catch_warning {
+                    context.push('\n');
+                    context.push_str(warning);
+                    log_reason.push('\n');
+                    log_reason.push_str(warning);
+                }
                 if let Err(err) = append_hook_event(
                     ctx,
                     HookKind::PreEdit,
@@ -129,6 +148,23 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
         return Ok(());
     }
 
+    if let Some(context) = empty_catch_warning {
+        if let Err(err) = append_hook_event(
+            ctx,
+            HookKind::PreEdit,
+            decision::WARN,
+            status::WARN,
+            &context,
+            &file_path,
+            elapsed_ms(start),
+        ) {
+            print_internal_warning(ctx, Some(&context), &err.to_string())?;
+        } else {
+            print_hook_context("PreToolUse", &context)?;
+        }
+        return Ok(());
+    }
+
     if let Err(err) = append_hook_event(
         ctx,
         HookKind::PreEdit,
@@ -142,6 +178,51 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
     }
 
     Ok(())
+}
+
+fn proposed_empty_catch_warning(
+    data: &Value,
+    file_path: &str,
+    content: &str,
+    old_string: &str,
+    new_string: &str,
+) -> Option<String> {
+    if let Some(hunks) = data
+        .get("tool_input")
+        .and_then(|value| value.get("vibeguard_patch_hunks"))
+        .and_then(Value::as_array)
+    {
+        let mut result = content.to_string();
+        for hunk in hunks {
+            let hunk_old = hunk.get("old_string").and_then(Value::as_str).unwrap_or("");
+            let hunk_new = hunk.get("new_string").and_then(Value::as_str).unwrap_or("");
+            if hunk_old.is_empty() {
+                // Context-free insertion hunks append to the file in apply_patch.
+                result = format!("{result}\n{hunk_new}");
+            } else {
+                result = result.replacen(hunk_old, hunk_new, 1);
+            }
+        }
+        return empty_exception_edit_warning(file_path, content, &result);
+    }
+
+    // Context-only moves/updates emit empty strings so path guards still run.
+    if old_string.is_empty() && new_string.is_empty() {
+        return None;
+    }
+
+    if !old_string.is_empty() {
+        let replace_all = data["tool_input"]["replace_all"].as_bool().unwrap_or(false);
+        let result = if replace_all {
+            content.replace(old_string, new_string)
+        } else {
+            content.replacen(old_string, new_string, 1)
+        };
+        return empty_exception_edit_warning(file_path, content, &result);
+    }
+
+    // Context-free insertion hunks append to the file in apply_patch.
+    empty_exception_edit_warning(file_path, content, &format!("{content}\n{new_string}"))
 }
 
 enum PreEditU16Result {

@@ -724,6 +724,85 @@ printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext"
 
         let _ = fs::remove_dir_all(repo_dir);
     }
+
+    #[test]
+    fn multi_hunk_update_runs_one_pre_edit_with_combined_hunks() {
+        let repo_dir = temp_dir("multi_hunk_pre_edit");
+        fs::create_dir_all(Path::new(&repo_dir).join("src")).expect("src dir");
+        fs::write(
+            Path::new(&repo_dir).join("src/service.js"),
+            "function run() {\n  work();\n}\n",
+        )
+        .expect("source file");
+        write_hook(
+            &repo_dir,
+            "pre-edit-guard.sh",
+            r#"#!/usr/bin/env bash
+payload="$(cat)"
+if [[ "${payload}" == *'"vibeguard_patch_hunks"'* ]]; then
+  printf '{"decision":"block","reason":"saw combined hunks"}\n'
+else
+  printf '{"decision":"pass","reason":"missing combined hunks"}\n'
+fi
+"#,
+        );
+        let mut strategy =
+            VibeGuardGateStrategy::new(&repo_dir, Some("guarded")).expect("strategy should init");
+        let mut state = SessionState::default();
+        strategy.on_client_message(
+            &json!({"method": "thread/start", "params": {"threadId": "thread-multi", "cwd": repo_dir}}),
+            &mut state,
+        );
+
+        let diff = "--- a/src/service.js\n+++ b/src/service.js\n@@\n-function run() {\n+try {\n   work();\n }\n@@\n }\n+catch {}\n";
+        strategy.on_server_notification(
+            json!({
+                "method": "item/started",
+                "params": {
+                    "threadId": "thread-multi",
+                    "turnId": "turn-multi",
+                    "item": {
+                        "id": "item-multi",
+                        "type": "fileChange",
+                        "changes": [{
+                            "path": "src/service.js",
+                            "kind": "update",
+                            "diff": diff
+                        }]
+                    }
+                }
+            }),
+            &mut state,
+        );
+
+        let mut outputs = Vec::new();
+        let handled = strategy.handle_server_request(
+            &json!({
+                "id": "req-multi",
+                "method": "item/fileChange/requestApproval",
+                "params": {
+                    "threadId": "thread-multi",
+                    "turnId": "turn-multi",
+                    "itemId": "item-multi"
+                }
+            }),
+            &mut state,
+            &mut |value| outputs.push(value),
+        );
+
+        assert!(handled);
+        let rendered = outputs.iter().map(Value::to_string).collect::<String>();
+        assert!(
+            rendered.contains("\"decision\":\"decline\""),
+            "expected decline when combined hunks are reviewed: {rendered}"
+        );
+        assert!(
+            rendered.contains("saw combined hunks"),
+            "pre-edit must receive vibeguard_patch_hunks: {rendered}"
+        );
+
+        let _ = fs::remove_dir_all(repo_dir);
+    }
 }
 
 #[test]

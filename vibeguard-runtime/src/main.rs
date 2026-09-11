@@ -271,6 +271,11 @@ static COMMANDS: &[Command] = &[
         handler: codex_hooks::adapter::adapt_permission_request,
     },
     Command {
+        name: "codex-merge-adapted-advisory",
+        usage: "  — merge two adapted Codex advisory JSON payloads from a stdin JSON array",
+        handler: codex_hooks::adapter::merge_adapted_advisory,
+    },
+    Command {
         name: "codex-normalize-apply-patch",
         usage: "<hook-name>  — normalize Codex apply_patch payloads for file hooks",
         handler: codex_hooks::normalize_apply_patch,

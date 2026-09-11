@@ -28,7 +28,6 @@ SPEC.loader.exec_module(generate_rule_docs)
 
 EXPECTED_COMPACT_TABLE = """| ID | Severity | Rule |
 |----|----------|------|
-| U-17 | Strict | Handle errors completely. Do not swallow exceptions silently. |
 | U-29 | Strict | No silent degradation: errors causing user-visible missing data or wrong output must `error` or raise, not `warning` + fallback. |
 | W-02 | Strict | After 3 consecutive failed fixes on the same problem, stop and challenge the hypothesis or architecture. |
 | W-03 | Strict | Verify before claiming completion: produce fresh command output proving the claim. |
@@ -62,7 +61,7 @@ class CompactRuleGenerationTests(unittest.TestCase):
         rules = generate_rule_docs.parse_rules()
         actual = generate_rule_docs.render_compact_table(rules)
         self.assertEqual(actual, EXPECTED_COMPACT_TABLE)
-        for rule_id in ("U-17", "SEC-01", "SEC-02", "SEC-13"):
+        for rule_id in ("U-29", "SEC-01", "SEC-02", "SEC-13"):
             expected_row = next(
                 line for line in EXPECTED_COMPACT_TABLE.splitlines() if line.startswith(f"| {rule_id} ")
             )
