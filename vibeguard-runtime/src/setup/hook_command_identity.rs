@@ -147,9 +147,7 @@ fn leading_assignments_invoke_token(parts: &[String], index: usize) -> bool {
     if index == 0 || index >= parts.len() {
         return false;
     }
-    parts[..index]
-        .iter()
-        .all(|token| is_env_assignment(token))
+    parts[..index].iter().all(|token| is_env_assignment(token))
 }
 
 fn shell_option_uses_command_string(token: &str) -> bool {
