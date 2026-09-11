@@ -1,9 +1,14 @@
-use crate::setup::support::{
-    SetupResult, basename, home_dir, read_json_object, shell_quote, shell_split, write_json_atomic,
-};
+use crate::setup::support::{SetupResult, read_json_object, shell_quote, write_json_atomic};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+mod ownership;
+
+pub(crate) use ownership::{
+    codex_command_is_managed, codex_command_is_managed_with_wrapper, codex_expand_path,
+};
+use ownership::{codex_direct_installed_hook_target, codex_hook_target};
 
 pub use crate::setup::codex_hooks_health::{
     codex_hooks_check_stale, codex_hooks_check_timeouts, codex_hooks_prune_stale_unmanaged,
@@ -731,32 +736,6 @@ fn codex_has_entry(
     })
 }
 
-pub(crate) fn codex_command_is_managed(managed_scripts: &BTreeSet<String>, command: &str) -> bool {
-    codex_command_is_managed_with_wrapper(managed_scripts, command, None)
-}
-
-pub(crate) fn codex_command_is_managed_with_wrapper(
-    managed_scripts: &BTreeSet<String>,
-    command: &str,
-    wrapper: Option<&str>,
-) -> bool {
-    if crate::setup::hook_command_identity::command_is_managed(
-        managed_scripts,
-        command,
-        "run-hook-codex.sh",
-    ) {
-        return true;
-    }
-    let Some(wrapper) = wrapper else {
-        return false;
-    };
-    let wrapper_base = basename(wrapper);
-    if wrapper_base == "run-hook-codex.sh" {
-        return false;
-    }
-    crate::setup::hook_command_identity::command_is_managed(managed_scripts, command, wrapper_base)
-}
-
 pub(crate) fn codex_managed_scripts(repo_dir: &Path) -> SetupResult<BTreeSet<String>> {
     Ok(codex_manifest_data(repo_dir)?.managed_scripts)
 }
@@ -766,52 +745,6 @@ pub(crate) fn codex_managed_script_contract(
 ) -> SetupResult<(BTreeSet<String>, BTreeMap<String, String>)> {
     let manifest = codex_manifest_data(repo_dir)?;
     Ok((manifest.managed_scripts, manifest.script_targets))
-}
-
-fn codex_direct_installed_hook_target(command: &str) -> Option<PathBuf> {
-    let home = home_dir()?;
-    shell_split(command).into_iter().find_map(|token| {
-        let path = codex_expand_path(&token, &home)?;
-        path.to_string_lossy()
-            .contains("/.vibeguard/installed/hooks/")
-            .then_some(path)
-    })
-}
-
-fn codex_hook_target(command: &str, script_targets: &BTreeMap<String, String>) -> Option<PathBuf> {
-    let home = home_dir()?;
-    let parts = shell_split(command);
-    for (idx, token) in parts.iter().enumerate() {
-        let Some(path) = codex_expand_path(token, &home) else {
-            continue;
-        };
-        if path
-            .to_string_lossy()
-            .ends_with("/.vibeguard/run-hook-codex.sh")
-        {
-            let script = parts.get(idx + 1)?;
-            if !script.contains('/') {
-                let canonical_script = script_targets.get(script).unwrap_or(script);
-                let installed = path
-                    .parent()?
-                    .join("installed/hooks")
-                    .join(canonical_script);
-                if installed.parent().is_some_and(Path::exists) {
-                    return Some(installed);
-                }
-            }
-        }
-    }
-    None
-}
-
-pub(crate) fn codex_expand_path(token: &str, home: &Path) -> Option<PathBuf> {
-    token
-        .strip_prefix("~/")
-        .map(|tail| home.join(tail))
-        .or_else(|| token.strip_prefix("$HOME/").map(|tail| home.join(tail)))
-        .or_else(|| token.strip_prefix("${HOME}/").map(|tail| home.join(tail)))
-        .or_else(|| token.starts_with('/').then(|| PathBuf::from(token)))
 }
 
 #[cfg(test)]
