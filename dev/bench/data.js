@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789126999859,
+  "lastUpdate": 1789160726273,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -65108,6 +65108,225 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 9,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "49fac538bfc0cc7a4e857ca9e2ce87836a93ac8a",
+          "message": "fix!: 优化 U-16 并收敛规则与自动构建流程 (#801)\n\n* fix!: keep size limits while reducing rule-driven workflow overhead\n\nPreserve U-16 baseline enforcement and give actionable recovery guidance. Scope verification and procedural rules to the task, retire automatic build registration, and preserve user-owned hooks during setup repair.\n\nRelated: #800\nSigned-off-by: VibeGuard Agent <1835304752@qq.com>\n\n* fix: align manual build hook ownership and profile checks\n\nKeep the retired automatic build hook uninstalled while satisfying manifest ownership requirements. Assert the new profile contract and document the retained manual build evidence producer.\n\nTested: full setup 1422/1422; Codex status 53/53; generated rules 23/23; manifest 114/114; workflows 14/14; manual build 18/18; hook and documentation validators\nSigned-off-by: VibeGuard Agent <1835304752@qq.com>\n\n* fix: align U-16 CI assertion and manual hook ownership\n\nUpdate the runtime-config expectation to the new limit: N wording, share\nClaude/Codex managed-command identity so argument-only mentions survive,\npin manual post-build diagnostics to unknown callers, and refresh the\nU-25 diagram that still described retired escalation.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: rustfmt setup helpers and drop full-profile Build Check claims\n\nCore CI was blocked on rustfmt, while full-profile docs still advertised automatic Build Check after post-build-check became manual. Qualify U-16 400/800 as defaults in compact guidance.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: address PR feedback on legacy configs and hook ownership\n\nKeep post-build-check accepted in project config for legacy no-ops, restore\nconditional ExecPlan resume drift checks, and stop treating shell-script\narguments as managed Claude hooks.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: sync observe U-16 expectations and ExecPlan drift contract\n\nAlign observe_cli with configured-limit U-16 wording and allow\nexperiment-gated check_runtime_drift references in ExecPlan contracts.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: keep setup markdown.rs under the U-16 hard limit\n\nExtract Claude settings hook helpers into a sibling module so Core CI\nvalidate-u16-baseline stops failing on the 800-line hard limit.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: drop retired post-build-check from Codex hook-name maps\n\nAlign helper/wrapper resolvers and coverage assertions with the seven\ncodex.enabled hooks so Core CI hook_name_resolution tests pass again.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: restrict managed-hook ownership to executable positions\n\nKeep third-party commands that only mention managed scripts as arguments user-owned in both Python and Rust setup paths, and align the legacy disabled_hook assertion with the manifest.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: recognize custom Codex wrappers after ownership narrowing\n\nKeep vibeguard-* scripts managed when they are the next argument to any\ninvoked wrapper path, so non-standard wrappers stay idempotent for\nupsert/check/remove without reclaiming argument-only third-party commands.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: override inherited host identity in manual post-build diagnostics\n\nPin CLI/client fields unconditionally so reused Codex/Claude env cannot\nattribute a direct Bash post-build-check invocation to a host wrapper.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: restrict Codex wrapper ownership and keep disabled alias cleanup\n\nLimit managed ownership to known/configured wrappers so commands like\nlogger/echo cannot reclaim vibeguard-* arguments, and include disabled\nCodex script aliases in Python cleanup so retired post-build registrations\nare still removed.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: extract Codex hook ownership helpers under U-16 limit\n\nMove ownership and path-resolution helpers out of codex_hooks.rs so the\nfile stays under the 800-line hard limit and restore Core CI.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: surface Codex remove wrapper and manual post-build skips\n\nPass the configured Codex wrapper through setup-codex-hooks-remove so\ncustom-wrapper installs are cleaned, and make manual post-build skips\nvisible with stderr + exit 2 instead of silent success.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: rustfmt cli_codex_remove_wrapper test\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: fail manual post-build diagnostics and own inline env prefixes\n\nManual post-build-check now exits nonzero after build/timeout failures so callers cannot treat ERRORS as success. Hook ownership in Rust and Python treats leading VAR=value prefixes as executable positions so retired registrations remain cleanable.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n* fix: rustfmt leading_assignments_invoke_token helper\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n\n---------\n\nSigned-off-by: VibeGuard Agent <1835304752@qq.com>\nCo-authored-by: Cursor <cursoragent@cursor.com>",
+          "timestamp": "2026-09-12T04:44:12+08:00",
+          "tree_id": "7fdae2dd16f8bc4aa50cccaba2c4194a3a335648",
+          "url": "https://github.com/majiayu000/vibeguard/commit/49fac538bfc0cc7a4e857ca9e2ce87836a93ac8a"
+        },
+        "date": 1789160724745,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 87,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 93,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 93,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 96,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 96,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 96,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 91,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 92,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 92,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 96,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 99,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 99,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 92,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 93,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 93,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 75,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 75,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 33,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 33,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 33,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 33,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 33,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write 5000 P50",
+            "value": 96,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write 5000 P95",
+            "value": 97,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write 5000 P99",
+            "value": 97,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 96,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 96,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 96,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 88,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 90,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 90,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 13,
             "unit": "ms"
           }
         ]
