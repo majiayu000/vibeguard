@@ -264,6 +264,9 @@ fn validate_required_string(
 }
 
 fn valid_suppression_rule_id(rule: &str) -> bool {
+    if rule == "JS-EMPTY-CATCH" {
+        return true;
+    }
     if matches!(rule.as_bytes(), [b'L', b'1'..=b'7']) {
         return true;
     }
@@ -526,6 +529,33 @@ mod tests {
             None,
             "2026-06-19",
         ));
+    }
+
+    #[test]
+    fn empty_catch_suppression_validates_and_matches() {
+        let config = json!({"scoped_suppressions": [{
+            "hook": "pre-edit-guard", "rule_id": "JS-EMPTY-CATCH",
+            "path": "docs/examples/**", "action": "suppress", "reason": "Best effort example"
+        }]});
+        let mut errors = Vec::new();
+        super::validate_scoped_suppressions(
+            config.as_object().unwrap(),
+            &["pre-edit-guard".into()],
+            &mut errors,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let rule = super::scoped_suppressions_from_object(config.as_object().unwrap()).remove(0);
+        let output = json!({"hookSpecificOutput": {"additionalContext": "[JS-EMPTY-CATCH] [review] [this-edit]"}});
+        let payload = json!({"tool_input": {"file_path": "/repo/docs/examples/best_effort.js"}});
+        assert!(scoped_suppression_matches_output_at(
+            &rule,
+            "pre-edit-guard",
+            &output,
+            Some(&payload),
+            Some("/repo"),
+            "2026-09-08"
+        ));
+        assert!(!valid_suppression_rule_id("JS-ARBITRARY"));
     }
 
     #[test]

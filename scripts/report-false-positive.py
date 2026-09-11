@@ -31,7 +31,7 @@ SECRET_PATTERNS = [
     re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{8,}\b"),
 ]
 RULE_ID_PATTERN = re.compile(
-    r"\[(L[1-7]|SEC-\d+|RS-\d+|GO-\d+|TS-\d+|PY-\d+|U-\d+|W-\d+|TASTE-[A-Za-z0-9-]+)\]"
+    r"\[(L[1-7]|SEC-\d+|RS-\d+|GO-\d+|TS-\d+|PY-\d+|U-\d+|W-\d+|TASTE-[A-Za-z0-9-]+|JS-EMPTY-CATCH)\]"
 )
 IDENTIFIER_TOKEN_CHARS = "A-Za-z0-9_-"
 

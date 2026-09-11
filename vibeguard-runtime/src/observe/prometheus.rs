@@ -296,6 +296,9 @@ fn derive_rule_id(reason: &str) -> String {
 }
 
 fn valid_rule_id(token: &str) -> bool {
+    if token == "JS-EMPTY-CATCH" {
+        return true;
+    }
     let Some((prefix, tail)) = token.split_once('-') else {
         return false;
     };
@@ -548,6 +551,17 @@ mod tests {
             Ok(output) => output,
             Err(err) => panic!("failed to render prometheus metrics: {err}"),
         }
+    }
+
+    #[test]
+    fn prometheus_attributes_empty_catch_events() {
+        let event = serde_json::json!({
+            "ts": "2026-09-08T00:00:00Z", "hook": "pre-edit-guard",
+            "decision": "warn", "reason": "[JS-EMPTY-CATCH] [review] [this-edit]"
+        });
+        let out = render(&event.to_string());
+        assert!(out.contains("rule_id=\"JS-EMPTY-CATCH\""), "{out}");
+        assert!(!valid_rule_id("JS-ARBITRARY"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 #[derive(Clone, Copy)]
 enum LexState {
@@ -11,14 +11,116 @@ enum LexState {
 }
 
 pub(crate) fn empty_catch_count(source: &str) -> usize {
-    let code = mask_javascript_non_code(source);
-    count_empty_catch_clauses(&code)
+    catch_clauses(source)
+        .iter()
+        .filter(|clause| clause.empty)
+        .count()
 }
 
-fn count_empty_catch_clauses(code: &str) -> usize {
+pub(crate) fn introduced_empty_catch_count(old_source: &str, new_source: &str) -> usize {
+    if old_source.is_empty() {
+        return empty_catch_count(new_source);
+    }
+    let old_chars: Vec<_> = old_source.chars().collect();
+    let new_chars: Vec<_> = new_source.chars().collect();
+    let prefix = old_chars
+        .iter()
+        .zip(&new_chars)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let suffix = old_chars[prefix..]
+        .iter()
+        .rev()
+        .zip(new_chars[prefix..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    // Preserve untouched handlers; correlate edited ones by try-body identity plus
+    // preceding context so duplicate try bodies do not share one FIFO queue.
+    let old_edited: Vec<_> = catch_clauses(old_source)
+        .into_iter()
+        .filter(|clause| clause.end > prefix && clause.start < old_chars.len() - suffix)
+        .collect();
+    let mut unmatched_old: Vec<Option<CatchClause>> = old_edited.into_iter().map(Some).collect();
+    catch_clauses(new_source)
+        .into_iter()
+        .filter(|clause| clause.end > prefix && clause.start < new_chars.len() - suffix)
+        .filter(|clause| {
+            if !clause.empty {
+                // Still consume the best prior match so later empties stay aligned.
+                let _ = take_best_prior_match(&mut unmatched_old, clause, &old_chars);
+                return false;
+            }
+            let was_empty = take_best_prior_match(&mut unmatched_old, clause, &old_chars)
+                .map(|prior| prior.empty);
+            was_empty != Some(true)
+        })
+        .count()
+}
+
+fn take_best_prior_match(
+    unmatched_old: &mut [Option<CatchClause>],
+    new_clause: &CatchClause,
+    old_chars: &[char],
+) -> Option<CatchClause> {
+    let mut best: Option<(usize, i64)> = None;
+    for (index, candidate) in unmatched_old.iter().enumerate() {
+        let Some(old_clause) = candidate.as_ref() else {
+            continue;
+        };
+        let score = clause_match_score(old_clause, new_clause, old_chars);
+        if best.is_none_or(|(_, best_score)| score > best_score) {
+            best = Some((index, score));
+        }
+    }
+    let (index, score) = best?;
+    if score < 0 {
+        return None;
+    }
+    unmatched_old[index].take()
+}
+
+fn clause_match_score(
+    old_clause: &CatchClause,
+    new_clause: &CatchClause,
+    old_chars: &[char],
+) -> i64 {
+    let context_score = shared_suffix_len(
+        &preceding_context(old_chars, old_clause.try_start),
+        &new_clause.preceding,
+    ) as i64;
+    let identity_bonus = i64::from(old_clause.identity == new_clause.identity) * 64;
+    let distance = (old_clause.start as i64 - new_clause.start as i64).abs();
+    identity_bonus + context_score * 4 - distance
+}
+
+fn preceding_context(chars: &[char], try_start: usize) -> String {
+    let start = try_start.saturating_sub(48);
+    chars[start..try_start].iter().collect()
+}
+
+fn shared_suffix_len(left: &str, right: &str) -> usize {
+    left.chars()
+        .rev()
+        .zip(right.chars().rev())
+        .take_while(|(a, b)| a == b)
+        .count()
+}
+
+struct CatchClause {
+    identity: String,
+    preceding: String,
+    try_start: usize,
+    start: usize,
+    end: usize,
+    empty: bool,
+}
+
+fn catch_clauses(source: &str) -> Vec<CatchClause> {
+    let code = mask_javascript_non_code(source);
     let chars = code.chars().collect::<Vec<_>>();
+    let original = source.chars().collect::<Vec<_>>();
     let try_closings = try_block_closing_braces(&chars);
-    let mut count = 0;
+    let mut clauses = Vec::new();
     let mut index = 0;
     while index < chars.len() {
         if !is_identifier_start(chars[index]) {
@@ -30,17 +132,45 @@ fn count_empty_catch_clauses(code: &str) -> usize {
         while index < chars.len() && is_identifier_continue(chars[index]) {
             index += 1;
         }
-        if chars[start..index].iter().collect::<String>() == "catch"
-            && is_empty_catch_clause(&chars, &try_closings, start, index)
-        {
-            count += 1;
+        if chars[start..index].iter().collect::<String>() != "catch" {
+            continue;
         }
+        let Some(try_close) = previous_non_whitespace_index(&chars, start) else {
+            continue;
+        };
+        let Some(&try_start) = try_closings.get(&try_close) else {
+            continue;
+        };
+        let mut cursor = skip_whitespace(&chars, index);
+        if chars.get(cursor) == Some(&'(') {
+            let Some(binding_end) = balanced_end(&chars, cursor, '(', ')') else {
+                continue;
+            };
+            cursor = skip_whitespace(&chars, binding_end);
+        }
+        if chars.get(cursor) != Some(&'{') {
+            continue;
+        }
+        let Some(end) = balanced_end(&chars, cursor, '{', '}') else {
+            continue;
+        };
+        // Identity is the try block only so binding-only renames of an already-empty
+        // handler (catch (error) {} → catch {} / catch (e) {}) stay matched.
+        // preceding context disambiguates duplicate try bodies across handlers.
+        clauses.push(CatchClause {
+            identity: original[try_start..=try_close].iter().collect(),
+            preceding: preceding_context(&original, try_start),
+            try_start,
+            start,
+            end,
+            empty: chars.get(skip_whitespace(&chars, cursor + 1)) == Some(&'}'),
+        });
     }
-    count
+    clauses
 }
 
-fn try_block_closing_braces(chars: &[char]) -> HashSet<usize> {
-    let mut closings = HashSet::new();
+fn try_block_closing_braces(chars: &[char]) -> HashMap<usize, usize> {
+    let mut closings = HashMap::new();
     let mut blocks = Vec::new();
     let mut pending_try = false;
     let mut index = 0;
@@ -60,12 +190,12 @@ fn try_block_closing_braces(chars: &[char]) -> HashSet<usize> {
         }
         match chars[index] {
             '{' => {
-                blocks.push(pending_try);
+                blocks.push(pending_try.then_some(index));
                 pending_try = false;
             }
             '}' => {
-                if blocks.pop() == Some(true) {
-                    closings.insert(index);
+                if let Some(Some(start)) = blocks.pop() {
+                    closings.insert(index, start);
                 }
                 pending_try = false;
             }
@@ -74,33 +204,6 @@ fn try_block_closing_braces(chars: &[char]) -> HashSet<usize> {
         index += 1;
     }
     closings
-}
-
-fn is_empty_catch_clause(
-    chars: &[char],
-    try_closings: &HashSet<usize>,
-    start: usize,
-    end: usize,
-) -> bool {
-    let Some(previous) = previous_non_whitespace_index(chars, start) else {
-        return false;
-    };
-    if !try_closings.contains(&previous) {
-        return false;
-    }
-
-    let mut cursor = skip_whitespace(chars, end);
-    if chars.get(cursor) == Some(&'(') {
-        let Some(binding_end) = balanced_end(chars, cursor, '(', ')') else {
-            return false;
-        };
-        cursor = skip_whitespace(chars, binding_end);
-    }
-    if chars.get(cursor) != Some(&'{') {
-        return false;
-    }
-    cursor = skip_whitespace(chars, cursor + 1);
-    chars.get(cursor) == Some(&'}')
 }
 
 fn previous_non_whitespace_index(chars: &[char], before: usize) -> Option<usize> {
@@ -365,7 +468,114 @@ mod tests {
     use super::*;
 
     #[test]
+    fn catches_are_compared_independently_of_other_handlers() {
+        let old = "try { first(); } catch {}\ntry { second(); } catch (e) { report(e); }";
+        for new in [
+            "try { first(); } catch { report(); }\ntry { second(); } catch (e) {}",
+            "try { second(); } catch (e) {}",
+        ] {
+            assert_eq!(introduced_empty_catch_count(old, new), 1);
+        }
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { first(); } catch {}\ntry { second(); } catch {}",
+                "try { second(); } catch {}",
+            ),
+            0
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { run(\"first\"); } catch {}\ntry { run(\"second\"); } catch { report(); }",
+                "try { run(\"second\"); } catch {}",
+            ),
+            1
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { first(); } catch {}",
+                "try { changed(); } catch {}",
+            ),
+            0
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { run(); } catch (error) {}",
+                "try { run(); } catch {}",
+            ),
+            0
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { run(); } catch (error) {}",
+                "try { run(); } catch (e) {}",
+            ),
+            0
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "function a(){try{run()}catch{}} function b(){try{run()}catch{report()}}",
+                "function b(){try{run()}catch{}}",
+            ),
+            1
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "function a(){try{run()}catch{}} function b(){try{run()}catch{report()}}",
+                "function a(){try{run()}catch{}}",
+            ),
+            0
+        );
+    }
+
+    #[test]
     fn empty_catches_are_code_aware() {
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { run(); } catch (error) {}\nconst ready = true;\n",
+                "try { run(); } catch (error) {}\nconst ready = false;\n",
+            ),
+            0
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "const ready = true;\n",
+                "try { run(); } catch (error) {}\nconst ready = true;\n",
+            ),
+            1
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { run(); } catch (error) { report(error); }\n",
+                "try { run(); } catch (error) {}\n",
+            ),
+            1
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "try { run(); } catch (error) {}\n",
+                "try { run(); } catch (error) { report(error); }\n",
+            ),
+            0
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "class C { catch (error) { report(error); } }",
+                "class C { catch (error) {} }",
+            ),
+            0
+        );
+        assert_eq!(
+            introduced_empty_catch_count(
+                "const c = { catch (error) { report(error); } };",
+                "const c = { catch (error) {} };",
+            ),
+            0
+        );
+        assert_eq!(
+            introduced_empty_catch_count("catch (error) {}", "catch (error) { report(error); }"),
+            0
+        );
+        assert_eq!(empty_catch_count("foo() {} catch (error) {}"), 0);
         assert_eq!(empty_catch_count("try { run(); } catch (error) {}"), 1);
         assert_eq!(empty_catch_count("try { run(); } catch {}"), 1);
         assert_eq!(empty_catch_count("try { run(); } catch { report(); }"), 0);

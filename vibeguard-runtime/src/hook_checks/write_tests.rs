@@ -194,8 +194,14 @@ fn empty_javascript_catch_warns_without_flagging_handled_errors() {
     let PostWriteOutcome::Warn { warnings } = outcome else {
         panic!("expected swallowed-exception warning");
     };
-    assert!(warnings.contains("[U-17]"), "{warnings}");
-    assert!(warnings.contains("empty exception handler"), "{warnings}");
+    assert!(warnings.contains("[JS-EMPTY-CATCH]"), "{warnings}");
+    assert!(warnings.contains("this edit introduces"), "{warnings}");
+    assert!(warnings.contains("existing error path"), "{warnings}");
+    assert!(warnings.contains("intentionally best-effort"), "{warnings}");
+    assert!(
+        warnings.contains("create logging infrastructure"),
+        "{warnings}"
+    );
 
     let optional_binding = evaluate_post_write(
         file_path.to_string_lossy().as_ref(),
@@ -205,7 +211,8 @@ fn empty_javascript_catch_warns_without_flagging_handled_errors() {
     let PostWriteOutcome::Warn { warnings } = optional_binding else {
         panic!("expected optional-binding swallowed-exception warning");
     };
-    assert!(warnings.contains("empty exception handler"), "{warnings}");
+    assert!(warnings.contains("[JS-EMPTY-CATCH]"), "{warnings}");
+    assert!(warnings.contains("this edit introduces"), "{warnings}");
 
     let handled = evaluate_post_write(
         file_path.to_string_lossy().as_ref(),
@@ -230,7 +237,8 @@ fn empty_javascript_catch_warns_without_flagging_handled_errors() {
     let PostWriteOutcome::Warn { warnings } = module_outcome else {
         panic!("expected CommonJS swallowed-exception warning");
     };
-    assert!(warnings.contains("empty exception handler"), "{warnings}");
+    assert!(warnings.contains("[JS-EMPTY-CATCH]"), "{warnings}");
+    assert!(warnings.contains("this edit introduces"), "{warnings}");
 
     let method = evaluate_post_write(
         file_path.to_string_lossy().as_ref(),

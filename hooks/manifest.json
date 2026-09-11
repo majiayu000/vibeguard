@@ -77,8 +77,8 @@
       "install_targets": ["hooks-pre"],
       "config_exposure": {"disabled_hook": true},
       "trigger": "PreToolUse(Edit)",
-      "responsibilities": "Block editing of non-existent files (anti-hallucination).",
-      "decision_types": ["pass", "block"],
+      "responsibilities": "Block editing of non-existent files; review newly introduced empty catch handlers using the complete proposed edit.",
+      "decision_types": ["pass", "warn", "block"],
       "app_server": {"role": "file_pre", "tool": "Edit", "required": true},
       "claude": {
         "enabled": true,

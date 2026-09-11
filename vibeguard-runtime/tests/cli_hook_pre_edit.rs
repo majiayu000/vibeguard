@@ -351,6 +351,38 @@ fn pre_edit_check_blocks_w12_test_infrastructure_before_file_lookup() {
 }
 
 #[test]
+fn pre_edit_check_blocks_w12_move_destination_while_reading_source() {
+    let root = unique_temp_dir("pre-edit-w12-move-dest");
+    fs::create_dir_all(root.join("src")).unwrap();
+    let source = root.join("src/config.ts");
+    fs::write(&source, "export const retries = 1;\n").unwrap();
+    let log_file = root.join("events.jsonl");
+    let input = json!({
+        "tool_input": {
+            "file_path": source,
+            "old_string": "export const retries = 1;",
+            "new_string": "export default {};",
+            "vibeguard_move_destination": "jest.config.ts"
+        }
+    })
+    .to_string();
+
+    let out = run_pre_edit_check(&input, &log_file);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("\"decision\": \"block\""), "{stdout}");
+    assert!(stdout.contains("W-12 interception"), "{stdout}");
+    assert!(stdout.contains("jest.config.ts"), "{stdout}");
+    let event = &parse_events(&log_file)[0];
+    assert_eq!(event["decision"], "block");
+    assert_eq!(
+        event["reason"],
+        "Test Infrastructure File Protection (W-12)"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn pre_edit_check_positive_delta_blocks_above_u16_hard_limit() {
     let root = unique_temp_dir("pre-edit-positive-delta");
     fs::create_dir_all(&root).unwrap();

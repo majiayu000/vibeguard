@@ -113,3 +113,22 @@ fn published_schema_includes_guided_history_thresholds() {
         assert_eq!(field["default"], default, "{path}");
     }
 }
+
+#[test]
+fn project_schema_accepts_the_empty_catch_scoped_suppression() {
+    let schema: Value =
+        serde_json::from_str(include_str!("../../schemas/vibeguard-project.schema.json")).unwrap();
+    let validator = jsonschema::options()
+        .with_base_uri("https://example.test/schemas/")
+        .with_resource(
+            "https://example.test/schemas/vibeguard-runtime-config.schema.json",
+            jsonschema::Resource::from_contents(published_schema()).unwrap(),
+        )
+        .build(&schema)
+        .unwrap();
+    let config = serde_json::json!({"scoped_suppressions": [{
+        "hook": "pre-edit-guard", "rule_id": "JS-EMPTY-CATCH",
+        "path": "docs/examples/**", "action": "suppress", "reason": "Best effort example"
+    }]});
+    validator.validate(&config).unwrap();
+}

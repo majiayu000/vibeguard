@@ -265,6 +265,9 @@ pub(super) fn observe_extract_rule_ids(text: &str) -> Vec<String> {
 }
 
 fn observe_looks_like_rule_id(token: &str) -> bool {
+    if token == "JS-EMPTY-CATCH" {
+        return true;
+    }
     let Some((prefix, suffix)) = token.split_once('-') else {
         return false;
     };
@@ -465,5 +468,15 @@ mod tests {
         assert_eq!(aggregate.rule_ids.get("W-14"), Some(&1));
         assert_eq!(rendered[field::STATUS], status::SKIPPED);
         assert_eq!(rendered[field::MODEL_CONTEXT], false);
+    }
+
+    #[test]
+    fn extract_js_empty_catch_detector_id() {
+        assert_eq!(
+            observe_extract_rule_ids(
+                "[JS-EMPTY-CATCH] [review] [this-edit] OBSERVATION: this edit introduces 1 empty catch block(s)."
+            ),
+            vec!["JS-EMPTY-CATCH".to_string()]
+        );
     }
 }

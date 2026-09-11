@@ -53,6 +53,30 @@ _codex_write_normalized_inputs() {
   return 1
 }
 
+# Combine advisory contexts from multi-file apply_patch fan-out instead of
+# keeping only the first non-empty adapted output.
+_codex_merge_adapted_advisory() {
+  local accumulated="$1" next="$2" payload merged status=0
+  if [[ -z "${accumulated}" ]]; then
+    printf '%s' "${next}"
+    return 0
+  fi
+  if [[ -z "${next}" ]]; then
+    printf '%s' "${accumulated}"
+    return 0
+  fi
+  payload=$(printf '[%s,%s]' "${accumulated}" "${next}")
+  if declare -F codex_runtime_stdin >/dev/null 2>&1; then
+    merged="$(codex_runtime_stdin "codex-merge-adapted-advisory" "${payload}")" || status=$?
+    if [[ "${status}" -eq 0 && -n "${merged}" ]]; then
+      printf '%s' "${merged}"
+      return 0
+    fi
+  fi
+  # Runtime merge unavailable: retain the first advisory rather than inventing JSON.
+  printf '%s' "${accumulated}"
+}
+
 codex_run_hook() {
   local hook_name="$1" hook_path="$2" input="$3"
   shift 3
@@ -65,7 +89,7 @@ codex_run_hook() {
     return 0
   fi
 
-  local first_adapted_output=""
+  local merged_adapted_output=""
   local normalized_input normalized_payload_file hook_output hook_exit hook_err_file hook_err event_name
   local adapted_status adapted_output finalized_output
   while IFS= read -r normalized_input || [[ -n "${normalized_input:-}" ]]; do
@@ -202,7 +226,7 @@ codex_run_hook() {
           printf '%s\n' "${adapted_output}"
           return 0
         fi
-        [[ -n "${first_adapted_output}" ]] || first_adapted_output="${adapted_output}"
+        merged_adapted_output="$(_codex_merge_adapted_advisory "${merged_adapted_output}" "${adapted_output}")"
       fi
     elif [[ "${event_name}" == "PermissionRequest" ]]; then
       if [[ ${adapted_status} -ne 0 ]]; then
@@ -220,7 +244,7 @@ codex_run_hook() {
           printf '%s\n' "${adapted_output}"
           return 0
         fi
-        [[ -n "${first_adapted_output}" ]] || first_adapted_output="${adapted_output}"
+        merged_adapted_output="$(_codex_merge_adapted_advisory "${merged_adapted_output}" "${adapted_output}")"
       fi
     elif [[ "${event_name}" == "PostToolUse" ]]; then
       if [[ ${adapted_status} -ne 0 ]]; then
@@ -235,13 +259,13 @@ codex_run_hook() {
           printf '%s\n' "${adapted_output}"
           return 0
         fi
-        [[ -n "${first_adapted_output}" ]] || first_adapted_output="${adapted_output}"
+        merged_adapted_output="$(_codex_merge_adapted_advisory "${merged_adapted_output}" "${adapted_output}")"
       fi
     else
-      [[ -n "${first_adapted_output}" ]] || first_adapted_output="${adapted_output}"
+      merged_adapted_output="$(_codex_merge_adapted_advisory "${merged_adapted_output}" "${adapted_output}")"
     fi
   done <"${normalized_file}"
 
   rm -f "${normalized_file}" 2>/dev/null || true
-  [[ -z "${first_adapted_output}" ]] || printf '%s\n' "${first_adapted_output}"
+  [[ -z "${merged_adapted_output}" ]] || printf '%s\n' "${merged_adapted_output}"
 }

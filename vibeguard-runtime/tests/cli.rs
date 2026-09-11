@@ -84,6 +84,7 @@ fn help_lists_all_commands() {
         "codex-adapt-pretool",
         "codex-adapt-posttool",
         "codex-adapt-permission-request",
+        "codex-merge-adapted-advisory",
         "codex-normalize-apply-patch",
         "runtime-policy-check",
         "runtime-policy-downgrade-output",

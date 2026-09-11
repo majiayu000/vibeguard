@@ -194,6 +194,30 @@ def load_triage(path: Path) -> tuple[list[dict[str, Any]], int]:
 # Scorecard loading / saving
 # ---------------------------------------------------------------------------
 
+def merge_missing_seed_rules(
+    scorecard: dict[str, Any], seed_path: Path
+) -> dict[str, Any]:
+    """Copy seed entries that the live scorecard does not already track.
+
+    Existing counts and stages stay untouched so a later seed addition cannot
+    reset an installation that already classified the same rule.
+    """
+    if not seed_path.exists():
+        return scorecard
+    with seed_path.open(encoding="utf-8") as fh:
+        seed = json.load(fh)
+    seed_rules = seed.get("rules") if isinstance(seed, dict) else None
+    if not isinstance(seed_rules, dict):
+        return scorecard
+    rules = scorecard.setdefault("rules", {})
+    if not isinstance(rules, dict):
+        raise ValueError("scorecard rules must be a JSON object")
+    for rule_id, entry in seed_rules.items():
+        if rule_id not in rules:
+            rules[rule_id] = entry
+    return scorecard
+
+
 def load_scorecard(path: Path) -> dict[str, Any]:
     if not path.exists():
         if path.resolve() == SCORECARD_FILE and SCORECARD_SEED_FILE.exists():
@@ -201,7 +225,10 @@ def load_scorecard(path: Path) -> dict[str, Any]:
                 return json.load(fh)
         return {"rules": {}}
     with path.open(encoding="utf-8") as fh:
-        return json.load(fh)
+        scorecard = json.load(fh)
+    if path.resolve() == SCORECARD_FILE.resolve():
+        return merge_missing_seed_rules(scorecard, SCORECARD_SEED_FILE)
+    return scorecard
 
 
 def save_scorecard(scorecard: dict[str, Any], path: Path) -> None:

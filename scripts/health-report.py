@@ -271,6 +271,12 @@ def load_scorecard(path: Path, seed_path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise HealthReportError(f"scorecard {target} must be a JSON object")
     data.setdefault("rules", {})
+    if (
+        path.exists()
+        and seed_path.exists()
+        and path.resolve() == DEFAULT_SCORECARD_FILE.resolve()
+    ):
+        return _PT.merge_missing_seed_rules(data, seed_path)
     return data
 
 
@@ -500,8 +506,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     zero_trigger_rules: list[dict[str, Any]] = []
     if args.days >= ZERO_TRIGGER_MIN_DAYS and not no_data:
         for rule in sorted(scorecard.get("rules", {})):
-            if rule not in observed:
-                entry = scorecard["rules"][rule]
+            entry = scorecard["rules"][rule]
+            if rule not in observed and entry.get("mechanical", True):
                 zero_trigger_rules.append(
                     {
                         "rule": rule,

@@ -78,7 +78,7 @@ JSONL
 # 30-day window must flag it as a zero-trigger downgrade candidate.
 SCORECARD="${TMP_DIR}/scorecard.json"
 cat > "${SCORECARD}" <<'JSON'
-{"rules":{"RS-03":{"stage":"warn","precision":null,"samples":0,"tp":0,"fp":0,"acceptable":0,"last_fp_ts":null,"stage_entered_ts":"2026-01-01T00:00:00Z","notes":"unwrap"}}}
+{"rules":{"U-29":{"stage":"experimental","mechanical":false},"RS-03":{"stage":"warn","precision":null,"samples":0,"tp":0,"fp":0,"acceptable":0,"last_fp_ts":null,"stage_entered_ts":"2026-01-01T00:00:00Z","notes":"unwrap"}}}
 JSON
 
 TRIAGE_CLEAN="${TMP_DIR}/triage-clean.jsonl"
@@ -228,6 +228,9 @@ header "30-day zero-trigger -> downgrade candidate"
 downgrade_out="$(run_report --days 30 --log-file "${EVENTS}" --triage-file "${TRIAGE_CLEAN}" --format json)"
 assert_contains "$downgrade_out" "\"zero_trigger_rules\"" "idle_assets exposes zero_trigger_rules"
 assert_contains "$downgrade_out" "RS-03" "untriggered scorecard rule listed as downgrade candidate"
+
+semantic_idle="$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); print(any(x.get("rule") == "U-29" for x in r["idle_assets"]["zero_trigger_rules"]))' "$downgrade_out")"
+assert_contains "$semantic_idle" "False" "semantic rules are excluded from zero-trigger downgrades"
 
 header "scope stays explicit (global)"
 global_out="$(run_report --scope global --days 30 --log-file "${EVENTS}" --triage-file "${TRIAGE_CLEAN}" --format markdown)"
