@@ -91,8 +91,7 @@ fn codex_hooks_remove_requires_configured_wrapper_for_custom_installs() {
         .unwrap();
     assert!(with_wrapper.status.success());
     assert_eq!(String::from_utf8_lossy(&with_wrapper.stdout), "CHANGED\n");
-    let after: serde_json::Value =
-        serde_json::from_slice(&fs::read(&hooks_file).unwrap()).unwrap();
+    let after: serde_json::Value = serde_json::from_slice(&fs::read(&hooks_file).unwrap()).unwrap();
     let remaining = after
         .pointer("/hooks/PreToolUse/0/hooks")
         .and_then(serde_json::Value::as_array)
