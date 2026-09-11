@@ -46,6 +46,8 @@ def _wrapper_is_invoked(parts: list[str], index: int) -> bool:
         return _basename(parts[index - 2]) in {"bash", "sh", "zsh"}
     if _env_invokes_token(parts, index):
         return True
+    if _leading_assignments_invoke_token(parts, index):
+        return True
     return False
 
 
@@ -81,6 +83,13 @@ def _env_invokes_token(parts: list[str], index: int) -> bool:
     return cursor == index
 
 
+def _leading_assignments_invoke_token(parts: list[str], index: int) -> bool:
+    """True when VAR=value prefixes put the executable at index."""
+    if index == 0 or index >= len(parts):
+        return False
+    return all(_is_env_assignment(token) for token in parts[:index])
+
+
 def _env_option_takes_value(token: str) -> bool:
     return token in {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}
 
@@ -103,13 +112,16 @@ def _looks_like_direct_script(parts: list[str], index: int) -> bool:
         return True
     if _env_invokes_token(parts, index):
         return True
-    if index != 0:
-        return False
-    return (
+    path_like = (
         "/" in token
         or token.startswith(("./", "../", "~/", "$HOME/", "${HOME}/"))
         or token.endswith(".sh")
     )
+    if _leading_assignments_invoke_token(parts, index):
+        return path_like
+    if index != 0:
+        return False
+    return path_like
 
 
 def hook_command_identity(

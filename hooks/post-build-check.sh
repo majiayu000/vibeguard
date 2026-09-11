@@ -262,3 +262,6 @@ ${ERRORS}"
 # A manual diagnostic reports failure without redirecting an in-progress edit.
 vg_log "post-build-check" "PostToolUse" "warn" "${ERRORS}" "$FILE_PATH"
 printf 'VIBEGUARD build diagnostic: %s\nComplete the coherent change and use the project verification command before claiming completion.' "$WARNINGS" | "$_VIBEGUARD_RUNTIME" hook-context PostToolUse
+# Preserve nonzero status for callers using &&, scripts, or CI: a populated
+# ERRORS result must not look like a successful verification.
+exit 1

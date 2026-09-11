@@ -81,6 +81,9 @@ fn looks_like_direct_script(parts: &[String], index: usize) -> bool {
     if env_invokes_token(parts, index) {
         return true;
     }
+    if leading_assignments_invoke_token(parts, index) {
+        return token.contains('/') || token.ends_with(".sh");
+    }
     if index != 0 {
         return false;
     }
@@ -102,6 +105,9 @@ fn wrapper_is_invoked(parts: &[String], index: usize) -> bool {
         return true;
     }
     if env_invokes_token(parts, index) {
+        return true;
+    }
+    if leading_assignments_invoke_token(parts, index) {
         return true;
     }
     false
@@ -133,6 +139,17 @@ fn env_invokes_token(parts: &[String], index: usize) -> bool {
         return false;
     }
     cursor == index
+}
+
+/// Shell-style `VAR=value cmd` prefixes put the executable after assignment
+/// tokens. Treat that position as the invoked command for ownership checks.
+fn leading_assignments_invoke_token(parts: &[String], index: usize) -> bool {
+    if index == 0 || index >= parts.len() {
+        return false;
+    }
+    parts[..index]
+        .iter()
+        .all(|token| is_env_assignment(token))
 }
 
 fn shell_option_uses_command_string(token: &str) -> bool {
@@ -254,6 +271,37 @@ mod tests {
             &codex_managed(),
             "bash ~/.vibeguard/installed/hooks/vibeguard-post-build-check.sh",
             "run-hook-codex.sh"
+        ));
+    }
+
+    #[test]
+    fn inline_env_assignment_prefix_counts_as_direct_script() {
+        let managed = BTreeSet::from(["post-build-check.sh".to_string()]);
+        assert!(command_is_managed(
+            &managed,
+            "VIBEGUARD_PROFILE=full /opt/vibeguard/post-build-check.sh",
+            "run-hook.sh"
+        ));
+        assert!(command_is_managed(
+            &managed,
+            "FOO=1 BAR=2 ~/.vibeguard/installed/hooks/post-build-check.sh",
+            "run-hook.sh"
+        ));
+        assert!(command_is_managed(
+            &codex_managed(),
+            "VIBEGUARD_PROFILE=full /opt/vibeguard/vibeguard-post-build-check.sh",
+            "run-hook-codex.sh"
+        ));
+        assert!(command_invokes_script(
+            "VIBEGUARD_PROFILE=full /tmp/.vibeguard/run-hook.sh pre-bash-guard.sh",
+            "pre-bash-guard.sh",
+            "run-hook.sh"
+        ));
+        // Assignment prefixes must not own later argument mentions.
+        assert!(!command_is_managed(
+            &managed,
+            "VIBEGUARD_PROFILE=full node /custom/audit.js /tmp/post-build-check.sh",
+            "run-hook.sh"
         ));
     }
 

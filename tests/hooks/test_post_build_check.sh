@@ -98,13 +98,18 @@ assert_contains "$result" "post-build-check skipped: unsupported extension .json
 assert_contains "$result" "EXIT:2" "Non-build language (.json) exits 2"
 assert_not_contains "$result" "VIBEGUARD" "Non-build language (.json) does not emit build warning"
 
-# JavaScript syntax errors should warn
+# JavaScript syntax errors should warn and exit nonzero
 tmp_js_bad="$(mktemp -d)"
 cat >"$tmp_js_bad/bad.js" <<'EOF'
 const value = ;
 EOF
-result=$(echo "{\"tool_input\":{\"file_path\":\"$tmp_js_bad/bad.js\"}}" | bash hooks/post-build-check.sh)
+result=$(
+  set +e
+  echo "{\"tool_input\":{\"file_path\":\"$tmp_js_bad/bad.js\"}}" | bash hooks/post-build-check.sh 2>&1
+  echo "EXIT:$?"
+)
 assert_contains "$result" "VIBEGUARD" "JavaScript syntax error triggers build check warning"
+assert_contains "$result" "EXIT:1" "JavaScript syntax error exits 1"
 rm -rf "$tmp_js_bad"
 
 # JavaScript should be allowed if the syntax is correct
@@ -143,8 +148,13 @@ chmod +x "$tmp_js_timeout/bin/node"
 cat >"$tmp_js_timeout/slow.js" <<'EOF'
 const value = 1;
 EOF
-result=$(PATH="$tmp_js_timeout/bin:$PATH" VIBEGUARD_POST_BUILD_TIMEOUT=1 bash -c "echo '{\"tool_input\":{\"file_path\":\"$tmp_js_timeout/slow.js\"}}' | bash hooks/post-build-check.sh")
+result=$(
+  set +e
+  PATH="$tmp_js_timeout/bin:$PATH" VIBEGUARD_POST_BUILD_TIMEOUT=1 bash -c "echo '{\"tool_input\":{\"file_path\":\"$tmp_js_timeout/slow.js\"}}' | bash hooks/post-build-check.sh" 2>&1
+  echo "EXIT:$?"
+)
 assert_contains "$result" "timeout after 1s" "Post-build check reports timeout visibly"
+assert_contains "$result" "EXIT:1" "Post-build timeout exits 1"
 assert_contains "$(grep -R "post-build-check timeout after 1s" "$VIBEGUARD_LOG_DIR" 2>/dev/null || true)" "post-build-check timeout after 1s" "Post-build timeout records telemetry"
 rm -rf "$tmp_js_timeout"
 
@@ -159,8 +169,13 @@ chmod +x "$tmp_js_empty_fail/bin/node"
 cat >"$tmp_js_empty_fail/fail.js" <<'EOF'
 const value = 1;
 EOF
-result=$(PATH="$tmp_js_empty_fail/bin:$PATH" bash -c "echo '{\"tool_input\":{\"file_path\":\"$tmp_js_empty_fail/fail.js\"}}' | bash hooks/post-build-check.sh")
+result=$(
+  set +e
+  PATH="$tmp_js_empty_fail/bin:$PATH" bash -c "echo '{\"tool_input\":{\"file_path\":\"$tmp_js_empty_fail/fail.js\"}}' | bash hooks/post-build-check.sh" 2>&1
+  echo "EXIT:$?"
+)
 assert_contains "$result" "failed with exit status 7" "Post-build command failure without output is visible"
+assert_contains "$result" "EXIT:1" "Post-build empty failure exits 1"
 rm -rf "$tmp_js_empty_fail"
 
 # Repeated checks for the same unchanged project should reuse a short-lived cache,
@@ -195,10 +210,20 @@ assert_occurrences "$(cat "$cache_node_log")" "--check" 1 "Unchanged post-build 
 cat >"$tmp_js_cache/cached.js" <<'EOF'
 const value = BROKEN;
 EOF
-result=$(env "${cache_env[@]}" bash -c "echo '{\"tool_input\":{\"file_path\":\"$tmp_js_cache/cached.js\"}}' | bash hooks/post-build-check.sh")
+result=$(
+  set +e
+  env "${cache_env[@]}" bash -c "echo '{\"tool_input\":{\"file_path\":\"$tmp_js_cache/cached.js\"}}' | bash hooks/post-build-check.sh" 2>&1
+  echo "EXIT:$?"
+)
 assert_contains "$result" "VIBEGUARD" "Changed post-build cache fixture reruns and surfaces failure"
-result=$(env "${cache_env[@]}" bash -c "echo '{\"tool_input\":{\"file_path\":\"$tmp_js_cache/cached.js\"}}' | bash hooks/post-build-check.sh")
+assert_contains "$result" "EXIT:1" "Changed post-build cache failure exits 1"
+result=$(
+  set +e
+  env "${cache_env[@]}" bash -c "echo '{\"tool_input\":{\"file_path\":\"$tmp_js_cache/cached.js\"}}' | bash hooks/post-build-check.sh" 2>&1
+  echo "EXIT:$?"
+)
 assert_contains "$result" "VIBEGUARD" "Cached failing post-build result remains visible"
+assert_contains "$result" "EXIT:1" "Cached failing post-build result exits 1"
 assert_occurrences "$(cat "$cache_node_log")" "--check" 2 "Changed worktree invalidates post-build cache once"
 rm -rf "$tmp_js_cache"
 
