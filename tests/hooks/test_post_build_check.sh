@@ -29,6 +29,34 @@ assert_contains "$_manual_client_event" '"client": "unknown"' "Manual post-build
 assert_contains "$_manual_client_event" '"caller_evidence": "manual-diagnostic"' "Manual post-build-check records manual evidence"
 unset _manual_client_event
 
+# Inherited host identity must not stick to manual diagnostics.
+_inherited_log="$(mktemp -d)"
+result=$(
+  echo '{"tool_input":{"file_path":"src/main.py"}}' \
+    | env VIBEGUARD_LOG_DIR="$_inherited_log" \
+      VIBEGUARD_CLIENT=codex VIBEGUARD_CLI=codex \
+      VIBEGUARD_CLIENT_VARIANT=cli \
+      bash hooks/post-build-check.sh
+)
+_inherited_client_event="$(python3 - <<'PY' "$_inherited_log"
+import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+for path in root.rglob("events.jsonl"):
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        event = json.loads(line)
+        if event.get("hook") == "post-build-check":
+            print(json.dumps(event))
+            raise SystemExit(0)
+raise SystemExit("missing post-build-check event")
+PY
+)"
+assert_contains "$_inherited_client_event" '"client": "unknown"' "Inherited Codex client is overridden for manual post-build-check"
+assert_contains "$_inherited_client_event" '"cli": "unknown"' "Inherited Codex CLI is overridden for manual post-build-check"
+assert_contains "$_inherited_client_event" '"caller_evidence": "manual-diagnostic"' "Inherited identity still records manual evidence"
+unset _inherited_client_event _inherited_log
+
 # .md files should be released
 result=$(echo '{"tool_input":{"file_path":"README.md"}}' | bash hooks/post-build-check.sh)
 assert_not_contains "$result" "VIBEGUARD" "Non-source files (.md) are allowed"

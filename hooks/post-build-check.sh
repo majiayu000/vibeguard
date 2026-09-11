@@ -11,13 +11,14 @@
 
 set -euo pipefail
 
-# Manual diagnostics are not host-dispatched wrappers. Pin unknown caller
-# identity before sourcing log.sh so parent-process inference cannot claim
-# Claude/Codex attribution for a direct Bash invocation.
-export VIBEGUARD_CLI="${VIBEGUARD_CLI:-unknown}"
-export VIBEGUARD_CLIENT="${VIBEGUARD_CLIENT:-unknown}"
-export VIBEGUARD_CLIENT_VARIANT="${VIBEGUARD_CLIENT_VARIANT:-unknown}"
-export VIBEGUARD_CALLER_EVIDENCE="${VIBEGUARD_CALLER_EVIDENCE:-manual-diagnostic}"
+# Manual diagnostics are not host-dispatched wrappers. Override inherited
+# host identity before sourcing log.sh so reused Claude/Codex env cannot
+# claim attribution for a direct Bash invocation. Session/log-path fields
+# needed for correlation may still be inherited.
+export VIBEGUARD_CLI="unknown"
+export VIBEGUARD_CLIENT="unknown"
+export VIBEGUARD_CLIENT_VARIANT="unknown"
+export VIBEGUARD_CALLER_EVIDENCE="manual-diagnostic"
 
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${HOOK_DIR}/log.sh"
