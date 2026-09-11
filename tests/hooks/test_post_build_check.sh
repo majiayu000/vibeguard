@@ -8,9 +8,15 @@ hook_test_init
 header "post-build-check.sh — build check"
 # =========================================================
 
-# Non-build language files (.py) should be allowed
-result=$(echo '{"tool_input":{"file_path":"src/main.py"}}' | bash hooks/post-build-check.sh)
-assert_not_contains "$result" "VIBEGUARD" "Non-build language (.py) release"
+# Non-build language files (.py) should report an explicit skip
+result=$(
+  set +e
+  echo '{"tool_input":{"file_path":"src/main.py"}}' | bash hooks/post-build-check.sh 2>&1
+  echo "EXIT:$?"
+)
+assert_contains "$result" "post-build-check skipped: unsupported extension .py" "Non-build language (.py) reports skip"
+assert_contains "$result" "EXIT:2" "Non-build language (.py) exits 2"
+assert_not_contains "$result" "VIBEGUARD" "Non-build language (.py) does not emit build warning"
 _manual_client_event="$(python3 - <<'PY' "$VIBEGUARD_LOG_DIR"
 import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
@@ -32,11 +38,13 @@ unset _manual_client_event
 # Inherited host identity must not stick to manual diagnostics.
 _inherited_log="$(mktemp -d)"
 result=$(
+  set +e
   echo '{"tool_input":{"file_path":"src/main.py"}}' \
     | env VIBEGUARD_LOG_DIR="$_inherited_log" \
       VIBEGUARD_CLIENT=codex VIBEGUARD_CLI=codex \
       VIBEGUARD_CLIENT_VARIANT=cli \
-      bash hooks/post-build-check.sh
+      bash hooks/post-build-check.sh 2>&1
+  echo "EXIT:$?"
 )
 _inherited_client_event="$(python3 - <<'PY' "$_inherited_log"
 import json, pathlib, sys
@@ -55,20 +63,40 @@ PY
 assert_contains "$_inherited_client_event" '"client": "unknown"' "Inherited Codex client is overridden for manual post-build-check"
 assert_contains "$_inherited_client_event" '"cli": "unknown"' "Inherited Codex CLI is overridden for manual post-build-check"
 assert_contains "$_inherited_client_event" '"caller_evidence": "manual-diagnostic"' "Inherited identity still records manual evidence"
+assert_contains "$result" "post-build-check skipped: unsupported extension .py" "Inherited-host skip still surfaces reason"
+assert_contains "$result" "EXIT:2" "Inherited-host skip exits 2"
 unset _inherited_client_event _inherited_log
 
-# .md files should be released
-result=$(echo '{"tool_input":{"file_path":"README.md"}}' | bash hooks/post-build-check.sh)
-assert_not_contains "$result" "VIBEGUARD" "Non-source files (.md) are allowed"
+# .md files should report an explicit skip
+result=$(
+  set +e
+  echo '{"tool_input":{"file_path":"README.md"}}' | bash hooks/post-build-check.sh 2>&1
+  echo "EXIT:$?"
+)
+assert_contains "$result" "post-build-check skipped: unsupported extension .md" "Non-source files (.md) report skip"
+assert_contains "$result" "EXIT:2" "Non-source files (.md) exit 2"
+assert_not_contains "$result" "VIBEGUARD" "Non-source files (.md) do not emit build warning"
 assert_contains "$(grep -R "skip: unsupported extension .md" "$VIBEGUARD_LOG_DIR" 2>/dev/null || true)" "skip: unsupported extension .md" "Unsupported extension records skip telemetry"
 
-# Empty file_path is allowed
-result=$(echo '{"tool_input":{"file_path":""}}' | bash hooks/post-build-check.sh)
-assert_not_contains "$result" "VIBEGUARD" "Empty file_path is allowed"
+# Empty file_path reports an explicit skip
+result=$(
+  set +e
+  echo '{"tool_input":{"file_path":""}}' | bash hooks/post-build-check.sh 2>&1
+  echo "EXIT:$?"
+)
+assert_contains "$result" "post-build-check skipped: missing file_path" "Empty file_path reports skip"
+assert_contains "$result" "EXIT:2" "Empty file_path exits 2"
+assert_not_contains "$result" "VIBEGUARD" "Empty file_path does not emit build warning"
 
-# .json files should be released
-result=$(echo '{"tool_input":{"file_path":"package.json"}}' | bash hooks/post-build-check.sh)
-assert_not_contains "$result" "VIBEGUARD" "Non-build language (.json) release"
+# .json files should report an explicit skip
+result=$(
+  set +e
+  echo '{"tool_input":{"file_path":"package.json"}}' | bash hooks/post-build-check.sh 2>&1
+  echo "EXIT:$?"
+)
+assert_contains "$result" "post-build-check skipped: unsupported extension .json" "Non-build language (.json) reports skip"
+assert_contains "$result" "EXIT:2" "Non-build language (.json) exits 2"
+assert_not_contains "$result" "VIBEGUARD" "Non-build language (.json) does not emit build warning"
 
 # JavaScript syntax errors should warn
 tmp_js_bad="$(mktemp -d)"
@@ -88,13 +116,19 @@ result=$(echo "{\"tool_input\":{\"file_path\":\"$tmp_js_ok/good.js\"}}" | bash h
 assert_not_contains "$result" "VIBEGUARD" "JavaScript syntax is correct"
 rm -rf "$tmp_js_ok"
 
-# Missing language markers should be logged instead of silent-only exits
+# Missing language markers should surface skip reason instead of silent success
 tmp_rs_no_marker="$(mktemp -d)"
 cat >"$tmp_rs_no_marker/main.rs" <<'EOF'
 fn main() {}
 EOF
-result=$(echo "{\"tool_input\":{\"file_path\":\"$tmp_rs_no_marker/main.rs\"}}" | bash hooks/post-build-check.sh)
-assert_not_contains "$result" "VIBEGUARD" "Rust file without Cargo.toml is skipped"
+result=$(
+  set +e
+  echo "{\"tool_input\":{\"file_path\":\"$tmp_rs_no_marker/main.rs\"}}" | bash hooks/post-build-check.sh 2>&1
+  echo "EXIT:$?"
+)
+assert_contains "$result" "post-build-check skipped: missing Cargo.toml" "Rust file without Cargo.toml reports skip"
+assert_contains "$result" "EXIT:2" "Rust file without Cargo.toml exits 2"
+assert_not_contains "$result" "VIBEGUARD" "Rust file without Cargo.toml does not emit build warning"
 assert_contains "$(grep -R "skip: missing Cargo.toml" "$VIBEGUARD_LOG_DIR" 2>/dev/null || true)" "skip: missing Cargo.toml" "Missing Cargo.toml records skip telemetry"
 rm -rf "$tmp_rs_no_marker"
 

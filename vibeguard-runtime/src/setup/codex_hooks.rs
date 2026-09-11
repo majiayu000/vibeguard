@@ -98,20 +98,22 @@ pub fn codex_hooks_upsert(args: &[String]) -> SetupResult<()> {
 }
 
 pub fn codex_hooks_remove(args: &[String]) -> SetupResult<()> {
-    if args.len() != 2 {
+    if args.len() != 2 && args.len() != 3 {
         return Err(
-            "Usage: vibeguard-runtime setup-codex-hooks-remove <repo-dir> <hooks-file>".into(),
+            "Usage: vibeguard-runtime setup-codex-hooks-remove <repo-dir> <hooks-file> [wrapper]"
+                .into(),
         );
     }
     let managed_scripts = codex_managed_scripts(Path::new(&args[0]))?;
     let hooks_path = Path::new(&args[1]);
+    let wrapper = args.get(2).map(String::as_str);
     if !hooks_path.exists() {
         println!("SKIP");
         return Ok(());
     }
     let mut data = Value::Object(read_json_object(hooks_path, false)?);
     let before = serde_json::to_string(&data)?;
-    codex_prune_managed(&mut data, &managed_scripts, None);
+    codex_prune_managed(&mut data, &managed_scripts, wrapper);
     if serde_json::to_string(&data)? == before {
         println!("SKIP");
     } else {

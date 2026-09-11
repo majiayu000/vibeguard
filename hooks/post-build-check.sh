@@ -35,6 +35,9 @@ INPUT=$(cat)
 post_build_log_skip() {
   local reason="$1" file_path="${2:-}"
   vg_log "post-build-check" "PostToolUse" "pass" "skip: ${reason}" "${file_path}"
+  # Manual diagnostics must not look like a successful build: surface the skip
+  # reason to the caller and use a distinct non-zero status.
+  printf 'post-build-check skipped: %s\n' "${reason}" >&2
 }
 
 post_build_filter_or_head() {
@@ -170,7 +173,7 @@ FILE_PATH=$(echo "$INPUT" | vg_json_field "tool_input.file_path")
 
 if [[ -z "$FILE_PATH" ]]; then
   post_build_log_skip "missing file_path" ""
-  exit 0
+  exit 2
 fi
 
 # Normalize to absolute path so project-isolation filter in escalation detection
@@ -189,7 +192,7 @@ case "$EXT" in
   rs|ts|tsx|go|js|mjs|cjs) ;;
   *)
     post_build_log_skip "unsupported extension .${EXT}" "${FILE_PATH}"
-    exit 0
+    exit 2
     ;;
 esac
 
@@ -214,14 +217,14 @@ case "$EXT" in
   rs)
     if ! PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "Cargo.toml"); then
       post_build_log_skip "missing Cargo.toml" "${FILE_PATH}"
-      exit 0
+      exit 2
     fi
     ERRORS=$(post_build_run_cached "$PROJECT_ROOT" "$EXT" "cargo check --message-format=short" "^error" cargo check --message-format=short)
     ;;
   ts|tsx)
     if ! PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "tsconfig.json"); then
       post_build_log_skip "missing tsconfig.json" "${FILE_PATH}"
-      exit 0
+      exit 2
     fi
     ERRORS=$(post_build_run_cached "$PROJECT_ROOT" "$EXT" "npx tsc --noEmit" "error TS" npx tsc --noEmit)
     ;;
@@ -229,7 +232,7 @@ case "$EXT" in
     # JavaScript syntax check (does not depend on tsconfig)
     if ! command -v node >/dev/null 2>&1; then
       post_build_log_skip "missing node" "${FILE_PATH}"
-      exit 0
+      exit 2
     fi
     PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "package.json") || true
     ERRORS=$(post_build_run_cached "$PROJECT_ROOT" "$EXT" "node --check" "." node --check "$FILE_PATH")
@@ -237,7 +240,7 @@ case "$EXT" in
   go)
     if ! PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "go.mod"); then
       post_build_log_skip "missing go.mod" "${FILE_PATH}"
-      exit 0
+      exit 2
     fi
     ERRORS=$(post_build_run_cached "$PROJECT_ROOT" "$EXT" "go build ./..." "." go build ./...)
     ;;
