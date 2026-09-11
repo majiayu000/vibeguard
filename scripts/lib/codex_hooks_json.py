@@ -139,7 +139,20 @@ def _ensure_hooks_root(data: dict[str, Any]) -> dict[str, Any]:
     return hooks
 
 
-def _identity_for_hook(event: str, matcher: str | None, hook: dict[str, Any]) -> Any:
+def _wrapper_names_for(wrapper: str | None = None) -> frozenset[str]:
+    names = set(_WRAPPER_NAMES)
+    if wrapper:
+        names.add(Path(wrapper).name)
+    return frozenset(names)
+
+
+def _identity_for_hook(
+    event: str,
+    matcher: str | None,
+    hook: dict[str, Any],
+    *,
+    wrapper: str | None = None,
+) -> Any:
     command = hook.get("command")
     if not isinstance(command, str):
         command = ""
@@ -152,7 +165,7 @@ def _identity_for_hook(event: str, matcher: str | None, hook: dict[str, Any]) ->
         command=command,
         timeout=timeout,
         managed_scripts=_MANAGED_SCRIPT_NAMES,
-        wrapper_names=_WRAPPER_NAMES,
+        wrapper_names=_wrapper_names_for(wrapper),
     )
 
 
@@ -459,6 +472,8 @@ def _has_entry(
     expected_command: str,
     expected_matcher: str | None,
     expected_timeout: int | None,
+    *,
+    wrapper: str | None = None,
 ) -> bool:
     """Return True only when a fully-conformant managed entry exists.
 
@@ -476,7 +491,7 @@ def _has_entry(
         for hook in hook_entries:
             if not isinstance(hook, dict):
                 continue
-            identity = _identity_for_hook("", expected_matcher, hook)
+            identity = _identity_for_hook("", expected_matcher, hook, wrapper=wrapper)
             if not identity.is_managed:
                 continue
             if hook.get("command") != expected_command:
@@ -514,7 +529,7 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
         expected_command = f"bash {shlex.quote(args.wrapper)} {spec['script']}"
         expected_matcher = spec.get("matcher") if isinstance(spec.get("matcher"), str) else None
         expected_timeout = spec.get("timeout") if isinstance(spec.get("timeout"), int) else None
-        if not _has_entry(entries, expected_command, expected_matcher, expected_timeout):
+        if not _has_entry(entries, expected_command, expected_matcher, expected_timeout, wrapper=args.wrapper):
             entries.append(_build_entry(args.wrapper, spec))
 
     after = json.dumps(data, sort_keys=True, ensure_ascii=False)
@@ -612,7 +627,7 @@ def cmd_check_vibeguard(args: argparse.Namespace) -> int:
         expected_command = f"bash {shlex.quote(args.wrapper)} {spec['script']}"
         expected_matcher = spec.get("matcher")
         expected_timeout = spec.get("timeout") if isinstance(spec.get("timeout"), int) else None
-        if not _has_entry(entries, expected_command, expected_matcher if isinstance(expected_matcher, str) else None, expected_timeout):
+        if not _has_entry(entries, expected_command, expected_matcher if isinstance(expected_matcher, str) else None, expected_timeout, wrapper=args.wrapper):
             return 1
     return 0
 

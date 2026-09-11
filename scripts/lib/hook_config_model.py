@@ -146,6 +146,22 @@ def hook_command_identity(
             script = next_script
             break
 
+    # Codex managed scripts are vibeguard-* namespaced. Recognize any invoked
+    # executable whose next argument is one of those scripts so non-standard
+    # wrapper paths stay managed, without claiming bare argument mentions or
+    # Claude's unprefixed script names after arbitrary shell scripts.
+    if script is None:
+        for index, token in enumerate(parts):
+            if not _wrapper_is_invoked(parts, index):
+                continue
+            if index + 1 >= len(parts):
+                continue
+            next_script = _basename(parts[index + 1])
+            if next_script in managed_set and next_script.startswith("vibeguard-"):
+                script = next_script
+                wrapper = _basename(token)
+                break
+
     if script is None:
         for index, token in enumerate(parts):
             token_base = _basename(token)
