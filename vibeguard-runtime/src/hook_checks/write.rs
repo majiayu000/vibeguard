@@ -320,12 +320,12 @@ fn u16_warning(
     let limit = project_u16_limit(file_path, base_limit);
     if total > limit {
         return Some(format!(
-            "[U-16] [review] [this-file] OBSERVATION: file has {total} lines, exceeding {limit}-line limit\nFIX: Split into focused submodules by responsibility; plan as a separate task\nDO NOT: Start splitting now - finish the current task first, then refactor"
+            "[U-16] [review] [this-file] OBSERVATION: file has {total} lines, exceeding {limit}-line limit\nFIX: Keep this task localized; for further growth reuse an existing module, extract a related responsibility, or propose an explicitly authorized file-specific limit\nDO NOT: Refactor unrelated code, compress statements, or remove useful comments just to meet the line count"
         ));
     }
     if limit <= base_limit && total > warn_limit {
         return Some(format!(
-            "[U-16] [advisory] [this-file] OBSERVATION: file has {total} lines, exceeding the {warn_limit}-line typical range while staying under the {limit}-line hard limit\nFIX: Keep the current change localized; plan a split if this file keeps growing\nDO NOT: Start splitting now - finish the current task first, then refactor"
+            "[U-16] [advisory] [this-file] OBSERVATION: file has {total} lines, exceeding the {warn_limit}-line typical range while staying under the {limit}-line hard limit\nFIX: Keep the current change localized; plan a split if this file keeps growing\nDO NOT: Refactor unrelated code, compress statements, or remove useful comments just to meet the line count"
         ));
     }
     None

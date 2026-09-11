@@ -61,6 +61,21 @@ from human stats or health text. The first screen keeps these tiers separate:
 - **Observed friction:** repeated-attention sessions, suppressions, and
   uncorrelatable attention events.
 
+Automatic post-edit builds are disabled. The verified tier therefore reflects
+historical events or explicitly invoked manual diagnostics; ordinary project
+verification commands and the pre-commit build gate do not populate this metric.
+The release payload retains `hooks/post-build-check.sh` for manual use when its
+language-default command matches the project. Run it from the payload or source
+checkout with the target file in the hook input:
+
+```bash
+printf '%s\n' '{"tool_input":{"file_path":"/absolute/path/to/project/src/example.js"}}' | bash hooks/post-build-check.sh
+```
+
+Use the existing session's `VIBEGUARD_SESSION_ID` and log environment when
+correlating a manual result with earlier attention; an unrelated session does
+not establish a verified association.
+
 Installation state and human status/stats/health output remain secondary in
 collapsible diagnostic details. Raw output is HTML-escaped. Missing, empty,
 partial, malformed, failed, and unsupported evidence states are shown

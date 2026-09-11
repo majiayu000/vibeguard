@@ -209,6 +209,29 @@ mod setup_markdown_tests {
     }
 
     #[test]
+    fn profile_repair_removes_disabled_build_hook_and_preserves_manual_hooks() -> SetupResult<()> {
+        let repo_dir = repo_dir()?;
+        let specs = claude_specs(repo_dir, Some("full"))?;
+        let mut data = settings_data_with_specs(&specs);
+        for script in ["post-build-check.sh", "skills-loader.sh"] {
+            data["hooks"]["PostToolUse"].as_array_mut().unwrap().push(serde_json::json!({
+                "matcher": "Edit",
+                "hooks": [{"type": "command", "command": format!("bash /tmp/.vibeguard/run-hook.sh {script}")}]
+            }));
+        }
+        assert!(!settings_has_profile_hooks(repo_dir, &data, "full")?);
+        let desired = specs.iter().map(settings_spec_identity).collect();
+        assert!(settings_remove_unprofiled_hooks(
+            repo_dir, &mut data, &desired
+        )?);
+        assert!(settings_has_profile_hooks(repo_dir, &data, "full")?);
+        let text = serde_json::to_string(&data)?;
+        assert!(!text.contains("post-build-check.sh"));
+        assert!(text.contains("skills-loader.sh"));
+        Ok(())
+    }
+
+    #[test]
     fn profile_settings_reject_duplicate_managed_hooks() -> SetupResult<()> {
         let repo_dir = repo_dir()?;
         let core_specs = claude_specs(repo_dir, Some("core"))?;
@@ -267,6 +290,32 @@ mod setup_markdown_tests {
         assert!(
             serde_json::to_string(&data)?.contains("node /custom/audit.js post-build-check.sh")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn profile_repair_preserves_shell_script_argument_only_hook_name() -> SetupResult<()> {
+        let repo_dir = repo_dir()?;
+        let full_specs = claude_specs(repo_dir, Some("full"))?;
+        let mut data = settings_data_with_specs(&full_specs);
+        let command = "bash /custom/audit.sh post-build-check.sh";
+        data["hooks"]["PostToolUse"]
+            .as_array_mut()
+            .expect("PostToolUse entries")
+            .push(serde_json::json!({
+                "matcher": "Edit",
+                "hooks": [{
+                    "type": "command",
+                    "command": command,
+                }]
+            }));
+
+        assert!(settings_has_profile_hooks(repo_dir, &data, "full")?);
+        let desired = full_specs.iter().map(settings_spec_identity).collect();
+        assert!(!settings_remove_unprofiled_hooks(
+            repo_dir, &mut data, &desired
+        )?);
+        assert!(serde_json::to_string(&data)?.contains(command));
         Ok(())
     }
 

@@ -1,51 +1,10 @@
 # Execution Pinning Rules
 
-## W-20: Long tasks must pin runtime, tools, and rules (strict)
-Long-running agent tasks must freeze the execution surface at the start of the task so a mid-flight runtime, tool, or rule change cannot silently alter the result.
+## W-20: Pin execution surfaces for explicitly reproducible experiments (guideline)
+Capture runtime, tool, and rule versions when the user or project requires a reproducible experiment or controlled comparison. Task duration, step count, delegation, and cross-session planning alone do not require snapshots.
 
-**Trigger**:
-- The task crosses 3 or more agent steps.
-- The task is expected to run for 10 minutes or longer.
-- The task enters `/vibeguard:interview` or `/vibeguard:exec-plan`.
-- The task delegates work to child agents, background sessions, or scheduled automation.
+For such an experiment, use the existing `guards/universal/check_runtime_drift.sh` with the relevant tool inventory and installed rules. Store snapshots outside the target repository under `${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/runtime-pinning/<project-name>/`, using task-specific names. Record the paths in the experiment's existing notes.
 
-**Required pinned surfaces**:
+On resume, compare the surfaces needed for the experiment before claiming comparable results. Report meaningful drift and either restore the experiment conditions or rerun the affected checks. Do not require an unrelated security log or a complete inventory of unused tools.
 
-| Surface | Required evidence |
-|------|------|
-| Runtime | agent CLI version, selected model ID, and key SDK/runtime versions relevant to the task |
-| Tools | complete tool / MCP server / skill inventory, including a stable description hash for every entry |
-| Rules | hash of the loaded VibeGuard rule set for the task |
-
-**Protocol**:
-1. Choose stable `<project-name>` and `<task>` slugs for this task and reuse them across sessions. Store its evidence under `${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/runtime-pinning/<project-name>/`; never share fixed global filenames across tasks.
-2. Before execution starts, write or generate a `<task>-tool-inventory.txt` file that lists every tool, MCP entry, or skill available to the task.
-3. Resolve the VibeGuard execution source from `${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}` and run its `guards/universal/check_runtime_drift.sh snapshot --snapshot <file> --tool-inventory <file> --rules-dir <execution-source>/rules/claude-rules`.
-4. Store the snapshot path in the SPEC, ExecPlan, or shared planning handoff.
-5. Before resuming a long task in a later session, run the same installed guard with `check --snapshot <file> --tool-inventory <file> --rules-dir <execution-source>/rules/claude-rules`.
-6. If drift is detected, stop and show the changed surface before continuing.
-
-**Mechanical checks (agent execution rules)**:
-- `interview` and `exec-plan` flows must capture the runtime pinning snapshot path before they hand off to execution.
-- A task cannot claim deterministic replay or stable review evidence unless the runtime, tools, and rules hashes match the original snapshot.
-- Tool inventory entries must include description hashes; a name-only tool list is not enough because MCP and skill descriptions are instruction-bearing surfaces.
-- Runtime pinning complements SEC-12 and SEC-13: SEC-12 covers MCP description drift after installation, SEC-13 covers high-context file tampering, and W-20 covers task-local drift during execution.
-
-**Downgrade path**:
-If the user explicitly accepts drift, record the decision in a project-level security or decision log before continuing. The record must include the old snapshot, current check output, accepted surface, reason, approver, and timestamp.
-
-Use:
-
-```bash
-bash guards/universal/check_runtime_drift.sh accept \
-  --snapshot "${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/runtime-pinning/<project-name>/<task>-runtime.snapshot" \
-  --tool-inventory "${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/runtime-pinning/<project-name>/<task>-tool-inventory.txt" \
-  --decision-log SECURITY.md \
-  --reason "User accepted Codex CLI upgrade during this task"
-```
-
-**Anti-patterns**:
-- Continuing a cross-session ExecPlan after the agent CLI auto-updated without showing the user.
-- Treating a tool name list as stable while tool descriptions changed.
-- Re-running verification after rule files changed and presenting it as equivalent to the original task.
-- Recording "user accepted drift" only in chat, with no durable project log.
+**FIX / SKIP**: Fix unsupported reproducibility claims. Skip snapshots for ordinary implementation, analysis, ExecPlan creation, and status reads. Fresh verification remains required by W-03/W-16.

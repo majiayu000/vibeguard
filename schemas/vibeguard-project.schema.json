@@ -8,7 +8,7 @@
       "type": "string",
       "enum": ["minimal", "core", "full", "strict"],
       "default": "core",
-      "description": "Runtime enforcement profile. minimal=pre-hooks only, core=standard runtime hooks, full=core plus stop/build hooks, strict=full plus advisory Claude Code U-32 SessionStart constraint inventory; Codex native hooks remain full"
+      "description": "Runtime enforcement profile. minimal=pre-hooks only, core=standard runtime hooks, full=core plus Stop hooks, strict=full plus advisory Claude Code U-32 SessionStart constraint inventory; Codex native hooks remain full"
     },
     "enforcement": {
       "type": "string",
@@ -43,7 +43,7 @@
         ]
       },
       "default": [],
-      "description": "Hook names to disable (without .sh extension). e.g. [\"post-edit-guard\", \"analysis-paralysis-guard\"]"
+      "description": "Hook names to disable (without .sh extension). e.g. [\"post-edit-guard\", \"analysis-paralysis-guard\"]. post-build-check is accepted for legacy configs and is a no-op because the hook is manual-only."
     },
     "disabled_rules": {
       "type": "array",

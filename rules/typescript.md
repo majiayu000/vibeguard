@@ -15,10 +15,10 @@ These rules do not replace native linters. Treat lint-equivalent entries as agen
 | TS-01 | `any` type escape | Medium | Function parameters or return values use `any`. |
 | TS-02 | Unhandled Promise rejections | High | Async calls lack error handling. |
 | TS-03 | `==` instead of `===` | Medium | Loose equality is used outside explicit null checks. |
-| TS-04 | Oversized component larger than 300 lines | Medium | React component is too large. |
+| TS-04 | Review components with mixed responsibilities | Guideline | Split components or hooks when independent responsibilities make the requested behavior difficult to maintain or test. |
 | TS-05 | Repeated fetch / API call patterns across the codebase | Medium | Repeated fetch / API call patterns across the codebase |
 | TS-06 | `useEffect` has missing or overly broad dependencies | Medium | `useEffect` has missing or overly broad dependencies |
-| TS-07 | Large arrays are mapped during render without memoization | Low | Large arrays are mapped during render without memoization |
+| TS-07 | Optimize render calculations when there is a demonstrated cost | Guideline | Use measurement or a concrete expensive render path to justify memoization. |
 | TS-08 | Bypassing type checks with `as any` or `@ts-ignore` | High | Bypassing type checks with `as any` or `@ts-ignore` |
 | TS-09 | Functions with more than 4 parameters | Medium | Functions with more than 4 parameters |
 | TS-10 | Callback nesting deeper than 3 levels | Medium | Callback nesting deeper than 3 levels |

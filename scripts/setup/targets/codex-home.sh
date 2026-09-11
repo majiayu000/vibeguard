@@ -551,10 +551,12 @@ clean_codex_home_installation() {
   fi
 
   # Remove only VibeGuard-managed entries from hooks.json (do not delete third-party hooks).
+  # Pass the configured wrapper so non-default wrapper installs are recognized.
   # This high-context edit must succeed before wrappers or recovery payloads disappear.
+  local wrapper="${HOME}/.vibeguard/run-hook-codex.sh"
   hooks_cleanup_result="$(
     setup_runtime setup-codex-hooks-remove \
-      "${REPO_DIR}" "${CODEX_DIR}/hooks.json" 2>/dev/null
+      "${REPO_DIR}" "${CODEX_DIR}/hooks.json" "${wrapper}" 2>/dev/null
   )" || hooks_cleanup_result="ERROR"
   case "${hooks_cleanup_result}" in
     CHANGED)

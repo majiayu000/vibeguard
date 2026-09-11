@@ -40,7 +40,7 @@ print("OK: install hook modules are covered by hooks manifest")
 expected_decisions = {
     "post-edit-guard": ["pass", "warn", "escalate", "correction"],
     "post-write-guard": ["pass", "warn"],
-    "post-build-check": ["pass", "warn", "escalate"],
+    "post-build-check": ["pass", "warn"],
 }
 hooks_by_name = {item.get("name"): item for item in manifest.get("hooks", [])}
 decision_errors = []

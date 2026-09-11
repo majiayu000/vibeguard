@@ -813,10 +813,32 @@ raise SystemExit(0 if len(stop_entries) == 2 else 1)
 "
 assert_cmd "double-upsert with non-standard wrapper: check-vibeguard passes" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${_IDEMPOTENT_HOOKS}" --wrapper "${_IDEMPOTENT_WRAPPER}"
 
+header "Python cleanup owns disabled Codex post-build alias"
+_DISABLED_ALIAS_HOOKS="${TMP_HOME}/.codex/hooks-disabled-alias.json"
+python3 -c "
+import json
+from pathlib import Path
+path = Path('${_DISABLED_ALIAS_HOOKS}')
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps({
+  'hooks': {
+    'PostToolUse': [{
+      'matcher': 'Bash',
+      'hooks': [{
+        'type': 'command',
+        'command': 'bash /tmp/run-hook-codex.sh vibeguard-post-build-check.sh'
+      }]
+    }]
+  }
+}, indent=2) + '\n', encoding='utf-8')
+"
+python3 "${CODEX_HOOKS_HELPER}" remove-vibeguard --hooks-file "${_DISABLED_ALIAS_HOOKS}" >/dev/null
+assert_cmd "remove-vibeguard cleans disabled vibeguard-post-build-check.sh alias" bash -c "! grep -q 'vibeguard-post-build-check.sh' '${_DISABLED_ALIAS_HOOKS}'"
+
 header "remove-vibeguard cleans custom-wrapper-path hooks"
-# Issue fix: _is_vibeguard_command must recognise vibeguard-* scripts even when
-# the wrapper path does not contain 'run-hook-codex.sh'.
-python3 "${CODEX_HOOKS_HELPER}" remove-vibeguard --hooks-file "${_IDEMPOTENT_HOOKS}"
+# Cleanup ownership is limited to known/configured wrappers; pass the same
+# configured wrapper used for upsert so non-default paths are recognized.
+python3 "${CODEX_HOOKS_HELPER}" remove-vibeguard --hooks-file "${_IDEMPOTENT_HOOKS}" --wrapper "${_IDEMPOTENT_WRAPPER}"
 assert_cmd "remove-vibeguard removes custom-wrapper vibeguard hooks" bash -c "! grep -q 'vibeguard-pre-bash-guard.sh' '${_IDEMPOTENT_HOOKS}'"
 assert_cmd "remove-vibeguard removes all managed hook scripts" bash -c "! grep -qE 'vibeguard-(pre-bash-guard|pre-edit-guard|pre-write-guard|post-edit-guard|post-write-guard|post-build-check|stop-guard|learn-evaluator)\\.sh' '${_IDEMPOTENT_HOOKS}'"
 

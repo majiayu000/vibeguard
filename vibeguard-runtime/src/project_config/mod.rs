@@ -647,4 +647,25 @@ mod tests {
 
         assert!(err.contains("disabled_hooks contains unsupported hook run-hook-codex"));
     }
+
+    #[test]
+    fn retired_post_build_check_remains_accepted_in_legacy_project_config() {
+        let path = Path::new("/tmp/.vibeguard.json");
+        validate_project_config_value(path, &json!({"disabled_hooks":["post-build-check"]}))
+            .expect("legacy disabled post-build-check should remain valid as a no-op");
+
+        validate_project_config_value(
+            path,
+            &json!({
+                "scoped_suppressions": [{
+                    "hook": "post-build-check",
+                    "rule_id": "U-16",
+                    "path": "src/**",
+                    "action": "suppress",
+                    "reason": "legacy suppression for retired manual build diagnostic"
+                }]
+            }),
+        )
+        .expect("legacy scoped suppression targeting post-build-check should remain valid");
+    }
 }

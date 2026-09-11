@@ -16,8 +16,8 @@ use crate::hook_orchestrator::{
     HookKind, Result, append_hook_event, elapsed_ms, print_policy_decision_kv,
 };
 use crate::u16::baseline::{
-    U16BaselineDecision, edit_advisory_context, evaluate_u16_baseline, legacy_debt_context,
-    u16_advisory_limit, u16_display_name,
+    U16BaselineDecision, block_context, edit_advisory_context, evaluate_u16_baseline,
+    legacy_debt_context, u16_advisory_limit,
 };
 use crate::u16::config::project_u16_limit;
 
@@ -288,10 +288,7 @@ fn pre_edit_u16_result(
         U16BaselineDecision::Block(_) => {
             return Some(PreEditU16Result::Block {
                 log_reason: format!("U-16 file size: {estimated} > {limit}"),
-                output: format!(
-                    "VIBEGUARD [U-16] block: this edit would bring {} to ~{estimated} lines (limit: {limit}). Split the file into focused submodules before adding more code. Do NOT proceed with this edit.",
-                    u16_display_name(file_path)
-                ),
+                output: block_context(file_path, current_lines, estimated, limit),
             });
         }
         U16BaselineDecision::LegacyDebt => {

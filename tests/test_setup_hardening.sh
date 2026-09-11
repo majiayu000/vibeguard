@@ -174,7 +174,7 @@ cat > "${CODEX_HOOKS}" <<'JSON'
 }
 JSON
 python3 "${CODEX_HOOKS_HELPER}" upsert-vibeguard --hooks-file "${CODEX_HOOKS}" --wrapper "${CODEX_WRAPPER}" >/dev/null
-python3 "${CODEX_HOOKS_HELPER}" remove-vibeguard --hooks-file "${CODEX_HOOKS}" >/dev/null
+python3 "${CODEX_HOOKS_HELPER}" remove-vibeguard --hooks-file "${CODEX_HOOKS}" --wrapper "${CODEX_WRAPPER}" >/dev/null
 assert_cmd "Codex remove preserves user hook arguments mentioning managed names" python3 - <<'PY' "${CODEX_HOOKS}"
 import json
 import sys

@@ -172,8 +172,8 @@ class RemovalFixture(unittest.TestCase):
 class RepositoryRemovalTest(unittest.TestCase):
     def test_canonical_inventory_and_all_rule_smoke(self) -> None:
         inventory = paired.canonical_rule_inventory(paired.DEFAULT_RULES_DIR)
-        self.assertEqual(len(inventory), 127)
-        self.assertEqual(len(set(inventory)), 127)
+        self.assertEqual(len(inventory), 125)
+        self.assertEqual(len(set(inventory)), 125)
         self.assertTrue(
             {"TASTE-ANSI", "TASTE-ASYNC-UNWRAP", "TASTE-PANIC-MSG"}.issubset(inventory)
         )
@@ -195,7 +195,7 @@ class RepositoryRemovalTest(unittest.TestCase):
                     cross_ref_rules.add(rule_id)
 
         self.assertEqual(len(empty_shells), 10)
-        self.assertEqual(len(cross_ref_rules), 29)
+        self.assertEqual(len(cross_ref_rules), 27)
 
     def test_u32_cross_reference_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

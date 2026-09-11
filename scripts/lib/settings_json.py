@@ -18,7 +18,10 @@ from hooks_manifest import all_managed_script_names, claude_specs, load_manifest
 
 MANIFEST = load_manifest()
 MANAGED_SCRIPT_NAMES = all_managed_script_names(MANIFEST)
-CLAUDE_PROFILE_SCRIPT_NAMES = frozenset(spec["script"] for spec in claude_specs(MANIFEST, None))
+# Ownership includes disabled hooks so upgrades remove retired registrations.
+CLAUDE_PROFILE_SCRIPT_NAMES = frozenset(
+    item["script"] for item in MANIFEST["hooks"] if item["kind"] == "hook"
+)
 WRAPPER_NAMES: frozenset[str] = frozenset({"run-hook.sh"})
 
 

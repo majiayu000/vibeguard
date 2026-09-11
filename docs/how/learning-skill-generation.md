@@ -457,14 +457,14 @@ RS-14 Guard (automatically detects Category 4 gaps)
 
 | Signal | Times | Improvement |
 |------|------|------|
-| Build errors | 435x warn | U-25 rules + post-build-check escalation |
+| Build errors | 435x warn | U-25 coherent-change verification guidance |
 | L1 duplicate definition | 82x warn | Already detected, not upgraded yet |
 | RS-03 unwrap | 37x warn | message enhancement ("fix now") |
 | File does not exist | 14x block | Effectively intercepted, no improvement required |
 
 **output**:
 - New rule **U-25**: build failure fixes first (strict)
-- Hook enhancement: `post-build-check.sh` fails 5 times in a row → escalate
+- Verification: finish related edits, then run the project command; `post-build-check.sh` is a manual diagnostic without automatic escalation.
 - New Skill: `build-error-spiral-breaker` (`~/.claude/skills/`)
 
 **Three-layer triggering mechanism**:
@@ -472,8 +472,8 @@ RS-14 Guard (automatically detects Category 4 gaps)
 U-25 rules (resident, effective for all sessions)
   ↓ When the build fails
 Skill knowledge (providing specific repair strategies)
-  ↓ 5 consecutive failures
-Hook upgrade (forced warning, interrupting Agent cycle)
+  ↓ At a coherent change boundary
+Project verification command (task-directed; post-build-check.sh is optional manual)
 ```
 
 ## File list
@@ -483,7 +483,7 @@ Hook upgrade (forced warning, interrupting Agent cycle)
 | `hooks/log.sh` | Logging infrastructure, providing vg_log function |
 | `hooks/learn-evaluator.sh` | Session indicator collection during Stop event |
 | `hooks/skills-loader.sh` | Optional first Read Skill/learning prompt script (not enabled by default) |
-| `hooks/post-build-check.sh` | Build check + continuous failed upgrade (U-25 mechanized) |
+| `hooks/post-build-check.sh` | Manual language-default diagnostic; U-25 verification uses the project command |
 | `scripts/gc/gc-scheduled.sh` | GC scheduled learning (cross-session pattern recognition) |
 | `.claude/commands/vibeguard/learn.md` | /vibeguard:learn command (dual-mode routing) |
 | `templates/skill-template.md` | SKILL.md writing template |

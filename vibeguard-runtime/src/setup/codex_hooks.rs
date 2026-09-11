@@ -1,9 +1,14 @@
-use crate::setup::support::{
-    SetupResult, basename, home_dir, read_json_object, shell_quote, shell_split, write_json_atomic,
-};
+use crate::setup::support::{SetupResult, read_json_object, shell_quote, write_json_atomic};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+mod ownership;
+
+pub(crate) use ownership::{
+    codex_command_is_managed, codex_command_is_managed_with_wrapper, codex_expand_path,
+};
+use ownership::{codex_direct_installed_hook_target, codex_hook_target};
 
 pub use crate::setup::codex_hooks_health::{
     codex_hooks_check_stale, codex_hooks_check_timeouts, codex_hooks_prune_stale_unmanaged,
@@ -59,7 +64,7 @@ pub fn codex_hooks_upsert(args: &[String]) -> SetupResult<()> {
     let mut data = Value::Object(read_json_object(hooks_path, true)?);
     let before = serde_json::to_string(&data)?;
     ensure_hooks_root(&mut data)?;
-    codex_prune_managed(&mut data, &manifest.managed_scripts);
+    codex_prune_managed(&mut data, &manifest.managed_scripts, Some(wrapper));
     codex_prune_stale(&mut data, &manifest.script_targets);
     ensure_hooks_root(&mut data)?;
     let hooks = data["hooks"]
@@ -78,6 +83,7 @@ pub fn codex_hooks_upsert(args: &[String]) -> SetupResult<()> {
             &command,
             spec.matcher.as_deref(),
             spec.timeout,
+            Some(wrapper),
         ) {
             entries_arr.push(codex_build_entry(wrapper, &spec, profile));
         }
@@ -92,20 +98,22 @@ pub fn codex_hooks_upsert(args: &[String]) -> SetupResult<()> {
 }
 
 pub fn codex_hooks_remove(args: &[String]) -> SetupResult<()> {
-    if args.len() != 2 {
+    if args.len() != 2 && args.len() != 3 {
         return Err(
-            "Usage: vibeguard-runtime setup-codex-hooks-remove <repo-dir> <hooks-file>".into(),
+            "Usage: vibeguard-runtime setup-codex-hooks-remove <repo-dir> <hooks-file> [wrapper]"
+                .into(),
         );
     }
     let managed_scripts = codex_managed_scripts(Path::new(&args[0]))?;
     let hooks_path = Path::new(&args[1]);
+    let wrapper = args.get(2).map(String::as_str);
     if !hooks_path.exists() {
         println!("SKIP");
         return Ok(());
     }
     let mut data = Value::Object(read_json_object(hooks_path, false)?);
     let before = serde_json::to_string(&data)?;
-    codex_prune_managed(&mut data, &managed_scripts);
+    codex_prune_managed(&mut data, &managed_scripts, wrapper);
     if serde_json::to_string(&data)? == before {
         println!("SKIP");
     } else {
@@ -145,11 +153,17 @@ pub fn codex_hooks_check(args: &[String]) -> SetupResult<()> {
             &command,
             spec.matcher.as_deref(),
             spec.timeout,
+            Some(&args[2]),
         ) {
             std::process::exit(1);
         }
     }
-    if codex_has_unexpected_managed_entry(hooks, &manifest.managed_scripts, &expected_records) {
+    if codex_has_unexpected_managed_entry(
+        hooks,
+        &manifest.managed_scripts,
+        &expected_records,
+        Some(&args[2]),
+    ) {
         std::process::exit(1);
     }
     Ok(())
@@ -303,6 +317,18 @@ fn codex_manifest_value_for_profile(
             .ok_or("hook codex.enabled must be boolean")?;
         validate_codex_optional_fields(codex)?;
         if !enabled {
+            // Ownership survives disabling registration so setup can remove managed entries.
+            if let Some(requested) = codex.get("script").and_then(Value::as_str) {
+                let expected = format!("vibeguard-{script}");
+                if requested != expected {
+                    return Err(format!(
+                        "Codex script must equal {expected} for canonical script {script}"
+                    )
+                    .into());
+                }
+                managed_scripts.insert(requested.to_string());
+                script_targets.insert(requested.to_string(), script.clone());
+            }
             continue;
         }
         let profile_allowed = if let Some(profile) = selected_profile {
@@ -509,7 +535,11 @@ fn ensure_hooks_root(data: &mut Value) -> SetupResult<()> {
     Ok(())
 }
 
-fn codex_prune_managed(data: &mut Value, managed_scripts: &BTreeSet<String>) {
+fn codex_prune_managed(
+    data: &mut Value,
+    managed_scripts: &BTreeSet<String>,
+    wrapper: Option<&str>,
+) {
     let Some(hooks) = data.get_mut("hooks").and_then(Value::as_object_mut) else {
         return;
     };
@@ -531,7 +561,7 @@ fn codex_prune_managed(data: &mut Value, managed_scripts: &BTreeSet<String>) {
                 .iter()
                 .filter(|hook| {
                     let command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-                    !codex_command_is_managed(managed_scripts, command)
+                    !codex_command_is_managed_with_wrapper(managed_scripts, command, wrapper)
                 })
                 .cloned()
                 .collect();
@@ -640,6 +670,7 @@ fn codex_has_unexpected_managed_entry(
     hooks: &serde_json::Map<String, Value>,
     managed_scripts: &BTreeSet<String>,
     expected_records: &BTreeSet<CodexEntryRecord>,
+    wrapper: Option<&str>,
 ) -> bool {
     for (event, entries) in hooks {
         let Some(entries) = entries.as_array() else {
@@ -658,7 +689,7 @@ fn codex_has_unexpected_managed_entry(
             };
             for hook in hook_entries {
                 let command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-                if !codex_command_is_managed(managed_scripts, command) {
+                if !codex_command_is_managed_with_wrapper(managed_scripts, command, wrapper) {
                     continue;
                 }
                 let record = CodexEntryRecord {
@@ -682,6 +713,7 @@ fn codex_has_entry(
     command: &str,
     matcher: Option<&str>,
     timeout: Option<i64>,
+    wrapper: Option<&str>,
 ) -> bool {
     entries.iter().any(|entry| {
         let Some(entry_obj) = entry.as_object() else {
@@ -695,7 +727,7 @@ fn codex_has_entry(
         };
         hooks.iter().any(|hook| {
             let hook_command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-            codex_command_is_managed(managed_scripts, hook_command)
+            codex_command_is_managed_with_wrapper(managed_scripts, hook_command, wrapper)
                 && hook_command == command
                 && hook.get("type").and_then(Value::as_str) == Some("command")
                 && match timeout {
@@ -704,23 +736,6 @@ fn codex_has_entry(
                 }
         })
     })
-}
-
-pub(crate) fn codex_command_is_managed(managed_scripts: &BTreeSet<String>, command: &str) -> bool {
-    let parts = shell_split(command);
-    for (idx, token) in parts.iter().enumerate() {
-        if basename(token) == "run-hook-codex.sh"
-            && let Some(next) = parts.get(idx + 1)
-            && managed_scripts.contains(basename(next))
-        {
-            return true;
-        }
-        let base = basename(token);
-        if managed_scripts.contains(base) {
-            return true;
-        }
-    }
-    false
 }
 
 pub(crate) fn codex_managed_scripts(repo_dir: &Path) -> SetupResult<BTreeSet<String>> {
@@ -732,52 +747,6 @@ pub(crate) fn codex_managed_script_contract(
 ) -> SetupResult<(BTreeSet<String>, BTreeMap<String, String>)> {
     let manifest = codex_manifest_data(repo_dir)?;
     Ok((manifest.managed_scripts, manifest.script_targets))
-}
-
-fn codex_direct_installed_hook_target(command: &str) -> Option<PathBuf> {
-    let home = home_dir()?;
-    shell_split(command).into_iter().find_map(|token| {
-        let path = codex_expand_path(&token, &home)?;
-        path.to_string_lossy()
-            .contains("/.vibeguard/installed/hooks/")
-            .then_some(path)
-    })
-}
-
-fn codex_hook_target(command: &str, script_targets: &BTreeMap<String, String>) -> Option<PathBuf> {
-    let home = home_dir()?;
-    let parts = shell_split(command);
-    for (idx, token) in parts.iter().enumerate() {
-        let Some(path) = codex_expand_path(token, &home) else {
-            continue;
-        };
-        if path
-            .to_string_lossy()
-            .ends_with("/.vibeguard/run-hook-codex.sh")
-        {
-            let script = parts.get(idx + 1)?;
-            if !script.contains('/') {
-                let canonical_script = script_targets.get(script).unwrap_or(script);
-                let installed = path
-                    .parent()?
-                    .join("installed/hooks")
-                    .join(canonical_script);
-                if installed.parent().is_some_and(Path::exists) {
-                    return Some(installed);
-                }
-            }
-        }
-    }
-    None
-}
-
-pub(crate) fn codex_expand_path(token: &str, home: &Path) -> Option<PathBuf> {
-    token
-        .strip_prefix("~/")
-        .map(|tail| home.join(tail))
-        .or_else(|| token.strip_prefix("$HOME/").map(|tail| home.join(tail)))
-        .or_else(|| token.strip_prefix("${HOME}/").map(|tail| home.join(tail)))
-        .or_else(|| token.starts_with('/').then(|| PathBuf::from(token)))
 }
 
 #[cfg(test)]

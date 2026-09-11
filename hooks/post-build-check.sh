@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# VibeGuard PostToolUse(Edit|Write) Hook — Automatic build check after editing
+# VibeGuard manual language-default build diagnostic
 #
-# Automatically run the build check of the corresponding language after editing the source code file:
+# Invoke explicitly only when these defaults match the project:
 #   - Rust (.rs): cargo check
 #   - TypeScript (.ts/.tsx): npx tsc --noEmit
 #   - JavaScript (.js/.mjs/.cjs): node --check
@@ -10,6 +10,15 @@
 # Only output warnings, do not prevent operations.
 
 set -euo pipefail
+
+# Manual diagnostics are not host-dispatched wrappers. Override inherited
+# host identity before sourcing log.sh so reused Claude/Codex env cannot
+# claim attribution for a direct Bash invocation. Session/log-path fields
+# needed for correlation may still be inherited.
+export VIBEGUARD_CLI="unknown"
+export VIBEGUARD_CLIENT="unknown"
+export VIBEGUARD_CLIENT_VARIANT="unknown"
+export VIBEGUARD_CALLER_EVIDENCE="manual-diagnostic"
 
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${HOOK_DIR}/log.sh"
@@ -26,6 +35,9 @@ INPUT=$(cat)
 post_build_log_skip() {
   local reason="$1" file_path="${2:-}"
   vg_log "post-build-check" "PostToolUse" "pass" "skip: ${reason}" "${file_path}"
+  # Manual diagnostics must not look like a successful build: surface the skip
+  # reason to the caller and use a distinct non-zero status.
+  printf 'post-build-check skipped: %s\n' "${reason}" >&2
 }
 
 post_build_filter_or_head() {
@@ -161,7 +173,7 @@ FILE_PATH=$(echo "$INPUT" | vg_json_field "tool_input.file_path")
 
 if [[ -z "$FILE_PATH" ]]; then
   post_build_log_skip "missing file_path" ""
-  exit 0
+  exit 2
 fi
 
 # Normalize to absolute path so project-isolation filter in escalation detection
@@ -180,7 +192,7 @@ case "$EXT" in
   rs|ts|tsx|go|js|mjs|cjs) ;;
   *)
     post_build_log_skip "unsupported extension .${EXT}" "${FILE_PATH}"
-    exit 0
+    exit 2
     ;;
 esac
 
@@ -205,14 +217,14 @@ case "$EXT" in
   rs)
     if ! PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "Cargo.toml"); then
       post_build_log_skip "missing Cargo.toml" "${FILE_PATH}"
-      exit 0
+      exit 2
     fi
     ERRORS=$(post_build_run_cached "$PROJECT_ROOT" "$EXT" "cargo check --message-format=short" "^error" cargo check --message-format=short)
     ;;
   ts|tsx)
     if ! PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "tsconfig.json"); then
       post_build_log_skip "missing tsconfig.json" "${FILE_PATH}"
-      exit 0
+      exit 2
     fi
     ERRORS=$(post_build_run_cached "$PROJECT_ROOT" "$EXT" "npx tsc --noEmit" "error TS" npx tsc --noEmit)
     ;;
@@ -220,7 +232,7 @@ case "$EXT" in
     # JavaScript syntax check (does not depend on tsconfig)
     if ! command -v node >/dev/null 2>&1; then
       post_build_log_skip "missing node" "${FILE_PATH}"
-      exit 0
+      exit 2
     fi
     PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "package.json") || true
     ERRORS=$(post_build_run_cached "$PROJECT_ROOT" "$EXT" "node --check" "." node --check "$FILE_PATH")
@@ -228,7 +240,7 @@ case "$EXT" in
   go)
     if ! PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "go.mod"); then
       post_build_log_skip "missing go.mod" "${FILE_PATH}"
-      exit 0
+      exit 2
     fi
     ERRORS=$(post_build_run_cached "$PROJECT_ROOT" "$EXT" "go build ./..." "." go build ./...)
     ;;
@@ -247,29 +259,9 @@ ERROR_COUNT=$(echo "$ERRORS" | wc -l | tr -d ' ')
 WARNINGS="[BUILD] ${ERROR_COUNT} build errors detected after editing ${BASENAME}:
 ${ERRORS}"
 
-# --- Escalation detection: continuous build failure upgrade ---
-DECISION="warn"
-# Fix post-build: filter by PROJECT_ROOT so failure counts are isolated per project,
-# not accumulated across projects within the same session.
-# Read only last 200 lines to avoid loading entire file.
-CONSECUTIVE_FAILS=$(tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-  | "$_VIBEGUARD_RUNTIME" build-fails "$VIBEGUARD_SESSION_ID" "$PROJECT_ROOT" \
-  2>/dev/null | tr -d '[:space:]' || echo "0")
-CONSECUTIVE_FAILS="${CONSECUTIVE_FAILS:-0}"
-
-if [[ "$CONSECUTIVE_FAILS" -ge 5 ]]; then
-  DECISION="escalate"
-  WARNINGS="[U-25 ESCALATE] Continuous ${CONSECUTIVE_FAILS} build failures! You must fix the build errors before continuing editing. Recommendation: Run the complete build command to view all errors and locate the root cause and fix them at once. ${WARNINGS}"
-fi
-
-if [[ "${ERRORS}" == post-build-check\ timeout* ]]; then
-  vg_log "post-build-check" "PostToolUse" "warn" "${ERRORS}" "$FILE_PATH"
-else
-  vg_log "post-build-check" "PostToolUse" "$DECISION" "Build errors ${ERROR_COUNT}" "$FILE_PATH"
-fi
-
-if [[ "$DECISION" == "escalate" ]]; then
-  printf 'VIBEGUARD build upgrade warning：%s' "$WARNINGS" | "$_VIBEGUARD_RUNTIME" hook-context PostToolUse
-else
-  printf 'VIBEGUARD build check：%s' "$WARNINGS" | "$_VIBEGUARD_RUNTIME" hook-context PostToolUse
-fi
+# A manual diagnostic reports failure without redirecting an in-progress edit.
+vg_log "post-build-check" "PostToolUse" "warn" "${ERRORS}" "$FILE_PATH"
+printf 'VIBEGUARD build diagnostic: %s\nComplete the coherent change and use the project verification command before claiming completion.' "$WARNINGS" | "$_VIBEGUARD_RUNTIME" hook-context PostToolUse
+# Preserve nonzero status for callers using &&, scripts, or CI: a populated
+# ERRORS result must not look like a successful verification.
+exit 1

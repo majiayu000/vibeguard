@@ -10,8 +10,9 @@ paths: **/*.py,**/pyproject.toml,**/setup.py
 ## PY-02: Bare `except` blocks (medium)
 `except:` or `except Exception` without logging or re-raising. Fix: catch a concrete exception type and pair it with logging or a re-raise.
 
-## PY-03: `await` inside loops without `gather()` / `TaskGroup` (medium)
-Serial waiting wastes time. Fix: switch to `asyncio.gather()` or `asyncio.TaskGroup` for parallel execution.
+## PY-03: Consider concurrency for independent async work (guideline)
+Parallelize independent operations when it improves the current task and respects rate limits, ordering, and resource ownership. Sequential `await` is correct when operations depend on one another or intentionally limit concurrency.
+Fix: use bounded concurrency only after establishing independence. Skip changes based solely on an `await` appearing inside a loop.
 
 ## PY-04: God class larger than 500 lines (medium)
 More than 10 public methods. Fix: split the class into smaller single-responsibility classes, extract mixins, or create dedicated services.
@@ -28,8 +29,8 @@ Fix: collect pieces into a list and use `''.join(parts)`.
 ## PY-08: Use of `eval()`, `exec()`, or `__import__()` (high)
 This dynamically executes untrusted code. Fix: replace with a safer alternative. If dynamic execution is unavoidable, strictly constrain the input source and execution environment.
 
-## PY-09: Functions longer than 50 lines (medium)
-Fix: extract helper functions so each function stays under 50 lines.
+## PY-09: Review functions with mixed responsibilities (guideline)
+Length is a review signal, not a reason to extract helpers by itself. Split a function when distinct responsibilities make the requested change harder to understand or verify; preserve a readable cohesive sequence.
 
 ## PY-10: Nesting deeper than 4 levels (medium)
 Fix: use guard returns to exit early, or extract the inner block into a dedicated function.
@@ -37,8 +38,7 @@ Fix: use guard returns to exit early, or extract the inner block into a dedicate
 ## PY-11: File operations without a `with` context manager (medium)
 Fix: convert every open call to `with open(...) as f:`.
 
-## PY-12: Repeated calls to `len()`, `keys()`, or `values()` inside loops (low)
-Fix: compute the result once before the loop and reuse the cached value.
+
 
 ## PY-13: Dead compatibility shim (medium)
 A file that only re-exports symbols from another module and adds no behavior should be removed after migration is complete.

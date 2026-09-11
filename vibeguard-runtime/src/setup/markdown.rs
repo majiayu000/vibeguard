@@ -1,15 +1,20 @@
 use crate::setup::support::{
-    SetupResult, basename, display_home_path, home_dir, read_json_object, shell_quote, shell_split,
-    simple_unified_diff, write_json_atomic, write_text_atomic,
+    SetupResult, home_dir, read_json_object, shell_quote, simple_unified_diff, write_json_atomic,
+    write_text_atomic,
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-mod hook_identity;
 mod managed_block;
+mod settings_helpers;
 
 use managed_block::{managed_blocks, marker_range, replace_managed_block, validate_managed_source};
+use settings_helpers::{
+    settings_direct_installed_hook_target, settings_entry_has_script, settings_hook_is_script,
+    settings_hook_managed_script, settings_hook_target, settings_is_canonical,
+    settings_stale_findings,
+};
 
 const RULE_COUNT_PLACEHOLDER: &str = "__VIBEGUARD_RULE_COUNT__";
 const ROUTING_CONTRACT_PLACEHOLDER: &str =
@@ -622,10 +627,19 @@ fn settings_remove_stale_installed(data: &mut Value) -> bool {
 }
 
 fn claude_managed_scripts(repo_dir: &Path) -> SetupResult<BTreeSet<String>> {
-    Ok(claude_specs(repo_dir, None)?
-        .into_iter()
-        .map(|spec| spec.script)
-        .collect())
+    let manifest: Value = serde_json::from_str(&std::fs::read_to_string(
+        repo_dir.join("hooks/manifest.json"),
+    )?)?;
+    // Ownership survives disabling a hook; manual opt-ins stay user-owned.
+    let hooks = manifest["hooks"]
+        .as_array()
+        .ok_or("hooks manifest must contain a hooks array")?;
+    let mut scripts = BTreeSet::new();
+    for item in hooks.iter().filter(|item| item["kind"] == "hook") {
+        let script = item["script"].as_str().ok_or("hook script missing")?;
+        scripts.insert(script.to_owned());
+    }
+    Ok(scripts)
 }
 
 fn settings_spec_identity(spec: &ClaudeSpec) -> (String, String, String) {
@@ -664,126 +678,6 @@ fn settings_managed_hook_identity_counts(
         }
     }
     Ok(counts)
-}
-
-fn settings_entry_has_script(entry: &Value, script: &str) -> bool {
-    entry
-        .get("hooks")
-        .and_then(Value::as_array)
-        .is_some_and(|hooks| {
-            hooks
-                .iter()
-                .any(|hook| settings_hook_is_script(hook, script))
-        })
-}
-
-fn settings_hook_is_script(hook: &Value, script: &str) -> bool {
-    hook.get("command")
-        .and_then(Value::as_str)
-        .is_some_and(|command| hook_identity::command_invokes_script(command, script))
-}
-
-fn settings_hook_managed_script<'a>(
-    hook: &Value,
-    managed_scripts: &'a BTreeSet<String>,
-) -> Option<&'a str> {
-    hook.get("command")
-        .and_then(Value::as_str)
-        .and_then(|command| hook_identity::managed_script_from_command(command, managed_scripts))
-}
-
-fn settings_is_canonical(command: &str, script: &str) -> bool {
-    let parts = shell_split(command);
-    if parts.len() == 3 {
-        return parts.first().is_some_and(|part| basename(part) == "bash")
-            && parts
-                .get(1)
-                .is_some_and(|part| part.ends_with("/.vibeguard/run-hook.sh"))
-            && parts.get(2).is_some_and(|part| part == script);
-    }
-    false
-}
-
-fn settings_stale_findings(data: &Value, config: &Path) -> Vec<String> {
-    let mut findings = Vec::new();
-    let Some(hooks) = data.get("hooks").and_then(Value::as_object) else {
-        return findings;
-    };
-    for (event, entries) in hooks {
-        let Some(entries) = entries.as_array() else {
-            continue;
-        };
-        for entry in entries {
-            let matcher = entry
-                .get("matcher")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-                .unwrap_or("<none>");
-            let Some(hook_entries) = entry.get("hooks").and_then(Value::as_array) else {
-                continue;
-            };
-            for hook in hook_entries {
-                let command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-                let target = if let Some(target) = settings_direct_installed_hook_target(command) {
-                    target
-                } else {
-                    let Some(target) = settings_hook_target(command, "run-hook.sh") else {
-                        continue;
-                    };
-                    if target.exists() {
-                        continue;
-                    }
-                    target
-                };
-                findings.push(format!(
-                    "stale Claude hook command: config={} event={event} matcher={matcher} command_path={} repair=bash setup.sh --yes",
-                    display_home_path(config),
-                    target.display()
-                ));
-            }
-        }
-    }
-    findings
-}
-
-fn settings_direct_installed_hook_target(command: &str) -> Option<PathBuf> {
-    let home = home_dir()?;
-    shell_split(command).into_iter().find_map(|token| {
-        let path = settings_expand_path(&token, &home)?;
-        path.to_string_lossy()
-            .contains("/.vibeguard/installed/hooks/")
-            .then_some(path)
-    })
-}
-
-fn settings_hook_target(command: &str, wrapper_name: &str) -> Option<PathBuf> {
-    let home = home_dir()?;
-    let parts = shell_split(command);
-    for (idx, token) in parts.iter().enumerate() {
-        let path = settings_expand_path(token, &home)?;
-        if path
-            .to_string_lossy()
-            .ends_with(&format!("/.vibeguard/{wrapper_name}"))
-        {
-            let script = parts.get(idx + 1)?;
-            if !script.contains('/') {
-                let installed = path.parent()?.join("installed/hooks").join(script);
-                if installed.parent().is_some_and(Path::exists) {
-                    return Some(installed);
-                };
-            }
-        }
-    }
-    None
-}
-
-fn settings_expand_path(token: &str, home: &Path) -> Option<PathBuf> {
-    token
-        .strip_prefix("~/")
-        .map(|tail| home.join(tail))
-        .or_else(|| token.strip_prefix("$HOME/").map(|tail| home.join(tail)))
-        .or_else(|| token.strip_prefix("${HOME}/").map(|tail| home.join(tail)))
-        .or_else(|| token.starts_with('/').then(|| PathBuf::from(token)))
 }
 
 #[cfg(test)]

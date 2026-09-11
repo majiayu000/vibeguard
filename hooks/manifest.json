@@ -213,28 +213,13 @@
       "name": "post-build-check",
       "script": "post-build-check.sh",
       "kind": "hook",
-      "install_targets": ["hooks-full"],
+      "install_targets": [],
       "config_exposure": {"disabled_hook": true},
-      "trigger": "PostToolUse(Edit/Write)",
-      "responsibilities": "Automatically run the build check corresponding to the language after editing.",
-      "decision_types": ["pass", "warn", "escalate"],
-      "app_server": {"role": "post_turn_build"},
-      "claude": {
-        "enabled": true,
-        "event": "PostToolUse",
-        "matchers": ["Edit", "Write"],
-        "profiles": ["full", "strict"]
-      },
-      "codex": {
-        "enabled": true,
-        "support": "native",
-        "script": "vibeguard-post-build-check.sh",
-        "timeout": 35,
-        "entries": [
-          {"event": "PostToolUse", "matcher": "Bash"},
-          {"event": "PostToolUse", "matcher": "Edit|Write"}
-        ]
-      }
+      "trigger": "Manual diagnostic",
+      "responsibilities": "Optional language-default build diagnostic; never registered after individual edits. Prefer the project's verification command at a coherent change boundary.",
+      "decision_types": ["pass", "warn"],
+      "claude": {"enabled": false, "support": "manual", "reason": "verification is task-directed"},
+      "codex": {"enabled": false, "support": "manual", "script": "vibeguard-post-build-check.sh", "reason": "verification is task-directed"}
     },
     {
       "name": "skills-loader",

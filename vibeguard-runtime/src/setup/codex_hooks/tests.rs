@@ -1,4 +1,5 @@
 use super::*;
+use std::path::PathBuf;
 
 fn repo_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
@@ -25,6 +26,19 @@ fn manifest_rejects_requested_canonical_script_mismatch() {
         Ok(_) => panic!("requested/canonical mismatch must fail"),
         Err(error) => error,
     };
+    assert!(error.to_string().contains("for canonical script"));
+    let hook = manifest["hooks"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|hook| {
+            hook.pointer("/codex/script").and_then(Value::as_str) == Some("vibeguard-mismatched.sh")
+        })
+        .unwrap();
+    hook["codex"]["enabled"] = Value::Bool(false);
+    let error = codex_manifest_value(&manifest)
+        .err()
+        .expect("disabled ownership mismatch must fail");
     assert!(error.to_string().contains("for canonical script"));
 }
 
@@ -55,7 +69,7 @@ fn prune_current_managed_keeps_third_party_hooks_in_mixed_entry() {
         Ok(scripts) => scripts,
         Err(error) => panic!("repository manifest must be valid: {error}"),
     };
-    codex_prune_managed(&mut data, &managed_scripts);
+    codex_prune_managed(&mut data, &managed_scripts, None);
 
     let hooks = data
         .pointer("/hooks/PreToolUse/0/hooks")
@@ -122,13 +136,15 @@ fn managed_entry_check_requires_expected_timeout() {
         &managed_scripts,
         command,
         None,
-        Some(15)
+        Some(15),
+        None,
     ));
     assert!(codex_has_entry(
         &entries,
         &managed_scripts,
         command,
         None,
-        Some(99)
+        Some(99),
+        None,
     ));
 }

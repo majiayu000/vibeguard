@@ -621,7 +621,13 @@ assert_cmd "full profile configuration full hooks" python3 "${SETTINGS_HELPER}" 
 assert_cmd "full profile hooks match manifest" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target profile-hooks:full
 assert_cmd "full profile enable stop-guard" grep -q "stop-guard.sh" "${HOME}/.claude/settings.json"
 assert_cmd "full profile enable learn-evaluator" grep -q "learn-evaluator.sh" "${HOME}/.claude/settings.json"
-assert_cmd "full profile enable post-build-check" grep -q "post-build-check.sh" "${HOME}/.claude/settings.json"
+assert_cmd "full profile does not auto-run builds" env PYTHONPATH="${REPO_DIR}/scripts/lib" python3 - "${HOME}/.claude/settings.json" <<'PYTEST'
+import sys
+from pathlib import Path
+from settings_json import load_settings, _managed_hook_identity_counts
+counts = _managed_hook_identity_counts(load_settings(Path(sys.argv[1])))
+assert not any(script == "post-build-check.sh" for _, _, script in counts)
+PYTEST
 assert_cmd "core profile check rejects leftover full hooks" bash -c "! python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target profile-hooks:core >/dev/null 2>&1"
 full_as_core_out="$(bash "${REPO_DIR}/setup.sh" --check --strict --profile core 2>&1 || true)"
 assert_contains "${full_as_core_out}" "[MISSING] Claude hooks missing for core profile" "setup --check reports core profile mismatch when full hooks remain"

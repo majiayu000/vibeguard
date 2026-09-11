@@ -5,19 +5,19 @@ LARGE_PAYLOAD_DIAG="${TMP_DIR}/large-payload-codex-wrapper.jsonl"
 mkdir -p "${TMP_HOME_LARGE_PAYLOAD}/.vibeguard" "${TMP_FAKE_REPO_LARGE_PAYLOAD}/hooks"
 printf '%s' "${TMP_FAKE_REPO_LARGE_PAYLOAD}" > "${TMP_HOME_LARGE_PAYLOAD}/.vibeguard/repo-path"
 
-cat > "${TMP_FAKE_REPO_LARGE_PAYLOAD}/hooks/post-build-check.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_LARGE_PAYLOAD}/hooks/post-edit-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 cat >/dev/null
 exit 0
 HOOK
-chmod +x "${TMP_FAKE_REPO_LARGE_PAYLOAD}/hooks/post-build-check.sh"
+chmod +x "${TMP_FAKE_REPO_LARGE_PAYLOAD}/hooks/post-edit-guard.sh"
 
 large_payload_probe="$(
   node - "${REPO_DIR}" "${TMP_HOME_LARGE_PAYLOAD}" "${LARGE_PAYLOAD_DIAG}" <<'NODE'
 const { spawn } = require('node:child_process');
 
 const [repoDir, homeDir, diagFile] = process.argv.slice(2);
-const child = spawn('bash', [`${repoDir}/hooks/run-hook-codex.sh`, 'vibeguard-post-build-check.sh'], {
+const child = spawn('bash', [`${repoDir}/hooks/run-hook-codex.sh`, 'vibeguard-post-edit-guard.sh'], {
   cwd: repoDir,
   env: {
     ...process.env,
@@ -71,7 +71,7 @@ LARGE_OUTPUT_DIAG="${TMP_DIR}/large-output-codex-wrapper.jsonl"
 mkdir -p "${TMP_HOME_LARGE_OUTPUT}/.vibeguard" "${TMP_FAKE_REPO_LARGE_OUTPUT}/hooks"
 printf '%s' "${TMP_FAKE_REPO_LARGE_OUTPUT}" > "${TMP_HOME_LARGE_OUTPUT}/.vibeguard/repo-path"
 
-cat > "${TMP_FAKE_REPO_LARGE_OUTPUT}/hooks/post-build-check.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_LARGE_OUTPUT}/hooks/post-edit-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 cat >/dev/null
 python3 - <<'PY'
@@ -83,14 +83,14 @@ print(json.dumps({
 }))
 PY
 HOOK
-chmod +x "${TMP_FAKE_REPO_LARGE_OUTPUT}/hooks/post-build-check.sh"
+chmod +x "${TMP_FAKE_REPO_LARGE_OUTPUT}/hooks/post-edit-guard.sh"
 
 large_output_probe="$(
   node - "${REPO_DIR}" "${TMP_HOME_LARGE_OUTPUT}" "${LARGE_OUTPUT_DIAG}" <<'NODE'
 const { spawn } = require('node:child_process');
 
 const [repoDir, homeDir, diagFile] = process.argv.slice(2);
-const child = spawn('bash', [`${repoDir}/hooks/run-hook-codex.sh`, 'vibeguard-post-build-check.sh'], {
+const child = spawn('bash', [`${repoDir}/hooks/run-hook-codex.sh`, 'vibeguard-post-edit-guard.sh'], {
   cwd: repoDir,
   env: {
     ...process.env,
@@ -138,16 +138,16 @@ POSTTOOL_DIAG_FILE="${TMP_DIR}/posttool-codex-wrapper.jsonl"
 mkdir -p "${TMP_HOME_POSTTOOL}/.vibeguard" "${TMP_FAKE_REPO_POSTTOOL}/hooks"
 printf '%s' "${TMP_FAKE_REPO_POSTTOOL}" > "${TMP_HOME_POSTTOOL}/.vibeguard/repo-path"
 
-cat > "${TMP_FAKE_REPO_POSTTOOL}/hooks/post-build-check.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_POSTTOOL}/hooks/post-edit-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 cat >/dev/null
 printf '{"decision":"block","reason":"build failed"}\n'
 HOOK
-chmod +x "${TMP_FAKE_REPO_POSTTOOL}/hooks/post-build-check.sh"
+chmod +x "${TMP_FAKE_REPO_POSTTOOL}/hooks/post-edit-guard.sh"
 
 posttool_out="$(
   printf '{"hook_event_name":"PostToolUse","tool_input":{"file_path":"src/main.rs"}}' \
-    | HOME="${TMP_HOME_POSTTOOL}" VIBEGUARD_CODEX_DIAG_FILE="${POSTTOOL_DIAG_FILE}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-post-build-check.sh
+    | HOME="${TMP_HOME_POSTTOOL}" VIBEGUARD_CODEX_DIAG_FILE="${POSTTOOL_DIAG_FILE}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-post-edit-guard.sh
 )"
 assert_contains "${posttool_out}" '"decision": "block"' "run-hook-codex preserves posttool block decisions"
 assert_contains "${posttool_out}" '"additionalContext": "build failed"' "run-hook-codex maps posttool reason to additionalContext"

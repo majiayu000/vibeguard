@@ -9,7 +9,6 @@ checks=(
   "check-sec13-self-apply.sh"
   "check-sec13-risk-fields.sh"
   "check-sec14-mcp-descriptions.sh"
-  "check-sec17-skill-governance-blueprint.sh"
   "check-u29-no-silent-degrade.sh"
   "check-pkg-correction-argv-only.sh"
   "check-codex-wrapper-thin.sh"

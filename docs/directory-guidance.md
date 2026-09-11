@@ -74,7 +74,7 @@ CLI, and the opt-in Gemini CLI BeforeTool adapter are supported.
 | `post-write-guard.sh` | PostToolUse(Write) | Detect duplicate definitions and files with the same name after creating a new file. | native |
 | `analysis-paralysis-guard.sh` | PostToolUse(Read|Glob|Grep) | Report long read streaks as advisory observations while preserving the requested task scope. | unsupported |
 | `count_active_constraints.sh` | SessionStart | Estimate candidate instruction constraints from files; emit advisory context in every profile without claiming observed loading. | unsupported |
-| `post-build-check.sh` | PostToolUse(Edit/Write) | Automatically run the build check corresponding to the language after editing. | native |
+| `post-build-check.sh` | Manual diagnostic | Optional language-default build diagnostic; never registered after individual edits. Prefer the project's verification command at a coherent change boundary. | manual |
 | `skills-loader.sh` | Manual optional | Optional first read prompt script; not registered to hooks by default. | unsupported |
 | `stop-guard.sh` | Stop | Record uncommitted source code changes as a non-blocking Stop signal; emit a W-16 advisory when the session edited source files but ran no verification command. | native |
 | `learn-evaluator.sh` | Stop | Collect metrics at the end of session, detect corrective signals, and suggest /learn when signals exist. | native |

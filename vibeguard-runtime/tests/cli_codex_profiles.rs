@@ -158,6 +158,54 @@ fn profiled_codex_manifest() -> String {
 }
 
 #[test]
+fn shipped_profiles_preserve_guards_without_automatic_builds() {
+    let manifest = include_str!("../../hooks/manifest.json");
+    for profile in ["minimal", "core", "full", "strict"] {
+        let (repo, hooks_file, _) = codex_setup_fixture("no-auto-build", Some(manifest));
+        let mut previous: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&hooks_file).unwrap()).unwrap();
+        previous["hooks"]["PostToolUse"] = serde_json::json!([{
+            "matcher": "Bash",
+            "hooks": [{"type": "command", "command": "bash /missing/run-hook-codex.sh vibeguard-post-build-check.sh"}]
+        }]);
+        fs::write(&hooks_file, serde_json::to_string(&previous).unwrap()).unwrap();
+        let wrapper = repo.join("run-hook-codex.sh");
+        fs::write(&wrapper, "#!/bin/sh\n").unwrap();
+        let output = bin()
+            .args([
+                "setup-codex-hooks-upsert",
+                repo.to_str().unwrap(),
+                hooks_file.to_str().unwrap(),
+                wrapper.to_str().unwrap(),
+                profile,
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let text = fs::read_to_string(&hooks_file).unwrap();
+        assert!(!text.contains("post-build-check"), "{profile}: {text}");
+        for guard in [
+            "pre-bash-guard",
+            "pre-edit-guard",
+            "pre-write-guard",
+            "post-edit-guard",
+            "post-write-guard",
+        ] {
+            assert!(text.contains(guard), "{profile}: missing {guard}");
+        }
+        assert_eq!(
+            text.contains("stop-guard"),
+            matches!(profile, "full" | "strict")
+        );
+        assert!(
+            text.contains("third-party.sh"),
+            "unmanaged hooks must survive"
+        );
+        fs::remove_dir_all(repo).unwrap();
+    }
+}
+
+#[test]
 fn codex_hooks_upsert_filters_profile_and_tags_runtime_policy_profile() {
     let manifest = profiled_codex_manifest();
     for profile in ["minimal", "core", "full", "strict"] {

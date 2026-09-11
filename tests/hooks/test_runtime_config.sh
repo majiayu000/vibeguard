@@ -283,7 +283,7 @@ assert_not_contains "$result" '"decision": "block"' "JSON u16.limit=1500 allows 
 
 result=$(VIBEGUARD_LOG_DIR="$(make_log_dir)" VIBEGUARD_CONFIG_FILE="$cfg" VG_U16_LIMIT=500 bash hooks/pre-write-guard.sh < "$big_write_input")
 assert_contains "$result" '"decision": "block"' "VG_U16_LIMIT overrides JSON u16.limit"
-assert_contains "$result" "500-line" "U-16 block cites env-overridden limit"
+assert_contains "$result" "limit: 500" "U-16 block cites env-overridden limit"
 
 header "runtime config — helper functions"
 unit_cfg="$WORK_DIR/unit-config.json"

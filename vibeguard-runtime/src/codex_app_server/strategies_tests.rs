@@ -806,24 +806,6 @@ fi
 }
 
 #[test]
-fn changed_files_filters_to_source_extensions() {
-    let repo_dir = temp_dir("changed_files");
-    let _ = Command::new("git")
-        .arg("-C")
-        .arg(&repo_dir)
-        .arg("init")
-        .output();
-    fs::write(Path::new(&repo_dir).join("src.rs"), "fn main() {}\n")
-        .expect("rust file should be written");
-    fs::write(Path::new(&repo_dir).join("notes.md"), "# notes\n")
-        .expect("markdown file should be written");
-
-    assert_eq!(changed_files(&repo_dir), vec!["src.rs".to_string()]);
-
-    let _ = fs::remove_dir_all(repo_dir);
-}
-
-#[test]
 fn turn_completed_reads_nested_turn_payload() {
     let repo_dir = temp_dir("nested_turn_completed");
     fs::write(
@@ -838,6 +820,17 @@ fn turn_completed_reads_nested_turn_payload() {
 cat >/dev/null
 printf '{"stopReason":"stop ran"}\n'
 "#,
+    );
+    let status = std::process::Command::new("git")
+        .args(["-C", &repo_dir, "init"])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    fs::write(Path::new(&repo_dir).join("src.rs"), "fn main() {}\n").unwrap();
+    write_hook(
+        &repo_dir,
+        "post-build-check.sh",
+        "#!/bin/sh\ntouch build-was-run\n",
     );
     let mut strategy =
         VibeGuardGateStrategy::new(&repo_dir, Some("advisory")).expect("strategy should init");
@@ -865,6 +858,10 @@ printf '{"stopReason":"stop ran"}\n'
     );
 
     assert!(completed.to_string().contains("stop ran"));
+    assert!(
+        !Path::new(&repo_dir).join("build-was-run").exists(),
+        "turn completion must not run automatic builds"
+    );
     let thread = state
         .threads
         .get("thread-nested")

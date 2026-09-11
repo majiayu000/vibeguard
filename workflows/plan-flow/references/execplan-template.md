@@ -35,8 +35,8 @@ Minimal context required to resume execution:
 - **Key entry**: <e.g. src/main.rs, src/lib.rs>
 - **Related Constraint Set**: <preflight output path | None>
 - **Existing decision**: <reference Decision Log entry number>
-- **W-20 Runtime Snapshot**: <${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/execplan/<project-name>/...-runtime.snapshot>
-- **W-20 Tool Inventory**: <${VIBEGUARD_HOME:-${HOME}/.vibeguard}/artifacts/execplan/<project-name>/...-tool-inventory.txt>
+
+If reproducibility was explicitly requested, include the relevant experiment evidence paths here. Otherwise omit them.
 
 ## 4. Plan of Work
 

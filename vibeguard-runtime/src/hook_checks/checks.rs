@@ -13,8 +13,8 @@ use crate::hook_checks::history::{
 use crate::hook_checks::scan::{SameNameScan, find_project_dir, scan_same_name_duplicate};
 use crate::hook_input_diag::malformed_input_diagnostic;
 use crate::u16::baseline::{
-    U16BaselineDecision, edit_advisory_context, evaluate_u16_baseline, legacy_debt_context,
-    u16_advisory_limit,
+    U16BaselineDecision, block_context, edit_advisory_context, evaluate_u16_baseline,
+    legacy_debt_context, u16_advisory_limit,
 };
 use crate::u16::config::project_u16_limit;
 
@@ -41,6 +41,7 @@ pub(crate) enum PreWriteCheck {
         file_path: String,
     },
     U16Block {
+        old_line_count: usize,
         file_path: String,
         line_count: usize,
         limit: usize,
@@ -133,6 +134,7 @@ pub(crate) fn evaluate_pre_write_input(
         match evaluate_u16_baseline(existed_before, old_line_count, line_count, limit) {
             U16BaselineDecision::Block(_) => {
                 return PreWriteCheck::U16Block {
+                    old_line_count,
                     file_path,
                     line_count,
                     limit,
@@ -207,6 +209,7 @@ fn print_pre_write_check(check: &PreWriteCheck) {
             println!("{file_path}");
         }
         PreWriteCheck::U16Block {
+            old_line_count,
             file_path,
             line_count,
             limit,
@@ -215,6 +218,10 @@ fn print_pre_write_check(check: &PreWriteCheck) {
             println!("{file_path}");
             println!("{line_count}");
             println!("{limit}");
+            println!(
+                "{}",
+                block_context(file_path, *old_line_count, *line_count, *limit)
+            );
         }
         PreWriteCheck::U16LegacyDebt {
             file_path,
@@ -375,13 +382,7 @@ fn pre_edit_check_with_readers(
                         log_file,
                         &format!("U-16 file size: {estimated} > {limit}"),
                         &file_path,
-                        &format!(
-                            "VIBEGUARD [U-16] block: this edit would bring {} to ~{estimated} lines (limit: {limit}). Split the file into focused submodules before adding more code. Do NOT proceed with this edit.",
-                            Path::new(&file_path)
-                                .file_name()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or(&file_path)
-                        ),
+                        &block_context(&file_path, current_lines, estimated, limit),
                     )?;
                     return Ok(());
                 }

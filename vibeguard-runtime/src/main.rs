@@ -572,7 +572,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-codex-hooks-remove",
-        usage: "<repo-dir> <hooks-file>  — remove VibeGuard Codex hooks",
+        usage: "<repo-dir> <hooks-file> [wrapper]  — remove VibeGuard Codex hooks",
         handler: setup::codex_hooks::codex_hooks_remove,
     },
     Command {

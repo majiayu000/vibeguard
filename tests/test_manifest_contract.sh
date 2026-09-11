@@ -103,7 +103,7 @@ hooks = {hook["name"]: hook for hook in manifest["hooks"]}
 expected = {
     "post-edit-guard": ["pass", "warn", "escalate", "correction"],
     "post-write-guard": ["pass", "warn"],
-    "post-build-check": ["pass", "warn", "escalate"],
+    "post-build-check": ["pass", "warn"],
 }
 for name, decision_types in expected.items():
     actual = hooks[name]["decision_types"]

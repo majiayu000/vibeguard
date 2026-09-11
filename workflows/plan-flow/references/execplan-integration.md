@@ -23,14 +23,10 @@ An ExecPlan records:
 - true stop conditions.
 
 It does not require a routing object, fixed handoff fields, or delegation lanes.
-Because an ExecPlan is cross-session work, it must record the W-20 snapshot for
-the runtime, tools, and loaded rules. Ordinary one-session tasks do not create
-this snapshot. During `init`, resolve the execution source from
-`${VIBEGUARD_DIR:-${HOME}/.vibeguard/installed}`, write the tool inventory, and
-run its `guards/universal/check_runtime_drift.sh` with an explicit `--rules-dir`
-pointing to the same source's `rules/claude-rules`. Store both resulting paths
-in the ExecPlan Context section. Resume runs the same installed guard in
-`check` mode with the same explicit rules directory and stops on drift.
+Cross-session planning does not require a runtime snapshot. Only an explicitly
+reproducible experiment follows W-20 and records its relevant evidence paths.
+Ordinary init, update, and status operations do not run drift checks unless the
+ExecPlan already records experiment evidence.
 
 ## Resume
 
@@ -38,7 +34,7 @@ When a new session resumes:
 
 1. Read the ExecPlan and live `git status`.
 2. Refresh remote facts that may have changed.
-3. Check the recorded W-20 snapshot and show any runtime, tool, or rule drift.
+3. When Context records W-20 experiment evidence, check those execution conditions before claiming comparable results; otherwise continue without a snapshot.
 4. Confirm the target is still authorized and relevant.
 5. Continue from the first pending milestone.
 6. Run focused verification after each change.

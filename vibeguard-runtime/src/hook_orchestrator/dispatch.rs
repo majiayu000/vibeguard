@@ -11,7 +11,7 @@ use crate::hook_orchestrator::context::RuntimeContext;
 use crate::runtime_config::{runtime_config_int_value, runtime_config_str_value};
 use crate::time_utils::{format_unix_secs_utc, now_unix_secs};
 use crate::u16::baseline::{
-    L1_ADVISORY_CONTEXT, legacy_debt_context, u16_display_name, write_advisory_context,
+    L1_ADVISORY_CONTEXT, block_context, legacy_debt_context, write_advisory_context,
 };
 use crate::wrapper_env::env_nonempty;
 
@@ -241,6 +241,7 @@ fn run_pre_write(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
             print_pretty_decision("block", W12_PRE_WRITE_REASON);
         }
         PreWriteCheck::U16Block {
+            old_line_count,
             file_path,
             line_count,
             limit,
@@ -256,10 +257,7 @@ fn run_pre_write(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
             )?;
             print_pretty_decision(
                 "block",
-                &format!(
-                    "VIBEGUARD [U-16] block: writing {} with {line_count} lines exceeds the {limit}-line limit. Split into focused submodules first. Do NOT proceed with this write.",
-                    u16_display_name(file_path)
-                ),
+                &block_context(file_path, *old_line_count, *line_count, *limit),
             );
         }
         PreWriteCheck::U16LegacyDebt {

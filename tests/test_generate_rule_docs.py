@@ -221,7 +221,7 @@ class CompactRuleGenerationTests(unittest.TestCase):
         )
         self.assertIn(
             "every profile covers native Bash and `apply_patch` gates; `full` and `strict` "
-            "additionally install `post-build-check` and `Stop` hooks",
+            "additionally install `Stop` hooks",
             codex_host,
         )
 
@@ -238,10 +238,16 @@ class CompactRuleGenerationTests(unittest.TestCase):
             with self.subTest(hook=name):
                 self.assertTrue(hooks[name]["codex"]["enabled"])
                 self.assertEqual(set(hooks[name]["claude"]["profiles"]), all_profiles)
-        for name in ("post-build-check", "stop-guard", "learn-evaluator"):
+        for name in ("stop-guard", "learn-evaluator"):
             with self.subTest(hook=name):
                 self.assertTrue(hooks[name]["codex"]["enabled"])
                 self.assertEqual(set(hooks[name]["claude"]["profiles"]), {"full", "strict"})
+
+        build_hook = hooks["post-build-check"]
+        self.assertFalse(build_hook["claude"]["enabled"])
+        self.assertFalse(build_hook["codex"]["enabled"])
+        self.assertEqual(build_hook["install_targets"], [])
+        self.assertTrue(build_hook["config_exposure"]["disabled_hook"])
 
         codex_setup = (ROOT / "scripts" / "setup" / "targets" / "codex-home.sh").read_text(
             encoding="utf-8"

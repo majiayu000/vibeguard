@@ -88,8 +88,11 @@ unset VG_U16_WARN_LIMIT
 unset VIBEGUARD_CONFIG_FILE
 result=$(run_pre_write)
 assert_contains "$result" '"decision": "block"' "default 800: 850-line write blocks"
-assert_contains "$result" "850 lines" "block reason cites actual line count"
-assert_contains "$result" "800-line" "block reason cites resolved limit"
+assert_contains "$result" "0 -> 850 lines" "block reason cites old and proposed line counts"
+assert_contains "$result" "Search for an existing module" "write block offers reuse first"
+assert_contains "$result" "file-specific limit for the owner" "write block offers an explicit scoped limit"
+assert_contains "$result" "Do not refactor unrelated code" "write block preserves task scope"
+assert_contains "$result" "limit: 800" "block reason cites resolved limit"
 
 result=$(run_pre_write_medium)
 assert_not_contains "$result" '"decision": "block"' "default 400/800: 450-line write is advisory only"
@@ -128,7 +131,7 @@ assert_not_contains "$result" "[U-16]" "JSON u16.warn_limit=900 suppresses advis
 export VG_U16_LIMIT=500
 result=$(run_pre_write)
 assert_contains "$result" '"decision": "block"' "env=500 beats JSON=1500, blocks"
-assert_contains "$result" "500-line" "env-overridden limit appears in reason"
+assert_contains "$result" "limit: 500" "env-overridden limit appears in reason"
 unset VG_U16_LIMIT
 
 echo '{not-json' > "$cfg_file"
@@ -155,6 +158,9 @@ unset VG_U16_LIMIT VG_U16_WARN_LIMIT VIBEGUARD_CONFIG_FILE
 result=$(run_pre_edit)
 assert_contains "$result" '"decision": "block"' "default 800: edit pushing to 851 blocks"
 assert_contains "$result" "limit: 800" "block reason cites resolved limit"
+assert_contains "$result" "850 -> 851 lines" "edit block cites current and proposed line counts"
+assert_contains "$result" "Search for an existing module" "edit block shares write recovery guidance"
+assert_contains "$result" "Do not refactor unrelated code" "edit block preserves task scope"
 
 result=$(run_pre_edit_medium)
 assert_not_contains "$result" '"decision": "block"' "default 400/800: edit to 451 lines is advisory only"

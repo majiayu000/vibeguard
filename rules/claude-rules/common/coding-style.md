@@ -34,8 +34,23 @@ If the intent is unclear, mark it as DEFER or ask the user to clarify.
 Create new objects instead of mutating existing ones. Treat function parameters as read-only.
 
 ## U-16: Keep file size under control (guideline)
-**Compact guidance:** Keep changes localized. The configured size guard blocks new oversized files and growth beyond its limit; existing oversized files may be edited without growth.
-The default guard advises above 400 lines and blocks new files or growth above 800 lines, subject to the project's configured limit. An existing oversized file may remain oversized when a change keeps or reduces its line count. Do not split unrelated code merely because the file is already over the limit. When growth is necessary, agree on an in-scope decomposition or use the owner's explicit project limit.
+**Compact guidance:** Keep the project's configured size limits (defaults: 400-line advisory, 800-line hard limit). Existing oversized files may be edited without growth; do not refactor unrelated code to pass the guard.
+Use the project's configured limit when present. Block new oversized files, crossings of the limit, and growth of existing oversized files. Allow equal-size edits and reductions of legacy oversized files.
+
+**When blocked**:
+1. Search for an existing module that owns the added behavior and reuse it when appropriate.
+2. If the change exposes an independent responsibility, extract only that responsibility and verify behavior.
+3. If there is no sensible in-scope split, report the current and proposed line counts and propose an explicit file-specific limit for the owner to decide. Reuse existing authorization; do not raise the limit merely to pass this check.
+
+The existing project-root `CLAUDE.md` syntax is `U-16 exempt` followed by a backtick-quoted path and a numeric limit, for example:
+
+```text
+U-16 exempt `<project-relative-source-file>` 1100
+```
+Explain the reason alongside a narrowly scoped exception.
+
+**FIX / SKIP**: Fix new oversized files and over-limit growth through relevant decomposition or an explicitly authorized limit. Skip unrelated refactoring for equal-size or shrinking legacy files. Advisory output alone does not require a plan or acknowledgement.
+Never compress statements, remove useful comments, or create arbitrary helper files just to meet the line count. Small increments and repeated edits do not earn an automatic growth allowance.
 
 ## U-17: Handle errors completely (strict)
 **Compact guidance:** Handle errors completely. Do not swallow exceptions silently.
@@ -69,37 +84,17 @@ See U-29 for canonical no-silent-degradation guidance. Unsupported strategies or
 ## U-24: Keep naming changes within scope (guideline)
 Follow the project's naming and compatibility policy. Remove obsolete aliases when that is part of the authorized change; do not rename unrelated APIs, commands, or directories simply because an alias exists.
 
-## U-25: Fix build failures first (strict)
-**Compact guidance:** Fix build failures first before any other edit; do not add new code while build is red.
-When a build failure is detected, you must fix the build before continuing any other edits. Do not add new code while the build is red.
+## U-25: Resolve build failures at a coherent change boundary (strict)
+**Compact guidance:** Complete the related edits, then run the project's verification command and fix failures introduced by the change before claiming completion.
+Cross-file changes may temporarily fail to build. Finish the coherent change before evaluating it; do not interrupt every edit with a guessed language-wide build command.
 
-**Mechanical checks (agent execution rules)**:
-- If you receive a build-failure warning after editing source code, the next step must be to fix that build error.
-- After three consecutive build failures, run the full build command (`cargo check`, `npx tsc --noEmit`, `go build ./...`) to see the whole picture.
-- Find the root cause first, usually type mismatches, missing imports, or unsynchronized interface changes, and fix it in one coherent pass rather than guessing one error at a time.
-- Do not add unrelated feature code while the build is red.
+**FIX / SKIP**: Fix failures introduced by the requested change. For pre-existing failures or missing environment prerequisites, report the evidence and impact on verification; do not expand into unrelated repairs. Never present a failing or unrun check as passed.
 
 ## U-26: Declaration-execution completeness (strict)
-**Compact guidance:** Declaration-execution completeness: declared Config / Trait / persistence layers must be wired into startup.
-When you declare framework components such as configs, traits, persistence layers, or state containers, you must also finish the startup integration. Do not leave components declared-but-unwired.
+**Compact guidance:** Verify that a promised feature is connected to its actual consumers and lifecycle.
+A config, trait, persistence method, or state field only needs the integration required by the requested behavior and the project's architecture. A trait does not inherently need a startup registry; defaults and lazy loading can be intentional.
 
-**Checklist**:
-- Config structs: startup code must call `load()` instead of defaulting via `Default::default()`.
-- Trait declarations: there must be at least one `impl` and a startup registration point such as a registry or builder.
-- Persistence methods (`save`, `load`, `persist`, `restore`): startup code must call the restore path.
-- New fields added to `AppState` / `Context`: initialize them at every construction site.
-
-**Repair flow**:
-1. Audit all declaration sites (`rg "struct.*Config"`, `rg "trait "`, `rg "fn.*(save|load|persist)"`).
-2. Verify the corresponding startup registration path (`build_app_state()`, `main()`, `init()`, `new()`).
-3. Add the missing registration call.
-4. Implement silent fallback only where it is intentional and safe (for example, missing config falls back to defaults without breaking startup).
-
-**Anti-patterns**:
-- `SkillStore` has a `discover()` method but startup never calls it, so skills disappear after restart.
-- `RulesConfig` loads from TOML but consumers still call `Default::default()`, so config changes never take effect.
-- `ThreadManager` exposes `persist()` but nothing ever calls it, leaving dead code.
-- GC receives `project_root` but never propagates it to child tasks, causing functional downgrade.
+**FIX / SKIP**: Trace the changed behavior from entry point to observable result and repair missing connections. Verify restoration when persistence across restarts is promised. Skip registries, startup loaders, and infrastructure that the feature does not require.
 
 ## U-32: Review instruction overload (guideline)
 Treat instruction counts as a file-based estimate, not proof of runtime loading, semantic conflict, or task failure. The automatic hook is advisory in every profile, including strict.

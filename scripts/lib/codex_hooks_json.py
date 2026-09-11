@@ -11,7 +11,7 @@ from typing import Any
 
 from file_ops import write_json_atomic
 from hook_config_model import hook_command_identity
-from hooks_manifest import codex_specs, load_manifest
+from hooks_manifest import all_managed_script_names, codex_specs, load_manifest
 
 
 class HookSpec(dict):
@@ -21,10 +21,11 @@ class HookSpec(dict):
 MANIFEST = load_manifest()
 MANAGED_SPECS: list[HookSpec] = [HookSpec(spec) for spec in codex_specs(MANIFEST)]
 
-# Namespaced vibeguard-* script names from MANAGED_SPECS.  These are
-# unambiguous enough to identify VibeGuard entries without inspecting the
-# wrapper path, so removal works even when a non-standard wrapper is used.
-_MANAGED_SCRIPT_NAMES: frozenset[str] = frozenset(spec["script"] for spec in MANAGED_SPECS)
+# Namespaced vibeguard-* script names, including disabled Codex aliases so
+# cleanup can remove retired registrations (for example vibeguard-post-build-check.sh).
+_MANAGED_SCRIPT_NAMES: frozenset[str] = frozenset(
+    name for name in all_managed_script_names(MANIFEST) if name.startswith("vibeguard-")
+)
 _MANAGED_SCRIPT_TARGETS: dict[str, str] = {
     script_name: script_name.removeprefix("vibeguard-")
     for script_name in _MANAGED_SCRIPT_NAMES
@@ -139,7 +140,20 @@ def _ensure_hooks_root(data: dict[str, Any]) -> dict[str, Any]:
     return hooks
 
 
-def _identity_for_hook(event: str, matcher: str | None, hook: dict[str, Any]) -> Any:
+def _wrapper_names_for(wrapper: str | None = None) -> frozenset[str]:
+    names = set(_WRAPPER_NAMES)
+    if wrapper:
+        names.add(Path(wrapper).name)
+    return frozenset(names)
+
+
+def _identity_for_hook(
+    event: str,
+    matcher: str | None,
+    hook: dict[str, Any],
+    *,
+    wrapper: str | None = None,
+) -> Any:
     command = hook.get("command")
     if not isinstance(command, str):
         command = ""
@@ -152,11 +166,11 @@ def _identity_for_hook(event: str, matcher: str | None, hook: dict[str, Any]) ->
         command=command,
         timeout=timeout,
         managed_scripts=_MANAGED_SCRIPT_NAMES,
-        wrapper_names=_WRAPPER_NAMES,
+        wrapper_names=_wrapper_names_for(wrapper),
     )
 
 
-def _prune_vibeguard_entries(data: dict[str, Any]) -> bool:
+def _prune_vibeguard_entries(data: dict[str, Any], wrapper: str | None = None) -> bool:
     hooks = data.get("hooks")
     if not isinstance(hooks, dict):
         return False
@@ -185,7 +199,7 @@ def _prune_vibeguard_entries(data: dict[str, Any]) -> bool:
                 if not isinstance(hook, dict):
                     kept_hooks.append(hook)
                     continue
-                if _identity_for_hook(str(event), matcher, hook).is_managed:
+                if _identity_for_hook(str(event), matcher, hook, wrapper=wrapper).is_managed:
                     removed_any = True
                     changed = True
                     continue
@@ -459,6 +473,8 @@ def _has_entry(
     expected_command: str,
     expected_matcher: str | None,
     expected_timeout: int | None,
+    *,
+    wrapper: str | None = None,
 ) -> bool:
     """Return True only when a fully-conformant managed entry exists.
 
@@ -476,7 +492,7 @@ def _has_entry(
         for hook in hook_entries:
             if not isinstance(hook, dict):
                 continue
-            identity = _identity_for_hook("", expected_matcher, hook)
+            identity = _identity_for_hook("", expected_matcher, hook, wrapper=wrapper)
             if not identity.is_managed:
                 continue
             if hook.get("command") != expected_command:
@@ -501,7 +517,7 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
     before = json.dumps(data, sort_keys=True, ensure_ascii=False)
 
     _ensure_hooks_root(data)
-    _prune_vibeguard_entries(data)
+    _prune_vibeguard_entries(data, wrapper=args.wrapper)
     _prune_stale_installed_hook_entries(data, Path.home())
     hooks = _ensure_hooks_root(data)
 
@@ -514,7 +530,7 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
         expected_command = f"bash {shlex.quote(args.wrapper)} {spec['script']}"
         expected_matcher = spec.get("matcher") if isinstance(spec.get("matcher"), str) else None
         expected_timeout = spec.get("timeout") if isinstance(spec.get("timeout"), int) else None
-        if not _has_entry(entries, expected_command, expected_matcher, expected_timeout):
+        if not _has_entry(entries, expected_command, expected_matcher, expected_timeout, wrapper=args.wrapper):
             entries.append(_build_entry(args.wrapper, spec))
 
     after = json.dumps(data, sort_keys=True, ensure_ascii=False)
@@ -534,7 +550,7 @@ def cmd_remove_vibeguard(args: argparse.Namespace) -> int:
 
     data = load_hooks(hooks_path)
     before = json.dumps(data, sort_keys=True, ensure_ascii=False)
-    _prune_vibeguard_entries(data)
+    _prune_vibeguard_entries(data, wrapper=getattr(args, "wrapper", None))
     after = json.dumps(data, sort_keys=True, ensure_ascii=False)
 
     if before == after:
@@ -612,7 +628,7 @@ def cmd_check_vibeguard(args: argparse.Namespace) -> int:
         expected_command = f"bash {shlex.quote(args.wrapper)} {spec['script']}"
         expected_matcher = spec.get("matcher")
         expected_timeout = spec.get("timeout") if isinstance(spec.get("timeout"), int) else None
-        if not _has_entry(entries, expected_command, expected_matcher if isinstance(expected_matcher, str) else None, expected_timeout):
+        if not _has_entry(entries, expected_command, expected_matcher if isinstance(expected_matcher, str) else None, expected_timeout, wrapper=args.wrapper):
             return 1
     return 0
 
@@ -628,6 +644,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     remove = sub.add_parser("remove-vibeguard", help="Remove VibeGuard hook entries")
     remove.add_argument("--hooks-file", required=True)
+    remove.add_argument(
+        "--wrapper",
+        required=False,
+        help="Optional configured wrapper basename/path so non-default wrappers are cleaned",
+    )
     remove.set_defaults(func=cmd_remove_vibeguard)
 
     check = sub.add_parser("check-vibeguard", help="Check VibeGuard hook entries")
