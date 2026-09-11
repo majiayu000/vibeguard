@@ -23,25 +23,6 @@ pub(crate) fn managed_script_from_command<'a>(
             return Some(script);
         }
     }
-    // Codex managed scripts are vibeguard-* namespaced. Treat any invoked
-    // executable whose next argument is one of those scripts as managed so
-    // non-standard wrapper paths remain recognizable without claiming bare
-    // argument mentions or Claude unprefixed scripts after arbitrary shells.
-    for (index, _token) in parts.iter().enumerate() {
-        if !wrapper_is_invoked(&parts, index) {
-            continue;
-        }
-        let Some(next) = parts.get(index + 1) else {
-            continue;
-        };
-        let next_base = basename(next);
-        if !next_base.starts_with("vibeguard-") {
-            continue;
-        }
-        if let Some(script) = managed_scripts.get(next_base) {
-            return Some(script);
-        }
-    }
     for (index, token) in parts.iter().enumerate() {
         let token_base = basename(token);
         let Some(script) = managed_scripts.get(token_base) else {
@@ -71,17 +52,6 @@ fn parts_invokes_script(parts: &[String], script: &str, wrapper_name: &str) -> b
                 .is_some_and(|next| basename(next) == script)
         {
             return true;
-        }
-    }
-    if script.starts_with("vibeguard-") {
-        for (index, _token) in parts.iter().enumerate() {
-            if wrapper_is_invoked(parts, index)
-                && parts
-                    .get(index + 1)
-                    .is_some_and(|next| basename(next) == script)
-            {
-                return true;
-            }
         }
     }
     parts
@@ -288,25 +258,44 @@ mod tests {
     }
 
     #[test]
-    fn codex_custom_wrapper_path_is_managed() {
+    fn codex_configured_wrapper_path_is_managed() {
         assert!(command_is_managed(
             &codex_managed(),
             "bash /tmp/test/wrapper.sh vibeguard-pre-bash-guard.sh",
-            "run-hook-codex.sh"
+            "wrapper.sh"
         ));
         assert!(command_invokes_script(
             "bash /tmp/test/wrapper.sh vibeguard-pre-bash-guard.sh",
             "vibeguard-pre-bash-guard.sh",
-            "run-hook-codex.sh"
+            "wrapper.sh"
         ));
         assert_eq!(
             managed_script_from_command(
                 "env VIBEGUARD_PROFILE=full bash /tmp/custom/wrapper.sh vibeguard-post-build-check.sh",
                 &codex_managed(),
-                "run-hook-codex.sh"
+                "wrapper.sh"
             ),
             Some("vibeguard-post-build-check.sh")
         );
+    }
+
+    #[test]
+    fn codex_generic_first_token_is_not_managed() {
+        assert!(!command_is_managed(
+            &codex_managed(),
+            "logger vibeguard-post-build-check.sh",
+            "run-hook-codex.sh"
+        ));
+        assert!(!command_is_managed(
+            &codex_managed(),
+            "echo vibeguard-pre-bash-guard.sh",
+            "run-hook-codex.sh"
+        ));
+        assert!(!command_is_managed(
+            &codex_managed(),
+            "bash /tmp/test/wrapper.sh vibeguard-pre-bash-guard.sh",
+            "run-hook-codex.sh"
+        ));
     }
 
     #[test]

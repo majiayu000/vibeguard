@@ -1,5 +1,5 @@
 use crate::setup::support::{
-    SetupResult, home_dir, read_json_object, shell_quote, shell_split, write_json_atomic,
+    SetupResult, basename, home_dir, read_json_object, shell_quote, shell_split, write_json_atomic,
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -59,7 +59,7 @@ pub fn codex_hooks_upsert(args: &[String]) -> SetupResult<()> {
     let mut data = Value::Object(read_json_object(hooks_path, true)?);
     let before = serde_json::to_string(&data)?;
     ensure_hooks_root(&mut data)?;
-    codex_prune_managed(&mut data, &manifest.managed_scripts);
+    codex_prune_managed(&mut data, &manifest.managed_scripts, Some(wrapper));
     codex_prune_stale(&mut data, &manifest.script_targets);
     ensure_hooks_root(&mut data)?;
     let hooks = data["hooks"]
@@ -78,6 +78,7 @@ pub fn codex_hooks_upsert(args: &[String]) -> SetupResult<()> {
             &command,
             spec.matcher.as_deref(),
             spec.timeout,
+            Some(wrapper),
         ) {
             entries_arr.push(codex_build_entry(wrapper, &spec, profile));
         }
@@ -105,7 +106,7 @@ pub fn codex_hooks_remove(args: &[String]) -> SetupResult<()> {
     }
     let mut data = Value::Object(read_json_object(hooks_path, false)?);
     let before = serde_json::to_string(&data)?;
-    codex_prune_managed(&mut data, &managed_scripts);
+    codex_prune_managed(&mut data, &managed_scripts, None);
     if serde_json::to_string(&data)? == before {
         println!("SKIP");
     } else {
@@ -145,11 +146,17 @@ pub fn codex_hooks_check(args: &[String]) -> SetupResult<()> {
             &command,
             spec.matcher.as_deref(),
             spec.timeout,
+            Some(&args[2]),
         ) {
             std::process::exit(1);
         }
     }
-    if codex_has_unexpected_managed_entry(hooks, &manifest.managed_scripts, &expected_records) {
+    if codex_has_unexpected_managed_entry(
+        hooks,
+        &manifest.managed_scripts,
+        &expected_records,
+        Some(&args[2]),
+    ) {
         std::process::exit(1);
     }
     Ok(())
@@ -521,7 +528,11 @@ fn ensure_hooks_root(data: &mut Value) -> SetupResult<()> {
     Ok(())
 }
 
-fn codex_prune_managed(data: &mut Value, managed_scripts: &BTreeSet<String>) {
+fn codex_prune_managed(
+    data: &mut Value,
+    managed_scripts: &BTreeSet<String>,
+    wrapper: Option<&str>,
+) {
     let Some(hooks) = data.get_mut("hooks").and_then(Value::as_object_mut) else {
         return;
     };
@@ -543,7 +554,7 @@ fn codex_prune_managed(data: &mut Value, managed_scripts: &BTreeSet<String>) {
                 .iter()
                 .filter(|hook| {
                     let command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-                    !codex_command_is_managed(managed_scripts, command)
+                    !codex_command_is_managed_with_wrapper(managed_scripts, command, wrapper)
                 })
                 .cloned()
                 .collect();
@@ -652,6 +663,7 @@ fn codex_has_unexpected_managed_entry(
     hooks: &serde_json::Map<String, Value>,
     managed_scripts: &BTreeSet<String>,
     expected_records: &BTreeSet<CodexEntryRecord>,
+    wrapper: Option<&str>,
 ) -> bool {
     for (event, entries) in hooks {
         let Some(entries) = entries.as_array() else {
@@ -670,7 +682,7 @@ fn codex_has_unexpected_managed_entry(
             };
             for hook in hook_entries {
                 let command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-                if !codex_command_is_managed(managed_scripts, command) {
+                if !codex_command_is_managed_with_wrapper(managed_scripts, command, wrapper) {
                     continue;
                 }
                 let record = CodexEntryRecord {
@@ -694,6 +706,7 @@ fn codex_has_entry(
     command: &str,
     matcher: Option<&str>,
     timeout: Option<i64>,
+    wrapper: Option<&str>,
 ) -> bool {
     entries.iter().any(|entry| {
         let Some(entry_obj) = entry.as_object() else {
@@ -707,7 +720,7 @@ fn codex_has_entry(
         };
         hooks.iter().any(|hook| {
             let hook_command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-            codex_command_is_managed(managed_scripts, hook_command)
+            codex_command_is_managed_with_wrapper(managed_scripts, hook_command, wrapper)
                 && hook_command == command
                 && hook.get("type").and_then(Value::as_str) == Some("command")
                 && match timeout {
@@ -719,11 +732,29 @@ fn codex_has_entry(
 }
 
 pub(crate) fn codex_command_is_managed(managed_scripts: &BTreeSet<String>, command: &str) -> bool {
-    crate::setup::hook_command_identity::command_is_managed(
+    codex_command_is_managed_with_wrapper(managed_scripts, command, None)
+}
+
+pub(crate) fn codex_command_is_managed_with_wrapper(
+    managed_scripts: &BTreeSet<String>,
+    command: &str,
+    wrapper: Option<&str>,
+) -> bool {
+    if crate::setup::hook_command_identity::command_is_managed(
         managed_scripts,
         command,
         "run-hook-codex.sh",
-    )
+    ) {
+        return true;
+    }
+    let Some(wrapper) = wrapper else {
+        return false;
+    };
+    let wrapper_base = basename(wrapper);
+    if wrapper_base == "run-hook-codex.sh" {
+        return false;
+    }
+    crate::setup::hook_command_identity::command_is_managed(managed_scripts, command, wrapper_base)
 }
 
 pub(crate) fn codex_managed_scripts(repo_dir: &Path) -> SetupResult<BTreeSet<String>> {

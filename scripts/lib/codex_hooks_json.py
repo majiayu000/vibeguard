@@ -11,7 +11,7 @@ from typing import Any
 
 from file_ops import write_json_atomic
 from hook_config_model import hook_command_identity
-from hooks_manifest import codex_specs, load_manifest
+from hooks_manifest import all_managed_script_names, codex_specs, load_manifest
 
 
 class HookSpec(dict):
@@ -21,10 +21,11 @@ class HookSpec(dict):
 MANIFEST = load_manifest()
 MANAGED_SPECS: list[HookSpec] = [HookSpec(spec) for spec in codex_specs(MANIFEST)]
 
-# Namespaced vibeguard-* script names from MANAGED_SPECS.  These are
-# unambiguous enough to identify VibeGuard entries without inspecting the
-# wrapper path, so removal works even when a non-standard wrapper is used.
-_MANAGED_SCRIPT_NAMES: frozenset[str] = frozenset(spec["script"] for spec in MANAGED_SPECS)
+# Namespaced vibeguard-* script names, including disabled Codex aliases so
+# cleanup can remove retired registrations (for example vibeguard-post-build-check.sh).
+_MANAGED_SCRIPT_NAMES: frozenset[str] = frozenset(
+    name for name in all_managed_script_names(MANIFEST) if name.startswith("vibeguard-")
+)
 _MANAGED_SCRIPT_TARGETS: dict[str, str] = {
     script_name: script_name.removeprefix("vibeguard-")
     for script_name in _MANAGED_SCRIPT_NAMES
@@ -169,7 +170,7 @@ def _identity_for_hook(
     )
 
 
-def _prune_vibeguard_entries(data: dict[str, Any]) -> bool:
+def _prune_vibeguard_entries(data: dict[str, Any], wrapper: str | None = None) -> bool:
     hooks = data.get("hooks")
     if not isinstance(hooks, dict):
         return False
@@ -198,7 +199,7 @@ def _prune_vibeguard_entries(data: dict[str, Any]) -> bool:
                 if not isinstance(hook, dict):
                     kept_hooks.append(hook)
                     continue
-                if _identity_for_hook(str(event), matcher, hook).is_managed:
+                if _identity_for_hook(str(event), matcher, hook, wrapper=wrapper).is_managed:
                     removed_any = True
                     changed = True
                     continue
@@ -516,7 +517,7 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
     before = json.dumps(data, sort_keys=True, ensure_ascii=False)
 
     _ensure_hooks_root(data)
-    _prune_vibeguard_entries(data)
+    _prune_vibeguard_entries(data, wrapper=args.wrapper)
     _prune_stale_installed_hook_entries(data, Path.home())
     hooks = _ensure_hooks_root(data)
 
@@ -549,7 +550,7 @@ def cmd_remove_vibeguard(args: argparse.Namespace) -> int:
 
     data = load_hooks(hooks_path)
     before = json.dumps(data, sort_keys=True, ensure_ascii=False)
-    _prune_vibeguard_entries(data)
+    _prune_vibeguard_entries(data, wrapper=getattr(args, "wrapper", None))
     after = json.dumps(data, sort_keys=True, ensure_ascii=False)
 
     if before == after:
@@ -643,6 +644,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     remove = sub.add_parser("remove-vibeguard", help="Remove VibeGuard hook entries")
     remove.add_argument("--hooks-file", required=True)
+    remove.add_argument(
+        "--wrapper",
+        required=False,
+        help="Optional configured wrapper basename/path so non-default wrappers are cleaned",
+    )
     remove.set_defaults(func=cmd_remove_vibeguard)
 
     check = sub.add_parser("check-vibeguard", help="Check VibeGuard hook entries")
