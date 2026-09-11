@@ -61,12 +61,30 @@ fn parts_invokes_script(parts: &[String], script: &str, wrapper_name: &str) -> b
 }
 
 fn looks_like_direct_script(parts: &[String], index: usize) -> bool {
+    // Only treat the executed script as owned. Path-valued later arguments
+    // such as `node /custom/audit.js /tmp/vibeguard-post-build-check.sh`
+    // must stay user-owned.
     let token = &parts[index];
-    token.contains('/')
-        || index
-            .checked_sub(1)
-            .is_some_and(|previous| is_shell(&parts[previous]))
-        || (index == 0 && token.ends_with(".sh"))
+    if index
+        .checked_sub(1)
+        .is_some_and(|previous| is_shell(&parts[previous]))
+    {
+        return true;
+    }
+    if index >= 2
+        && parts[index - 1].starts_with('-')
+        && !shell_option_uses_command_string(&parts[index - 1])
+        && is_shell(&parts[index - 2])
+    {
+        return true;
+    }
+    if env_invokes_token(parts, index) {
+        return true;
+    }
+    if index != 0 {
+        return false;
+    }
+    token.contains('/') || token.ends_with(".sh")
 }
 
 fn wrapper_is_invoked(parts: &[String], index: usize) -> bool {
@@ -248,6 +266,11 @@ mod tests {
         ));
         assert!(!command_is_managed(
             &codex_managed(),
+            "node /custom/audit.js /tmp/vibeguard-post-build-check.sh",
+            "run-hook-codex.sh"
+        ));
+        assert!(!command_is_managed(
+            &codex_managed(),
             "python /tmp/user_hook.py --label vibeguard-pre-bash-guard.sh",
             "run-hook-codex.sh"
         ));
@@ -268,12 +291,22 @@ mod tests {
         ));
         assert!(!command_is_managed(
             &managed,
+            "bash /custom/audit.sh /tmp/post-build-check.sh",
+            "run-hook.sh"
+        ));
+        assert!(!command_is_managed(
+            &managed,
             "sh /tmp/user-hook.sh --label post-build-check.sh",
             "run-hook.sh"
         ));
         assert!(command_is_managed(
             &managed,
             "bash /tmp/.vibeguard/run-hook.sh post-build-check.sh",
+            "run-hook.sh"
+        ));
+        assert!(command_is_managed(
+            &managed,
+            "bash -e ~/.vibeguard/installed/hooks/post-build-check.sh",
             "run-hook.sh"
         ));
         assert!(command_is_managed(

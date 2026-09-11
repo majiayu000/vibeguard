@@ -248,7 +248,7 @@ class CompactRuleGenerationTests(unittest.TestCase):
         self.assertFalse(build_hook["claude"]["enabled"])
         self.assertFalse(build_hook["codex"]["enabled"])
         self.assertEqual(build_hook["install_targets"], [])
-        self.assertFalse(build_hook["config_exposure"]["disabled_hook"])
+        self.assertTrue(build_hook["config_exposure"]["disabled_hook"])
 
         codex_setup = (ROOT / "scripts" / "setup" / "targets" / "codex-home.sh").read_text(
             encoding="utf-8"

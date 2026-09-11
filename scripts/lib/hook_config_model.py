@@ -33,14 +33,6 @@ def _script_id(script: str) -> str:
     return script[:-3] if script.endswith(".sh") else script
 
 
-def _shell_invokes_wrapper(parts: list[str], index: int) -> bool:
-    if index < 2:
-        return False
-    shell = _basename(parts[index - 2])
-    wrapper = parts[index - 1]
-    return shell in {"bash", "sh", "zsh"} and not wrapper.startswith("-")
-
-
 def _wrapper_is_invoked(parts: list[str], index: int) -> bool:
     if index == 0:
         return True
@@ -98,12 +90,26 @@ def _is_env_assignment(token: str) -> bool:
 
 
 def _looks_like_direct_script(parts: list[str], index: int) -> bool:
+    """True only when the token is the executed script, not a later argument."""
     token = parts[index]
-    if "/" in token or token.startswith(("./", "../", "~/", "$HOME/", "${HOME}/")):
-        return True
     if index > 0 and _basename(parts[index - 1]) in {"bash", "sh", "zsh"}:
         return True
-    return index == 0 and token.endswith(".sh")
+    if (
+        index >= 2
+        and parts[index - 1].startswith("-")
+        and not _shell_option_uses_command_string(parts[index - 1])
+        and _basename(parts[index - 2]) in {"bash", "sh", "zsh"}
+    ):
+        return True
+    if _env_invokes_token(parts, index):
+        return True
+    if index != 0:
+        return False
+    return (
+        "/" in token
+        or token.startswith(("./", "../", "~/", "$HOME/", "${HOME}/"))
+        or token.endswith(".sh")
+    )
 
 
 def hook_command_identity(
@@ -143,9 +149,7 @@ def hook_command_identity(
     if script is None:
         for index, token in enumerate(parts):
             token_base = _basename(token)
-            if token_base in managed_set and (
-                _looks_like_direct_script(parts, index) or _shell_invokes_wrapper(parts, index)
-            ):
+            if token_base in managed_set and _looks_like_direct_script(parts, index):
                 script = token_base
                 break
 
