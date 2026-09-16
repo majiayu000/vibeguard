@@ -4,7 +4,19 @@ set -euo pipefail
 command -v crontab >/dev/null 2>&1 || exit 0
 
 work="$(mktemp -d)"
-trap 'rm -rf "${work}"' EXIT
+reader="" watcher=""
+cleanup() {
+  local child
+  for child in "${reader}" "${watcher}"; do
+    [[ -z "${child}" ]] || kill "${child}" 2>/dev/null || true
+  done
+  [[ -z "${reader}" ]] || wait "${reader}" 2>/dev/null || true
+  [[ -z "${watcher}" ]] || wait "${watcher}" 2>/dev/null || true
+  rm -rf "${work}"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 LC_ALL=C crontab -l > "${work}/out" 2> "${work}/err" &
 reader=$!
 (
@@ -20,8 +32,10 @@ reader=$!
 watcher=$!
 rc=0
 wait "${reader}" || rc=$?
+reader=""
 kill "${watcher}" 2>/dev/null || true
 wait "${watcher}" 2>/dev/null || true
+watcher=""
 if [[ -f "${work}/timeout" ]]; then
   printf 'Cannot read user crontab: timed out after 10s\n' >&2
   exit 1

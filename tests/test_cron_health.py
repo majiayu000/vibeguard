@@ -29,9 +29,11 @@ class CronHealthTests(unittest.TestCase):
         self.fixture = self.root / "crontab"
         self.fixture.write_text("")
         self.calls = self.root / "calls"
+        self.reader_pid = self.root / "reader-pid"
         stub = self.bin / "crontab"
         stub.write_text('''#!/bin/sh
 printf '%s\\n' "$*" >> "$CRON_TEST_CALLS"
+printf '%s\\n' "$$" > "$CRON_TEST_READER_PID"
 [ "$#" -eq 1 ] && [ "$1" = -l ] || exit 99
 case "$CRON_TEST_MODE" in
   absent) printf 'crontab: no crontab for test\\n' >&2; exit 1 ;;
@@ -47,6 +49,7 @@ cat "$CRON_TEST_FILE"
         self.env = {
             **os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}",
             "CRON_TEST_FILE": str(self.fixture), "CRON_TEST_CALLS": str(self.calls),
+            "CRON_TEST_READER_PID": str(self.reader_pid),
             "CRON_TEST_MODE": "normal",
         }
 
@@ -142,6 +145,25 @@ cat "$CRON_TEST_FILE"
         result = subprocess.run([BASH, str(CHECK)], env={**self.env, "PATH": str(self.bin)},
                                 capture_output=True, text=True, timeout=5)
         self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+
+    def test_interrupted_check_reaps_its_reader(self):
+        process = subprocess.Popen([BASH, str(CHECK)], env={**self.env, "CRON_TEST_MODE": "timeout"},
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            deadline = time.monotonic() + 5
+            while not self.reader_pid.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(self.reader_pid.exists())
+            reader_pid = int(self.reader_pid.read_text())
+            process.terminate()
+            process.communicate(timeout=5)
+            self.assertEqual(process.returncode, 143)
+            with self.assertRaises(ProcessLookupError):
+                os.kill(reader_pid, 0)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate(timeout=5)
 
 
 if __name__ == "__main__":
