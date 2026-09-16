@@ -255,7 +255,7 @@ check_launchd_scheduled_gc() {
       yellow "[WARN] Scheduled GC plist exists but not loaded"
     fi
   else
-    yellow "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
+    yellow "[INFO] Managed scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
   fi
 }
 
@@ -292,7 +292,7 @@ check_systemd_scheduled_gc() {
   elif [[ -f "${timer}" ]]; then
     yellow "[WARN] Scheduled GC unit exists but timer not active"
   else
-    yellow "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
+    yellow "[INFO] Managed scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
   fi
 }
 
@@ -663,7 +663,7 @@ run_legacy_checks() {
 
   check_claude_home_installation
 
-  # Check scheduled GC
+  python3 "${SCRIPT_DIR}/cron_health.py" || red "[FAIL] Unable to inspect unmanaged GC cron entries"
   if [[ "$(uname)" == "Darwin" ]]; then
     check_launchd_scheduled_gc
   elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then

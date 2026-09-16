@@ -64,7 +64,7 @@ cat > "${systemd_check_bin}/systemctl" <<'SH'
 #!/usr/bin/env bash
 [[ "${1:-}" == "--user" ]] && shift
 case "${1:-}" in
-  is-active) exit 0 ;;
+  is-active) exit "${VIBEGUARD_TEST_SYSTEMD_INACTIVE:-0}" ;;
   *) exit 0 ;;
 esac
 SH
@@ -82,6 +82,46 @@ printf '%s\n' '[Service]' \
 systemd_stable_out="$(systemd_check_run 2>&1 || true)"
 assert_contains "${systemd_stable_out}" "[OK] Scheduled GC active via systemd" \
   "payload doctor accepts exact stable systemd target"
+
+# Cron remains independent of the managed scheduler. The stub refuses writes.
+cat > "${systemd_check_bin}/crontab" <<'SH'
+#!/usr/bin/env bash
+[[ "$*" == "-l" ]] || { printf 'unexpected crontab mutation\n' >&2; exit 99; }
+if [[ "${VIBEGUARD_TEST_CRON_ERROR:-0}" == 1 ]]; then
+  printf 'permission denied\n' >&2
+  exit 1
+fi
+cat "${VIBEGUARD_TEST_CRON_FILE:?}"
+SH
+chmod +x "${systemd_check_bin}/crontab"
+export VIBEGUARD_TEST_CRON_FILE="${SYSTEMD_CHECK_HOME}/user-crontab"
+printf '0 3 * * 0 /bin/bash "%s/moved/scripts/gc/gc-scheduled.sh" --scheduled\n' \
+  "${SYSTEMD_CHECK_HOME}" > "${VIBEGUARD_TEST_CRON_FILE}"
+cron_before="$(cat "${VIBEGUARD_TEST_CRON_FILE}")"
+cron_with_systemd_out="$(systemd_check_run 2>&1)"
+assert_contains "${cron_with_systemd_out}" "[OK] Scheduled GC active via systemd" \
+  "unmanaged cron does not hide the managed scheduler"
+assert_contains "${cron_with_systemd_out}" "[BROKEN] Unmanaged GC cron line 1: script missing or unreadable:" \
+  "doctor detects stale cron alongside a managed scheduler"
+
+cron_only_json="$(env HOME="${SYSTEMD_CHECK_HOME}/no-managed-home" \
+  PATH="${systemd_check_bin}:${PATH}" VIBEGUARD_TEST_SYSTEMD_INACTIVE=1 \
+  bash "${SETUP_SCRIPT}" doctor --json 2>&1)"
+cron_only_rc=$?
+assert_eq "${cron_only_rc}" "2" "broken cron is visible to strict JSON consumers"
+assert_json_path "${cron_only_json}" \
+  'any(e["level"] == "BROKEN" and "Unmanaged GC cron line 1" in e["message"] for e in d["events"])' \
+  "True" "JSON doctor includes the stale cron target"
+assert_json_path "${cron_only_json}" \
+  'any("Managed scheduled GC not installed" in e["message"] for e in d["events"])' \
+  "True" "absent registration is explicitly scoped to managed scheduling"
+cron_read_error_out="$(VIBEGUARD_TEST_CRON_ERROR=1 systemd_check_run 2>&1)"
+assert_contains "${cron_read_error_out}" "[FAIL] Unable to inspect unmanaged GC cron entries" \
+  "crontab read errors are visible in doctor"
+assert_eq "$(cat "${VIBEGUARD_TEST_CRON_FILE}")" "${cron_before}" \
+  "doctor leaves the user's crontab unchanged"
+rm -f "${systemd_check_bin}/crontab"
+unset VIBEGUARD_TEST_CRON_FILE
 
 rm -f "${systemd_check_timer}"
 systemd_missing_timer_out="$(systemd_check_run 2>&1 || true)"

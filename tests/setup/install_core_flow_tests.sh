@@ -779,7 +779,7 @@ assert_cmd "stable pre-commit ignores live repo-path" test "${stable_pre_commit_
 assert_not_contains "${stable_pre_commit_out}" "fake live repo pre-commit executed" "stable pre-commit does not execute live repo script"
 printf '%s' "${REPO_DIR}" > "${HOME}/.vibeguard/repo-path"
 default_scheduler_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
-assert_contains "${default_scheduler_check_out}" "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)" "--check reports absent scheduled GC as INFO"
+assert_contains "${default_scheduler_check_out}" "[INFO] Managed scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)" "--check reports absent managed scheduled GC as INFO"
 assert_contains "${default_scheduler_check_out}" "[OK] vibeguard-runtime version matches repo VERSION" "--check reports runtime version health"
 assert_contains "${default_scheduler_check_out}" "[OK] Execution mode: installed snapshot" "--check reports installed snapshot execution mode"
 assert_contains "${default_scheduler_check_out}" "Hook wrapper execution source: installed snapshot" "--check reports hook wrapper execution source"
