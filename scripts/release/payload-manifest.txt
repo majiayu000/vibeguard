@@ -56,7 +56,7 @@ scripts/setup/check.sh
 scripts/setup/clean.sh
 scripts/setup/codex-status.sh
 scripts/setup/com.vibeguard.gc.plist
-scripts/setup/cron_health.py
+scripts/setup/cron_health.sh
 scripts/setup/guard-packs.sh
 scripts/setup/install.sh
 scripts/setup/lib.sh

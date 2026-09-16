@@ -663,7 +663,7 @@ run_legacy_checks() {
 
   check_claude_home_installation
 
-  python3 "${SCRIPT_DIR}/cron_health.py" || red "[FAIL] Unable to inspect unmanaged GC cron entries"
+  bash "${SCRIPT_DIR}/cron_health.sh" || red "[FAIL] Unable to inspect unmanaged GC cron entries"
   if [[ "$(uname)" == "Darwin" ]]; then
     check_launchd_scheduled_gc
   elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
