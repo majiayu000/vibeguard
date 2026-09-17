@@ -1,315 +1,82 @@
-# VibeGuard Rule Reference
+# Rule reference
 
-> Generated from `rules/claude-rules/**` by `python3 scripts/generate_rule_docs.py`. Do not edit by hand.
+Generated from the canonical Markdown. These are review topics, not claims of automatic enforcement.
+The library contains 75 topics; read only those relevant to the task.
 
-Index of the current rule surface, the major enforcement layers, and the shipped per-language checks in this repository.
-
-Canonical source of truth: `rules/claude-rules/`
-
-## Layer Architecture
-
-| Layer | Enforcement | Mechanism |
-|-------|------------|-----------|
-| L1 | Search before create | `pre-write-guard.sh` hook (warn by default; block via `VIBEGUARD_WRITE_MODE=block`, `write_mode=block` in `~/.vibeguard/config.json`, or escalation) |
-| L2 | Naming conventions | `check_naming_convention.py` guard |
-| L3 | Quality baseline | `post-edit-guard.sh` hook (warn/escalate) |
-| L4 | Data integrity | Rules injection + guards |
-| L5 | Minimal changes | Rules injection |
-| L6 | Process gates | `/vibeguard:preflight` + `/vibeguard:interview` + `/vibeguard:exec-plan` |
-| L7 | Commit discipline | Agent/review contract + `pre-commit-guard.sh` quality/build gate + git `pre-push` remote-history gate |
-
----
-
-## Supported Configuration Variables
-
-Runtime values resolve from lowest to highest precedence: built-in default →
-`~/.vibeguard/config.json` → project `.vibeguard.json` → environment. The user
-and project files use the same JSON paths. Use `config show`, `config init`,
-`config set`, and `config reset` for guided changes; `config explain
-<json-path-or-env> --cwd <project>` keeps its single-value explanation format.
-
-| JSON path | Supported environment override | Default |
-|-----------|--------------------------------|---------|
-| `u16.warn_limit` | `VG_U16_WARN_LIMIT` | `400` |
-| `u16.limit` | `VG_U16_LIMIT` | `800` |
-| `circuit_breaker.threshold` | `VG_CB_THRESHOLD` | `3` |
-| `circuit_breaker.cooldown_seconds` | `VG_CB_COOLDOWN` | `300` |
-| `circuit_breaker.lock_timeout_seconds` | `VG_CB_LOCK_TIMEOUT_SECONDS` | `5` |
-| `w14.cooldown_seconds` | `VIBEGUARD_W14_COOLDOWN_SECONDS` | `3600` |
-| `churn.informational_edit_count` | `VIBEGUARD_CHURN_INFORMATIONAL_EDIT_COUNT` | `5` |
-| `churn.warning_edit_count` | `VIBEGUARD_CHURN_WARNING_EDIT_COUNT` | `10` |
-| `churn.critical_edit_count` | `VIBEGUARD_CHURN_CRITICAL_EDIT_COUNT` | `20` |
-| `churn.critical_build_failure_count` | `VIBEGUARD_CHURN_CRITICAL_BUILD_FAILURE_COUNT` | `5` |
-| `w15.minimum_consecutive_edits` | `VIBEGUARD_W15_MINIMUM_CONSECUTIVE_EDITS` | `3` |
-| `w15.latest_delta_character_ceiling` | `VIBEGUARD_W15_LATEST_DELTA_CHARACTER_CEILING` | `300` |
-| `paralysis.threshold` | `VG_PARALYSIS_THRESHOLD` | `7` |
-| `write_mode` | `VIBEGUARD_WRITE_MODE` | `warn` |
-| `write_escalate_threshold` | `VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD` | `5` |
-| `learn.metrics_tail_bytes` | `VIBEGUARD_LEARN_METRICS_TAIL_BYTES` | `5242880` |
-| `disabled_skills` | `VIBEGUARD_DISABLED_SKILLS` | `[]` |
-
-The supported location selectors are `VIBEGUARD_CONFIG_FILE`,
-`VIBEGUARD_PROJECT_CONFIG`, and `VIBEGUARD_LOG_DIR`. The supported env-only
-controls are `VIBEGUARD_PROFILE`, `VIBEGUARD_W14_SKIP_TEMP`,
-`VIBEGUARD_CODEX_GUARD_MODE`, `VIBEGUARD_SUPPRESS_PARALYSIS`,
-`VIBEGUARD_SUPPRESS_W15`, `VIBEGUARD_W15_SKIP_DOCS`, and
-`VIBEGUARD_SUPPRESS_STOP_VERIFY`. The supported pre-commit controls are
-`VIBEGUARD_SKIP_PRECOMMIT`, `VIBEGUARD_PRECOMMIT_TIMEOUT`,
-`VIBEGUARD_PRECOMMIT_BUILD_TIMEOUT`, and `VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR`.
-The documented execution-source selectors
-`VIBEGUARD_DIR` and `VIBEGUARD_REPO_DIR`, performance bound
-`VG_SCAN_MAX_DEFS`, `VIBEGUARD_GC_*` project thresholds, and setup command
-variables also remain supported by their existing project/setup contracts;
-they are not runtime-value aliases for the table above.
-
-All other `VIBEGUARD_*` / `VG_*` names are internal transport, test, or
-compatibility details rather than user configuration. New internal variables
-use the `VG_INTERNAL_*` prefix. Legacy internal names remain accepted during
-the 1.x deprecation window and may be removed in 2.0; do not build external
-automation around them.
-
----
-
-## Severity Semantics
-
-Severity labels describe the agent/reviewer contract. They do not, by themselves, promise that every rule is hook-blocked.
-
-| Severity | Meaning |
-|----------|---------|
-| Critical | Security or data-loss risk that should block until fixed or explicitly accepted. |
-| High / Medium / Low | Risk-ranked findings for guard outputs and review triage. |
-| Strict | Non-negotiable agent/reviewer rule. If enforcement is not mechanical, violations still need a fix, explicit DEFER, or documented downgrade path. |
-| Guideline | Preferred pattern; follow when it helps the current task without expanding scope. |
-
----
-
-## Common Rules (U-series)
-
-| ID | Name | Severity | Summary |
-| --- | ---- | -------- | ------- |
-| U-01 | Respect the requested API contract | Strict | Preserve public APIs unless the requested change includes changing them. |
-| U-02 | Do not extract abstractions for code that appears only once | Strict | Three lines of duplication are better than one premature abstraction. |
-| U-03 | Do not replace readable duplication with macros | Strict | Macros reduce readability and IDE support. |
-| U-04 | Do not add features the user did not ask for | Strict | Keep bug-fix scope tight. |
-| U-05 | Do not delete code that merely looks unused without confirming first | Strict | It may be a work-in-progress feature. |
-| U-06 | Do not add dependencies for problems the standard library can solve | Strict | Use the standard library first. |
-| U-07 | Do not change code style while fixing behavior | Strict | Style-only edits should be a separate commit. |
-| U-08 | Do not skip verification steps | Strict | See W-03 and W-16 for canonical verification guidance. |
-| U-09 | Do not bundle unrelated fixes into one commit | Strict | Keep commits atomic so they are easy to review and revert. |
-| U-10 | Do not guess user intent | Strict | If the intent is unclear, mark it as DEFER or ask the user to clarify. |
-| U-11 | Inconsistent default DB/cache paths across binaries | High | Different entry points hardcode different data paths, which splits user data. |
-| U-12 | Shared-data fallback creates the wrong file on first boot | High | Fallback logic can create a split file during first startup. |
-| U-13 | Environment variable names diverge across entry points | Medium | For example, `SERVER_DB_PATH` and `DESKTOP_DB_PATH` point at different defaults. |
-| U-14 | CLI default path uses a different base directory than GUI/server | Medium | Different entry points use different base directories. |
-| U-15 | Prefer immutability | Guideline | Create new objects instead of mutating existing ones. |
-| U-16 | Keep file size under control | Guideline | Use the project's configured limit when present. |
-| U-17 | Handle errors completely | Strict | See U-29 for canonical error-handling guidance. |
-| U-18 | Validate inputs | Guideline | Validate all user input at system boundaries. |
-| U-19 | Follow the project's data-access boundaries | Guideline | Use the project's established data-access pattern. |
-| U-20 | Keep API response shapes consistent | Guideline | Follow the existing API contract and error conventions. |
-| U-21 | Follow the project's commit convention | Strict | Explain why the change exists and follow the repository's commit format. |
-| U-22 | Verify changed behavior | Strict | Cover changed behavior, important failure paths, and regressions with the project's existing tests and tools. |
-| U-23 | No silent degradation | Strict | See U-29 for canonical no-silent-degradation guidance. |
-| U-24 | Keep naming changes within scope | Guideline | Follow the project's naming and compatibility policy. |
-| U-25 | Resolve build failures at a coherent change boundary | Strict | Cross-file changes may temporarily fail to build. |
-| U-26 | Declaration-execution completeness | Strict | A config, trait, persistence method, or state field only needs the integration required by the requested behavior and the project's archi... |
-| U-29 | Error-driven downgrade paths must be observable at error level | Strict | If an error causes user-visible missing data or incorrect output, you must log it at `error` level or raise it. |
-| U-30 | Make unknown-field handling explicit at data boundaries | Strict | Choose unknown-field handling from the data contract, and prevent accidental loss of fields the consumer needs. |
-| U-31 | Invalidate caches when result semantics change | Strict | When a change alters a cached result's meaning or representation, ensure stale entries cannot be reused as current output. |
-| U-32 | Review instruction overload | Guideline | Treat instruction counts as a file-based estimate, not proof of runtime loading, semantic conflict, or task failure. |
-| U-33 | Code search defaults to glob/grep; large codebases require structural navigation | Strict | For agent code retrieval, plain glob/grep driven by the model remains the default for small and medium single-repository work. |
-
----
-
-## Workflow Rules (W-series)
-
-| ID | Name | Severity | Summary |
-| --- | ---- | -------- | ------- |
-| W-01 | No fixes without root cause | Strict | Every bug fix must identify the root cause before changing code. |
-| W-02 | Back off after 3 consecutive failures | Strict | If you fail to fix the same problem three times in a row, stop and question the hypothesis or the architectural direction. |
-| W-03 | Verify before claiming completion | Strict | Before saying "fixed" or "done", produce fresh verification evidence. |
-| W-04 | Test first | Guideline | For new features, prefer writing the failing test first, then writing the minimum implementation needed to pass it. |
-| W-05 | Sub-agent context isolation | Guideline | When using sub-agents, give each child only the minimum context required for its task. |
-| W-10 | Confirm the concrete action and reuse existing authorization | Strict | Before publishing, deploying, deleting data, or changing an external system, establish the exact target, intended change, and authorizati... |
-| W-11 | LLM output must separate facts, inferences, and suggestions | Strict | When an agent produces an analysis report, technical judgment, or architecture recommendation, it must label the source of confidence for... |
-| W-12 | Protect test integrity | Strict | When tests fail, fix the production code rather than manipulating the test harness. |
-| W-13 | Review unproductive exploration | Guideline | Consecutive Read / Glob / Grep events are an observation, not proof of analysis paralysis. |
-| W-14 | Single-writer repository ownership | Strict | Concurrent writers make repository state and review evidence ambiguous even when their intended file sets do not overlap. |
-| W-15 | Low-information loop detection | Strict | If the information gain shrinks for three consecutive rounds, stop that direction and report it. |
-| W-16 | Verification commands must come from this session | Strict | Apply W-03 using actual command output produced in this session for the current change. |
-| W-17 | Fewer smarter gates beat more mechanical gates | Strict | When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one mor... |
-| W-18 | Evaluations must validate path, not only output | Strict | Output-only evaluations miss systemic failures. |
-| W-19 | AGENTS.md / CLAUDE.md sustainable size and pairing | Strict | Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when they grow past sustainable size, accumulate unpaired prohi... |
-| W-20 | Pin execution surfaces for explicitly reproducible experiments | Guideline | Capture runtime, tool, and rule versions when the user or project requires a reproducible experiment or controlled comparison. |
-| W-21 | Evidence must be provably executed, not merely cited | Strict | W-03/W-16 define the verification requirement. |
-| W-30 | Harness audits must measure boundary, fidelity, and stability | Strict | Agent harness evaluation must audit the trajectory, not only final task completion. |
-| W-37 | Agent learning must draw from successful and failed trajectories | Strict | An agent memory or experience layer that feeds future inference must learn from both successful and failed trajectories. |
-| W-38 | Tool-need recognition and tool-call execution are separate metrics | Strict | Tool-use evals must distinguish whether an agent recognized that a tool was needed from whether it actually called the tool. |
-| W-41 | Long-term vibe coding production should expose five invariants | Guideline | Long-term production workflows that rely on vibe-coding style agent iteration should make five risk-control invariants visible before tre... |
-| W-42 | Verify important invariants across artifact handoffs | Guideline | For repeated edits or handoffs, verify the facts, behavior, formulas, and other properties the user expects to preserve. |
-
----
-
-## Security Rules (SEC-series)
-
-| ID | Name | Severity | Summary |
-| --- | ---- | -------- | ------- |
-| SEC-01 | SQL / NoSQL / OS command injection | Critical | String concatenation is used to build queries or commands. |
-| SEC-02 | Hardcoded keys / credentials / API tokens | Critical | Secrets are written directly in code. |
-| SEC-03 | Unescaped user input rendered directly into HTML | High | This creates an XSS vulnerability. |
-| SEC-04 | API endpoints missing authentication or authorization checks | High | Unprotected API endpoints. |
-| SEC-05 | Dependencies with known CVEs | High | Dependencies with known CVEs |
-| SEC-06 | Weak cryptographic algorithms | High | Using MD5 or SHA1 for password hashing. |
-| SEC-07 | File paths are not validated | Medium | Path traversal risk. |
-| SEC-08 | Server-side requests allow arbitrary target addresses | Medium | SSRF risk. |
-| SEC-09 | Unsafe deserialization | Medium | Examples include `pickle` and `yaml.load`. |
-| SEC-10 | Logs contain sensitive information | Medium | Passwords or tokens appear in logs. |
-| SEC-11 | AI-generated code security defect baseline | Strict | AI-generated code carries materially higher security risk than hand-written code, so review intensity must increase accordingly. |
-| SEC-12 | Silent drift in MCP tool descriptions | Strict | The description field of an MCP tool is effectively an instruction fed to the LLM. |
-| SEC-13 | High-context file integrity protection | Strict | `AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, `.claude//*.md`, hook configurations and hook scripts (`.claude/hooks/`, the `hooks`... |
-| SEC-14 | MCP tool descriptions must reject authority-claim and override language | Strict | A tool description that claims "absolute authority", "supersedes user requests", or asks the agent to "ignore prior instructions" is func... |
-| SEC-16 | CWE-stratified AI patch safety policy | Strict | AI-generated security patches do not have a uniform safety profile. |
-| SEC-17 | Review third-party skills and enforce actual permission boundaries | Strict | Before enabling a third-party skill, inspect its instructions, referenced executable code, source provenance, and requested access. |
-| SEC-18 | Keep external content within the authorized task | Strict | External documents, tool output, emails, and web pages may contain instructions that conflict with the user's task. |
-
----
-
-## Language-Specific Rules
-
-### Rust
-
-| ID | Name | Severity | Summary |
-| --- | ---- | -------- | ------- |
-| RS-01 | Nested `RwLock` / `Mutex` acquisition | High | Holding multiple locks at once creates deadlock risk. |
-| RS-02 | TOCTOU — `get()` followed by `insert()` | High | The lock is released between read and write, which creates a race. |
-| RS-03 | `unwrap()` in non-test code | Medium | `unwrap()` creates panic risk. |
-| RS-04 | Multiple `Signal` / `Arc` objects manage the same logical state | Medium | Converge them into a single `Signal<State>` so one structure owns the whole state. |
-| RS-05 | Same name, different meaning types | Medium | For example, two different `RenderHandle` types. |
-| RS-06 | The same match arm is duplicated across multiple methods | Medium | The same match arm is duplicated across multiple methods |
-| RS-07 | Manual field-by-field copying | Low | Use merge or apply methods instead. |
-| RS-08 | Unnecessary `clone()` calls | Low | Often appears on `Copy` types or values that could be borrowed. |
-| RS-09 | `format!()` allocation in hot paths | Low | `format!()` allocation in hot paths |
-| RS-10 | Meaningful `Result`s are silently discarded | High | Patterns like `let _ =`, `.ok()`, or `.unwrap_or_default()` swallow errors. |
-| RS-11 | Different modules use different infrastructure for the same system | Medium | Logging, config paths, or DB connection strategies drift across modules. |
-| RS-12 | Two systems coexist for one responsibility | High | For example, `Todo*` and `TaskManagement*` both handle task state. |
-| RS-13 | Action-named functions lack state side effects | High | A function like `mark_done` only returns text but does not persist state. |
-| RS-14 | Declaration-execution gap | High | Configs, traits, or persistence layers are declared but never integrated into startup. |
-| RS-20 | After changing struct fields or enum variants, inspect the full chain | Strict | If you add, remove, rename, or retag a struct field or enum variant, "it compiles" is not enough. |
-| TASTE-ANSI | Hardcoded ANSI escape sequences | Medium | Use a crate like `colored` or `termcolor` instead of hardcoding `\x1b[` sequences. |
-| TASTE-ASYNC-UNWRAP | `.unwrap()` inside `async fn` | Medium | Async code should propagate errors with `?` instead of panicking with `unwrap()`. |
-| TASTE-PANIC-MSG | `panic!()` without a meaningful message | Medium | `panic!()` or `panic!("")` lacks context. |
-
-### Python
-
-| ID | Name | Severity | Summary |
-| --- | ---- | -------- | ------- |
-| PY-01 | Mutable default parameters | High | `def f(x=[])` shares state across calls. |
-| PY-02 | Bare `except` blocks | Medium | `except:` or `except Exception` without logging or re-raising. |
-| PY-03 | Consider concurrency for independent async work | Guideline | Parallelize independent operations when it improves the current task and respects rate limits, ordering, and resource ownership. |
-| PY-04 | God class larger than 500 lines | Medium | More than 10 public methods. |
-| PY-05 | Repeated try/except patterns across many locations | Medium | Repeated try/except patterns across many locations |
-| PY-06 | Rebuilding regexes inside loops | Low | Rebuilding regexes inside loops |
-| PY-07 | String concatenation inside loops | Low | String concatenation inside loops |
-| PY-08 | Use of `eval()`, `exec()`, or `__import__()` | High | This dynamically executes untrusted code. |
-| PY-09 | Review functions with mixed responsibilities | Guideline | Length is a review signal, not a reason to extract helpers by itself. |
-| PY-10 | Nesting deeper than 4 levels | Medium | Nesting deeper than 4 levels |
-| PY-11 | File operations without a `with` context manager | Medium | File operations without a `with` context manager |
-| PY-13 | Dead compatibility shim | Medium | A file that only re-exports symbols from another module and adds no behavior should be removed after migration is complete. |
-| U-30 | Make unknown-field handling explicit at data boundaries | Strict | Choose unknown-field handling from the data contract, and prevent accidental loss of fields the consumer needs. |
-| U-31 | Invalidate caches when result semantics change | Strict | When a change alters a cached result's meaning or representation, ensure stale entries cannot be reused as current output. |
-
-### TypeScript
-
-| ID | Name | Severity | Summary |
-| --- | ---- | -------- | ------- |
-| TS-01 | `any` type escape | Medium | Function parameters or return values use `any`. |
-| TS-02 | Unhandled Promise rejections | High | Async calls lack error handling. |
-| TS-03 | `==` instead of `===` | Medium | Loose equality is used outside explicit null checks. |
-| TS-04 | Review components with mixed responsibilities | Guideline | Split components or hooks when independent responsibilities make the requested behavior difficult to maintain or test. |
-| TS-05 | Repeated fetch / API call patterns across the codebase | Medium | Repeated fetch / API call patterns across the codebase |
-| TS-06 | `useEffect` has missing or overly broad dependencies | Medium | `useEffect` has missing or overly broad dependencies |
-| TS-07 | Optimize render calculations when there is a demonstrated cost | Guideline | Use measurement or a concrete expensive render path to justify memoization. |
-| TS-08 | Bypassing type checks with `as any` or `@ts-ignore` | High | Bypassing type checks with `as any` or `@ts-ignore` |
-| TS-09 | Functions with more than 4 parameters | Medium | Functions with more than 4 parameters |
-| TS-10 | Callback nesting deeper than 3 levels | Medium | Callback nesting deeper than 3 levels |
-| TS-11 | Unhandled `null` / `undefined` | Medium | Missing optional chaining or null guards. |
-| TS-12 | Passing full objects as component props instead of only required fields | Low | Passing full objects as component props instead of only required fields |
-| TS-13 | Duplicate component or hook behavior under different names | High | Multiple files define React components or hooks with equivalent behavior but different names. |
-| TS-14 | Test mocks drift from the real module shape | High | `vi.mock()` and `jest.mock()` factory functions often return `any`, so TypeScript cannot tell when the mock shape drifts from the real mo... |
-
-### Go
-
-| ID | Name | Severity | Summary |
-| --- | ---- | -------- | ------- |
-| GO-01 | Unchecked error return values | High | Errors are assigned to `_` and discarded. |
-| GO-02 | Goroutine leak | High | `go func()` launches work without an exit path. |
-| GO-03 | Data race | High | Shared variables are accessed without a mutex or channel protection. |
-| GO-04 | Interface is declared on the implementation side instead of the consumer side | Medium | Interface is declared on the implementation side instead of the consumer side |
-| GO-05 | Repeated error-wrapping patterns across multiple places | Medium | Repeated error-wrapping patterns across multiple places |
-| GO-06 | `append` in loops without preallocated capacity | Low | `append` in loops without preallocated capacity |
-| GO-07 | String concatenation with `+` instead of `strings.Builder` | Low | String concatenation with `+` instead of `strings.Builder` |
-| GO-08 | `defer` inside loops | High | This risks resource leaks because deferred calls wait until the function returns. |
-| GO-09 | Review functions with mixed responsibilities | Guideline | Use function length as a review hint. |
-| GO-10 | Package-level `init()` has side effects | Medium | Network or file I/O happens in `init()`. |
-| GO-11 | `context.Background()` is used outside entry points | Medium | `context.Background()` is used outside entry points |
-
----
-
-## Guard Scripts
-
-Static analysis scripts that enforce rules mechanically:
-
-### Universal
-
-| Script | Detects |
-|--------|---------|
-| `check_code_slop.sh` | AI-generated boilerplate and stale-code patterns |
-| `check_dependency_layers.py` | Import hierarchy violations |
-| `check_circular_deps.py` | Circular dependency chains |
-| `check_doc_overload.sh` | Oversized or overloaded agent-instruction documents |
-| `check_test_integrity.sh` | Test shadowing and test-environment integrity problems |
-| `check_dependency_changes.sh` | Dependency version changes requiring OSV/Snyk and human review |
-| `check_test_weakening.sh` | Source+test diffs that weaken assertions, add skips, or add AI-authored tests |
-| `check_runtime_drift.sh` | W-20 runtime, tool inventory, and rule-set drift across long tasks |
-
-### Rust
-
-| Script | Detects |
-|--------|---------|
-| `check_unwrap_in_prod.sh` | `.unwrap()` / `.expect()` in non-test code |
-| `check_nested_locks.sh` | Deadlock-prone nested mutex acquisitions |
-| `check_declaration_execution_gap.sh` | Declared but not wired components |
-| `check_workspace_consistency.sh` | Cargo workspace inconsistencies |
-| `check_duplicate_types.sh` | Type definition duplication |
-| `check_taste_invariants.sh` | Architectural invariant violations |
-| `check_semantic_effect.sh` | Semantic correctness issues |
-| `check_single_source_of_truth.sh` | Multiple definitions of the same concept |
-
-### Python
-
-| Script | Detects |
-|--------|---------|
-| `check_duplicates.py` | Duplicate functions, classes, and Protocols |
-| `check_naming_convention.py` | Mixed naming conventions |
-| `check_dead_shims.py` | Dead re-export compatibility shims |
-
-### TypeScript
-
-| Script | Detects |
-|--------|---------|
-| `check_any_abuse.sh` | Excessive `any` type usage |
-| `check_console_residual.sh` | Lingering `console.log` statements |
-| `check_component_duplication.sh` | Component file duplication |
-| `check_duplicate_constants.sh` | Constant value duplication |
-
-`eslint-guards.ts` is a shared helper used by some TypeScript checks; it is not a standalone guard entry point.
-
-### Go
-
-| Script | Detects |
-|--------|---------|
-| `check_error_handling.sh` | Unchecked error returns |
-| `check_goroutine_leak.sh` | Goroutine leak patterns |
-| `check_defer_in_loop.sh` | `defer` inside loops |
-
-Some guards support language-native suppression patterns, but suppressions are guard-specific. Prefer fixing the root issue over suppressing a finding.
+| ID | Topic | Scope |
+|---|---|---|
+| [U-01](../rules/claude-rules/common/coding-style.md) | Respect the requested contract | strict |
+| [U-02](../rules/claude-rules/common/coding-style.md) | Extract abstractions for a concrete shared responsibility | guideline |
+| [U-04](../rules/claude-rules/common/coding-style.md) | Keep changes within the authorized task | strict |
+| [U-05](../rules/claude-rules/common/coding-style.md) | Establish ownership and consumers before deleting code | guideline |
+| [U-06](../rules/claude-rules/common/coding-style.md) | Choose dependencies by the actual requirement | guideline |
+| [U-10](../rules/claude-rules/common/coding-style.md) | Clarify material uncertainty and exercise routine judgment | strict |
+| [U-16](../rules/claude-rules/common/coding-style.md) | Review responsibility rather than file length | guideline |
+| [U-18](../rules/claude-rules/common/coding-style.md) | Validate data at its trust boundary | strict |
+| [U-19](../rules/claude-rules/common/coding-style.md) | Follow existing data-access boundaries | guideline |
+| [U-21](../rules/claude-rules/common/coding-style.md) | Follow the project's commit convention | guideline |
+| [U-22](../rules/claude-rules/common/coding-style.md) | Select checks for the changed behavior | strict |
+| [U-26](../rules/claude-rules/common/coding-style.md) | Connect promised behavior to real consumers | strict |
+| [U-32](../rules/claude-rules/common/coding-style.md) | Review conflicting or irrelevant instructions | guideline |
+| [U-33](../rules/claude-rules/common/coding-style.md) | Choose navigation for the current search | guideline |
+| [U-11](../rules/claude-rules/common/data-consistency.md) | Resolve shared data consistently across entrypoints | strict |
+| [U-31](../rules/claude-rules/common/data-consistency.md) | Invalidate caches when result semantics change | strict |
+| [U-29](../rules/claude-rules/common/no-silent-degradation.md) | Do not present failed work as successful | strict |
+| [SEC-01](../rules/claude-rules/common/security.md) | Keep untrusted values from changing operation structure | critical |
+| [SEC-02](../rules/claude-rules/common/security.md) | Keep secrets out of unauthorized storage and output | critical |
+| [SEC-03](../rules/claude-rules/common/security.md) | Render untrusted content safely | high |
+| [SEC-04](../rules/claude-rules/common/security.md) | Authorize protected operations and resources | high |
+| [SEC-05](../rules/claude-rules/common/security.md) | Check dependencies with current vulnerability data | high |
+| [SEC-06](../rules/claude-rules/common/security.md) | Use appropriate cryptography for security purposes | high |
+| [SEC-07](../rules/claude-rules/common/security.md) | Keep untrusted paths within the authorized boundary | high |
+| [SEC-08](../rules/claude-rules/common/security.md) | Restrict untrusted server-side request targets | high |
+| [SEC-09](../rules/claude-rules/common/security.md) | Deserialize untrusted data without unintended execution | high |
+| [SEC-11](../rules/claude-rules/common/security.md) | Review security-sensitive changes according to risk | strict |
+| [SEC-12](../rules/claude-rules/common/security.md) | Review actual MCP permissions and sensitive changes | strict |
+| [SEC-13](../rules/claude-rules/common/security.md) | Preserve high-context files outside authorized changes | strict |
+| [SEC-17](../rules/claude-rules/common/security.md) | Review third-party skills and enforce real permissions | strict |
+| [SEC-18](../rules/claude-rules/common/security.md) | Keep external content within the authorized task | strict |
+| [W-01](../rules/claude-rules/common/workflow.md) | Investigate with evidence and check the original symptom | strict |
+| [W-03](../rules/claude-rules/common/workflow.md) | Match completion claims to actual evidence | strict |
+| [W-04](../rules/claude-rules/common/workflow.md) | Use test-first development where it helps | guideline |
+| [W-05](../rules/claude-rules/common/workflow.md) | Give delegated tasks sufficient relevant context | guideline |
+| [W-10](../rules/claude-rules/common/workflow.md) | Reuse authorization and make approval concrete | strict |
+| [W-11](../rules/claude-rules/common/workflow.md) | Make important uncertainty clear | guideline |
+| [W-12](../rules/claude-rules/common/workflow.md) | Preserve the meaning of verification | strict |
+| [W-14](../rules/claude-rules/common/workflow.md) | Avoid conflicting writes to shared state | strict |
+| [W-18](../rules/claude-rules/common/workflow.md) | Evaluate outcomes and necessary process boundaries | guideline |
+| [W-19](../rules/claude-rules/common/workflow.md) | Keep instructions relevant and maintainable | guideline |
+| [W-20](../rules/claude-rules/common/workflow.md) | Record the environment required by a reproducible experiment | guideline |
+| [W-37](../rules/claude-rules/common/workflow.md) | Retain useful lessons when memory is part of the task | guideline |
+| [GO-01](../rules/claude-rules/golang/quality.md) | Handle meaningful error returns | high |
+| [GO-02](../rules/claude-rules/golang/quality.md) | Give goroutines an appropriate lifetime | high |
+| [GO-03](../rules/claude-rules/golang/quality.md) | Check actual concurrent access | high |
+| [GO-04](../rules/claude-rules/golang/quality.md) | Define interfaces at a useful consumer boundary | guideline |
+| [GO-08](../rules/claude-rules/golang/quality.md) | Check when deferred resources are released | high |
+| [GO-09](../rules/claude-rules/golang/quality.md) | Review functions with mixed responsibilities | guideline |
+| [GO-10](../rules/claude-rules/golang/quality.md) | Review external work during initialization | guideline |
+| [GO-11](../rules/claude-rules/golang/quality.md) | Preserve caller cancellation where it applies | high |
+| [U-30](../rules/claude-rules/python/pydantic-boundary.md) | Choose unknown-field handling from the data contract | strict |
+| [PY-01](../rules/claude-rules/python/quality.md) | Check unintended mutable defaults | high |
+| [PY-03](../rules/claude-rules/python/quality.md) | Consider concurrency for independent async work | guideline |
+| [PY-08](../rules/claude-rules/python/quality.md) | Review dynamic execution at the trust boundary | high |
+| [PY-09](../rules/claude-rules/python/quality.md) | Review mixed responsibilities and difficult control flow | guideline |
+| [PY-11](../rules/claude-rules/python/quality.md) | Make file ownership and cleanup explicit | guideline |
+| [PY-13](../rules/claude-rules/python/quality.md) | Remove shims only after checking their contract | guideline |
+| [RS-01](../rules/claude-rules/rust/quality.md) | Review lock ordering and lifetime | high |
+| [RS-02](../rules/claude-rules/rust/quality.md) | Keep read-modify-write operations consistent | high |
+| [RS-03](../rules/claude-rules/rust/quality.md) | Make panic and error propagation intentional | guideline |
+| [RS-05](../rules/claude-rules/rust/quality.md) | Keep type identity consistent with domain meaning | guideline |
+| [RS-08](../rules/claude-rules/rust/quality.md) | Use ownership and Clippy to assess unnecessary clones | guideline |
+| [RS-09](../rules/claude-rules/rust/quality.md) | Optimize formatting only on a demonstrated hot path | guideline |
+| [RS-12](../rules/claude-rules/rust/quality.md) | Keep ownership of shared mutable facts clear | high |
+| [RS-20](../rules/claude-rules/rust/quality.md) | Check affected boundaries after type changes | strict |
+| [TS-01](../rules/claude-rules/typescript/quality.md) | Use type tooling for unsafe escapes | guideline |
+| [TS-02](../rules/claude-rules/typescript/quality.md) | Assign responsibility for Promise completion and failure | high |
+| [TS-03](../rules/claude-rules/typescript/quality.md) | Use deliberate equality semantics | guideline |
+| [TS-04](../rules/claude-rules/typescript/quality.md) | Review components with mixed responsibilities | guideline |
+| [TS-06](../rules/claude-rules/typescript/quality.md) | Keep Effects and their dependencies accurate | high |
+| [TS-07](../rules/claude-rules/typescript/quality.md) | Optimize rendering when there is demonstrated cost | guideline |
+| [TS-11](../rules/claude-rules/typescript/quality.md) | Handle missing values according to the contract | high |
+| [TS-13](../rules/claude-rules/typescript/quality.md) | Reuse genuinely shared behavior | guideline |
+| [TS-14](../rules/claude-rules/typescript/quality.md) | Keep mocks aligned with affected contracts | high |

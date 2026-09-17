@@ -1,41 +1,16 @@
 ---
 name: vibeguard
-description: Use when the user asks Codex to apply VibeGuard anti-hallucination rules, inspect VibeGuard observability, or route a task through VibeGuard preflight/review/check workflows.
+description: Use when the user explicitly asks to install, uninstall, diagnose, or look up rules in VibeGuard. Ordinary coding, review, build failures, and generic safety requests do not activate this skill.
 ---
 
 # VibeGuard
 
-VibeGuard is an anti-hallucination guardrail system for AI-assisted
-development. This Codex App plugin is an observability-first operator entrypoint
-for the existing VibeGuard repository; it does not silently install hooks during
-plugin load.
+Use `~/.vibeguard/bin/vibeguard-runtime`. If absent, explain that the Rust CLI must be built or installed from the repository; do not invent another executable or an installation result.
 
-## When to Activate
+For rule questions, list with `rules`, then read the relevant ID or category. These are scoped review topics, not automatic blocking claims.
 
-- User mentions VibeGuard, anti-hallucination rules, guardrails, or Codex hook status.
-- User asks for a VibeGuard dashboard, hook health, stats, doctor, metrics, or status.
-- User asks for a VibeGuard preflight, review, check, build-fix, or workflow route.
-- User asks how to install or verify VibeGuard from Codex App.
+For diagnostics, run `status codex`. Distinguish registration, executable mode bits, last observation, and unknown host trust. A tool result does not prove the current task is verified.
 
-## Red Flags
+For explicitly requested installation/removal, use `install codex` or `uninstall codex`. Existing authorization is sufficient. Git protection is separate and requires the requested repository. Do not edit host configuration by hand or register hooks during rule lookup.
 
-- **Silent global mutation** - plugin discovery must not rewrite `~/.codex` or hook files.
-- **Unsupported GUI claim** - do not claim the plugin has a custom Codex panel; use the local dashboard generator unless a supported app surface exists.
-- **Rule-only fix** - adding prose without a guard, hook, test, or eval creates false confidence.
-- **Unverified completion** - a VibeGuard setup or guard claim without fresh command output is not complete.
-
-## Checklist
-
-- [ ] Locate the VibeGuard repository checkout before running setup or guard commands.
-- [ ] Use `plugins/vibeguard/scripts/vibeguard-plugin.sh dashboard` for an observability overview.
-- [ ] Use `plugins/vibeguard/scripts/vibeguard-plugin.sh health 24` for hook health.
-- [ ] Use `plugins/vibeguard/scripts/vibeguard-plugin.sh check --strict` for install health.
-- [ ] Use explicit install commands, such as `install --yes`, before modifying user-level Codex config.
-
-## Usage
-
-For dashboard, stats, health, doctor, or metrics work, read the
-`vibeguard-observe` skill first. For setup, install, status, or uninstall work,
-read the `vibeguard-setup` skill first.
-For repository development work, follow the root VibeGuard `AGENTS.md` and the
-repository contribution guidance in `CONTRIBUTING.md`.
+Respect scope and host permissions. VibeGuard is not a sandbox, agent-loop replacement, or mandatory workflow for unrelated work.

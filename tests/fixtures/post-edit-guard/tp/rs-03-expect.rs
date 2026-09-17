@@ -1,1 +1,0 @@
-let val = data.expect("config must exist");

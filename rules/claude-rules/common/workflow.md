@@ -1,335 +1,38 @@
-# Workflow Constraint Rules
+# Task execution and verification
 
-> Adapted from the Superpowers framework and made complementary to VibeGuard's existing rules. Focused on debugging, verification, and TDD workflow constraints.
+## W-01: Investigate with evidence and check the original symptom (strict)
+Use observations to form a testable explanation before changing behavior. Prefer a focused experiment and verify the reported symptom after the fix. If repeated attempts add no useful evidence, challenge the hypothesis or approach. Read-only research may require sustained reading; no count of reads, edits or failed attempts proves stagnation.
 
-## W-01: No fixes without root cause (strict)
-**Compact guidance:** No fixes without root cause: reproduce first, then form one hypothesis, then fix.
-Every bug fix must identify the root cause before changing code. Do not make blind "let's try this" patches.
+## W-03: Match completion claims to actual evidence (strict)
+Report the result of the requested work and the relevant checks that really finished. Distinguish success, failure, timeout, still running and not checked. Evidence must correspond to the delivered artifact; a reliable current-head CI result can qualify even if produced in another session.
+A command string, echoed test name or earlier successful run does not establish that the current changes passed. Later relevant edits can invalidate earlier evidence. Check important invariants at artifact handoffs. Tests passing does not prove every requirement is satisfied, and read-only tasks do not require unrelated build commands.
 
-**Debugging protocol**:
-0. **Channel trust check** — if observations are inconsistent, inspect the original output or rerun the smallest relevant check before naming a mechanism. Consider reading mistakes and environment faults on their evidence. See W-21.
-1. **Root-cause investigation** — read the error message, reproduce consistently, inspect recent changes, trace the data flow
-2. **Pattern analysis** — find a working reference implementation and compare it line by line
-3. **Hypothesis validation** — form one hypothesis, run the smallest test that can prove or disprove it, then switch hypotheses if needed
-4. **Implement the fix** — write the reproduction test first, apply one fix, verify it passes, then check for regressions
+## W-04: Use test-first development where it helps (guideline)
+Follow project conventions and the risk of the change. Write a regression test when it meaningfully captures the defect or contract. Do not require a permanent test before every documentation, mechanical or exploratory change.
 
-**Mechanical checks**:
-- Step 0 comes before step 1: a bug fix that accuses the environment must first rule out degraded reading through an out-of-session channel (W-21).
-- The first step in a bug fix must be reproducing the problem, either by running a command or writing a test, not guessing from static reading alone.
-- If you cannot reproduce it, first confirm whether there is an environment difference instead of assuming it "should" reproduce.
-- After the fix, rerun the reproduction step to verify the problem is gone.
+## W-05: Give delegated tasks sufficient relevant context (guideline)
+Delegate when authorized and a bounded task can usefully proceed independently. Pass the scope, constraints and evidence the task requires. Neither full-history isolation nor diff-only review is universally correct; avoid both missing context and unrelated bulk.
 
-## W-02: Back off after 3 consecutive failures (strict)
-**Compact guidance:** After 3 consecutive failed fixes on the same problem, stop and challenge the hypothesis or architecture.
-If you fail to fix the same problem three times in a row, stop and question the hypothesis or the architectural direction.
+## W-10: Reuse authorization and make approval concrete (strict)
+Complete authorized work without repeated permission requests. When an action exceeds the existing scope or needs approval under the actual host policy, first make the proposed result concrete and reviewable. Do not create an additional approval protocol from a generic rule.
 
-**Anti-pattern**: edit -> fail -> fix -> new fail -> fix -> new fail ...
+## W-11: Make important uncertainty clear (guideline)
+Support material factual claims with evidence and distinguish inference or an unresolved assumption when it affects the conclusion. Do not label every sentence, fabricate confidence scores or require alternatives for settled facts.
 
-**Correct response**:
-1. Stop the current direction.
-2. Re-read the full error context, not just the latest message.
-3. Challenge the assumptions: did you misunderstand the problem, or is the design itself wrong?
-4. If you still have no traction, report the situation to the user, including what you already tried.
+## W-12: Preserve the meaning of verification (strict)
+Do not fabricate results, remove meaningful coverage or weaken assertions just to make failures disappear. Correctly updating tests and test infrastructure is legitimate when the contract or implementation requires it. Review intent and behavior; a file name or deleted assertion line cannot establish cheating.
 
-**Theory** (MiCP, arXiv:2604.01413):
-Research on multi-round reasoning suggests the optimal stopping policy comes from allocating an error budget across rounds, not from a hardcoded round count. "Three times" is a practical heuristic: after each failed attempt, the confidence of the active hypothesis tree drops exponentially, and the expected value of continuing approaches zero. Past that threshold, changing direction has higher expected value than repeating the same line of attack.
+## W-14: Avoid conflicting writes to shared state (strict)
+Coordinate writers that share the same mutable worktree or external resource. Isolated worktrees can support independent changes; they do not isolate shared databases, installation directories or other external state. Define ownership only where a real conflict exists.
 
-## W-03: Verify before claiming completion (strict)
-**Compact guidance:** Verify before claiming completion: produce fresh command output proving the claim.
-Before saying "fixed" or "done", produce fresh verification evidence.
+## W-18: Evaluate outcomes and necessary process boundaries (guideline)
+For an evaluation task, measure actual task acceptance and relevant invariants such as authorization and read-only scope. Accept different valid trajectories. Tool selection, handoff fidelity and repeated-run variation can diagnose failures, but do not require fixed steps, plan IDs or invented confidence fields.
 
-**Protocol**:
-```
-1. IDENTIFY — Which command can prove the claim?
-2. RUN      — Execute the command
-3. READ     — Read the full output and exit code
-4. VERIFY   — Does the output actually support the claim?
-5. REPORT   — State success with the evidence attached
-```
+## W-19: Keep instructions relevant and maintainable (guideline)
+Keep project facts and constraints concise, remove conflicting or redundant guidance, and use specific triggers for optional workflows. No universal line count, rule budget or mandatory positive/negative table establishes instruction quality. Evaluate whether a rule improves the task.
 
-**Forbidden phrases before verification**:
-- "This should work now"
-- "It looks fine"
-- "It passed earlier"
-- "It is fixed in theory"
+## W-20: Record the environment required by a reproducible experiment (guideline)
+When reproducibility is explicitly required, capture the relevant tool/model versions, lockfiles, inputs and configuration using the existing tools. Do not impose environment pinning or drift blocks on ordinary development work.
 
-**Verification scope:**
-- Choose a focused command that proves the changed behavior using the project's verification policy.
-- A slow but relevant check does not by itself require splitting the task.
-- Example commands: `cargo test --lib`, `curl -s localhost:8080/health`, `python -m pytest tests/test_x.py -x`
-
-**Mechanical checks**:
-- Whenever you claim a fix or completion, check whether this conversation contains the matching command output.
-- If not, run verification first and only then claim success.
-- Describe the verification evidence for planned changes; do not require a schema field for ordinary work.
-
-## W-13: Review unproductive exploration (guideline)
-Consecutive Read / Glob / Grep events are an observation, not proof of analysis paralysis. The hook may prompt a progress check after its configured threshold, but it does not know the user's task or the value of the evidence gathered.
-
-Continue necessary reading for analysis, review, research, and debugging. Summarize findings when ready. Begin edits only when the user authorized them and the evidence supports the change. Never write a file to reset a tool counter or invent a blocker because a read threshold was reached.
-
-If repeated exploration is yielding no useful evidence, change the search strategy or report the actual missing prerequisite. `VIBEGUARD_SUPPRESS_PARALYSIS=1` is available when the observation is unhelpful.
-
-## W-04: Test first (guideline)
-For new features, prefer writing the failing test first, then writing the minimum implementation needed to pass it.
-
-**TDD loop**:
-```
-RED      -> write the test and confirm it fails (assertion failure, not a compile error)
-GREEN    -> write the minimal code that makes it pass
-REFACTOR -> keep the tests green while cleaning the implementation
-```
-
-**Best-fit scenarios**:
-- New feature work -> strict TDD
-- Bug fixes -> write a reproduction test first (pairs with W-01)
-- Refactors -> make sure tests already cover behavior before editing
-
-**Not a fit**: exploratory prototypes, configuration changes, documentation updates
-
-## W-12: Protect test integrity (strict)
-**Compact guidance:** Protect test integrity: fix production code, never weaken assertions or tamper with test infrastructure.
-When tests fail, fix the production code rather than manipulating the test harness. Do not "pass" the suite by weakening tests or infrastructure.
-
-**Source**: OpenAI, "Monitoring Reasoning Models for Misbehavior" (Baker et al., 2026) — seven classes of reward-hacking behavior were observed in RL-trained coding agents, and every one manipulated tests instead of fixing the underlying issue.
-
-**Known hack patterns to forbid**:
-
-| Pattern | Description |
-|------|------|
-| Test framework tampering | Modify `conftest.py`, test setup, or the test runner so tests skip or always pass |
-| Verification function tampering | Make `verify()`, `validate()`, or `check()` always return true |
-| Stub substitution | Write an empty stub instead of a real implementation when tests are weak |
-| Assertion weakening | Relax assertions (`assertEqual` -> `assertTrue`, exact match -> containment check) |
-| Expected-value extraction | Parse the test file at runtime and hardcode the expected value into the implementation |
-
-**Allowed test changes**:
-- Requirements changed and the old test case is obsolete -> update it after user confirmation
-- The test itself has a real bug (for example, an inverted assertion) -> fix it and explain why
-- New TDD tests -> normal W-04 flow
-- External services are unavailable -> add a justified skip condition while preserving the original test
-
-**Mechanical checks (agent execution rules)**:
-- If tests fail and the next edit touches a test file instead of source, stop and ask whether you are fixing a real test bug or bypassing the test.
-- If you modify `conftest.py`, pytest config, `jest.config`, or shared test helpers, explain why.
-- If source and tests both change, test changes must not reduce assertion strength; run `bash guards/universal/check_test_weakening.sh --base origin/main --head HEAD` during PR review when a diff is available.
-
-## W-14: Single-writer repository ownership (strict)
-**Compact guidance:** At most one writable session may operate on a repository; parallel helpers must remain read-only.
-Concurrent writers make repository state and review evidence ambiguous even when their intended file sets do not overlap.
-
-**Root cause** (source: GitHub Copilot CLI / fleet docs, 2026):
-Parallel sessions and sub-agents can share a file system without file locks. The last writer can silently win, while disjoint edits can still invalidate another session's assumptions and verification evidence.
-
-**Rules**:
-- Assign exactly one primary writable session for a repository.
-- Parallel helpers may inspect the repository and return findings, but must not modify repository files, create commits, or push branches.
-- A helper may write only to a session-scoped temporary path outside the repository when its output must be materialized; the primary writer applies any accepted result.
-- A separate worktree protects existing user changes but does not authorize a second concurrent writer for the same repository.
-- Background and long-lived sessions remain read-only while the primary writer is active.
-- If writable ownership cannot be established, stop before editing and hand control to the repository's current writer.
-
-**Prompt template**:
-```
-Primary session: owns all repository writes and final verification.
-Helper A: read-only review of src/auth.rs and src/session.rs; return findings only.
-Helper B: read-only review of src/api.rs and src/middleware.rs; return findings only.
-```
-
-**Mechanical checks (agent execution rules)**:
-- Before editing, confirm that this session is the repository's sole writer.
-- Treat all helpers as read-only and have the primary session apply accepted findings.
-- If a background or long-lived agent is already writing, do not start another write task.
-- If a recent event shows the same repository being edited by another session or agent, emit a `W-14` warning and stop the newer writer.
-- **Observability hook**: `hooks/post-edit-guard.sh` detects recent same-file edits across sessions or agents.
-- **Downgrade path**: if reliable repository ownership cannot be declared, remain read-only until a single primary writer is chosen.
-- **Known FP exemptions** (U-32 compliance): session-scoped temp paths (`*/scratchpad/*`, `$TMPDIR`, system temp roots) are single-session-exclusive by construction — W-14 and churn skip them (`VIBEGUARD_W14_SKIP_TEMP=0` opts back in). When the current session identity is unknown, the overlap comparison is skipped entirely so prior self-writes are never misattributed as another writer.
-
-## W-15: Low-information loop detection (strict)
-If the information gain shrinks for three consecutive rounds, stop that direction and report it.
-
-**How it complements W-02 and W-13**:
-
-| W-02 | W-13 | W-15 |
-|------|------|------|
-| Failure loop | Read-only paralysis | Shrinking-yield loop |
-| There is output, but it is wrong | No output | There is output, but it keeps shrinking |
-| Trigger: 3 failed fixes | Trigger: 7 consecutive read-only actions | Trigger: 3 rounds of decreasing yield |
-
-**Source**: Diminishing Returns Detection in Claude Code (analyzed by blog.raed.dev, 2026-04). Claude Code treats 3+ consecutive rounds with less than 500 tokens of new content as "spinning in place" and stops the loop.
-
-**Behavioral trigger signals** (no token counter required):
-- Three consecutive Edit actions keep touching the same region of the same file (within +/-10 lines)
-- Three rounds produce essentially the same proposal with only wording changes
-- During refactor or tuning work, the size of the change keeps shrinking while the problem is still unresolved
-
-**Correct response**:
-1. Stop the current micro-tuning direction.
-2. Compare the last three rounds: are you actually repeating the same move?
-3. Challenge the strategy: is the goal poorly defined, or does it require a totally different method?
-4. Report to the user what was tried, what each round produced, and why the yield kept decreasing.
-
-**Anti-patterns**:
-- Switching back and forth between equivalent refactors (A -> B -> A -> B)
-- Tweaking one parameter or config value each round even though nothing changes
-- Writing longer and longer analysis that only restates the same conclusion
-
-**Mechanical checks (agent execution rules)**:
-- After three consecutive edits to the same file, ask whether the edits are really solving one problem and whether the change radius is shrinking.
-- If diff overlap between two consecutive rounds exceeds 50%, it is probably a low-yield loop.
-- Once the loop is detected, do not continue with a fourth round in the same direction without reporting it first.
-
-**Implementation contract** (`hooks/_lib/post_edit_history.sh::vg_post_edit_detect_w15_loop`):
-- Same-file consecutiveness alone is **not** sufficient — the detector reads each prior edit's `len(new_string) - len(old_string)` from the event log and only fires when:
-  1. three or more consecutive edits target the same file, **and**
-  2. the absolute change radius is non-increasing across those three rounds (`|Δ_oldest| ≥ |Δ_mid| ≥ |Δ_latest|`), **and**
-  3. the latest absolute delta is in the micro-tuning band (`|Δ_latest| < 300` chars).
-- This excludes natural long-form writing (markdown sections, RFC drafts) where each edit adds substantial new content (`|Δ| ≥ 300`), which previously produced 100% false positives.
-
-**Downgrade path** (U-32 compliance):
-- `VIBEGUARD_SUPPRESS_W15=1` skips the detector entirely. Use it when intentionally drafting long documents, checklist files, or any flow where same-file consecutiveness is expected.
-- `VIBEGUARD_W15_SKIP_DOCS=1` (default on) skips documentation, notes, changelog, and TODO paths (`*.md`, `*.markdown`, `*.rst`, `*.txt`, `*.adoc`, `notes/*`, `*/notes/*`, `docs/daily/*`, `*/docs/daily/*`, `CHANGELOG*`, `*/CHANGELOG*`, `TODO*`, `*/TODO*`, `HISTORY*`, `*/HISTORY*`). Empirically the largest FP class — daily-log append sequences of ~25-30 chars per round stably match the micro-tuning band. Set `VIBEGUARD_W15_SKIP_DOCS=0` to opt back into detection on doc paths.
-- For one-shot suppression in a single edit, the size-cap (300 chars) already prevents large content additions from triggering.
-
-## W-16: Verification commands must come from this session (strict)
-**Compact guidance:** Verification commands must come from this session. "Earlier passed" / "should work" do not count.
-Apply W-03 using actual command output produced in this session for the current change. Identify the command, result, and relevant limitation. Consult W-21 only when the evidence's provenance is uncertain; no duplicate verification artifact is required.
-
-**FIX / SKIP**: Rerun checks affected by later changes and correct unsupported completion claims. Do not repeat an unchanged, already successful relevant check solely for bookkeeping.
-
-`hooks/stop-guard.sh` emits an advisory when source was edited without a recorded verification command. It does not establish that the checks were sufficient or passed.
-
-## W-17: Fewer smarter gates beat more mechanical gates (strict)
-When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one more overlapping rule.
-
-**Relation to U-32**:
-- U-32 defines the overload threshold (more than 30 constraints triggers a warning)
-- W-17 defines the design principle for how to stay below that threshold
-
-**Decision questions**:
-1. Which existing gate catches the closest failure mode?
-2. Can you extend the decision logic of that gate instead of adding a separate entry?
-3. Do the trigger conditions overlap? If yes, they must be merged.
-4. Does the new gate have a downgrade path? If not, absolute language plus no downgrade path creates illusion of control (the U-32 anti-pattern).
-
-**Positive examples**:
-- W-15 (low-yield loop) complements W-02 (failure loop) and W-13 (read-only paralysis) instead of becoming an unrelated fourth rule
-- W-16 (verification must be from this session) refines W-03 (verification required) instead of replacing it
-
-**Anti-patterns**:
-- Adding a new standalone rule for every newly observed failure mode, until users cannot remember 30+ rules
-- Repeating the same concept in three different files (for example, "do not swallow errors silently" in `CLAUDE.md`, U-17, and U-29)
-- Solving a problem with rules that should be handled mechanically by a hook or skill (for example, "do not skip verification" belongs in automation, not in rule count inflation)
-
-**Mechanical checks (agent execution rules)**:
-- When a user says "add a rule", first search whether the existing rule set already covers it.
-- If it can be merged, extend the existing rule instead of allocating a new ID.
-- If a new rule is unavoidable, evaluate whether it should instead be downgraded into a skill or hook (automation > more rules).
-- If more than five new rules are added to one file, split them by theme into child files.
-
-## W-05: Sub-agent context isolation (guideline)
-When using sub-agents, give each child only the minimum context required for its task.
-
-**Rules**:
-- Implementation agents: only the target files, interface definitions, and tests
-- Review agents: only the diff and the relevant spec
-- Do not forward the entire parent conversation wholesale
-- Background, long-lived, and scheduled agents should also receive only the context needed for the current task.
-- Keep persistent rule surfaces limited to high-frequency, stable, cross-task constraints; push lower-frequency workflows down into skills, hooks, or verify scripts.
-
-**Why**: the larger the context, the higher the hallucination risk. Isolated child agents stay more focused and more reliable.
-
-## W-19: AGENTS.md / CLAUDE.md sustainable size and pairing (strict)
-Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when they grow past sustainable size, accumulate unpaired prohibitions, or inline the full text of canonical vibeguard rules. Long instruction files trigger overexploration (agents read more surrounding docs and produce worse output) and warning cascades (agents over-validate against rules irrelevant to the current task).
-
-**Sources** (four-source convergence, 2026-04 to 2026-05):
-- Augment Code, "A good AGENTS.md is a model upgrade. A bad one is worse than no docs at all." (AuggieBench measured 10-15% cross-metric drop on bloated docs).
-- Anthropic Claude Code Best Practices: a bloated `CLAUDE.md` causes Claude to ignore the instructions that actually matter.
-- Complement to U-32 (rule overload): U-32 sets the threshold (>30 rules per file), W-19 enforces it on the specific class of agent-instruction docs.
-- Alex Kim, "You've been doing harness engineering all along": independently re-derives W-19's shape from production practice by keeping root docs under roughly 150-200 lines, splitting detailed procedures into skills/reference files, encoding rules as checks, and requiring evidence instead of prose-only claims.
-
-**Detection thresholds**:
-
-| Signal | Warn | Fail (strict) |
-|---|---|---|
-| Lines outside vibeguard auto-gen region | > 200 | > 800 |
-| Chinese prohibition keywords (counted by the guard) | > 30 (warn only) | — |
-| Inline mentions of any single canonical rule ID (U-17, U-26..U-32, W-01..W-17) | ≥ 3 (likely redefining canonical text) | — |
-| Aggregate lines of always-on native rule files under `.claude/rules/` (no `paths:` frontmatter) | > 200 | > 800 |
-
-The vibeguard auto-gen region (between `<!-- vibeguard-start -->` and `<!-- vibeguard-end -->`) is excluded from line counting because it is owned by `setup.sh`.
-
-**Fix**:
-- Split into a `~150-line` index `CLAUDE.md` plus `.claude/references/` topical files, preserving routing links and path-scoped ownership.
-- Replace inline canonical rule text with a single-line reference such as `see vibeguard U-29 for the canonical text`.
-- For each prohibition phrase (English `Don't ...` / `NO X` or Chinese equivalents), pair it with a concrete `GOOD:` example or move the warning to a reference file.
-
-**Mechanical checks (agent execution rules)**:
-- Run `bash guards/universal/check_doc_overload.sh [target_dir]` to detect violations.
-- Add `--strict` to make fail-level violations exit non-zero. Warning-only signals still report but do not block.
-- The auto-gen marker region is ignored by the guard.
-- Nested `AGENTS.md` files are scanned recursively, excluding generated dependency/build directories.
-
-**Anti-patterns**:
-- Repeating U-29 / U-30 / U-31 full text in `CLAUDE.md` after vibeguard already loads them.
-- Adding 30+ prohibitions without paired `do` examples, then expecting the agent to remember which apply.
-- Embedding the full architecture diagram, directory tree, and shared infrastructure tables directly in `CLAUDE.md` instead of in a referenced architecture doc.
-
-## W-37: Agent learning must draw from successful and failed trajectories (strict)
-An agent memory or experience layer that feeds future inference must learn from both successful and failed trajectories. Success-only memory preserves happy paths but erases the decision boundaries that caused prior failures.
-
-**Sources** (2026-05):
-- Google Research, "ReasoningBank: Enabling agents to learn from experience" — describes a retrieval, extraction, and consolidation loop that distills insights from both successful and failed trajectories.
-- ReasoningBank paper and public implementation — failed trajectories are converted into preventative lessons and strategic guardrails before future retrieval.
-- W-18 baseline: trajectory quality matters, not only final output.
-- W-12 baseline: failed test trajectories are evidence, not noise.
-- U-26 baseline: if memory is a declared component, it must be wired into the retrieval path.
-
-**Rules**:
-1. Persistent memory or experience stores must record both successful and failed trajectories with explicit outcome flags.
-2. Failed trajectories must be extracted into named preventative lessons or strategic guardrails before they are pruned.
-3. Retrieval for a similar task must surface both success patterns and relevant failure lessons before the agent commits to a plan.
-4. Memory items must include enough trajectory metadata to diagnose reuse: tool calls, key decision points, outcome, and root cause when known.
-
-**Mechanical checks (agent execution rules)**:
-- Reject agent memory schemas that have no outcome or failure flag.
-- Reject retrieval designs that query only success exemplars when failure lessons exist for the same task class.
-- Reject pruning or retention policies that delete failed trajectories before extraction.
-- Report W-37 when a design claims "learning from experience" but stores only wins, final answers, or hand-picked exemplars.
-
-**Downgrade path**:
-For stateless single-turn agents with no persistent memory or experience retrieval, W-37 is vacuous. The design must state that the system is stateless; otherwise absence of failure memory is a gap, not a downgrade.
-
-**Anti-patterns**:
-- Keeping only "golden" traces because failed runs look messy.
-- Deleting failure logs immediately after fixing a bug, before extracting the decision boundary that caused it.
-- Treating failed tests, blocked tool calls, or rejected plans as disposable noise instead of learning material.
-
-## W-38: Tool-need recognition and tool-call execution are separate metrics (strict)
-Tool-use evals must distinguish whether an agent recognized that a tool was needed from whether it actually called the tool. Collapsing both into one "tool-use accuracy" number hides the knowing-doing gap and leads to the wrong remediation.
-
-**Sources** (2026-05):
-- arXiv:2605.14038, "Model-Adaptive Tool Necessity Reveals the Knowing-Doing Gap in LLM Tool Use" — reports cognition-action mismatch rates of 26.5-54.0% on arithmetic tasks and 30.8-41.8% on factual QA tasks.
-- The same paper finds late-layer directions for tool-need recognition and tool-call execution are nearly orthogonal, which means the failure can sit in the transition from recognition to action rather than in task understanding alone.
-- W-18 baseline: trajectory evals must validate tool selection, not only final output.
-- W-01 baseline: the first fix must distinguish the root cause, not patch every "tool was not used" symptom the same way.
-
-**Required eval coverage (strict)**:
-1. Tool-using agent evals must report **tool-need recognition** separately from **tool-call execution**.
-2. Tool-need recognition may be measured from agent-derived evidence: explicit reasoning traces, tool-intent annotations, a classifier over the agent trajectory, or a review judge. Task labels alone describe necessity, not recognition. Ordinary CI does not need hidden-state probes.
-3. Tool-call execution must be measured from actual trace evidence: emitted tool calls, structured action records, or audited MCP / CLI events.
-4. A mismatch where recognition is correct but execution is missing must be reported as an action-layer failure, not folded into generic tool-use accuracy.
-
-**Mechanical checks (agent execution rules)**:
-- Flag eval reports that publish only one "tool-use accuracy" number for a tool-using agent.
-- When debugging "the agent did not use the tool", first ask whether it recognized the tool need. If yes, target the action layer: forced invocation, retry policy, structured action format, or lower-temperature tool-decision step. If no, target the cognition layer: context, examples, retrieval, or prompt clarity.
-- If recognition-correct / execution-missing mismatches exceed 20% on the eval set, remediation must include an action-layer change before adding more cognition examples.
-- Report W-38 when a PR claims to fix tool use by adding examples but provides no evidence that recognition was the failing sub-axis.
-
-**Downgrade path**:
-For agents with no tools, W-38 is vacuous. For agents with exactly one mandatory tool and no choice about whether to use it, only the execution metric applies; recognition is trivially satisfied if the task class itself requires that tool.
-
-**Anti-patterns**:
-- Treating "the tool was not called" as a prompt clarity bug without checking whether the agent knew the tool was needed.
-- Averaging correct recognition and missed execution into one score, then calling the eval stable.
-- Adding more few-shot examples when the trace already shows correct tool intent but no emitted action.
+## W-37: Retain useful lessons when memory is part of the task (guideline)
+Use relevant successful and failed experiences to improve future work. Record only lessons justified by evidence. A failure or repeated edit does not automatically require a new rule, hook, schema or learning workflow.

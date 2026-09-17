@@ -1,684 +1,105 @@
-use crate::setup::support::{
-    SetupResult, home_dir, read_json_object, shell_quote, simple_unified_diff, write_json_atomic,
-    write_text_atomic,
-};
-use serde_json::{Value, json};
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use crate::Result;
+use std::ops::Range;
 
-mod managed_block;
-mod settings_helpers;
+const START: &str = "<!-- vibeguard-core:start -->";
+const END: &str = "<!-- vibeguard-core:end -->";
 
-use managed_block::{managed_blocks, marker_range, replace_managed_block, validate_managed_source};
-use settings_helpers::{
-    settings_direct_installed_hook_target, settings_entry_has_script, settings_hook_is_script,
-    settings_hook_managed_script, settings_hook_target, settings_is_canonical,
-    settings_stale_findings,
-};
-
-const RULE_COUNT_PLACEHOLDER: &str = "__VIBEGUARD_RULE_COUNT__";
-const ROUTING_CONTRACT_PLACEHOLDER: &str =
-    "__VIBEGUARD_DIR__/workflows/references/routing-contract.md";
-
-pub fn diff_inject(args: &[String]) -> SetupResult<()> {
-    if args.len() != 4 {
-        return Err("Usage: vibeguard-runtime setup-md-diff-inject <target-file> <rules-file> <repo-dir> <rule-count>".into());
-    }
-    let (action, original, content) =
-        render_injected(Path::new(&args[0]), Path::new(&args[1]), &args[2], &args[3])?;
-    if original == content {
-        println!("SKIP");
-    } else {
-        print!(
-            "{}",
-            simple_unified_diff(Path::new(&args[0]), &original, &content)
-        );
-        println!("{action}");
-    }
-    Ok(())
-}
-
-pub fn inject(args: &[String]) -> SetupResult<()> {
-    if args.len() != 4 {
-        return Err("Usage: vibeguard-runtime setup-md-inject <target-file> <rules-file> <repo-dir> <rule-count>".into());
-    }
-    let (action, _original, content) =
-        render_injected(Path::new(&args[0]), Path::new(&args[1]), &args[2], &args[3])?;
-    write_text_atomic(Path::new(&args[0]), &content)?;
-    println!("{action}");
-    Ok(())
-}
-
-pub fn remove(args: &[String]) -> SetupResult<()> {
-    if args.len() != 1 {
-        return Err("Usage: vibeguard-runtime setup-md-remove <target-file>".into());
-    }
-    let path = Path::new(&args[0]);
-    if !path.exists() {
-        println!("NOT_FOUND");
-        return Ok(());
-    }
-
-    let original = std::fs::read_to_string(path)?;
-    if let Some((start, end_after)) = marker_range(&original) {
-        let before = original[..start].trim_end();
-        let after = original[end_after..].trim_start_matches(['\r', '\n']);
-        let mut content = before.to_string();
-        if !after.is_empty() {
-            if !content.is_empty() {
-                content.push_str("\n\n");
-            }
-            content.push_str(after);
-        }
-        content = content.trim_end().to_string() + "\n";
-        write_text_atomic(path, &content)?;
-        println!("REMOVED");
-        return Ok(());
-    }
-
-    println!("NOT_FOUND");
-    Ok(())
-}
-
-pub fn managed_span(args: &[String]) -> SetupResult<()> {
-    if args.len() != 1 {
-        return Err("Usage: vibeguard-runtime setup-md-managed-span <target-file>".into());
-    }
-    let content = std::fs::read_to_string(Path::new(&args[0]))?;
-    let blocks = managed_blocks(&content);
-    if let Some((start, end_after)) = blocks.first().copied() {
-        let start_line = content[..start].matches('\n').count() + 1;
-        let end_line = content[..end_after].matches('\n').count()
-            + usize::from(!content[..end_after].ends_with('\n'));
-        println!("{} {start_line} {end_line}", blocks.len());
-    } else {
-        println!("0 0 0");
-    }
-    Ok(())
-}
-
-fn render_injected(
-    target_file: &Path,
-    rules_file: &Path,
-    repo_dir: &str,
-    rule_count: &str,
-) -> SetupResult<(String, String, String)> {
-    if rule_count.parse::<u64>().is_err() {
-        return Err(format!("Invalid rule count: {rule_count}").into());
-    }
-    let routing_contract = format!("`{repo_dir}/workflows/references/routing-contract.md`");
-    let rules_source = std::fs::read_to_string(rules_file)?;
-    validate_managed_source(&rules_source).map_err(|error| {
-        format!(
-            "Invalid managed rules source {}: {error}",
-            rules_file.display()
-        )
-    })?;
-    let rules = rules_source
-        .replace(ROUTING_CONTRACT_PLACEHOLDER, &routing_contract)
-        .replace("__VIBEGUARD_DIR__", repo_dir)
-        .replace(
-            "`workflows/references/routing-contract.md`",
-            &routing_contract,
-        )
-        .replace(RULE_COUNT_PLACEHOLDER, rule_count);
-    let original = match std::fs::read_to_string(target_file) {
-        Ok(content) => content,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(error.into()),
-    };
-
-    if marker_range(&original).is_some() {
-        let content = replace_managed_block(&original, &rules);
-        return Ok(("UPDATED".to_string(), original, content));
-    }
-    let base = original.trim_end();
-    let content = if base.is_empty() {
-        format!("{}\n", rules.trim())
-    } else {
-        format!("{base}\n\n{}\n", rules.trim())
-    };
-    Ok(("APPENDED".to_string(), original, content))
-}
-
-#[derive(Clone, Debug)]
-struct ClaudeSpec {
-    event: String,
-    matcher: String,
-    script: String,
-}
-
-pub fn settings_check(args: &[String]) -> SetupResult<()> {
-    if args.len() != 3 {
-        return Err("Usage: vibeguard-runtime setup-settings-check <repo-dir> <settings-file> <pre-hooks|post-hooks|full-hooks|profile-hooks:<profile>>".into());
-    }
-    let repo_dir = Path::new(&args[0]);
-    let data = Value::Object(read_json_object(Path::new(&args[1]), false)?);
-    let ok = match args[2].as_str() {
-        "pre-hooks" => settings_has_pre_hooks(repo_dir, &data)?,
-        "post-hooks" => settings_has_post_hooks(repo_dir, &data)?,
-        "full-hooks" => settings_has_full_hooks(repo_dir, &data)?,
-        target if target.starts_with("profile-hooks:") => {
-            let profile = &target["profile-hooks:".len()..];
-            if !matches!(profile, "minimal" | "core" | "full" | "strict") {
-                return Err(format!("unsupported profile target: {profile}").into());
-            }
-            settings_has_profile_hooks(repo_dir, &data, profile)?
-        }
-        target if target.starts_with("canonical-profile-hooks:") => {
-            let profile = &target["canonical-profile-hooks:".len()..];
-            if !matches!(profile, "minimal" | "core" | "full" | "strict") {
-                return Err(format!("unsupported profile target: {profile}").into());
-            }
-            settings_has_canonical_profile_hooks(repo_dir, &data, profile)?
-        }
-        _ => false,
-    };
-    if ok {
-        Ok(())
-    } else {
-        std::process::exit(1);
-    }
-}
-
-pub fn settings_check_supports_profile_hooks(_args: &[String]) -> SetupResult<()> {
-    Ok(())
-}
-
-pub fn settings_upsert(args: &[String]) -> SetupResult<()> {
-    if args.len() < 3 {
-        return Err("Usage: vibeguard-runtime setup-settings-upsert <repo-dir> <settings-file> <profile> [--dry-run] [--force-overwrite]".into());
-    }
-    let repo_dir = Path::new(&args[0]);
-    let settings_path = Path::new(&args[1]);
-    let profile = &args[2];
-    let dry_run = args.iter().any(|arg| arg == "--dry-run");
-    let force = args.iter().any(|arg| arg == "--force-overwrite");
-    let before_text = std::fs::read_to_string(settings_path).unwrap_or_default();
-    let mut data = Value::Object(read_json_object(settings_path, true)?);
-    let mut changed = false;
-    changed |= settings_remove_stale_installed(&mut data);
-    if data.get("hooks").and_then(Value::as_object).is_none() {
-        data.as_object_mut()
-            .expect("object")
-            .insert("hooks".to_string(), json!({}));
-        changed = true;
-    }
-    let desired = claude_specs(repo_dir, Some(profile))?;
-    for spec in &desired {
-        changed |= settings_upsert_hook(&mut data, spec, force);
-    }
-    let desired_identities: BTreeSet<(String, String, String)> =
-        desired.iter().map(settings_spec_identity).collect();
-    changed |= settings_remove_unprofiled_hooks(repo_dir, &mut data, &desired_identities)?;
-    if dry_run {
-        if changed {
-            let after = serde_json::to_string_pretty(&data)? + "\n";
-            print!(
-                "{}",
-                simple_unified_diff(settings_path, &before_text, &after)
-            );
-            println!("CHANGED");
-        } else {
-            println!("SKIP");
-        }
-        return Ok(());
-    }
-    if changed {
-        write_json_atomic(settings_path, &data)?;
-        println!("CHANGED");
-    } else {
-        println!("SKIP");
-    }
-    Ok(())
-}
-
-pub fn settings_remove(args: &[String]) -> SetupResult<()> {
-    if args.len() != 2 {
-        return Err(
-            "Usage: vibeguard-runtime setup-settings-remove <repo-dir> <settings-file>".into(),
-        );
-    }
-    let settings_path = Path::new(&args[1]);
-    if !settings_path.exists() {
-        println!("SKIP");
-        return Ok(());
-    }
-    let repo_dir = Path::new(&args[0]);
-    let mut data = Value::Object(read_json_object(settings_path, false)?);
-    let before = serde_json::to_string(&data)?;
-    for script in claude_managed_scripts(repo_dir)? {
-        for event in [
-            "PreToolUse",
-            "PostToolUse",
-            "Stop",
-            "SessionStart",
-            "PreCompact",
-            "UserPromptSubmit",
-        ] {
-            settings_remove_hook(&mut data, event, &script);
-        }
-    }
-    if serde_json::to_string(&data)? == before {
-        println!("SKIP");
-    } else {
-        write_json_atomic(settings_path, &data)?;
-        println!("CHANGED");
-    }
-    Ok(())
-}
-
-pub fn settings_check_stale(args: &[String]) -> SetupResult<()> {
-    if args.len() != 1 {
-        return Err("Usage: vibeguard-runtime setup-settings-check-stale <settings-file>".into());
-    }
-    let settings_path = Path::new(&args[0]);
-    if !settings_path.exists() {
-        return Ok(());
-    }
-    let data = Value::Object(read_json_object(settings_path, false)?);
-    let findings = settings_stale_findings(&data, settings_path);
-    for finding in &findings {
-        println!("{finding}");
-    }
-    if !findings.is_empty() {
-        std::process::exit(1);
-    }
-    Ok(())
-}
-
-fn claude_specs(repo_dir: &Path, profile: Option<&str>) -> SetupResult<Vec<ClaudeSpec>> {
-    let text = std::fs::read_to_string(repo_dir.join("hooks/manifest.json"))?;
-    let manifest: Value = serde_json::from_str(&text)?;
-    let hooks = manifest
-        .get("hooks")
-        .and_then(Value::as_array)
-        .ok_or("hooks manifest must contain a hooks array")?;
-    let mut specs = Vec::new();
-    for item in hooks {
-        let item = item
-            .as_object()
-            .ok_or("each hook manifest entry must be an object")?;
-        let Some(claude) = item.get("claude").and_then(Value::as_object) else {
-            continue;
-        };
-        if claude.get("enabled").and_then(Value::as_bool) != Some(true) {
-            continue;
-        }
-        let profiles = claude
-            .get("profiles")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        if let Some(profile) = profile
-            && !profiles.iter().any(|value| value.as_str() == Some(profile))
-        {
-            continue;
-        }
-        let matchers = claude
-            .get("matchers")
-            .and_then(Value::as_array)
-            .ok_or("claude.matchers must be an array")?;
-        for matcher in matchers {
-            specs.push(ClaudeSpec {
-                event: claude
-                    .get("event")
-                    .and_then(Value::as_str)
-                    .ok_or("claude.event missing")?
-                    .to_string(),
-                matcher: matcher.as_str().unwrap_or("").to_string(),
-                script: item
-                    .get("script")
-                    .and_then(Value::as_str)
-                    .ok_or("hook script missing")?
-                    .to_string(),
-            });
-        }
-    }
-    Ok(specs)
-}
-
-pub fn profile_hook_scripts(args: &[String]) -> SetupResult<()> {
-    if args.len() != 2 {
-        return Err(
-            "Usage: vibeguard-runtime setup-claude-profile-hook-scripts <repo-dir> <profile>"
-                .into(),
-        );
-    }
-    let scripts = claude_specs(Path::new(&args[0]), Some(&args[1]))?
-        .into_iter()
-        .map(|spec| spec.script)
-        .collect::<BTreeSet<_>>();
-    for script in scripts {
-        println!("{script}");
-    }
-    Ok(())
-}
-
-fn settings_has_pre_hooks(repo_dir: &Path, data: &Value) -> SetupResult<bool> {
-    Ok(claude_specs(repo_dir, Some("minimal"))?
-        .iter()
-        .filter(|spec| spec.event == "PreToolUse")
-        .all(|spec| settings_has_spec(data, spec)))
-}
-
-fn settings_has_post_hooks(repo_dir: &Path, data: &Value) -> SetupResult<bool> {
-    Ok(claude_specs(repo_dir, Some("minimal"))?
-        .iter()
-        .filter(|spec| spec.event == "PostToolUse")
-        .all(|spec| settings_has_spec(data, spec)))
-}
-
-fn settings_has_full_hooks(repo_dir: &Path, data: &Value) -> SetupResult<bool> {
-    let core_scripts: BTreeSet<String> = claude_specs(repo_dir, Some("core"))?
-        .into_iter()
-        .map(|spec| spec.script)
-        .collect();
-    Ok(settings_has_post_hooks(repo_dir, data)?
-        && claude_specs(repo_dir, Some("full"))?
-            .iter()
-            .filter(|spec| !core_scripts.contains(&spec.script))
-            .all(|spec| settings_has_spec(data, spec)))
-}
-
-fn settings_has_profile_hooks(repo_dir: &Path, data: &Value, profile: &str) -> SetupResult<bool> {
-    let desired = claude_specs(repo_dir, Some(profile))?;
-    if !desired.iter().all(|spec| settings_has_spec(data, spec)) {
-        return Ok(false);
-    }
-    let desired_identities: BTreeSet<(String, String, String)> =
-        desired.iter().map(settings_spec_identity).collect();
-    let managed_counts = settings_managed_hook_identity_counts(repo_dir, data)?;
-    Ok(managed_counts
-        .keys()
-        .all(|identity| desired_identities.contains(identity))
-        && managed_counts.values().all(|count| *count == 1))
-}
-
-fn settings_has_canonical_profile_hooks(
-    repo_dir: &Path,
-    data: &Value,
-    profile: &str,
-) -> SetupResult<bool> {
-    let desired = claude_specs(repo_dir, Some(profile))?;
-    if !settings_has_profile_hooks(repo_dir, data, profile)? {
-        return Ok(false);
-    }
-    let wrapper = home_dir()
-        .unwrap_or_default()
-        .join(".vibeguard")
-        .join("run-hook.sh");
-    Ok(desired.iter().all(|spec| {
-        let desired_command = format!(
-            "bash {} {}",
-            shell_quote(&wrapper.display().to_string()),
-            shell_quote(&spec.script)
-        );
-        data.get("hooks")
-            .and_then(Value::as_object)
-            .and_then(|hooks| hooks.get(&spec.event))
-            .and_then(Value::as_array)
-            .is_some_and(|entries| {
-                entries.iter().any(|entry| {
-                    entry.get("matcher").and_then(Value::as_str).unwrap_or("") == spec.matcher
-                        && entry
-                            .get("hooks")
-                            .and_then(Value::as_array)
-                            .is_some_and(|hooks| {
-                                hooks.iter().any(|hook| {
-                                    hook.get("type").and_then(Value::as_str) == Some("command")
-                                        && hook.get("command").and_then(Value::as_str)
-                                            == Some(desired_command.as_str())
-                                })
-                            })
-                })
-            })
-    }))
-}
-
-fn settings_has_spec(data: &Value, spec: &ClaudeSpec) -> bool {
-    let Some(entries) = data
-        .get("hooks")
-        .and_then(Value::as_object)
-        .and_then(|hooks| hooks.get(&spec.event))
-        .and_then(Value::as_array)
-    else {
-        return false;
-    };
-    entries.iter().any(|entry| {
-        let matcher = entry.get("matcher").and_then(Value::as_str).unwrap_or("");
-        if matcher != spec.matcher {
-            return false;
-        }
-        settings_entry_has_script(entry, &spec.script)
-    })
-}
-
-fn settings_upsert_hook(data: &mut Value, spec: &ClaudeSpec, force: bool) -> bool {
-    let wrapper = home_dir()
-        .unwrap_or_default()
-        .join(".vibeguard")
-        .join("run-hook.sh");
-    let desired = format!(
-        "bash {} {}",
-        shell_quote(&wrapper.display().to_string()),
-        shell_quote(&spec.script)
-    );
-    let hooks = data["hooks"].as_object_mut().expect("hooks object");
-    let entries = hooks.entry(spec.event.clone()).or_insert_with(|| json!([]));
-    if !entries.is_array() {
-        *entries = json!([]);
-    }
-    let entries = entries.as_array_mut().expect("entries array");
-    let mut changed = false;
-    let mut found = false;
-    for entry in entries.iter_mut() {
-        let matcher = entry.get("matcher").and_then(Value::as_str).unwrap_or("");
-        if matcher != spec.matcher {
-            continue;
-        }
-        let Some(hook_entries) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
-            entry.as_object_mut().expect("entry object").insert(
-                "hooks".to_string(),
-                json!([{"type":"command","command":desired}]),
-            );
-            found = true;
-            changed = true;
-            continue;
-        };
-        for hook in hook_entries.iter_mut() {
-            if !settings_hook_is_script(hook, &spec.script) {
-                continue;
-            }
-            found = true;
-            if hook.get("type").and_then(Value::as_str) != Some("command") {
-                hook.as_object_mut()
-                    .expect("hook object")
-                    .insert("type".to_string(), Value::String("command".to_string()));
-                changed = true;
-            }
-            let command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-            if command != desired {
-                if force || settings_is_canonical(command, &spec.script) {
-                    hook.as_object_mut()
-                        .expect("hook object")
-                        .insert("command".to_string(), Value::String(desired.clone()));
-                    changed = true;
-                } else {
-                    eprintln!(
-                        "WARN: preserving customized VibeGuard hook command for {}; use --force-overwrite to replace it",
-                        spec.script
-                    );
-                }
-            }
-        }
-    }
-    if !found {
-        let mut entry = json!({"hooks":[{"type":"command","command":desired}]});
-        if !spec.matcher.is_empty() {
-            entry
-                .as_object_mut()
-                .expect("entry object")
-                .insert("matcher".to_string(), Value::String(spec.matcher.clone()));
-        }
-        entries.push(entry);
-        changed = true;
-    }
-    changed
-}
-
-fn settings_remove_hook(data: &mut Value, event: &str, script: &str) -> bool {
-    let Some(entries) = data
-        .get_mut("hooks")
-        .and_then(Value::as_object_mut)
-        .and_then(|hooks| hooks.get_mut(event))
-        .and_then(Value::as_array_mut)
-    else {
-        return false;
-    };
-    let mut changed = false;
-    for entry in entries.iter_mut() {
-        let Some(hook_entries) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
-            continue;
-        };
-        let before = hook_entries.len();
-        hook_entries.retain(|hook| !settings_hook_is_script(hook, script));
-        changed |= before != hook_entries.len();
-    }
-    let before = entries.len();
-    entries.retain(|entry| {
-        entry
-            .get("hooks")
-            .and_then(Value::as_array)
-            .is_none_or(|hooks| !hooks.is_empty())
-    });
-    changed | (before != entries.len())
-}
-
-fn settings_remove_unprofiled_hooks(
-    repo_dir: &Path,
-    data: &mut Value,
-    desired: &BTreeSet<(String, String, String)>,
-) -> SetupResult<bool> {
-    let managed_scripts = claude_managed_scripts(repo_dir)?;
-    let Some(hooks) = data.get_mut("hooks").and_then(Value::as_object_mut) else {
-        return Ok(false);
-    };
-    let mut changed = false;
-    let mut seen_profile_identities = BTreeSet::new();
-    for (event, entries) in hooks.iter_mut() {
-        let Some(entries) = entries.as_array_mut() else {
-            continue;
-        };
-        for entry in entries.iter_mut() {
-            let matcher = entry
-                .get("matcher")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            let Some(hook_entries) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
-                continue;
-            };
-            let before = hook_entries.len();
-            hook_entries.retain(|hook| {
-                settings_hook_managed_script(hook, &managed_scripts).is_none_or(|script| {
-                    let identity = (event.clone(), matcher.clone(), script.to_string());
-                    desired.contains(&identity) && seen_profile_identities.insert(identity)
-                })
-            });
-            changed |= before != hook_entries.len();
-        }
-        let before = entries.len();
-        entries.retain(|entry| {
-            entry
-                .get("hooks")
-                .and_then(Value::as_array)
-                .is_none_or(|hooks| !hooks.is_empty())
-        });
-        changed |= before != entries.len();
-    }
-    Ok(changed)
-}
-
-fn settings_remove_stale_installed(data: &mut Value) -> bool {
-    let Some(hooks) = data.get_mut("hooks").and_then(Value::as_object_mut) else {
-        return false;
-    };
-    let mut changed = false;
-    for entries in hooks.values_mut() {
-        let Some(entries) = entries.as_array_mut() else {
-            continue;
-        };
-        for entry in entries.iter_mut() {
-            let Some(hook_entries) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
-                continue;
-            };
-            let before = hook_entries.len();
-            hook_entries.retain(|hook| {
-                let command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-                settings_direct_installed_hook_target(command).is_none()
-                    && settings_hook_target(command, "run-hook.sh")
-                        .is_none_or(|target| target.exists())
-            });
-            changed |= before != hook_entries.len();
-        }
-    }
-    changed
-}
-
-fn claude_managed_scripts(repo_dir: &Path) -> SetupResult<BTreeSet<String>> {
-    let manifest: Value = serde_json::from_str(&std::fs::read_to_string(
-        repo_dir.join("hooks/manifest.json"),
-    )?)?;
-    // Ownership survives disabling a hook; manual opt-ins stay user-owned.
-    let hooks = manifest["hooks"]
-        .as_array()
-        .ok_or("hooks manifest must contain a hooks array")?;
-    let mut scripts = BTreeSet::new();
-    for item in hooks.iter().filter(|item| item["kind"] == "hook") {
-        let script = item["script"].as_str().ok_or("hook script missing")?;
-        scripts.insert(script.to_owned());
-    }
-    Ok(scripts)
-}
-
-fn settings_spec_identity(spec: &ClaudeSpec) -> (String, String, String) {
-    (
-        spec.event.clone(),
-        spec.matcher.clone(),
-        spec.script.clone(),
+pub fn block(command: &str) -> String {
+    format!(
+        "{START}\n{}\nRead only relevant rules with `{command} rules ID` or list categories with `{command} rules`. Rules are review guidance; use this repository's actual check commands.\n{END}\n",
+        crate::rules::CORE.trim_end()
     )
 }
 
-fn settings_managed_hook_identity_counts(
-    repo_dir: &Path,
-    data: &Value,
-) -> SetupResult<BTreeMap<(String, String, String), usize>> {
-    let managed_scripts = claude_managed_scripts(repo_dir)?;
-    let mut counts = BTreeMap::new();
-    let Some(hooks) = data.get("hooks").and_then(Value::as_object) else {
-        return Ok(counts);
-    };
-    for (event, entries) in hooks {
-        let Some(entries) = entries.as_array() else {
-            continue;
-        };
-        for entry in entries {
-            let matcher = entry.get("matcher").and_then(Value::as_str).unwrap_or("");
-            let Some(hook_entries) = entry.get("hooks").and_then(Value::as_array) else {
-                continue;
-            };
-            for hook in hook_entries {
-                if let Some(script) = settings_hook_managed_script(hook, &managed_scripts) {
-                    *counts
-                        .entry((event.clone(), matcher.to_string(), script.to_string()))
-                        .or_insert(0) += 1;
-                }
-            }
+pub fn update(original: &str, replacement: Option<&str>) -> Result<String> {
+    match region(original)? {
+        Some(range) => {
+            let mut result = original.to_string();
+            result.replace_range(range, replacement.unwrap_or(""));
+            Ok(result)
         }
+        None => Ok(format!("{}{original}", replacement.unwrap_or(""))),
     }
-    Ok(counts)
+}
+
+pub fn contains(original: &str) -> Result<bool> {
+    Ok(region(original)?.is_some())
+}
+
+fn region(text: &str) -> Result<Option<Range<usize>>> {
+    let mut starts = Vec::new();
+    let mut ends = Vec::new();
+    let mut fence: Option<(u8, usize)> = None;
+    let mut offset = 0;
+    for segment in text.split_inclusive('\n') {
+        let line = segment.trim_end_matches(['\r', '\n']);
+        let trimmed = line.trim_start_matches(' ');
+        let indent = line.len() - trimmed.len();
+        let run = trimmed.as_bytes().first().copied().and_then(|marker| {
+            let length = trimmed.bytes().take_while(|b| *b == marker).count();
+            (indent <= 3 && matches!(marker, b'`' | b'~') && length >= 3).then_some((
+                marker,
+                length,
+                &trimmed[length..],
+            ))
+        });
+        if let Some((marker, minimum)) = fence {
+            if run.is_some_and(|(candidate, length, rest)| {
+                candidate == marker && length >= minimum && rest.trim().is_empty()
+            }) {
+                fence = None;
+            }
+        } else if let Some((marker, length, rest)) = run {
+            if marker != b'`' || !rest.contains('`') {
+                fence = Some((marker, length));
+            }
+        } else if line == START {
+            starts.push(offset);
+        } else if line == END {
+            ends.push(offset + segment.len());
+        }
+        offset += segment.len();
+    }
+    match (&starts[..], &ends[..]) {
+        ([], []) => Ok(None),
+        ([start], [end]) if start < end => Ok(Some(*start..*end)),
+        _ => Err("instruction file has incomplete, reversed or duplicate VibeGuard core markers; no changes written".into()),
+    }
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+    #[test]
+    fn preserves_exact_unmanaged_bytes() {
+        let original = "# User notes\r\nCustom instruction without final newline";
+        let managed = block("vibeguard-runtime");
+        let installed = update(original, Some(&managed)).unwrap();
+        assert_eq!(update(&installed, Some(&managed)).unwrap(), installed);
+        assert_eq!(update(&installed, None).unwrap(), original);
+        let mixed = format!("prefix\n{managed}suffix\r\n");
+        assert_eq!(update(&mixed, None).unwrap(), "prefix\nsuffix\r\n");
+    }
+    #[test]
+    fn examples_are_not_owned_blocks() {
+        for original in [
+            format!("````md\n{START}\n{END}\n````\nnotes"),
+            format!("Example mentions {START} inline."),
+            format!("~~~\n{START}\n{END}\n~~~"),
+        ] {
+            assert!(!contains(&original).unwrap());
+            assert_eq!(update(&original, None).unwrap(), original);
+        }
+    }
+    #[test]
+    fn malformed_markers_fail_without_selecting_a_partial_block() {
+        for original in [
+            START.to_string(),
+            END.to_string(),
+            format!("{END}\n{START}\n"),
+            format!("{START}\n{START}\n{END}\n"),
+        ] {
+            assert!(update(&original, Some("replacement")).is_err());
+        }
+    }
+}

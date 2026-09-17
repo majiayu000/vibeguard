@@ -2,88 +2,28 @@
 paths: **/*.rs,**/Cargo.toml,**/Cargo.lock
 ---
 
-# Rust Quality Rules
+# Rust review and tooling
 
-## RS-01: Nested `RwLock` / `Mutex` acquisition (high)
-Holding multiple locks at once creates deadlock risk. Fix: merge the state into one `Signal<State>` and update it atomically with `.update()`.
+## RS-01: Review lock ordering and lifetime (high)
+Check actual acquisition order, reentrancy and guards held across await. Nested locks are not automatically a deadlock. Use applicable Clippy checks such as await_holding_lock as partial evidence. Do not mandate a framework-specific Signal or merge unrelated state into one lock.
 
-## RS-02: TOCTOU — `get()` followed by `insert()` (high)
-The lock is released between read and write, which creates a race. Fix: use the Entry API (`m.entry(key).or_insert(val)`) under a single lock.
+## RS-02: Keep read-modify-write operations consistent (high)
+Determine whether concurrent mutation can occur between the read and write. A get followed by insert under one guard or in single-threaded code is not inherently a race. Use Entry when it expresses the operation correctly; Clippy map_entry is not a concurrency proof.
 
-## RS-03: `unwrap()` in non-test code (medium)
-`unwrap()` creates panic risk. Fix: replace it with `?`, `.unwrap_or_else()`, or an explicit `match`.
+## RS-03: Make panic and error propagation intentional (guideline)
+Use the project's Clippy unwrap_used/expect_used policy where desired. Propagate recoverable failures and provide useful context for intentional unrecoverable failures. This applies in async code too. Do not replace errors with default values merely to remove unwrap.
 
-## RS-04: Multiple `Signal` / `Arc` objects manage the same logical state (medium)
-Converge them into a single `Signal<State>` so one structure owns the whole state.
+## RS-05: Keep type identity consistent with domain meaning (guideline)
+Check whether types actually describe the same contract before sharing or renaming them. Identical names in different modules can be legitimate; distinct meanings do not require merging into one type. Do not use a name-match gate.
 
-## RS-05: Same name, different meaning types (medium)
-For example, two different `RenderHandle` types. Fix: extract the canonical type into a shared module and import it everywhere else with `pub use`.
+## RS-08: Use ownership and Clippy to assess unnecessary clones (guideline)
+Use clone_on_copy for the concrete Copy case. For other values, consider ownership, lifetime, readability and measured cost before changing a clone to a borrow. Do not assume every clone is wasteful.
 
-## RS-06: The same match arm is duplicated across multiple methods (medium)
-Fix: factor it into one parameterized function that distinguishes behavior through arguments.
+## RS-09: Optimize formatting only on a demonstrated hot path (guideline)
+Use a measurement or concrete workload to justify reducing allocations. Select a suitable buffer or formatting method for that case. Ordinary format! calls are valid; do not guess capacities or impose a global ban.
 
-## RS-07: Manual field-by-field copying (low)
-Use merge or apply methods instead. Fix: add an `apply` method or an `Update` trait.
+## RS-12: Keep ownership of shared mutable facts clear (high)
+When two implementations appear to overlap, inspect their consumers, contracts and actual state ownership. Multiple Arc handles may share one allocation; different infrastructure can serve distinct responsibilities. Do not infer duplicate systems from names or automatically delete either implementation.
 
-## RS-08: Unnecessary `clone()` calls (low)
-Often appears on `Copy` types or values that could be borrowed. Fix: remove `clone()` for `Copy` data or pass references instead.
-
-## RS-09: `format!()` allocation in hot paths (low)
-Fix: use `push_str`, preallocate with `String::with_capacity()`, or use `write!`.
-
-## RS-10: Meaningful `Result`s are silently discarded (high)
-Patterns like `let _ =`, `.ok()`, or `.unwrap_or_default()` swallow errors. Fix: at minimum handle `Err` explicitly and log it.
-```rust
-// Bad: let _ = db::update(&conn, &ids);
-// Good:
-if let Err(e) = db::update(&conn, &ids) {
-    log::warn("update failed: {}", e);
-}
-```
-
-## RS-11: Different modules use different infrastructure for the same system (medium)
-Logging, config paths, or DB connection strategies drift across modules. Fix: converge on shared core helpers.
-
-## RS-12: Two systems coexist for one responsibility (high)
-For example, `Todo*` and `TaskManagement*` both handle task state. Fix: converge on a single domain interface and delete the redundant track.
-
-## RS-13: Action-named functions lack state side effects (high)
-A function like `mark_done` only returns text but does not persist state. Fix: the function must write state (`insert`, `update`, `remove`) or emit an event.
-
-## RS-14: Declaration-execution gap (high)
-Configs, traits, or persistence layers are declared but never integrated into startup. Fix: audit declaration sites, verify startup registration, and add the missing wiring.
-
-**Detection patterns**:
-- A config struct exists but startup still calls `Default::default()`
-- A trait is declared but has no `impl` or never gets registered
-- `save`, `load`, or `persist` methods exist but startup never calls them
-- A field is added to a struct but constructors never initialize it
-
-**Repair checklist**:
-```rust
-// Bad: config exists but is never loaded
-let config = MyConfig::default();  // config file ignored
-
-// Good: explicit load during startup
-let config = MyConfig::load_from_file("config.toml")
-    .unwrap_or_else(|_| MyConfig::default());  // intentional fallback
-
-// Bad: persistence method exists but is never called
-impl Store {
-    fn restore(&mut self) { /* restore from DB */ }
-}
-// Startup code: let store = Store::new();  // restore() never runs
-
-// Good: restore at startup
-let mut store = Store::new();
-store.restore()?;
-```
-
-## TASTE-ANSI: Hardcoded ANSI escape sequences (medium)
-Use a crate like `colored` or `termcolor` instead of hardcoding `\x1b[` sequences.
-
-## TASTE-ASYNC-UNWRAP: `.unwrap()` inside `async fn` (medium)
-Async code should propagate errors with `?` instead of panicking with `unwrap()`.
-
-## TASTE-PANIC-MSG: `panic!()` without a meaningful message (medium)
-`panic!()` or `panic!("")` lacks context. Fix: provide a descriptive message that explains why the panic is intentional.
+## RS-20: Check affected boundaries after type changes (strict)
+After a struct or enum change, inspect actual serialization, storage, interface and test consumers affected by the change. Let the compiler check the constructors it covers. Do not require nonexistent layers, fixed search rounds, compatibility fields or old-data backfills unless the task asks for them.

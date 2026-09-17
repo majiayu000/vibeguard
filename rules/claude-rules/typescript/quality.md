@@ -2,69 +2,31 @@
 paths: **/*.ts,**/*.tsx,**/*.js,**/*.jsx
 ---
 
-# TypeScript Quality Rules
+# TypeScript and React review
 
-## TS-01: `any` type escape (medium)
-Function parameters or return values use `any`. Fix: replace it with a concrete type or `unknown`, then narrow `unknown` before use.
+## TS-01: Use type tooling for unsafe escapes (guideline)
+Use the project's typescript-eslint no-explicit-any, ban-ts-comment and applicable type-aware no-unsafe checks. Narrow unknown data at its boundary. Third-party typing limitations may require a justified local assertion; as unknown as T does not add runtime validation.
 
-## TS-02: Unhandled Promise rejections (high)
-Async calls lack error handling. Fix: use `await` plus `try/catch`, or add `.catch()`.
+## TS-02: Assign responsibility for Promise completion and failure (high)
+Await a Promise, return it to a responsible caller, or handle failure at the appropriate terminal boundary. Returning a Promise is valid propagation. Empty catch handlers and void expressions do not by themselves handle rejection. Use no-floating-promises/no-misused-promises as partial evidence.
 
-## TS-03: `==` instead of `===` (medium)
-Loose equality is used outside explicit null checks. Fix: switch to `===`. `== null` remains acceptable for null/undefined checks.
+## TS-03: Use deliberate equality semantics (guideline)
+Use ESLint eqeqeq according to the project contract. This rule permits explicit == null checks for null or undefined; an equivalent configuration is always with null ignored. Do not maintain a separate text scanner or report console statements under this ID.
 
 ## TS-04: Review components with mixed responsibilities (guideline)
-Split components or hooks when independent responsibilities make the requested behavior difficult to maintain or test. A component over 300 lines is a review signal, not an automatic refactoring requirement.
+Split components or hooks when independent responsibilities make the requested behavior difficult to maintain or test. A component's line count alone is not a refactoring requirement.
 
-## TS-05: Repeated fetch / API call patterns across the codebase (medium)
-Fix: extract a shared API client helper or hook.
+## TS-06: Keep Effects and their dependencies accurate (high)
+First decide whether an Effect is needed to synchronize with an external system. Use react-hooks/exhaustive-deps and restructure the actual logic where appropriate. Add useCallback/useMemo only for a concrete stable-reference need, not as the default fix for broad dependencies.
 
-## TS-06: `useEffect` has missing or overly broad dependencies (medium)
-Fix: declare the dependency array precisely. If dependencies are too broad, stabilize them with `useCallback` / `useMemo`.
+## TS-07: Optimize rendering when there is demonstrated cost (guideline)
+Use measurements or a concrete expensive path and consider the project's compiler and existing memoization. Minimal props may help a real memo boundary; passing a full object is not inherently a performance defect. Do not add memoization merely because a render maps an array.
 
-## TS-07: Optimize render calculations when there is a demonstrated cost (guideline)
-Use measurement or a concrete expensive render path to justify memoization. Account for the project's compiler and existing optimizations.
-Fix: optimize the measured bottleneck. Skip adding `useMemo` solely because an array is mapped during render.
+## TS-11: Handle missing values according to the contract (high)
+Use optional chaining, defaults or an early return only when absence is valid. Required data missing at runtime must fail clearly. strictNullChecks covers modeled types, not validation of arbitrary external input.
 
-## TS-08: Bypassing type checks with `as any` or `@ts-ignore` (high)
-Fix: replace the bypass with correct types or type guards. If absolutely necessary, use `as unknown as T` and explain why.
+## TS-13: Reuse genuinely shared behavior (guideline)
+Search relevant existing implementations before adding a component, hook or API helper. Compare contracts, error behavior, authentication, caching and cancellation before extracting shared code. Similar markup, class strings, counts or fixed directory names cannot prove the same responsibility.
 
-## TS-09: Functions with more than 4 parameters (medium)
-Fix: combine arguments into a single options object.
-
-## TS-10: Callback nesting deeper than 3 levels (medium)
-Fix: flatten the async chain with async/await.
-
-## TS-11: Unhandled `null` / `undefined` (medium)
-Missing optional chaining or null guards. Fix: use `?.`, `??`, or an early guard return.
-
-## TS-12: Passing full objects as component props instead of only required fields (low)
-Fix: pass only the fields the component actually needs to avoid unnecessary re-renders.
-
-## TS-13: Duplicate component or hook behavior under different names (high)
-Multiple files define React components or hooks with equivalent behavior but different names. Common patterns:
-- Duplicate UI primitives: `FormField`, `InputGroup`, `FieldWrapper`, and similar components recreated in multiple places
-- Duplicate table sorting state: multiple tables each reimplement `sortKey` / `sortDir` logic
-- Duplicate query hook templates: multiple `useXxxDetail` / `useXxxList` hooks repeat the same `useQuery` pattern and return structure
-
-**Before creating a new component or hook, you must**:
-1. Search `components/ui/` and `components/common/` for an equivalent component.
-2. Search `hooks/` for an existing hook with the same pattern.
-3. If an equivalent implementation exists, reuse it instead of creating a new one.
-
-Fix: extract the shared implementation to `components/ui/` or `hooks/`, then convert other files to imports.
-
-## TS-14: Test mocks drift from the real module shape (high)
-`vi.mock()` and `jest.mock()` factory functions often return `any`, so TypeScript cannot tell when the mock shape drifts from the real module. After a hook or module refactor, a stale mock can keep returning old field names, the test still passes, and regression coverage silently disappears.
-
-**When refactoring an interface, you must**:
-1. Search every `vi.mock('path')` and `jest.mock('path')` call for the module you changed.
-2. Update each mock return value to match the new shape.
-3. Prefer `satisfies` or typed assertions to keep the mock shape honest:
-   ```ts
-   vi.mock('@/hooks/useDeals', () => ({
-     useDeals: () => ({ deals: [], isLoading: false } satisfies Partial<ReturnType<typeof useDeals>>)
-   }))
-   ```
-
-Fix: grep all `vi.mock` / `jest.mock` call sites and confirm the returned field names still match the current export shape.
+## TS-14: Keep mocks aligned with affected contracts (high)
+When changing an interface, inspect the actual affected mocks and callers. Use typed Vitest/Jest mock APIs and a type-check command that includes the test files. A complete mock needs its complete return contract; Partial makes fields optional and cannot prove completeness. Type compatibility does not establish equivalent behavior, so verify relevant runtime behavior too.

@@ -1,24 +1,15 @@
 [package]
 name = "vibeguard-runtime"
-version = "1.1.20"
+version = "2.0.0"
 edition = "2024"
-description = "VibeGuard runtime — fast JSON/JSONL ops, hook metrics, and Codex app-server guards"
+description = "Native coding-agent hooks and a curated rule library"
 license = "MIT"
+repository = "https://github.com/majiayu000/vibeguard"
 
 [dependencies]
-serde = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
-libc = "0.2"
-toml_edit = "0.22"
-
-[dev-dependencies]
-criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
-jsonschema = { version = "=0.33.0", default-features = false }
-
-[[bench]]
-name = "core_us"
-harness = false
 
 [profile.release]
 opt-level = "z"

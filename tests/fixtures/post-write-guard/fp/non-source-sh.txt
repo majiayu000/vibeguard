@@ -1,1 +1,0 @@
-hooks/subdir/log.sh
