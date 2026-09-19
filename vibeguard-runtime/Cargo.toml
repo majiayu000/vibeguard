@@ -10,6 +10,7 @@ repository = "https://github.com/majiayu000/vibeguard"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
+toml_edit = "0.25.15"
 
 [profile.release]
 opt-level = "z"
