@@ -233,11 +233,8 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         write_atomic(&feature_path, text.as_bytes(), 0o600)?;
     }
     if new_instructions != old_text {
-        if new_instructions.is_empty() {
-            fs::remove_file(&instructions_path)?;
-        } else {
-            write_atomic(&instructions_path, new_instructions.as_bytes(), 0o600)?;
-        }
+        // An empty result does not establish that we own the file itself.
+        write_atomic(&instructions_path, new_instructions.as_bytes(), 0o600)?;
     }
     if action == "uninstall" {
         let observation = options.state().join(format!("{}.json", options.host));

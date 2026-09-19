@@ -182,6 +182,53 @@ fn install_reinstall_and_uninstall_preserve_user_metadata() {
 }
 
 #[test]
+fn uninstall_retains_empty_instructions_and_their_metadata() {
+    for host in ["claude", "codex"] {
+        for preexisting in [false, true] {
+            let home = Temp::new();
+            let instructions = home.0.join(format!(".{host}")).join(if host == "claude" {
+                "CLAUDE.md"
+            } else {
+                "AGENTS.md"
+            });
+            success(invoke(&home.0, "uninstall", host));
+            assert!(!instructions.exists());
+            if preexisting {
+                fs::create_dir_all(instructions.parent().unwrap()).unwrap();
+                fs::write(&instructions, "").unwrap();
+                use_alternate_group(&instructions);
+                fs::set_permissions(&instructions, fs::Permissions::from_mode(0o640)).unwrap();
+                xattr::set(&instructions, ATTRIBUTE, b"empty-user-file").unwrap();
+                add_acl(&instructions);
+            } else {
+                success(invoke(&home.0, "install", host));
+            }
+            let before = fs::metadata(&instructions).unwrap();
+            let expected_acl = acl(&instructions);
+            let expected_attribute = xattr::get(&instructions, ATTRIBUTE).unwrap();
+            for action in ["install", "install", "uninstall", "uninstall"] {
+                success(invoke(&home.0, action, host));
+                let actual = fs::metadata(&instructions).unwrap();
+                assert_eq!(
+                    (actual.uid(), actual.gid(), actual.mode()),
+                    (before.uid(), before.gid(), before.mode())
+                );
+                assert_eq!(acl(&instructions), expected_acl);
+                assert_eq!(
+                    xattr::get(&instructions, ATTRIBUTE).unwrap(),
+                    expected_attribute
+                );
+                if action == "uninstall" {
+                    assert_eq!(fs::read(&instructions).unwrap(), b"");
+                } else {
+                    assert!(!fs::read(&instructions).unwrap().is_empty());
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn read_only_mode_does_not_prevent_metadata_copy() {
     let home = Temp::new();
     let host_dir = home.0.join(".codex");
