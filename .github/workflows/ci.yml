@@ -8,7 +8,7 @@ permissions:
   contents: read
 jobs:
   rust:
-    name: CI (${{ matrix.os }})
+    name: ${{ matrix.os == 'windows-latest' && 'CI' || 'Core CI' }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
