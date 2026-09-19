@@ -16,6 +16,18 @@ Policy denial uses native JSON with exit 0. Exit 2 denotes runtime/protocol erro
 
 The Bash recognizer masks comments, quoted data, and supported heredoc bodies. It recognizes bulk `git checkout/restore .`, forced `git clean` except dry-run, and selected forced recursive removal of root/home/system paths. It does not interpret arbitrary shell grammar, scripts, aliases, substitutions, variables generally, or alternate tools.
 
+Within these simple commands, path words retain the distinction between literal text and supported HOME/tilde expansion. Git clean options are read in order, stop at `--`, and consume `-e`/`--exclude` pattern arguments. A later `--no-force` or `--no-dry-run` resets its respective flag.
+
+| Example | Recognition |
+|---|---|
+| `rm -rf '$HOME'`, `rm -rf '~'` | Allowed: literal relative filenames |
+| `rm -rf "$HOME"`, `rm -rf '/etc'` | Denied: recognized protected targets |
+| `git clean --force -d`, `git clean -fd -- -n` | Denied: forced operation; `-n` after `--` is a path |
+| `git clean -nfd`, `git clean -f --no-force` | Allowed: dry-run or explicit force reset |
+| `git clean -f -e -n` | Denied: `-n` is an exclusion pattern |
+
+These examples describe recognition, not a general safety guarantee. Shell substitutions, arbitrary variable expansion, aliases and scripts remain outside the supported grammar; an unrecognized spelling is not proof that an operation is safe. The existing root/home/system prefix policy is unchanged.
+
 `pre-push` consumes Git ref updates and checks `git merge-base --is-ancestor`. It rejects deletions/non-fast-forward updates, allows new refs, and errors on unavailable objects. It covers all pushed refs, does not fetch, and cannot prevent `--no-verify`.
 
 ## Observations
