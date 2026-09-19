@@ -459,6 +459,133 @@ fn git_ancestry_is_checked_with_real_commits() {
     );
 }
 
+#[test]
+fn git_tag_updates_use_remote_namespace_and_object_identity() {
+    let temp = Temp::new();
+    git(&temp.0, &["init", "-q"]);
+    fs::write(temp.0.join("value"), "base").unwrap();
+    git(&temp.0, &["add", "value"]);
+    git(&temp.0, &["commit", "-qm", "base"]);
+    let base = git(&temp.0, &["rev-parse", "HEAD"]);
+    let blob = git(&temp.0, &["rev-parse", "HEAD:value"]);
+    let tree = git(&temp.0, &["rev-parse", "HEAD^{tree}"]);
+    git(
+        &temp.0,
+        &["-c", "tag.gpgsign=false", "tag", "-am", "first", "first"],
+    );
+    git(
+        &temp.0,
+        &["-c", "tag.gpgsign=false", "tag", "-am", "second", "second"],
+    );
+    let first = git(&temp.0, &["rev-parse", "refs/tags/first"]);
+    let second = git(&temp.0, &["rev-parse", "refs/tags/second"]);
+    fs::write(temp.0.join("value"), "next").unwrap();
+    git(&temp.0, &["commit", "-qam", "next"]);
+    let next = git(&temp.0, &["rev-parse", "HEAD"]);
+    let zero = "0".repeat(base.len());
+    let mut failures = Vec::new();
+    for (name, local, remote, expected) in [
+        ("lightweight descendant replacement", &next, &base, 1),
+        ("annotated same-commit replacement", &second, &first, 1),
+        ("blob replacement", &blob, &base, 1),
+        ("tree replacement", &tree, &blob, 1),
+        ("new lightweight", &base, &zero, 0),
+        ("new annotated", &first, &zero, 0),
+        ("new blob", &blob, &zero, 0),
+        ("new tree", &tree, &zero, 0),
+        ("unchanged lightweight", &base, &base, 0),
+        ("unchanged annotated", &first, &first, 0),
+        ("unchanged blob", &blob, &blob, 0),
+        ("unchanged tree", &tree, &tree, 0),
+        ("deletion", &zero, &base, 1),
+    ] {
+        // A local branch or expression can target a remote tag.
+        let record = format!("refs/heads/main {local} refs/tags/release {remote}\n");
+        let output = invoke(&["pre-push"], &record, Some(&temp.0));
+        if output.status.code() != Some(expected) {
+            failures.push(format!(
+                "{name}: expected {expected}, got {:?}",
+                output.status.code()
+            ));
+        }
+        if expected == 1 && !String::from_utf8_lossy(&output.stderr).contains("refs/tags/release") {
+            failures.push(format!("{name}: diagnostic omitted the remote ref"));
+        }
+    }
+    // A local tag pushed outside refs/tags still uses the existing ancestry policy.
+    for destination in ["refs/heads/main", "refs/custom/release"] {
+        let record = format!("refs/tags/release {next} {destination} {base}\n");
+        success(&invoke(&["pre-push"], &record, Some(&temp.0)));
+    }
+    for (destination, local, remote, expected) in [
+        ("refs/heads/main", &first, &base, 1),
+        ("refs/heads/main", &first, &zero, 1),
+        ("refs/heads/main", &base, &first, 1),
+        ("refs/custom/release", &second, &first, 0),
+        ("refs/custom/release", &blob, &zero, 0),
+        ("refs/custom/release", &blob, &blob, 0),
+        ("refs/custom/release", &tree, &tree, 0),
+        ("refs/custom/release", &blob, &base, 1),
+        ("refs/custom/release", &tree, &blob, 1),
+        ("refs/custom/release", &base, &blob, 1),
+    ] {
+        let record = format!("HEAD {local} {destination} {remote}\n");
+        let output = invoke(&["pre-push"], &record, Some(&temp.0));
+        if output.status.code() != Some(expected) {
+            failures.push(format!(
+                "{record:?}: expected {expected}, got {:?}",
+                output.status.code()
+            ));
+        }
+        if expected == 1 {
+            assert!(!String::from_utf8_lossy(&output.stderr).contains("fetch"));
+        }
+    }
+    let missing = "1".repeat(base.len());
+    let record = format!("HEAD {next} refs/custom/release {missing}\n");
+    assert_eq!(
+        invoke(&["pre-push"], &record, Some(&temp.0)).status.code(),
+        Some(2)
+    );
+    let records = format!(
+        "refs/tags/new {first} refs/tags/new {zero}\n\
+         refs/tags/same {blob} refs/tags/same {blob}\n\
+         HEAD {blob} refs/custom/blob {blob}\n\
+         HEAD {tree} refs/custom/tree {tree}\n\
+         refs/heads/main {next} refs/tags/release {base}\n"
+    );
+    let output = invoke(&["pre-push"], &records, Some(&temp.0));
+    if output.status.code() != Some(1) {
+        failures.push(format!(
+            "multiple records: expected 1, got {:?}",
+            output.status.code()
+        ));
+    }
+    assert!(String::from_utf8_lossy(&output.stderr).contains("refs/tags/release"));
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn git_pre_push_accepts_sha1_and_sha256_oid_formats() {
+    for width in [40, 64] {
+        let oid = "a".repeat(width);
+        let zero = "0".repeat(width);
+        let record = format!("refs/tags/new {oid} refs/tags/new {zero}\n");
+        success(&invoke(&["pre-push"], &record, None));
+        for destination in ["refs/heads/main", "refs/tags/same", "refs/custom/same"] {
+            let record = format!("HEAD {oid} {destination} {oid}\n");
+            success(&invoke(&["pre-push"], &record, None));
+        }
+    }
+    for oid in ["a".repeat(39), "a".repeat(63), "g".repeat(64)] {
+        let zero = "0".repeat(64);
+        for (local, remote) in [(&oid, &zero), (&zero, &oid)] {
+            let record = format!("refs/tags/new {local} refs/tags/new {remote}\n");
+            assert_eq!(invoke(&["pre-push"], &record, None).status.code(), Some(2));
+        }
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn git_installer_does_not_overwrite_a_user_hook() {
