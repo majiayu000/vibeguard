@@ -137,8 +137,17 @@ fn install_reinstall_and_uninstall_preserve_user_metadata() {
         });
         fs::write(&config, "{\"user_setting\": true}\n").unwrap();
         fs::write(&instructions, "# User notes\n").unwrap();
-        let files = [&config, &instructions];
-        for path in files {
+        let feature_config = host_dir.join("config.toml");
+        let mut files = vec![&config, &instructions];
+        if host == "codex" {
+            fs::write(
+                &feature_config,
+                "# user setting\n[features]\nhooks = false\n",
+            )
+            .unwrap();
+            files.push(&feature_config);
+        }
+        for path in &files {
             use_alternate_group(path);
             fs::set_permissions(path, fs::Permissions::from_mode(0o640)).unwrap();
             xattr::set(path, ATTRIBUTE, b"preserve-me").unwrap();
@@ -150,6 +159,11 @@ fn install_reinstall_and_uninstall_preserve_user_metadata() {
             .collect();
         for action in ["install", "install", "uninstall"] {
             success(invoke(&home.0, action, host));
+            if host == "codex" {
+                let text = fs::read_to_string(&feature_config).unwrap();
+                assert!(text.contains("# user setting"));
+                assert!(text.contains("hooks = true"));
+            }
             for (path, (metadata, expected_acl)) in files.iter().zip(&before) {
                 let actual = fs::metadata(path).unwrap();
                 assert_eq!(
