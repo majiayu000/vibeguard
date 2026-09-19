@@ -8,7 +8,26 @@ V2 keeps six short principles in host instructions and embeds 75 scoped review t
 
 Native Bash hooks reject a small set of destructive command spellings and record the latest observed outcome. An optional Git pre-push hook checks actual commit ancestry. The host owns permissions, sandboxing, tool execution, and the agent loop.
 
-## Build and install
+## Install from a release archive
+
+Download the archive for your OS and CPU from [Releases](https://github.com/majiayu000/vibeguard/releases), extract it, and open a terminal in the extracted directory. macOS, Linux and WSL are supported; choose a Linux archive for WSL. No Rust toolchain or source checkout is required for this path. Run:
+
+```bash
+./vibeguard-runtime install codex
+# Or select Claude Code:
+./vibeguard-runtime install claude
+```
+
+The archive contains the executable, this README and LICENSE. Installation copies the executable to `~/.vibeguard/bin/vibeguard-runtime`. Restart the selected host and review its native hook trust settings. Check or remove that integration with:
+
+```bash
+~/.vibeguard/bin/vibeguard-runtime status codex
+~/.vibeguard/bin/vibeguard-runtime uninstall codex
+```
+
+Use `claude` instead of `codex` for Claude Code. Uninstall retains the shared executable. V2 archives become available when a maintainer publishes v2; earlier release assets follow their own version's instructions.
+
+## Build and install from source
 
 Source builds require Git and the Rust toolchain pinned in `rust-toolchain.toml`. Native installation supports macOS, Linux, and WSL. Native Windows installation is not implemented; the portable CLI and JSON protocol are tested in Windows CI.
 

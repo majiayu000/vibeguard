@@ -6,7 +6,19 @@ VibeGuard 继续用 Rust 实现，提供规则查询、原生 Bash hooks、显�
 
 [英文说明](../README.md) · [运行契约](runtime-contract.md) · [75 个规则主题](rule-reference.md)
 
-在源码目录运行：
+从 [Releases](https://github.com/majiayu000/vibeguard/releases) 下载适合系统与 CPU 的 v2 压缩包，解压后在该目录运行，无需源码或 Rust 工具链：
+
+```bash
+./vibeguard-runtime install codex
+# 或 Claude Code：
+./vibeguard-runtime install claude
+~/.vibeguard/bin/vibeguard-runtime status codex
+~/.vibeguard/bin/vibeguard-runtime uninstall codex
+```
+
+压缩包包含可执行文件、英文 README 和 LICENSE。安装将程序复制到 `~/.vibeguard/bin/vibeguard-runtime`；Claude Code 的状态查询和卸载将上面的 `codex` 换为 `claude`。WSL 使用 Linux 包。v2 包将在维护者正式发布后提供，旧版本资源应使用对应版本的说明。
+
+从源码构建则在源码目录运行：
 
 ```bash
 bash setup.sh install codex
