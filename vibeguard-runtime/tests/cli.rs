@@ -419,6 +419,58 @@ fn install_execute_and_uninstall_preserve_user_content() {
 
 #[cfg(unix)]
 #[test]
+fn status_requires_current_core_content_and_reinstall_repairs_it() {
+    for host in ["claude", "codex"] {
+        let temp = Temp::new();
+        let home = temp.0.to_str().unwrap();
+        let instructions = temp.0.join(format!(".{host}")).join(if host == "codex" {
+            "AGENTS.md"
+        } else {
+            "CLAUDE.md"
+        });
+        success(&invoke(&["install", host, "--home", home], "", None));
+        let current = fs::read_to_string(&instructions).unwrap();
+        let prefix = "User-owned prefix\r\n";
+        let suffix = "User-owned suffix without final newline";
+        for stale in [
+            String::new(),
+            "<!-- vibeguard-core:start -->\n<!-- vibeguard-core:end -->\n".to_string(),
+            current.replace("- U-29: Preserve the operation's error contract.\n", ""),
+            current.replace(".vibeguard/bin/", ".vibeguard/old-bin/"),
+        ] {
+            let edited = format!("{prefix}{stale}{suffix}");
+            fs::write(&instructions, &edited).unwrap();
+            let state = invoke(&["status", host, "--home", home], "", None);
+            assert_eq!(state.status.code(), Some(1), "{host}: {stale}");
+            assert_eq!(native(&state)["core_present"], false);
+            assert_eq!(fs::read_to_string(&instructions).unwrap(), edited);
+            success(&invoke(&["install", host, "--home", home], "", None));
+            let state = invoke(&["status", host, "--home", home], "", None);
+            success(&state);
+            assert_eq!(native(&state)["core_present"], true);
+            let repaired = fs::read_to_string(&instructions).unwrap();
+            assert_eq!(repaired.replace(&current, ""), format!("{prefix}{suffix}"));
+        }
+        for valid in [
+            format!("{prefix}{}{suffix}", current.replace('\n', "\r\n")),
+            current.trim_end_matches('\n').to_string(),
+        ] {
+            fs::write(&instructions, &valid).unwrap();
+            let state = invoke(&["status", host, "--home", home], "", None);
+            success(&state);
+            assert_eq!(native(&state)["core_present"], true);
+            assert_eq!(fs::read_to_string(&instructions).unwrap(), valid);
+        }
+        let malformed = "<!-- vibeguard-core:start -->\nincomplete";
+        fs::write(&instructions, malformed).unwrap();
+        let state = invoke(&["status", host, "--home", home], "", None);
+        assert_eq!(state.status.code(), Some(2));
+        assert_eq!(fs::read_to_string(&instructions).unwrap(), malformed);
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn corrupt_config_or_instructions_fail_before_installation() {
     for (config, instructions) in [
         ("{\"token\":\"PRIVATE_SENTINEL\",", "user content"),

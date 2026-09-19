@@ -146,7 +146,8 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
     let instructions_path = options.instructions();
     let old_instructions = read_text(&instructions_path)?;
     let old_text = old_instructions.as_deref().unwrap_or("");
-    let core_present = markdown::contains(old_text)?;
+    let replacement = markdown::block(&quote_path(&options.binary())?);
+    let core_present = markdown::matches_block(old_text, &replacement)?;
     let command = options.command()?;
     let specs = hook_specs(&options.host, &command);
     if action == "status" {
@@ -177,7 +178,6 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
                 || feature_enabled == Some(false),
         ));
     }
-    let replacement = markdown::block(&quote_path(&options.binary())?);
     let new_instructions = markdown::update(
         old_text,
         (action == "install").then_some(replacement.as_str()),

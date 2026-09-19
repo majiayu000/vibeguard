@@ -66,6 +66,8 @@ User-file permissions remain intact. Reinstall restores all execute bits on prod
 
 Status exit 0 means expected entries, core, and required executable mode bits are present, without local `disableAllHooks: true`. Exit 1 means incomplete/disabled state; exit 2 means inspection error. The executable fields check mode bits, not ACLs or noexec mounts.
 
+`core_present` requires the managed instruction block to match the current core and expected installed binary path. LF/CRLF and a final newline are equivalent; other content differences mean incomplete state, even with paired markers. Text outside the block does not affect this check. Missing or stale content returns exit 1; malformed markers return exit 2. Reinstall restores the current block while preserving unmanaged text.
+
 `host_trust: "not_observed"` remains unknown even after a past call. Other configuration layers, host trust/reloading, and routes outside Bash are outside this diagnosis.
 
 Native installation supports macOS, Linux, and WSL. Windows install/uninstall errors without writes; portable CLI/protocol tests run in Windows CI.
