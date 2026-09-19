@@ -10,8 +10,12 @@ repository = "https://github.com/majiayu000/vibeguard"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
+toml_edit = "0.25.15"
 
 [profile.release]
 opt-level = "z"
 lto = true
 strip = true
+
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+xattr = { version = "1.6.1", default-features = false }

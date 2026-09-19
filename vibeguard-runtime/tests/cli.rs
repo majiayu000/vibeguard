@@ -133,6 +133,109 @@ fn malformed_input_fails_without_leaking_payload() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn codex_feature_install_status_and_uninstall_preserve_user_settings() {
+    for original in [
+        "",
+        "# user note\nmodel = 'user-model'\n[features]\nhooks = false # user comment\nother = true\n",
+        "features.hooks = false\nfeatures.other = true\n",
+        "features = { hooks = false, other = true }\n",
+        "[features]\ncodex_hooks = false\n",
+    ] {
+        let temp = Temp::new();
+        let host_dir = temp.0.join(".codex");
+        fs::create_dir(&host_dir).unwrap();
+        let path = host_dir.join("config.toml");
+        if !original.is_empty() {
+            fs::write(&path, original).unwrap();
+        }
+        let home = temp.0.to_str().unwrap();
+        success(&invoke(&["install", "codex", "--home", home], "", None));
+        let installed = fs::read_to_string(&path).unwrap();
+        let doc = installed.parse::<toml_edit::DocumentMut>().unwrap();
+        assert_eq!(doc["features"]["hooks"].as_bool(), Some(true));
+        if original.contains("other") {
+            assert_eq!(doc["features"]["other"].as_bool(), Some(true));
+        }
+        if original.contains("# user note") {
+            assert!(installed.contains("# user note"));
+            assert!(installed.contains("# user comment"));
+            assert!(installed.contains("model = 'user-model'"));
+        }
+        success(&invoke(&["install", "codex", "--home", home], "", None));
+        assert_eq!(fs::read_to_string(&path).unwrap(), installed);
+        fs::write(&path, "[features]\nhooks = false\n").unwrap();
+        let status = invoke(&["status", "codex", "--home", home], "", None);
+        assert_eq!(status.status.code(), Some(1));
+        assert_eq!(native(&status)["host_hooks_feature_enabled"], false);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "[features]\nhooks = false\n"
+        );
+        success(&invoke(&["install", "codex", "--home", home], "", None));
+        let enabled = fs::read_to_string(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+        // Current Codex defaults to enabled when the feature key is absent.
+        success(&invoke(&["status", "codex", "--home", home], "", None));
+        fs::write(&path, &enabled).unwrap();
+        success(&invoke(&["uninstall", "codex", "--home", home], "", None));
+        assert_eq!(fs::read_to_string(&path).unwrap(), enabled);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn invalid_codex_feature_config_fails_before_installation() {
+    for text in [
+        "[broken",
+        "features = false",
+        "[features]\nhooks = 'false'\n",
+    ] {
+        let temp = Temp::new();
+        fs::create_dir(temp.0.join(".codex")).unwrap();
+        let path = temp.0.join(".codex/config.toml");
+        fs::write(&path, text).unwrap();
+        let output = invoke(
+            &["install", "codex", "--home", temp.0.to_str().unwrap()],
+            "",
+            None,
+        );
+        assert_eq!(output.status.code(), Some(2));
+        assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        assert!(!temp.0.join(".vibeguard").exists());
+        assert!(!temp.0.join(".codex/hooks.json").exists());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn codex_feature_uses_selected_host_directory() {
+    let temp = Temp::new();
+    let custom = temp.0.join("custom-codex");
+    fs::create_dir(&custom).unwrap();
+    fs::write(custom.join("config.toml"), "[features]\nhooks = false\n").unwrap();
+    let output = Command::new(BIN)
+        .args(["install", "codex"])
+        .env("HOME", &temp.0)
+        .env("CODEX_HOME", &custom)
+        .output()
+        .unwrap();
+    success(&output);
+    assert!(!temp.0.join(".codex").exists());
+    assert!(
+        fs::read_to_string(custom.join("config.toml"))
+            .unwrap()
+            .contains("hooks = true")
+    );
+    success(&invoke(
+        &["install", "claude", "--home", temp.0.to_str().unwrap()],
+        "",
+        None,
+    ));
+    assert!(!temp.0.join(".claude/config.toml").exists());
+}
+
 #[test]
 fn native_hooks_preserve_shell_argument_semantics() {
     // Commands are protocol data only; none is executed by a shell.
@@ -311,6 +414,58 @@ fn install_execute_and_uninstall_preserve_user_content() {
             Some(1)
         );
         success(&invoke(&["uninstall", host, "--home", home_arg], "", None));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn status_requires_current_core_content_and_reinstall_repairs_it() {
+    for host in ["claude", "codex"] {
+        let temp = Temp::new();
+        let home = temp.0.to_str().unwrap();
+        let instructions = temp.0.join(format!(".{host}")).join(if host == "codex" {
+            "AGENTS.md"
+        } else {
+            "CLAUDE.md"
+        });
+        success(&invoke(&["install", host, "--home", home], "", None));
+        let current = fs::read_to_string(&instructions).unwrap();
+        let prefix = "User-owned prefix\r\n";
+        let suffix = "User-owned suffix without final newline";
+        for stale in [
+            String::new(),
+            "<!-- vibeguard-core:start -->\n<!-- vibeguard-core:end -->\n".to_string(),
+            current.replace("- U-29: Preserve the operation's error contract.\n", ""),
+            current.replace(".vibeguard/bin/", ".vibeguard/old-bin/"),
+        ] {
+            let edited = format!("{prefix}{stale}{suffix}");
+            fs::write(&instructions, &edited).unwrap();
+            let state = invoke(&["status", host, "--home", home], "", None);
+            assert_eq!(state.status.code(), Some(1), "{host}: {stale}");
+            assert_eq!(native(&state)["core_present"], false);
+            assert_eq!(fs::read_to_string(&instructions).unwrap(), edited);
+            success(&invoke(&["install", host, "--home", home], "", None));
+            let state = invoke(&["status", host, "--home", home], "", None);
+            success(&state);
+            assert_eq!(native(&state)["core_present"], true);
+            let repaired = fs::read_to_string(&instructions).unwrap();
+            assert_eq!(repaired.replace(&current, ""), format!("{prefix}{suffix}"));
+        }
+        for valid in [
+            format!("{prefix}{}{suffix}", current.replace('\n', "\r\n")),
+            current.trim_end_matches('\n').to_string(),
+        ] {
+            fs::write(&instructions, &valid).unwrap();
+            let state = invoke(&["status", host, "--home", home], "", None);
+            success(&state);
+            assert_eq!(native(&state)["core_present"], true);
+            assert_eq!(fs::read_to_string(&instructions).unwrap(), valid);
+        }
+        let malformed = "<!-- vibeguard-core:start -->\nincomplete";
+        fs::write(&instructions, malformed).unwrap();
+        let state = invoke(&["status", host, "--home", home], "", None);
+        assert_eq!(state.status.code(), Some(2));
+        assert_eq!(fs::read_to_string(&instructions).unwrap(), malformed);
     }
 }
 

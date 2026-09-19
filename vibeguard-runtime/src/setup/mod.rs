@@ -125,10 +125,29 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
     };
     validate_config(&config)?;
     let original_config = config.clone();
+    let feature_path = options.host_dir.join("config.toml");
+    let old_features = if options.host == "codex" {
+        read_text(&feature_path)?
+    } else {
+        None
+    };
+    let feature_doc = if options.host == "codex" {
+        Some(
+            old_features
+                .as_deref()
+                .unwrap_or("")
+                .parse::<toml_edit::DocumentMut>()
+                .map_err(|_| format!("{} contains invalid TOML", feature_path.display()))?,
+        )
+    } else {
+        None
+    };
+    let feature_enabled = feature_doc.as_ref().map(codex_hooks_enabled).transpose()?;
     let instructions_path = options.instructions();
     let old_instructions = read_text(&instructions_path)?;
     let old_text = old_instructions.as_deref().unwrap_or("");
-    let core_present = markdown::contains(old_text)?;
+    let replacement = markdown::block(&quote_path(&options.binary())?);
+    let core_present = markdown::matches_block(old_text, &replacement)?;
     let command = options.command()?;
     let specs = hook_specs(&options.host, &command);
     if action == "status" {
@@ -146,19 +165,41 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
             "host": options.host, "config": config_path, "configured": configured,
             "core_present": core_present, "binary_present": binary_present,
             "binary_executable": binary_executable,
+            "host_hooks_feature_enabled": feature_enabled,
             "host_hook_disable_flag": disabled, "host_trust": "not_observed",
             "last_observation": logging::latest(&options.state(), &options.host)?,
             "coverage": "registered Bash events only; not a sandbox or task-verification certificate"
         }))?;
         return Ok(u8::from(
-            !configured || !core_present || !binary_executable || disabled == Some(true),
+            !configured
+                || !core_present
+                || !binary_executable
+                || disabled == Some(true)
+                || feature_enabled == Some(false),
         ));
     }
-    let replacement = markdown::block(&quote_path(&options.binary())?);
     let new_instructions = markdown::update(
         old_text,
         (action == "install").then_some(replacement.as_str()),
     )?;
+    let new_features = if action == "install" {
+        feature_doc.map(|mut doc| {
+            let features = doc
+                .entry("features")
+                .or_insert(toml_edit::Item::Table(toml_edit::Table::new()))
+                .as_table_like_mut()
+                .expect("validated features table");
+            let mut enabled = toml_edit::value(true);
+            if let Some(previous) = features.get("hooks").and_then(toml_edit::Item::as_value) {
+                *enabled.as_value_mut().expect("boolean value").decor_mut() =
+                    previous.decor().clone();
+            }
+            features.insert("hooks", enabled);
+            doc.to_string()
+        })
+    } else {
+        None
+    };
     // Validate inputs and owned regions before writing any installation files.
     prune_own_hooks(&mut config, &command);
     if action == "install" {
@@ -186,6 +227,11 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
             0o600,
         )?;
     }
+    if let Some(text) = new_features
+        && old_features.as_deref() != Some(&text)
+    {
+        write_atomic(&feature_path, text.as_bytes(), 0o600)?;
+    }
     if new_instructions != old_text {
         if new_instructions.is_empty() {
             fs::remove_file(&instructions_path)?;
@@ -209,6 +255,29 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         }
     }))?;
     Ok(0)
+}
+
+fn codex_hooks_enabled(doc: &toml_edit::DocumentMut) -> Result<bool> {
+    let Some(features) = doc.get("features") else {
+        return Ok(true);
+    };
+    let features = features
+        .as_table_like()
+        .ok_or("Codex features must be a TOML table")?;
+    for key in ["hooks", "codex_hooks"] {
+        if features
+            .get(key)
+            .is_some_and(|value| value.as_bool().is_none())
+        {
+            return Err(format!("Codex features.{key} must be a boolean").into());
+        }
+    }
+    // The host still accepts codex_hooks; its canonical hooks key takes precedence.
+    Ok(features
+        .get("hooks")
+        .or_else(|| features.get("codex_hooks"))
+        .and_then(toml_edit::Item::as_bool)
+        .unwrap_or(true))
 }
 
 fn validate_config(config: &Value) -> Result<()> {

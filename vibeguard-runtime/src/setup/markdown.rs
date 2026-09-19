@@ -22,8 +22,9 @@ pub fn update(original: &str, replacement: Option<&str>) -> Result<String> {
     }
 }
 
-pub fn contains(original: &str) -> Result<bool> {
-    Ok(region(original)?.is_some())
+pub fn matches_block(original: &str, expected: &str) -> Result<bool> {
+    // Line endings and a final newline do not change the instruction content.
+    Ok(region(original)?.is_some_and(|range| original[range].lines().eq(expected.lines())))
 }
 
 fn region(text: &str) -> Result<Option<Range<usize>>> {
@@ -71,6 +72,27 @@ fn region(text: &str) -> Result<Option<Range<usize>>> {
 mod tests {
     use super::*;
     #[test]
+    fn current_block_matches_content_with_equivalent_line_endings() {
+        let expected = block("'/current/vibeguard-runtime'");
+        for text in [
+            expected.clone(),
+            expected.replace('\n', "\r\n"),
+            expected.trim_end_matches('\n').to_string(),
+            format!("User notes\n{expected}More notes without final newline"),
+        ] {
+            assert!(matches_block(&text, &expected).unwrap());
+        }
+        for text in [
+            String::new(),
+            format!("{START}\n{END}\n"),
+            expected.replace("/current/", "/previous/"),
+            expected.replace("- U-29: Preserve the operation's error contract.\n", ""),
+        ] {
+            assert!(!matches_block(&text, &expected).unwrap());
+        }
+        assert!(matches_block(START, &expected).is_err());
+    }
+    #[test]
     fn preserves_exact_unmanaged_bytes() {
         let original = "# User notes\r\nCustom instruction without final newline";
         let managed = block("vibeguard-runtime");
@@ -87,7 +109,7 @@ mod tests {
             format!("Example mentions {START} inline."),
             format!("~~~\n{START}\n{END}\n~~~"),
         ] {
-            assert!(!contains(&original).unwrap());
+            assert!(!matches_block(&original, &block("vibeguard-runtime")).unwrap());
             assert_eq!(update(&original, None).unwrap(), original);
         }
     }

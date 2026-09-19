@@ -56,13 +56,17 @@ Binary: `~/.vibeguard/bin/vibeguard-runtime`. Observations: `~/.vibeguard/state/
 
 Unrelated JSON fields/handlers are preserved semantically; formatting may change. Markdown bytes outside standalone `vibeguard-core:start/end` markers are preserved, including CRLF and no final newline. Fenced examples are ignored. Incomplete/duplicate blocks fail before mutation.
 
+Codex installation also sets `[features].hooks = true` in the selected Codex directory's `config.toml`, preserving unrelated TOML settings and comments. Invalid TOML or a non-boolean hooks flag fails before installation writes. Uninstall leaves this shared host feature enabled for other hooks. Status reads the local feature setting (including the host's `codex_hooks` alias); absent settings use Codex's current enabled default. An explicit false setting makes status incomplete. This does not inspect higher-priority configuration or administrator requirements and cannot establish effective host permission or trust. See [Codex hooks](https://learn.chatgpt.com/docs/hooks#turn-hooks-off).
+
 Nonregular target files, symlink targets, malformed JSON, and invalid UTF-8 are rejected. Configuration and instructions are validated before copying the binary. Individual writes are atomic; installation is not a multi-file transaction. I/O errors can leave a visible partial install: resolve the error, reinstall, and check status. Directory symlinks are not a sandbox boundary.
 
-User-file permissions remain intact. Reinstall restores all execute bits on product-owned executable files. Only exact managed hook commands/current blocks are removed; no legacy migration. Git refuses a user-managed pre-push file. Uninstall retains the shared binary and unrelated configuration.
+On macOS and Linux, replacement of an existing user file preserves its owner, group, mode, ACL, and extended attributes exposed by the operating system to the current user. Metadata is copied onto the temporary file before the atomic rename. A metadata read/copy error aborts that replacement and leaves the original file intact; it does not roll back earlier installation writes. Replacement does not retain an ACL inherited by the temporary file when the original had none. Reinstall restores all execute bits on product-owned executable files. Only exact managed hook commands/current blocks are removed; no legacy migration. Git refuses a user-managed pre-push file. Uninstall retains the shared binary and unrelated configuration.
 
 ## Status and platforms
 
 Status exit 0 means expected entries, core, and required executable mode bits are present, without local `disableAllHooks: true`. Exit 1 means incomplete/disabled state; exit 2 means inspection error. The executable fields check mode bits, not ACLs or noexec mounts.
+
+`core_present` requires the managed instruction block to match the current core and expected installed binary path. LF/CRLF and a final newline are equivalent; other content differences mean incomplete state, even with paired markers. Text outside the block does not affect this check. Missing or stale content returns exit 1; malformed markers return exit 2. Reinstall restores the current block while preserving unmanaged text.
 
 `host_trust: "not_observed"` remains unknown even after a past call. Other configuration layers, host trust/reloading, and routes outside Bash are outside this diagnosis.
 
