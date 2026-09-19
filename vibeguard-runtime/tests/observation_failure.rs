@@ -96,7 +96,11 @@ fn denied_calls_keep_the_native_policy_decision() {
     let state = dir.blocked_state();
     for host in ["claude", "codex"] {
         // This is JSON input to a recognizer. No Git cleanup command is executed.
-        let value = warning(&invoke(host, &state, &payload("PreToolUse", "git clean -fd")));
+        let value = warning(&invoke(
+            host,
+            &state,
+            &payload("PreToolUse", "git clean -fd"),
+        ));
         assert_eq!(value["hookSpecificOutput"]["hookEventName"], "PreToolUse");
         assert_eq!(value["hookSpecificOutput"]["permissionDecision"], "deny");
         assert!(
