@@ -17,9 +17,18 @@ pub fn run(args: &[String]) -> Result<u8> {
     };
     let input: Value =
         serde_json::from_str(&read_stdin()?).map_err(|_| "hook input must be valid JSON")?;
-    let (output, outcome, exit_code) = evaluate(host, &input)?;
-    if let Some(state_dir) = state_dir {
-        logging::record(state_dir, host, &input, outcome, exit_code)?;
+    let (mut output, outcome, exit_code) = evaluate(host, &input)?;
+    if let Some(state_dir) = state_dir
+        && let Err(error) = logging::record(state_dir, host, &input, outcome, exit_code)
+    {
+        // Observations are optional diagnostics, not an authorization gate.
+        // Exit 2 would block an otherwise valid PreToolUse call and can replace
+        // a completed tool result in Codex. Preserve the evaluated decision.
+        eprintln!("VibeGuard: could not save optional observation: {error}");
+        let output = output.get_or_insert_with(|| json!({}));
+        output["systemMessage"] = json!(
+            "VibeGuard could not save its optional local observation. The tool policy decision is unchanged; status may show an older observation."
+        );
     }
     if let Some(output) = output {
         print_json(&output)?;
