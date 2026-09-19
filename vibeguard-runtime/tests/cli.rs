@@ -134,6 +134,49 @@ fn malformed_input_fails_without_leaking_payload() {
 }
 
 #[test]
+fn native_hooks_preserve_shell_argument_semantics() {
+    // Commands are protocol data only; none is executed by a shell.
+    for host in ["claude", "codex"] {
+        for (command, blocked) in [
+            ("rm -rf '$HOME'", false),
+            ("rm -rf '~'", false),
+            ("rm -rf \"$HOME\"", true),
+            ("rm -rf '/etc'", true),
+            ("git clean -fd -- -n", true),
+            ("git clean --force -d", true),
+            ("git clean -f --no-force", false),
+            ("git clean -nf --no-dry-run", true),
+            ("git clean -f -e -n", true),
+            ("git clean -f > '-n'", true),
+            ("git clean -f >'-n'", true),
+            ("git clean -f >out -n", false),
+            ("git 'clean' -f", true),
+            ("git clean -nfd", false),
+            ("echo ok;# note; git clean -fd", false),
+            ("cat <<'EOF'\ngit clean -fd\nEOF", false),
+            ("printf '%s' '名前; git clean -fd'", false),
+        ] {
+            let output = invoke(
+                &["hook", host],
+                &payload("PreToolUse", command).to_string(),
+                None,
+            );
+            success(&output);
+            assert!(output.stderr.is_empty(), "{host}: {command}");
+            if blocked {
+                assert_eq!(
+                    native(&output)["hookSpecificOutput"]["permissionDecision"],
+                    "deny",
+                    "{host}: {command}"
+                );
+            } else {
+                assert!(output.stdout.is_empty(), "{host}: {command}");
+            }
+        }
+    }
+}
+
+#[test]
 fn observations_record_only_reported_outcomes_and_never_raw_commands() {
     let temp = Temp::new();
     let path = temp.0.to_str().unwrap();
