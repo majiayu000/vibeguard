@@ -1,143 +1,45 @@
-# Common Behavioral Constraints
+# General coding rules
 
-## U-01: Respect the requested API contract (strict)
-Preserve public APIs unless the requested change includes changing them. Use the project's versioning policy; do not demand a version bump or compatibility layer for every authorized breaking change.
+These rules apply within the user's requested scope. They guide review; they are not universal runtime gates.
 
-## U-02: Do not extract abstractions for code that appears only once (strict)
-Three lines of duplication are better than one premature abstraction. Wait until the third repetition before extracting.
+## U-01: Respect the requested contract (strict)
+Preserve the API, response shape and externally observable behavior that the task requires. When the user authorizes a breaking change, update the affected consumers directly; do not add compatibility layers unless requested.
 
-## U-03: Do not replace readable duplication with macros (strict)
-Macros reduce readability and IDE support. Only use them when repetition appears in more than five places and the pattern is truly identical.
+## U-02: Extract abstractions for a concrete shared responsibility (guideline)
+Choose an abstraction when it makes the current behavior easier to understand, change or verify. Similar syntax and repetition counts do not prove shared semantics. Readable duplication, macros and direct field copying can all be appropriate.
 
-## U-04: Do not add features the user did not ask for (strict)
-Keep bug-fix scope tight. Do not refactor surrounding code "while you are here."
+## U-04: Keep changes within the authorized task (strict)
+Complete the requested work without adding unrelated features, renames, formatting or architectural cleanup. Broad refactoring is appropriate when explicitly requested. Do not turn incidental observations into additional work.
 
-## U-05: Do not delete code that merely looks unused without confirming first (strict)
-It may be a work-in-progress feature. Mark it as DEFER instead of deleting it blindly.
+## U-05: Establish ownership and consumers before deleting code (guideline)
+Check references, exports, public entrypoints and the task's intended outcome before calling code unused. Delete it when the evidence and existing authorization support deletion; ask only when an unresolved contract would change that decision.
 
-## U-06: Do not add dependencies for problems the standard library can solve (strict)
-Use the standard library first. Avoid dependency bloat.
+## U-06: Choose dependencies by the actual requirement (guideline)
+Prefer suitable existing code and standard-library facilities. Consider correctness, security, maintenance and deployment costs before adding a dependency. Avoid reimplementing cryptography or complex parsers merely to avoid a dependency.
 
-## U-07: Do not change code style while fixing behavior (strict)
-Style-only edits should be a separate commit.
+## U-10: Clarify material uncertainty and exercise routine judgment (strict)
+Ask when missing facts materially change scope, authorization or correctness. Reuse answers and authorization already provided. Resolve routine implementation choices from the repository and task instead of repeatedly requesting permission.
 
-## U-08: Do not skip verification steps (strict)
-See W-03 and W-16 for canonical verification guidance. U-08 keeps the compatibility-level principle: a fix is not complete until focused lint, test, or check evidence for the changed surface was produced in the current session.
+## U-16: Review responsibility rather than file length (guideline)
+Split a file when its responsibilities hinder the requested change or verification. Line counts alone do not establish a defect or authorize a refactor. A project may use its own explicit lint limits; VibeGuard has no global size threshold.
 
-## U-09: Do not bundle unrelated fixes into one commit (strict)
-Keep commits atomic so they are easy to review and revert.
+## U-18: Validate data at its trust boundary (strict)
+Validate untrusted input against the actual contract before relying on it. Make missing or malformed required data visible. Avoid repeating the same validation through internal layers that already share a trusted representation.
 
-## U-10: Do not guess user intent (strict)
-If the intent is unclear, mark it as DEFER or ask the user to clarify.
+## U-19: Follow existing data-access boundaries (guideline)
+Use the project's established ownership and access patterns. Do not introduce a Repository layer, service or cache abstraction unless the current requirement needs it.
 
-## U-15: Prefer immutability (guideline)
-Create new objects instead of mutating existing ones. Treat function parameters as read-only.
+## U-21: Follow the project's commit convention (guideline)
+When asked to commit, group coherent changes and follow the repository's convention. Keep unrelated work out of the commit. This rule does not itself request a commit or require separate commits for every mechanical change.
 
-## U-16: Keep file size under control (guideline)
-**Compact guidance:** Keep the project's configured size limits (defaults: 400-line advisory, 800-line hard limit). Existing oversized files may be edited without growth; do not refactor unrelated code to pass the guard.
-Use the project's configured limit when present. Block new oversized files, crossings of the limit, and growth of existing oversized files. Allow equal-size edits and reductions of legacy oversized files.
+## U-22: Select checks for the changed behavior (strict)
+Use the project's commands and the change's risk to select meaningful verification. Cover changed contracts and likely regressions. Do not manufacture tests for low-impact edits, repeat passing checks without new evidence, or impose universal coverage percentages.
 
-**When blocked**:
-1. Search for an existing module that owns the added behavior and reuse it when appropriate.
-2. If the change exposes an independent responsibility, extract only that responsibility and verify behavior.
-3. If there is no sensible in-scope split, report the current and proposed line counts and propose an explicit file-specific limit for the owner to decide. Reuse existing authorization; do not raise the limit merely to pass this check.
+## U-26: Connect promised behavior to real consumers (strict)
+When changing configuration, persistence or an interface, check the actual lifecycle and consumers needed for the promised behavior. Valid defaults, lazy initialization, delegated effects and shutdown-time persistence are legitimate. Names or startup text alone cannot prove integration.
 
-The existing project-root `CLAUDE.md` syntax is `U-16 exempt` followed by a backtick-quoted path and a numeric limit, for example:
+## U-32: Review conflicting or irrelevant instructions (guideline)
+When instruction problems affect a task, identify conflicting requirements, duplication, broad triggers and outdated facts. A file inventory is not proof of what the model loaded. Do not judge quality by rule counts or create another policy engine.
 
-```text
-U-16 exempt `<project-relative-source-file>` 1100
-```
-Explain the reason alongside a narrowly scoped exception.
-
-**FIX / SKIP**: Fix new oversized files and over-limit growth through relevant decomposition or an explicitly authorized limit. Skip unrelated refactoring for equal-size or shrinking legacy files. Advisory output alone does not require a plan or acknowledgement.
-Never compress statements, remove useful comments, or create arbitrary helper files just to meet the line count. Small increments and repeated edits do not earn an automatic growth allowance.
-
-## U-17: Handle errors completely (strict)
-**Compact guidance:** Handle errors completely. Do not swallow exceptions silently.
-See U-29 for canonical error-handling guidance. U-17 keeps the compatibility-level principle: do not swallow exception or error paths; surface user-visible failures at error level or raise.
-
-## U-18: Validate inputs (guideline)
-Validate all user input at system boundaries. Internal code can trust framework guarantees.
-
-## U-19: Follow the project's data-access boundaries (guideline)
-Use the project's established data-access pattern. Add a Repository layer only when the requested design needs one; a database call alone does not require a new abstraction.
-
-## U-20: Keep API response shapes consistent (guideline)
-Follow the existing API contract and error conventions. Do not impose a universal response envelope or add an error-code registry unless the project requires it.
-
-## U-21: Follow the project's commit convention (strict)
-Explain why the change exists and follow the repository's commit format. Include Lore trailers only when that repository explicitly requires them; do not impose them on every project.
-
-## U-22: Verify changed behavior (strict)
-**Compact guidance:** Use the project's coverage policy and meaningful checks for changed behavior; no universal percentage or file-count quota.
-Cover changed behavior, important failure paths, and regressions with the project's existing tests and tools. Preserve explicit coverage targets and test-first requirements. Documentation, configuration, and mechanical edits need checks appropriate to their actual effect, not tests that mirror the implementation.
-
-**Mechanical checks (agent execution rules):**
-- Run the relevant existing checks and report gaps precisely.
-- Add regression coverage when needed to prove the changed behavior.
-- Do not require a matching test filename for each source file or a new test solely because a refactor touched a fixed number of files.
-- Preserve test integrity and update affected fixtures when the requested behavior changes.
-
-## U-23: No silent degradation (strict)
-See U-29 for canonical no-silent-degradation guidance. Unsupported strategies or configurations must fail explicitly or be marked as DEFER; do not invent default fallback semantics.
-
-## U-24: Keep naming changes within scope (guideline)
-Follow the project's naming and compatibility policy. Remove obsolete aliases when that is part of the authorized change; do not rename unrelated APIs, commands, or directories simply because an alias exists.
-
-## U-25: Resolve build failures at a coherent change boundary (strict)
-**Compact guidance:** Complete the related edits, then run the project's verification command and fix failures introduced by the change before claiming completion.
-Cross-file changes may temporarily fail to build. Finish the coherent change before evaluating it; do not interrupt every edit with a guessed language-wide build command.
-
-**FIX / SKIP**: Fix failures introduced by the requested change. For pre-existing failures or missing environment prerequisites, report the evidence and impact on verification; do not expand into unrelated repairs. Never present a failing or unrun check as passed.
-
-## U-26: Declaration-execution completeness (strict)
-**Compact guidance:** Verify that a promised feature is connected to its actual consumers and lifecycle.
-A config, trait, persistence method, or state field only needs the integration required by the requested behavior and the project's architecture. A trait does not inherently need a startup registry; defaults and lazy loading can be intentional.
-
-**FIX / SKIP**: Trace the changed behavior from entry point to observable result and repair missing connections. Verify restoration when persistence across restarts is promised. Skip registries, startup loaders, and infrastructure that the feature does not require.
-
-## U-32: Review instruction overload (guideline)
-Treat instruction counts as a file-based estimate, not proof of runtime loading, semantic conflict, or task failure. The automatic hook is advisory in every profile, including strict.
-
-**Review guidance:**
-- Identify the actual conflicting or irrelevant instruction and the task it affects before proposing edits.
-- Preserve owner requirements. A long, coherent instruction set does not automatically need splitting.
-- Keep low-frequency details in the existing source or a relevant skill; do not create another policy layer solely to lower a count.
-- State separately what is present, configured for discovery, and observed loaded.
-- Continue authorized work when no substantive conflict blocks it. Do not rewrite global instructions merely to clear a numeric threshold.
-
-**Inspection tools:**
-Run `bash hooks/count_active_constraints.sh` for advisory context, or `python3 scripts/constraints/count_active_constraints.py --root . --include-canonical-rules --gc-report` for a maintainer inventory. Thresholds identify candidates for review. A maintainer may explicitly choose the offline `--fail-on-block` budget check; automatic task hooks never impose that choice.
-
-## U-33: Code search defaults to glob/grep; large codebases require structural navigation (strict)
-
-For agent code retrieval, plain glob/grep driven by the model remains the default for small and medium single-repository work. When the codebase is at least 400K lines of code or the task spans repositories, lexical search alone must be augmented with structural navigation before escalating to vector DB or RAG.
-
-**Sources** (multi-source convergence, updated 2026-05-18):
-- Boris Cherny (Anthropic Claude Code lead), Pragmatic Engineer interview, 2026-03-04: "plain glob and grep, driven by the model, beat everything." Anthropic explicitly rejected local vector DB and recursive model-based indexing in production due to stale-index and permission-complexity problems.
-- Sebastian Raschka, "Components of a Coding Agent" (2026-04-04): file tools listed as the canonical retrieval primitive in the 6-component agent framework; states "much of apparent model quality is really context quality."
-- LangChain, "How agents can use filesystems for context engineering" (2026-04-27): cites Claude Code, Manus, and Deep Agents as production examples of filesystem-as-context.
-- zilliztech/claude-context (TypeScript, 9884 stars, last updated 2026-04-28, verified via `gh api repos/zilliztech/claude-context`): production MCP that exposes the codebase via filesystem-style traversal rather than as an embedding index.
-- Sourcegraph, "Why coding agents fail in large codebases (and what to do about it)" (2026-05-08): CodeScaleBench found agents with only local tools begin to struggle systematically above roughly 400K LOC; code intelligence tools had a +0.259 reward delta in the 400K-2M LOC band, with structural navigation called out as the fix for wrong-symbol and lost-in-codebase failures.
-
-**Mechanical checks (agent execution rules)**:
-- When designing a code-retrieval feature for an agent, the default tool set for small and medium single-repository work must be `ls`, `glob`, `grep`, `rg`, `find`, plus repository-aware variants (`git grep`, `gh search code`).
-- At session start, estimate effective project size with existing project inventory, `tokei`, `cloc`, or an equivalent method when the task may exceed one package or repository; generated, vendored, and dependency code may be excluded if the exclusion is documented.
-- If the effective codebase is at least 400K LOC, add structural navigation to the retrieval plan: go-to-definition, find-references, type hierarchy, symbol search, code graph, or MCP-exposed code-intelligence tools.
-- Multi-repository tasks must include cross-repository reference lookup, or explicitly report that cross-repo code intelligence is unavailable.
-- If the agent or the user proposes adding a vector DB, embedding index, or RAG layer to a coding agent, require a one-paragraph justification covering: (1) the specific retrieval task glob/grep cannot solve; (2) the staleness/permission strategy for the index; (3) cost and latency vs grep on the same workload.
-- Reject "grep failed, so we need vector DB" arguments unless structural navigation was tried first or was explicitly unavailable.
-- Cross-language semantic search (e.g. "find the function that loads YAML config across Go and Python files") may justify a vector DB; same-repo lexical or symbol search does not.
-- More than 50 keyword or grep-style searches on one task is retrieval thrashing; stop, reassess the search strategy, and switch to structural navigation or report the missing code-intelligence capability before continuing.
-
-**Downgrade path** (U-32 compliance):
-If the project already ships a vector DB and removing it is out of scope, mark the existing component as `legacy: vector-db` in the README or architecture doc and require the justification at the next significant change to retrieval logic. If a large or multi-repo codebase has no LSP, code graph, or code-intelligence tool available, report degraded retrieval instead of treating grep-only exploration as satisfying this rule. Small single-package fixes do not require a full LOC census.
-
-**Relation to U-19** (Repository pattern):
-U-19 covers business data access via a Repository abstraction. U-33 explicitly carves out agent code retrieval as a domain where wrapping a vector DB in a Repository layer is an anti-pattern, not best practice — the Unix toolset is the abstraction.
-
-**Anti-patterns**:
-- "We need semantic search for the codebase" — almost always means grep plus disciplined naming, and then structural navigation at large scale, were never tried.
-- Building an embedding index because "it feels faster" without measuring grep cost on the actual codebase.
-- Re-indexing on every commit to fight staleness; grep has no staleness because it reads the live tree.
-- Treating "RAG" as the default architecture for any retrieval problem, including code.
+## U-33: Choose navigation for the current search (guideline)
+Use text search, symbol navigation or an index according to the question and repository. Start with available tools and inspect the relevant evidence. Repository size or search count does not mandate a vector database, structural index or new service.

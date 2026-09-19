@@ -1,5 +1,0 @@
-{
-  "tool_input": {
-    "command": "rm -rf $HOME"
-  }
-}

@@ -1,83 +1,25 @@
 name: False Positive Report
-description: Report a VibeGuard hook or rule finding that should not have fired
+description: Report a native check that blocked a legitimate operation
 labels: ["false positive"]
 body:
-  - type: markdown
-    attributes:
-      value: |
-        Use `python3 scripts/report-false-positive.py <event-id> --event-log ~/.vibeguard/events.jsonl` to generate a redacted report body when possible.
-
   - type: input
-    id: event-id
+    id: version
     attributes:
-      label: Event ID or Code
-      description: Stable `VG-*` event id/code or bracketed rule id shown in hook output.
-      placeholder: "VG-POLICY-RS03-DOC-EXAMPLE"
+      label: Runtime and host versions
+      description: Include vibeguard-runtime --version, Codex or Claude Code version, and operating system.
     validations:
       required: true
-
-  - type: input
-    id: hook
+  - type: textarea
+    id: reproduction
     attributes:
-      label: Hook
-      description: Hook that produced the finding.
-      placeholder: "post-edit-guard"
+      label: Minimal reproduction
+      description: Include a sanitized proposed Bash command or Git ref update. Do not include credentials or private paths. Do not execute destructive commands to reproduce a classifier report.
     validations:
       required: true
-
-  - type: input
-    id: rule-id
-    attributes:
-      label: Rule ID
-      description: Canonical rule id, if available.
-      placeholder: "RS-03"
-    validations:
-      required: false
-
-  - type: input
-    id: path
-    attributes:
-      label: Path
-      description: Project-relative path that triggered the finding.
-      placeholder: "docs/examples/demo.rs"
-    validations:
-      required: true
-
   - type: textarea
     id: output
     attributes:
-      label: Redacted Hook Output
-      description: Paste the redacted block/warn output. Do not include secrets, tokens, or private customer data.
-      render: shell
+      label: Actual and expected behavior
+      description: Include the native denial or pre-push error and explain why the operation is legitimate. Rules are review topics; v2 has no scoped-suppression configuration.
     validations:
       required: true
-
-  - type: textarea
-    id: remediation-context
-    attributes:
-      label: Why This Is a False Positive
-      description: Explain the expected behavior, why the code is acceptable, and whether a scoped suppression is requested.
-      placeholder: "This is documentation/test fixture code showing an intentionally unsafe pattern."
-    validations:
-      required: true
-
-  - type: textarea
-    id: scoped-suppression
-    attributes:
-      label: Proposed Scoped Suppression
-      description: Optional `.vibeguard.json` snippet using hook + rule_id + path + action + reason.
-      render: json
-      placeholder: |
-        {
-          "scoped_suppressions": [
-            {
-              "hook": "post-edit-guard",
-              "rule_id": "RS-03",
-              "path": "docs/examples/**",
-              "action": "downgrade_to_warn",
-              "reason": "documentation intentionally shows unwrap"
-            }
-          ]
-        }
-    validations:
-      required: false

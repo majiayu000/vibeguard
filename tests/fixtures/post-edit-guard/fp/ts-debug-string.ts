@@ -1,1 +1,0 @@
-const msg = "use console.log for debugging";

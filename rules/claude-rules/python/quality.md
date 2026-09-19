@@ -1,45 +1,23 @@
 ---
-paths: **/*.py,**/pyproject.toml,**/setup.py
+paths: **/*.py,**/pyproject.toml
 ---
 
-# Python Quality Rules
+# Python review and tooling
 
-## PY-01: Mutable default parameters (high)
-`def f(x=[])` shares state across calls. Fix: use `def f(x=None): if x is None: x = []`.
-
-## PY-02: Bare `except` blocks (medium)
-`except:` or `except Exception` without logging or re-raising. Fix: catch a concrete exception type and pair it with logging or a re-raise.
+## PY-01: Check unintended mutable defaults (high)
+Use Ruff B006 to find shared mutable parameter defaults. Confirm whether shared state was intentional before changing it. The automatic fix can change behavior; do not mechanically replace every default with None.
 
 ## PY-03: Consider concurrency for independent async work (guideline)
-Parallelize independent operations when it improves the current task and respects rate limits, ordering, and resource ownership. Sequential `await` is correct when operations depend on one another or intentionally limit concurrency.
-Fix: use bounded concurrency only after establishing independence. Skip changes based solely on an `await` appearing inside a loop.
+Parallelize only when operations are independent and ordering, rate limits, cancellation and resource ownership permit it. Sequential await can be correct. Trigger this review for relevant scheduling or performance work, not every async function.
 
-## PY-04: God class larger than 500 lines (medium)
-More than 10 public methods. Fix: split the class into smaller single-responsibility classes, extract mixins, or create dedicated services.
+## PY-08: Review dynamic execution at the trust boundary (high)
+Check whether untrusted input can reach eval, exec or a dynamic import with unintended authority. The presence of __import__ alone does not establish a vulnerability. Ruff S307/S102 can identify candidates but do not prove exploitability or isolation.
 
-## PY-05: Repeated try/except patterns across many locations (medium)
-Fix: extract a shared error-handler function or decorator.
+## PY-09: Review mixed responsibilities and difficult control flow (guideline)
+Refactor functions or classes when their responsibilities or control flow hinder the requested change and verification. Lines, public-method counts and nesting depth alone do not justify extracting services, mixins or helpers. Keep clear traversals intact.
 
-## PY-06: Rebuilding regexes inside loops (low)
-Fix: precompile with `re.compile()` at module load or object initialization time and reuse the compiled pattern in the loop.
+## PY-11: Make file ownership and cleanup explicit (guideline)
+Use a context manager where the current scope owns the file lifetime; Ruff SIM115 can identify candidates. Returning a handle, transferring ownership or using ExitStack can be legitimate. Do not close a resource before its owner is finished.
 
-## PY-07: String concatenation inside loops (low)
-Fix: collect pieces into a list and use `''.join(parts)`.
-
-## PY-08: Use of `eval()`, `exec()`, or `__import__()` (high)
-This dynamically executes untrusted code. Fix: replace with a safer alternative. If dynamic execution is unavoidable, strictly constrain the input source and execution environment.
-
-## PY-09: Review functions with mixed responsibilities (guideline)
-Length is a review signal, not a reason to extract helpers by itself. Split a function when distinct responsibilities make the requested change harder to understand or verify; preserve a readable cohesive sequence.
-
-## PY-10: Nesting deeper than 4 levels (medium)
-Fix: use guard returns to exit early, or extract the inner block into a dedicated function.
-
-## PY-11: File operations without a `with` context manager (medium)
-Fix: convert every open call to `with open(...) as f:`.
-
-
-
-## PY-13: Dead compatibility shim (medium)
-A file that only re-exports symbols from another module and adds no behavior should be removed after migration is complete.
-Fix: update imports to point at the canonical module path, then delete the stale shim once no callers remain.
+## PY-13: Remove shims only after checking their contract (guideline)
+Before deleting a forwarding module, establish that the relevant migration and callers are updated and that it is not a public entrypoint. Pure re-export syntax is only a clue, not proof that the module is dead.

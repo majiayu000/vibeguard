@@ -1,70 +1,21 @@
-# Directory Map
+# Directory map
 
-VibeGuard keeps runtime and installable source directories at the repository root because those paths are part of the public install, documentation, and CI contract. Internal research and planning material lives under `docs/internal/` so it does not look like product surface area.
+| Path | Ownership |
+|---|---|
+| `vibeguard-runtime/src/` | Rust CLI, native protocol, Bash/Git checks, observations, installer |
+| `vibeguard-runtime/tests/` | Executable regression tests with temporary homes/repositories |
+| `rules/claude-rules/` | Canonical rule text for both hosts; the path does not imply a Claude dependency |
+| `rules/rule-descriptions.json` | Generated catalog embedded at compile time |
+| `claude-md/vibeguard-rules.md` | Generated compact core embedded at compile time |
+| `scripts/generate_rule_docs.py` | Sole rule generator |
+| `scripts/ci/` | Current rule, documentation, and binary checks |
+| `tests/` | Python tooling regression tests |
+| `plugins/vibeguard/` | Optional Codex help skill, no second runtime or installer |
+| `eval/` | Reproducible task fixture and evaluation protocol |
+| `docs/` | Current user and runtime documentation |
+| `plan/` | Accepted design and audit, not an automatic backlog |
+| `.github/workflows/` | CI and tagged-release automation |
 
-## Product Core
+Old guards, wrapper, schemas, workflows, generated skills, and observability products are retired. History remains in Git. Do not restore retired validators solely to satisfy old tests.
 
-| Path | Role |
-|------|------|
-| `rules/claude-rules/` | Canonical native rule source. Generated/reference surfaces must follow this source. |
-| `hooks/` | Runtime hook scripts and hook adapters. Installed as part of the VibeGuard runtime snapshot. |
-| `guards/` | Static guard scripts for universal and language-specific checks. |
-| `schemas/` | Install/runtime contracts and project schema definitions. |
-| `scripts/setup/`, `setup.sh` | Public setup entrypoint and target-specific install adapters. |
-| `scripts/lib/` | Shared install/runtime helpers. |
-| `vibeguard-runtime/` | Required Rust runtime for hook-side JSON, metrics, package-rewrite logic, and the Codex app-server wrapper. |
-
-## Workflow Surface
-
-| Path | Role |
-|------|------|
-| `.claude/commands/` | Claude slash command source installed into `~/.claude/commands/`. |
-| `.claude/skills/` | Repo-local maintainer skills for this repository. They are validated by skill-format checks but are not installable product skills unless promoted into `skills/` or `workflows/` and declared in `schemas/install-modules.json`. |
-| `agents/` | Claude agent prompt source installed into `~/.claude/agents/`. |
-| `skills/` | Claude-only evaluation and retrieval skills declared by the install manifest. |
-| `workflows/` | Shared references used by command workflows; no user-level Codex skills are installed from this directory. |
-| `context-profiles/` | Claude context profiles installed into `~/.claude/context-profiles/`. |
-| `templates/` | Project and language templates copied or referenced by setup and docs. |
-| `claude-md/` | Text injected into user-level Claude memory during setup. |
-| `.agents/plugins/`, `plugins/vibeguard/` | Repo-local Codex App marketplace entry and plugin wrapper. The plugin exposes observability dashboard, setup/status, doctor, and metrics commands; `setup.sh` remains the hook installer. |
-
-## Verification And Release
-
-| Path | Role |
-|------|------|
-| `tests/` | Shell and unit regression tests for hooks, guards, setup, and contracts. |
-| `eval/` | Evaluation samples and runner for rule compliance checks. |
-| `scripts/ci/` | CI contract and static validation scripts. |
-| `scripts/constraints/` | Constraint inventory and recommendation helpers used by guard and budget checks. |
-| `scripts/doctors/` | Maintainer diagnostics for supported agent runtimes and local installations. |
-| `scripts/gc/` | Scheduled and on-demand cleanup, digest, and maintenance helpers. |
-| `scripts/learn/` | Learning analysis, adoption, and trajectory helpers used by the learning workflow. |
-| `scripts/metrics/` | Metrics collection and Prometheus-format export helpers. |
-| `scripts/release/` | Release payload manifest and deterministic payload packaging helper. |
-| `scripts/verify/` | Local verification and freshness checks. |
-| `scripts/systemd/` | Linux user-service templates for scheduled VibeGuard maintenance. |
-| `.github/` | GitHub Actions workflows, issue templates, and PR template. |
-| `data/` | Versioned seed/example files for rule precision tooling; mutable triage, scorecard, and benchmark outputs are ignored. |
-
-## Documentation And Internal Notes
-
-| Path | Role |
-|------|------|
-| `README.md`, `docs/README_CN.md` | Public product entrypoints. |
-| `docs/rule-reference.md`, `docs/reference/observability-harness.md` | Public generated rule/guard summary and local observability contract. |
-| `docs/how/`, `docs/reference/`, `docs/known-issues/` | Public or maintainer-facing explanations that describe current behavior. |
-| `docs/specs/` | Maintained cross-cutting specs plus an outcome index for closed issue packets archived in Git history. |
-| `docs/directory-guidance.md` | Canonical source for generated repository-scoped `CLAUDE.md` files. |
-| `docs/reference/process-artifacts.md` | Policy separating committable product contracts from ignored session/process output. |
-| `docs/assets/` | Demo media and scripts used by public docs. |
-| `site/` | Static landing site deployed by GitHub Pages. |
-| `docs/internal/` | Research notes, historical specs, benchmark designs, and cross-session follow-ups. |
-| `plan/` | Workflow output directory with mixed active, completed, draft, snapshot, and signal files. Read `plan/README.md` before treating any file as backlog; do not move files until plan workflow specs change. |
-
-## Change Rules
-
-- Do not move product core or workflow surface directories without updating `schemas/install-modules.json`, setup targets, docs, and contract tests in the same change.
-- Prefer moving historical or research-only material under `docs/internal/` before changing public runtime paths.
-- Do not restore closed `docs/specs/GH*` packets; use their index entry and Git history.
-- Edit scoped Claude guidance in `docs/directory-guidance.md`, then regenerate it with `python3 scripts/generate_directory_guidance.py`.
-- After path changes, run the manifest and documentation validators before claiming completion.
+See [installed paths and ownership](runtime-contract.md) and [verification commands](../CONTRIBUTING.md).

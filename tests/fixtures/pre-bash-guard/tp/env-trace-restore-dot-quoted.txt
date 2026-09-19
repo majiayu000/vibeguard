@@ -1,1 +1,0 @@
-env GIT_TRACE=1 git restore "."
