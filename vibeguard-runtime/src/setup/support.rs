@@ -4,6 +4,10 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[path = "metadata.rs"]
+mod metadata;
+
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub fn read_optional(path: &Path) -> Result<Option<Vec<u8>>> {
@@ -26,11 +30,11 @@ pub fn read_text(path: &Path) -> Result<Option<String>> {
 }
 
 pub fn write_atomic(path: &Path, content: &[u8], new_mode: u32) -> Result<()> {
-    let original_permissions = match fs::symlink_metadata(path) {
+    let original = match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
             return Err(format!("{} must be a regular file", path.display()).into());
         }
-        Ok(metadata) => Some(metadata.permissions()),
+        Ok(_) => Some(fs::File::open(path)?),
         Err(error) if error.kind() == io::ErrorKind::NotFound => None,
         Err(error) => return Err(error.into()),
     };
@@ -53,10 +57,21 @@ pub fn write_atomic(path: &Path, content: &[u8], new_mode: u32) -> Result<()> {
         let _ = new_mode;
         let mut file = options.open(&temp)?;
         created = true;
-        if let Some(permissions) = original_permissions {
-            fs::set_permissions(&temp, permissions)?;
-        }
         file.write_all(content)?;
+        if let Some(original) = &original {
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            metadata::copy(original, &file).map_err(|error| {
+                io::Error::new(
+                    error.kind(),
+                    format!(
+                        "could not preserve metadata for {}: {error}",
+                        path.display()
+                    ),
+                )
+            })?;
+            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+            file.set_permissions(original.metadata()?.permissions())?;
+        }
         file.sync_all()?;
         drop(file);
         fs::rename(&temp, path)?;
