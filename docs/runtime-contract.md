@@ -16,7 +16,9 @@ Policy denial uses native JSON with exit 0. Exit 2 denotes runtime/protocol erro
 
 The Bash recognizer masks comments, quoted data, and supported heredoc bodies. It recognizes bulk `git checkout/restore .`, forced `git clean` except dry-run, and selected forced recursive removal of root/home/system paths. It does not interpret arbitrary shell grammar, scripts, aliases, substitutions, variables generally, or alternate tools.
 
-`pre-push` consumes Git ref updates and checks `git merge-base --is-ancestor`. It rejects deletions/non-fast-forward updates, allows new refs, and errors on unavailable objects. It covers all pushed refs, does not fetch, and cannot prevent `--no-verify`.
+`pre-push` classifies updates by the remote destination ref. It rejects all ref deletions. Unchanged nonzero OIDs in any namespace are allowed without object lookup; the hook continues checking subsequent records. New `refs/tags/*` are allowed; replacing an existing tag OID is rejected, including annotated tags pointing to the same commit and tags targeting non-commit objects. Tag decisions do not require ancestry or object lookup.
+
+Branches (`refs/heads/*`) must target commit objects directly; existing branches also require `git merge-base --is-ancestor`. Other namespaces allow new refs; existing updates retain the ancestry check after peeling tag objects to commits. Existing non-commit targets in those namespaces are explicitly rejected, rather than reported as missing objects. This is a limited local policy, not a complete implementation of Git's namespace rules. Missing required objects or Git inspection errors return exit 2; policy denials return exit 1. The hook processes all pushed refs, does not fetch, and can be bypassed with `--no-verify`; server-side ref protection remains necessary.
 
 ## Observations
 

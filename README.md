@@ -41,7 +41,7 @@ Git protection is explicit: `~/.vibeguard/bin/vibeguard-runtime install git --re
 |---|---|
 | Bash PreToolUse | Recognizes bulk `git checkout/restore .`, forced `git clean` except dry runs, and selected recursive forced deletion of root, home, or system paths. |
 | Bash results | Records only the latest reported outcome, optional exit code, timestamp, cwd, and tool-use ID. No raw command or output. |
-| Git pre-push | Rejects remote ref deletion and non-fast-forward updates. Missing ancestry objects are an explicit error. |
+| Git pre-push | Rejects remote ref deletion and existing tag replacement. Branches require direct commit targets and fast-forward updates; other existing refs require commit ancestry after peeling tags. Missing required objects are an explicit error. See the [runtime contract](docs/runtime-contract.md). |
 | Rule library | Advice with scope and exceptions. Severity is not an automatic blocking level. |
 
 The Bash classifier is not a complete shell parser or a sandbox. Alternate commands, scripts, substitutions, other tools, and disabled or untrusted hooks can bypass it. Git hooks are also bypassable. Use host permissions and repository protection for access control.
