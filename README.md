@@ -73,6 +73,10 @@ Removed the app-server proxy, package-manager rewriting, semantic grep scanners,
 
 There are no old command aliases, rule-ID aliases, data migration, or automatic v1 cleanup. For an existing v1 installation, follow that version's uninstall instructions first. V2 owns only its exact hook command and `vibeguard-core` Markdown block. Uninstall removes the selected integration and observation, but leaves the shared binary for other integrations and direct use.
 
+`status`, `install`, and `uninstall` include a read-only `legacy` inventory. It lists known v1 hook commands, `<!-- vibeguard-start -->` regions, v1 files under `~/.vibeguard`, launchd and systemd unit files, and the account crontab when the selected home is this account's home. `--repo` adds that repository's root instruction files and its `pre-commit` and `pre-push` hooks. A different `--home` leaves the account crontab unread. `owned` and `suspected` record presence; they do not show that those commands ran. The inventory leaves every reported file in place.
+
+Back up the reported files, then uninstall v1 with its own command: `bash setup.sh --clean` in the v1 source checkout, or `bash ~/.vibeguard/dist/current/setup.sh --clean` for a release snapshot. Deleting the checkout leaves hooks and scheduler entries behind. Install v2 from source with `bash setup.sh install codex`, or from an extracted release archive with `./vibeguard-runtime install codex`. Restart the host and read `status`.
+
 The optional [Codex plugin](plugins/vibeguard/README.md) provides one explicit help skill. It does not install the runtime or hooks.
 
 ## Evidence and development

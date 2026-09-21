@@ -43,4 +43,8 @@ bash setup.sh install claude
 
 `uninstall codex` 或 `uninstall claude` 移除所选集成和观察文件，共享二进制仍保留。没有旧命令、旧 ID 或旧数据兼容。已有 v1 安装先按对应旧版说明卸载，新版不自动清理旧受管区。
 
+`status`、`install` 和 `uninstall` 会附带只读的 `legacy` 清单：已知 v1 hook 命令、`<!-- vibeguard-start -->` 区域、`~/.vibeguard` 下的 v1 文件、launchd/systemd 单元，以及在所选 home 就是本账户 home 时的账户 crontab。`--repo` 额外查看该仓库根目录说明和 `pre-commit`/`pre-push`。换一个 `--home` 时不读取账户 crontab。`owned` 和 `suspected` 只表示文件在场，不表示这些命令执行过，也不会删除它们。
+
+先备份清单里的文件。v1 源码目录执行 `bash setup.sh --clean`；v1 发布快照执行 `bash ~/.vibeguard/dist/current/setup.sh --clean`。删掉源码目录不会卸掉 hook 和定时任务。然后再安装 v2：源码用 `bash setup.sh install codex`，解压后的发布包用 `./vibeguard-runtime install codex`。重启宿主后查看 `status`。
+
 完整决策见 [Rust 重构方案](../plan/2026-09-17-frontier-model-reconstruction.md) 和 [125 条对照](../plan/2026-09-17-rule-by-rule-audit.md)。开发检查运行 `bash scripts/local-contract-check.sh`。模型收益按 [评测协议](../eval/README.md) 单独验证，代码测试不能证明对 Astra/Fable 的生产率提升。

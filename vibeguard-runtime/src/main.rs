@@ -22,7 +22,9 @@ Usage:
 
 Install manages only its own hooks and instruction block. Git integration is
 explicit and never overwrites an existing user hook. Status reports observed
-facts; it does not certify trust, complete coverage, or task verification.
+facts and a read-only v1 inventory. It does not certify trust, complete
+coverage, or task verification, and it does not remove old hooks or edit crontab.
+Pass --repo to include that repository's root instructions and Git hooks.
 ";
 
 fn main() -> ExitCode {
