@@ -70,6 +70,10 @@ Status exit 0 means expected entries, core, and required executable mode bits ar
 
 `host_trust: "not_observed"` remains unknown even after a past call. Other configuration layers, host trust/reloading, and routes outside Bash are outside this diagnosis.
 
+`legacy` is a read-only inventory attached to `status`, `install`, and `uninstall`. It does not change the status exit code. `owned` means a known v1 path or exact `<!-- vibeguard-start -->` / `<!-- vibeguard-end -->` region from the v1.1 installation layout. `suspected` means the same names appear without that owned form, including fenced examples and prose. `not_checked` means that location or the account crontab could not be read. A different `--home` reports crontab `access: not_applicable` and does not read the account crontab. Symlinks are reported and not followed. Discovered commands are not executed, and crontab is not modified. `--repo` inspects that repository's root `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.claude/settings.json`, and Git `pre-commit` / `pre-push` hooks. The current v2 hook command and `# VibeGuard native pre-push hook` are current entries, not v1 findings.
+
+Migration commands are in `legacy.migration`: v1 source `bash setup.sh --clean`, v1 release snapshot `bash ~/.vibeguard/dist/current/setup.sh --clean`, v2 source `bash setup.sh install <claude|codex>`, and v2 release archive `./vibeguard-runtime install <claude|codex>`. Deleting a v1 checkout leaves hooks and scheduler entries in place. Installing v2 leaves v1 material in place.
+
 Native installation supports macOS, Linux, and WSL. Windows install/uninstall errors without writes; portable CLI/protocol tests run in Windows CI.
 
 Verified against [Codex hooks](https://learn.chatgpt.com/docs/hooks) and [Claude Code hooks](https://code.claude.com/docs/en/hooks), accessed 2026-09-17. Host support is broader than VibeGuard's selected Bash registration.

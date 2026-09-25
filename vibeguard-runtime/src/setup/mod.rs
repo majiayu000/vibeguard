@@ -1,3 +1,4 @@
+mod legacy;
 mod markdown;
 pub mod support;
 
@@ -12,7 +13,10 @@ struct Options {
     host: String,
     home: PathBuf,
     host_dir: PathBuf,
+    codex_dir: PathBuf,
+    gemini_dir: PathBuf,
     repo: PathBuf,
+    inspect_repo: bool,
 }
 
 impl Options {
@@ -29,23 +33,42 @@ impl Options {
             let value = rest.next().ok_or("option requires a path")?;
             match flag.as_str() {
                 "--home" if explicit_home.is_none() => explicit_home = Some(PathBuf::from(value)),
-                "--repo" if host == "git" && repo.is_none() => repo = Some(PathBuf::from(value)),
+                "--repo" if repo.is_none() => repo = Some(PathBuf::from(value)),
                 _ => return Err("unknown or repeated installation option".into()),
             }
         }
         let is_explicit = explicit_home.is_some();
+        let inspect_repo = host == "git" || repo.is_some();
         let home = explicit_home
             .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
             .filter(|p| !p.as_os_str().is_empty())
             .ok_or("HOME is unavailable; pass --home PATH")?;
         let home = absolute(home)?;
-        let host_dir = if host == "codex" && !is_explicit {
+        // An explicit --home is an isolated installation. Ambient host directories
+        // belong to the account, not to that home.
+        let codex_dir = if is_explicit {
+            None
+        } else {
             std::env::var_os("CODEX_HOME")
                 .filter(|p| !p.is_empty())
                 .map(PathBuf::from)
                 .map(absolute)
                 .transpose()?
-                .unwrap_or_else(|| home.join(".codex"))
+        }
+        .unwrap_or_else(|| home.join(".codex"));
+        let gemini_dir = if is_explicit {
+            None
+        } else {
+            std::env::var_os("GEMINI_CLI_HOME")
+                .filter(|p| !p.is_empty())
+                .map(PathBuf::from)
+                .map(absolute)
+                .transpose()?
+        }
+        .unwrap_or_else(|| home.clone())
+        .join(".gemini");
+        let host_dir = if host == "codex" {
+            codex_dir.clone()
         } else {
             home.join(format!(".{host}"))
         };
@@ -53,7 +76,10 @@ impl Options {
             host,
             home,
             host_dir,
+            codex_dir,
+            gemini_dir,
             repo: absolute(repo.unwrap_or(std::env::current_dir()?))?,
+            inspect_repo,
         })
     }
     fn binary(&self) -> PathBuf {
@@ -161,15 +187,18 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         let binary_present = read_optional(&options.binary())?.is_some();
         let binary_executable = executable(&options.binary())?;
         let disabled = config.get("disableAllHooks").and_then(Value::as_bool);
-        print_json(&json!({
-            "host": options.host, "config": config_path, "configured": configured,
-            "core_present": core_present, "binary_present": binary_present,
-            "binary_executable": binary_executable,
-            "host_hooks_feature_enabled": feature_enabled,
-            "host_hook_disable_flag": disabled, "host_trust": "not_observed",
-            "last_observation": logging::latest(&options.state(), &options.host)?,
-            "coverage": "registered Bash events only; not a sandbox or task-verification certificate"
-        }))?;
+        publish(
+            json!({
+                "host": options.host, "config": config_path, "configured": configured,
+                "core_present": core_present, "binary_present": binary_present,
+                "binary_executable": binary_executable,
+                "host_hooks_feature_enabled": feature_enabled,
+                "host_hook_disable_flag": disabled, "host_trust": "not_observed",
+                "last_observation": logging::latest(&options.state(), &options.host)?,
+                "coverage": "registered Bash events only; not a sandbox or task-verification certificate"
+            }),
+            &options,
+        )?;
         return Ok(u8::from(
             !configured
                 || !core_present
@@ -242,16 +271,28 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
             fs::remove_file(observation)?;
         }
     }
-    print_json(&json!({
-        "action":action,"host":options.host,"config":config_path,"instructions":instructions_path,
-        "binary":options.binary(),
-        "note": if action == "install" {
-            "Registered. Restart the host and review its hook trust settings; configuration alone does not prove execution."
-        } else {
-            "Integration removed. The shared binary remains for other hosts and direct CLI use."
-        }
-    }))?;
+    publish(
+        json!({
+            "action":action,"host":options.host,"config":config_path,"instructions":instructions_path,
+            "binary":options.binary(),
+            "note": if action == "install" {
+                "Registered. Restart the host and review its hook trust settings; configuration alone does not prove execution."
+            } else {
+                "Integration removed. The shared binary remains for other hosts and direct CLI use."
+            }
+        }),
+        &options,
+    )?;
     Ok(0)
+}
+
+fn publish(mut value: Value, options: &Options) -> Result<()> {
+    let legacy = legacy::inventory(options);
+    if let Some(message) = legacy::attention_message(&legacy) {
+        eprintln!("{message}");
+    }
+    value["legacy"] = legacy;
+    print_json(&value)
 }
 
 fn codex_hooks_enabled(doc: &toml_edit::DocumentMut) -> Result<bool> {
@@ -381,9 +422,10 @@ fn git_integration(action: &str, options: &Options) -> Result<u8> {
         let binary_present = read_optional(&options.binary())?.is_some();
         let binary_executable = executable(&options.binary())?;
         let hook_executable = executable(&path)?;
-        print_json(
-            &json!({"host":"git","hook":path,"configured":owned,"binary_present":binary_present,
+        publish(
+            json!({"host":"git","hook":path,"configured":owned,"binary_present":binary_present,
                 "binary_executable":binary_executable,"hook_executable":hook_executable}),
+            options,
         )?;
         return Ok(u8::from(!owned || !binary_executable || !hook_executable));
     }
@@ -399,7 +441,7 @@ fn git_integration(action: &str, options: &Options) -> Result<u8> {
     } else if owned {
         fs::remove_file(&path)?;
     }
-    print_json(&json!({"action":action,"host":"git","hook":path}))?;
+    publish(json!({"action":action,"host":"git","hook":path}), options)?;
     Ok(0)
 }
 
