@@ -1,6 +1,10 @@
 # Changelog
 
-## 2.0.0 — unreleased
+## 2.0.1 — 2026-09-25
+
+- Fix a panic in `status`, `install`, and `uninstall` when an instruction file contains a line beginning with a multibyte Unicode character.
+
+## 2.0.0 — 2026-09-19
 
 - Rust CLI with native Bash hooks, explicit Git pre-push protection, six compact principles, and 75 scoped rule topics derived from all 125 earlier IDs.
 - Direct rule lookup, native deny responses, real Git ancestry checks, managed installation/uninstallation, and minimal local diagnostics.
