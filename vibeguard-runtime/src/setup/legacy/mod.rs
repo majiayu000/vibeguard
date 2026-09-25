@@ -428,6 +428,8 @@ fn crontab_report(home: &Path) -> (Value, Vec<Value>) {
     }
 }
 
+// Read and Unknown are produced only where a user crontab database exists.
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
 enum CrontabDecision {
     Read,
     Skip(&'static str),
@@ -482,6 +484,7 @@ fn read_crontab(timeout: Duration) -> CrontabRead {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn same_path(left: &Path, right: &Path) -> bool {
     match (fs::canonicalize(left), fs::canonicalize(right)) {
         (Ok(left), Ok(right)) => left == right,

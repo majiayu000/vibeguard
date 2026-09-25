@@ -1,3 +1,4 @@
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -100,11 +101,10 @@ fn command_text(program: &str, args: &[&str]) -> Result<String, String> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     #[test]
     fn timed_out_command_is_not_an_empty_result() {
         let started = std::time::Instant::now();
