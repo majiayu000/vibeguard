@@ -38,11 +38,8 @@ fn region(text: &str) -> Result<Option<Range<usize>>> {
         let indent = line.len() - trimmed.len();
         let run = trimmed.as_bytes().first().copied().and_then(|marker| {
             let length = trimmed.bytes().take_while(|b| *b == marker).count();
-            (indent <= 3 && matches!(marker, b'`' | b'~') && length >= 3).then_some((
-                marker,
-                length,
-                &trimmed[length..],
-            ))
+            (indent <= 3 && matches!(marker, b'`' | b'~') && length >= 3)
+                .then(|| (marker, length, &trimmed[length..]))
         });
         if let Some((marker, minimum)) = fence {
             if run.is_some_and(|(candidate, length, rest)| {
@@ -101,6 +98,14 @@ mod tests {
         assert_eq!(update(&installed, None).unwrap(), original);
         let mixed = format!("prefix\n{managed}suffix\r\n");
         assert_eq!(update(&mixed, None).unwrap(), "prefix\nsuffix\r\n");
+    }
+    #[test]
+    fn unicode_lines_outside_managed_block_do_not_panic() {
+        let original = "这些规则偏向谨慎而非速度。\n# User notes\n";
+        let managed = block("vibeguard-runtime");
+        assert!(!matches_block(original, &managed).unwrap());
+        let installed = update(original, Some(&managed)).unwrap();
+        assert_eq!(update(&installed, None).unwrap(), original);
     }
     #[test]
     fn examples_are_not_owned_blocks() {
