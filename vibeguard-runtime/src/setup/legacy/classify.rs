@@ -16,11 +16,8 @@ pub(super) fn markdown_findings(path: &Path, text: &str) -> Vec<Value> {
         let indent = line.len() - trimmed.len();
         let run = trimmed.as_bytes().first().copied().and_then(|marker| {
             let length = trimmed.bytes().take_while(|byte| *byte == marker).count();
-            (indent <= 3 && matches!(marker, b'`' | b'~') && length >= 3).then_some((
-                marker,
-                length,
-                &trimmed[length..],
-            ))
+            (indent <= 3 && matches!(marker, b'`' | b'~') && length >= 3)
+                .then(|| (marker, length, &trimmed[length..]))
         });
         if let Some((marker, minimum)) = fence {
             if run.is_some_and(|(candidate, length, rest)| {
@@ -329,6 +326,12 @@ pub(super) fn path_text(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unicode_lines_do_not_panic() {
+        let text = "这些规则偏向谨慎而非速度。\n# User notes\n";
+        assert!(markdown_findings(Path::new("/home/user/.claude/CLAUDE.md"), text).is_empty());
+    }
 
     #[test]
     fn command_classification_keeps_quotes_and_ignores_current_v2() {
