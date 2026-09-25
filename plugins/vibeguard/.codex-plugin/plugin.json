@@ -1,6 +1,6 @@
 {
   "name": "vibeguard",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Rust-backed rule lookup and native-hook diagnostics.",
   "author": {
     "name": "majiayu000"

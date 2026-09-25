@@ -4,7 +4,7 @@ Report vulnerabilities privately to **1835304752@qq.com**, with subject `[VibeGu
 
 Acknowledgment target: 48 hours; initial assessment: 7 days; high/critical remediation: 30 days; medium/low: 90 days. Coordinate disclosure when a fix is available or after the 90-day window. Follow up at the same address if acknowledgment is missing. Credit is optional; there is no monetary bounty.
 
-The maintained source is main; v2 is unreleased until tagged. Use fixed source or release and explicitly reinstall the affected integration to update its copied binary.
+The maintained source is main. Use fixed source or release and explicitly reinstall the affected integration to update its copied binary.
 
 Relevant reports include installer path injection, unintended changes to user-managed files, credential exposure, malformed protocol handling, and incorrect behavior within documented check coverage.
 
