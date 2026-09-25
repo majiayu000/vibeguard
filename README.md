@@ -25,7 +25,7 @@ The archive contains the executable, this README and LICENSE. Installation copie
 ~/.vibeguard/bin/vibeguard-runtime uninstall codex
 ```
 
-Use `claude` instead of `codex` for Claude Code. Uninstall retains the shared executable. V2 archives become available when a maintainer publishes v2; earlier release assets follow their own version's instructions.
+Use `claude` instead of `codex` for Claude Code. Uninstall retains the shared executable. Earlier release assets follow their own version's instructions.
 
 ## Build and install from source
 
@@ -79,4 +79,4 @@ The optional [Codex plugin](plugins/vibeguard/README.md) provides one explicit h
 
 Run `bash scripts/local-contract-check.sh` for the local gate. Tests use temporary homes and repositories, including execution of generated hook commands. See the [evaluation protocol](eval/README.md): code tests do not establish an Astra/Fable productivity improvement.
 
-The [reconstruction design](plan/2026-09-17-frontier-model-reconstruction.md) and [125-rule audit](plan/2026-09-17-rule-by-rule-audit.md) explain decisions and official sources. See [directory ownership](docs/directory-map.md). V2 is unreleased until a maintainer publishes a tagged release.
+The [reconstruction design](plan/2026-09-17-frontier-model-reconstruction.md) and [125-rule audit](plan/2026-09-17-rule-by-rule-audit.md) explain decisions and official sources. See [directory ownership](docs/directory-map.md) and [tagged releases](https://github.com/majiayu000/vibeguard/releases).
