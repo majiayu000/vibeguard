@@ -169,6 +169,9 @@ fn codex_feature_install_status_and_uninstall_preserve_user_settings() {
         let status = invoke(&["status", "codex", "--home", home], "", None);
         assert_eq!(status.status.code(), Some(1));
         assert_eq!(native(&status)["host_hooks_feature_enabled"], false);
+        let summary = String::from_utf8_lossy(&status.stderr);
+        assert!(summary.contains("codex setup incomplete"), "{summary}");
+        assert!(summary.contains("install codex --home"), "{summary}");
         assert_eq!(
             fs::read_to_string(&path).unwrap(),
             "[features]\nhooks = false\n"
@@ -178,6 +181,17 @@ fn codex_feature_install_status_and_uninstall_preserve_user_settings() {
         fs::remove_file(&path).unwrap();
         // Current Codex defaults to enabled when the feature key is absent.
         success(&invoke(&["status", "codex", "--home", home], "", None));
+        if original.is_empty() {
+            let hooks_path = host_dir.join("hooks.json");
+            let mut hooks: Value = serde_json::from_slice(&fs::read(&hooks_path).unwrap()).unwrap();
+            hooks["disableAllHooks"] = json!(true);
+            fs::write(&hooks_path, serde_json::to_vec(&hooks).unwrap()).unwrap();
+            let status = invoke(&["status", "codex", "--home", home], "", None);
+            assert_eq!(status.status.code(), Some(1));
+            let summary = String::from_utf8_lossy(&status.stderr);
+            assert!(summary.contains("review disableAllHooks"), "{summary}");
+            assert!(!summary.contains("install codex"), "{summary}");
+        }
         fs::write(&path, &enabled).unwrap();
         success(&invoke(&["uninstall", "codex", "--home", home], "", None));
         assert_eq!(fs::read_to_string(&path).unwrap(), enabled);
@@ -752,6 +766,26 @@ fn git_installer_does_not_overwrite_a_user_hook() {
     git(&repo, &["config", "core.hooksPath", ".git/hooks"]);
     let hook = repo.join(".git/hooks/pre-push");
     fs::write(&hook, "#!/bin/sh\necho custom\n").unwrap();
+    let user_status = invoke(
+        &[
+            "status",
+            "git",
+            "--repo",
+            repo.to_str().unwrap(),
+            "--home",
+            temp.0.to_str().unwrap(),
+        ],
+        "",
+        None,
+    );
+    assert_eq!(user_status.status.code(), Some(1));
+    assert_eq!(native(&user_status)["user_managed_hook"], true);
+    let summary = String::from_utf8_lossy(&user_status.stderr);
+    assert!(
+        summary.contains("pre-push hook is user-managed"),
+        "{summary}"
+    );
+    assert!(!summary.contains("install git"), "{summary}");
     let args = [
         "install",
         "git",
@@ -772,10 +806,15 @@ fn git_installer_does_not_overwrite_a_user_hook() {
     fs::set_permissions(&hook, fs::Permissions::from_mode(0o644)).unwrap();
     let mut status_args = args;
     status_args[0] = "status";
-    assert_eq!(invoke(&status_args, "", None).status.code(), Some(1));
+    let status = invoke(&status_args, "", None);
+    assert_eq!(status.status.code(), Some(1));
+    let summary = String::from_utf8_lossy(&status.stderr);
+    assert!(summary.contains("git setup incomplete"), "{summary}");
+    assert!(summary.contains("install git --home"), "{summary}");
+    assert!(summary.contains("--repo"), "{summary}");
     success(&invoke(&args, "", None));
     assert_ne!(fs::metadata(&hook).unwrap().permissions().mode() & 0o111, 0);
-    success(&invoke(
+    let healthy = invoke(
         &[
             "status",
             "git",
@@ -786,7 +825,15 @@ fn git_installer_does_not_overwrite_a_user_hook() {
         ],
         "",
         None,
-    ));
+    );
+    success(&healthy);
+    let summary = String::from_utf8_lossy(&healthy.stderr);
+    assert!(summary.contains("git setup complete"), "{summary}");
+    assert!(
+        summary.contains("pre-push execution is unobserved"),
+        "{summary}"
+    );
+    assert!(!summary.contains("Bash command"), "{summary}");
     success(&invoke(
         &[
             "uninstall",
