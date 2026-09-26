@@ -104,8 +104,48 @@ fn fresh_install_status_and_uninstall_have_no_legacy_findings() {
                 .unwrap()
                 .contains("./vibeguard-runtime install")
         );
-        assert!(output.stderr.is_empty(), "{action}");
+        if action == "status" {
+            let summary = String::from_utf8_lossy(&output.stderr);
+            assert!(summary.contains("codex setup complete"), "{summary}");
+            assert!(
+                summary.contains("host trust remains unobserved"),
+                "{summary}"
+            );
+            assert!(summary.contains("status codex --home"), "{summary}");
+        } else {
+            assert!(output.stderr.is_empty(), "{action}");
+        }
     }
+}
+
+#[test]
+fn unreadable_legacy_location_is_not_reported_as_clean() {
+    let temp = Temp::new();
+    let home = temp.0.join("home");
+    fs::create_dir(&home).unwrap();
+    let home_arg = home.to_str().unwrap();
+    assert!(
+        run(&["install", "codex", "--home", home_arg], &home, &[])
+            .status
+            .success()
+    );
+    fs::create_dir_all(home.join(".gemini")).unwrap();
+    fs::write(home.join(".gemini/settings.json"), [0xff]).unwrap();
+    let status = run(&["status", "codex", "--home", home_arg], &home, &[]);
+    assert!(status.status.success());
+    let report = json_output(&status);
+    assert!(
+        report["legacy"]["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["evidence"] == "not_checked")
+    );
+    let summary = String::from_utf8_lossy(&status.stderr);
+    assert!(
+        summary.contains("legacy inventory is incomplete"),
+        "{summary}"
+    );
 }
 
 #[test]
@@ -210,6 +250,26 @@ old rules
             .any(|finding| finding["location"].as_str().unwrap().ends_with("README.md"))
     );
     assert!(String::from_utf8_lossy(&installed.stderr).contains("were not executed"));
+    let status = run(
+        &["status", "claude", "--home", home_arg, "--repo", repo_arg],
+        &home,
+        &[],
+    );
+    assert!(status.status.success());
+    let summary = String::from_utf8_lossy(&status.stderr);
+    assert!(
+        summary.contains("claude setup complete, with known v1 remnants"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("legacy.findings and legacy.migration"),
+        "{summary}"
+    );
+    assert!(!summary.contains("setup.sh --clean"), "{summary}");
+    assert_eq!(
+        json_output(&status)["legacy"]["findings"],
+        report["legacy"]["findings"]
+    );
     assert!(!sentinel.exists());
     let text = fs::read_to_string(&instructions).unwrap();
     assert!(text.contains("User-owned instructions"));

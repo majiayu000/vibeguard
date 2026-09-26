@@ -12,6 +12,7 @@ use support::{executable, make_executable, read_optional, read_text, shell_quote
 struct Options {
     host: String,
     home: PathBuf,
+    explicit_home: bool,
     host_dir: PathBuf,
     codex_dir: PathBuf,
     gemini_dir: PathBuf,
@@ -75,6 +76,7 @@ impl Options {
         Ok(Self {
             host,
             home,
+            explicit_home: is_explicit,
             host_dir,
             codex_dir,
             gemini_dir,
@@ -187,6 +189,11 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         let binary_present = read_optional(&options.binary())?.is_some();
         let binary_executable = executable(&options.binary())?;
         let disabled = config.get("disableAllHooks").and_then(Value::as_bool);
+        let ready = configured
+            && core_present
+            && binary_executable
+            && disabled != Some(true)
+            && feature_enabled != Some(false);
         publish(
             json!({
                 "host": options.host, "config": config_path, "configured": configured,
@@ -198,14 +205,9 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
                 "coverage": "registered Bash events only; not a sandbox or task-verification certificate"
             }),
             &options,
+            Some(ready),
         )?;
-        return Ok(u8::from(
-            !configured
-                || !core_present
-                || !binary_executable
-                || disabled == Some(true)
-                || feature_enabled == Some(false),
-        ));
+        return Ok(u8::from(!ready));
     }
     let new_instructions = markdown::update(
         old_text,
@@ -282,17 +284,88 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
             }
         }),
         &options,
+        None,
     )?;
     Ok(0)
 }
 
-fn publish(mut value: Value, options: &Options) -> Result<()> {
+fn publish(mut value: Value, options: &Options, status_ready: Option<bool>) -> Result<()> {
     let legacy = legacy::inventory(options);
-    if let Some(message) = legacy::attention_message(&legacy) {
+    if let Some(ready) = status_ready {
+        eprintln!("{}", status_summary(options, ready, &legacy, &value));
+    } else if let Some(message) = legacy::attention_message(&legacy) {
         eprintln!("{message}");
     }
     value["legacy"] = legacy;
     print_json(&value)
+}
+
+fn status_summary(options: &Options, ready: bool, legacy: &Value, status: &Value) -> String {
+    let findings = legacy["findings"].as_array();
+    let known_v1 =
+        findings.is_some_and(|items| items.iter().any(|item| item["evidence"] == "owned"));
+    let possible_v1 =
+        findings.is_some_and(|items| items.iter().any(|item| item["evidence"] == "suspected"));
+    let setup = if ready { "complete" } else { "incomplete" };
+    if known_v1 || possible_v1 {
+        let evidence = if known_v1 { "known" } else { "possible" };
+        return format!(
+            "VibeGuard {} setup {setup}, with {evidence} v1 remnants; their execution is unobserved. Next: review legacy.findings and legacy.migration before choosing the v1 uninstall command.",
+            options.host
+        );
+    }
+    if legacy::attention_message(legacy).is_some() {
+        return format!(
+            "VibeGuard {} setup {setup}; the legacy inventory is incomplete and current host activation is unproven. Next: inspect legacy.findings and legacy.scheduler.",
+            options.host
+        );
+    }
+    if ready && options.host == "git" {
+        return "VibeGuard git setup complete; actual pre-push execution is unobserved. Next: verify the hook during your next normal push.".into();
+    }
+    if status["user_managed_hook"] == true {
+        return "VibeGuard git setup incomplete; the existing pre-push hook is user-managed. Next: inspect the hook path in the status JSON before deciding how to integrate VibeGuard.".into();
+    }
+    if status["host_hook_disable_flag"] == true {
+        return format!(
+            "VibeGuard {} setup incomplete because host hooks are disabled. Next: review disableAllHooks in {} before reinstalling.",
+            options.host,
+            options.config().display()
+        );
+    }
+    let mut command = format!(
+        "{} {} {}",
+        shell_quote(
+            &std::env::args()
+                .next()
+                .unwrap_or_else(|| "vibeguard-runtime".into())
+        ),
+        if ready { "status" } else { "install" },
+        options.host
+    );
+    if options.explicit_home {
+        command.push_str(&format!(
+            " --home {}",
+            shell_quote(&options.home.to_string_lossy())
+        ));
+    }
+    if options.inspect_repo {
+        command.push_str(&format!(
+            " --repo {}",
+            shell_quote(&options.repo.to_string_lossy())
+        ));
+    }
+    if ready {
+        format!(
+            "VibeGuard {} setup complete; host trust remains unobserved. Next: run one harmless Bash command through the host, then rerun {command} and inspect last_observation.",
+            options.host
+        )
+    } else {
+        format!(
+            "VibeGuard {} setup incomplete. Next: run {command}.",
+            options.host
+        )
+    }
 }
 
 fn codex_hooks_enabled(doc: &toml_edit::DocumentMut) -> Result<bool> {
@@ -424,8 +497,10 @@ fn git_integration(action: &str, options: &Options) -> Result<u8> {
         let hook_executable = executable(&path)?;
         publish(
             json!({"host":"git","hook":path,"configured":owned,"binary_present":binary_present,
-                "binary_executable":binary_executable,"hook_executable":hook_executable}),
+                "binary_executable":binary_executable,"hook_executable":hook_executable,
+                "user_managed_hook":existing.is_some() && !owned}),
             options,
+            Some(owned && binary_executable && hook_executable),
         )?;
         return Ok(u8::from(!owned || !binary_executable || !hook_executable));
     }
@@ -441,7 +516,11 @@ fn git_integration(action: &str, options: &Options) -> Result<u8> {
     } else if owned {
         fs::remove_file(&path)?;
     }
-    publish(json!({"action":action,"host":"git","hook":path}), options)?;
+    publish(
+        json!({"action":action,"host":"git","hook":path}),
+        options,
+        None,
+    )?;
     Ok(0)
 }
 
