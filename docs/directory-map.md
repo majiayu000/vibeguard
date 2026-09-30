@@ -13,9 +13,16 @@
 | `plugins/vibeguard/` | Optional Codex help skill, no second runtime or installer |
 | `eval/` | Reproducible task fixture and evaluation protocol |
 | `docs/` | Current user and runtime documentation |
+| `site/` | Static source for the existing public landing page and sitemap |
 | `plan/` | Accepted design and audit, not an automatic backlog |
 | `.github/workflows/` | CI and tagged-release automation |
 
 Old guards, wrapper, schemas, workflows, generated skills, and observability products are retired. History remains in Git. Do not restore retired validators solely to satisfy old tests.
 
 See [installed paths and ownership](runtime-contract.md) and [verification commands](../CONTRIBUTING.md).
+
+The landing page is published only when a maintainer manually runs
+`deploy-pages.yml` from `main`. Merging a site change does not deploy it.
+Crawler access rules for GitHub Pages are determined by the origin's
+`/robots.txt`; the sitemap is linked from the page and can be submitted
+directly to a search engine.

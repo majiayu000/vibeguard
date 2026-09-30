@@ -2,7 +2,7 @@
 
 A Rust CLI for coding-agent rules, native hooks, and installation diagnostics.
 
-[中文](docs/README_CN.md) · [Runtime contract](docs/runtime-contract.md) · [Rule reference](docs/rule-reference.md) · [Contributing](CONTRIBUTING.md)
+[Website](https://majiayu000.github.io/vibeguard/) · [中文](docs/README_CN.md) · [Runtime contract](docs/runtime-contract.md) · [Rule reference](docs/rule-reference.md) · [Contributing](CONTRIBUTING.md)
 
 V2 keeps six short principles in host instructions and embeds 75 scoped review topics in one binary. Look up a relevant topic when needed. The library covers scope, facts, errors, security, workflow, Rust, Python, Go, and TypeScript.
 
