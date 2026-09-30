@@ -21,8 +21,9 @@ Old guards, wrapper, schemas, workflows, generated skills, and observability pro
 
 See [installed paths and ownership](runtime-contract.md) and [verification commands](../CONTRIBUTING.md).
 
-The landing page is published only when a maintainer manually runs
-`deploy-pages.yml` from `main`. Merging a site change does not deploy it.
+The existing Pages deployment flow is restored in `deploy-pages.yml`: a site
+or workflow change on `main` publishes `site/`. A maintainer can also dispatch
+it manually from `main`; feature-branch pushes and pull requests do not deploy.
 Crawler access rules for GitHub Pages are determined by the origin's
 `/robots.txt`; the sitemap is linked from the page and can be submitted
 directly to a search engine.
