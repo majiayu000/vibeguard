@@ -118,6 +118,60 @@ fn native_hook_protocol_and_no_command_rewrites() {
 }
 
 #[test]
+fn native_hooks_preserve_line_continuation_semantics() {
+    for host in ["claude", "codex"] {
+        for command in [
+            "rm -rf \\\n/etc",
+            "rm -rf /e\\\ntc",
+            "rm -rf \\\n/",
+            "rm \\\n-rf \\\n/etc",
+            "git checkout \\\n.",
+            "git clean \\\n-fd",
+            "rm -rf \\\n  /etc",
+            "rm -r\\\nf /etc",
+            "r\\\nm -rf /etc",
+            "git cle\\\nan -fd",
+            "# note \\\ngit clean -fd",
+            "echo note\\\\\ngit clean -fd",
+            "echo 名前; rm -rf /e\\\ntc",
+        ] {
+            let denied = invoke(
+                &["hook", host],
+                &payload("PreToolUse", command).to_string(),
+                None,
+            );
+            success(&denied);
+            assert!(!denied.stdout.is_empty(), "{host}: {command:?}");
+            assert_eq!(
+                native(&denied)["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+                "{host}: {command:?}"
+            );
+        }
+        for command in [
+            "echo note\\; git clean -fd",
+            "rm -rf 'note\\\n/etc'",
+            "rm -rf \"note\\\n/etc\"",
+            "echo ok\\\nrm -rf /",
+            "echo ok \\\nrm -rf /",
+            "echo 'git clean \\\n-fd'",
+            "echo \"rm -rf \\\n/etc\"",
+            "# note \\\ngit clean -nfd",
+            "echo note\\\\\\\ngit clean -fd",
+            "cat <<'EOF'\nrm -rf \\\n/etc\nEOF",
+        ] {
+            let allowed = invoke(
+                &["hook", host],
+                &payload("PreToolUse", command).to_string(),
+                None,
+            );
+            success(&allowed);
+            assert!(allowed.stdout.is_empty(), "{host}: {command:?}");
+        }
+    }
+}
+
+#[test]
 fn malformed_input_fails_without_leaking_payload() {
     for input in [
         "",

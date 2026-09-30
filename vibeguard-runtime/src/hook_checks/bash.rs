@@ -9,6 +9,7 @@ fn matches(pattern: &str, text: &str) -> bool {
 
 pub fn blocked_reason(command: &str) -> Option<&'static str> {
     let command = strip_heredoc_bodies(command);
+    let command = strip_line_continuations(&command);
     let masked = mask_quoted_content(&command);
     let paths = mask_content(&command, false);
     // Match actual command positions. Quoted text and comments are blanked,
@@ -220,6 +221,27 @@ fn strip_heredoc_bodies(command: &str) -> String {
 
 fn mask_quoted_content(command: &str) -> String {
     mask_content(command, true)
+}
+
+fn strip_line_continuations(command: &str) -> String {
+    let masked = mask_quoted_content(command);
+    let mut chars = command.char_indices().peekable();
+    let mut out = String::with_capacity(command.len());
+    while let Some((index, character)) = chars.next() {
+        // An unquoted escaped newline is masked to a space while its backslash
+        // stays visible. Remove the pair before both masks so offsets agree and
+        // continuations within a word do not introduce an argument boundary.
+        if character == '\\'
+            && chars.peek().is_some_and(|(_, c)| *c == '\n')
+            && masked.as_bytes()[index] == b'\\'
+            && masked.as_bytes()[index + 1] == b' '
+        {
+            chars.next();
+        } else {
+            out.push(character);
+        }
+    }
+    out
 }
 
 fn mask_content(command: &str, hide_quotes: bool) -> String {
