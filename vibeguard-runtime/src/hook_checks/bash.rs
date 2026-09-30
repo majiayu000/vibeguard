@@ -143,6 +143,7 @@ fn protected_path(word: &ShellWord) -> bool {
     }
     let parts = normalized_components(&word.value);
     parts.is_empty()
+        || parts == ["root"]
         || (matches!(parts.first(), Some(&"Users" | &"home")) && parts.len() <= 2)
         || matches!(
             parts.first(),
