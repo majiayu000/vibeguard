@@ -134,6 +134,14 @@ fn native_hooks_preserve_line_continuation_semantics() {
             "# note \\\ngit clean -fd",
             "echo note\\\\\ngit clean -fd",
             "echo 名前; rm -rf /e\\\ntc",
+            "cat <<EOF\\\n; git clean -fd\nbody\nEOF",
+            "cat <<'EOF' \\\n; git checkout .\nbody\nEOF",
+            "cat <<'EOF' 'note\\\n'; git clean -fd\nbody\nEOF",
+            "cat <<-EOF \\\n; rm -rf /e\\\ntc\n\tbody\n\tEOF",
+            "cat <<A <<B\\\n; git clean -fd\nbody\nA\nmore\nB",
+            "cat <<EO\\\nF; git clean -fd\nbody\nEOF",
+            "cat <<'EOF'\nbody\\\nEOF\ngit clean -fd",
+            "cat <<'EOF'\n\" \\\nEOF\ngit clean -fd",
         ] {
             let denied = invoke(
                 &["hook", host],
@@ -159,6 +167,10 @@ fn native_hooks_preserve_line_continuation_semantics() {
             "# note \\\ngit clean -nfd",
             "echo note\\\\\\\ngit clean -fd",
             "cat <<'EOF'\nrm -rf \\\n/etc\nEOF",
+            "cat <<'EOF' \\\n\nrm -rf /etc\nEOF",
+            "cat <<'EOF' \\\n # note; git clean -fd\nbody\nEOF",
+            "cat <<'EOF' \\\n && printf '%s' 'git clean -fd'\nbody\nEOF",
+            "cat <<EOF \\\\\ngit clean -fd\nEOF",
         ] {
             let allowed = invoke(
                 &["hook", host],

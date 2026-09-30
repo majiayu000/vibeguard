@@ -9,7 +9,6 @@ fn matches(pattern: &str, text: &str) -> bool {
 
 pub fn blocked_reason(command: &str) -> Option<&'static str> {
     let command = strip_heredoc_bodies(command);
-    let command = strip_line_continuations(&command);
     let masked = mask_quoted_content(&command);
     let paths = mask_content(&command, false);
     // Match actual command positions. Quoted text and comments are blanked,
@@ -186,6 +185,7 @@ fn strip_heredoc_bodies(command: &str) -> String {
         .expect("built-in heredoc pattern");
     let mut terminators = std::collections::VecDeque::new();
     let mut out = String::new();
+    let mut header = String::new();
     for line in command.split_inclusive('\n') {
         if let Some((expected, strip_tabs)) = terminators.front() {
             let candidate = line.trim_end_matches(['\r', '\n']);
@@ -200,13 +200,23 @@ fn strip_heredoc_bodies(command: &str) -> String {
             out.push('\n');
             continue;
         }
-        out.push_str(line);
-        let masked = mask_quoted_content(line);
-        for captures in heredoc.captures_iter(line) {
+        // Finish the logical command line before starting heredoc data. Only
+        // headers are normalized; body lines must retain their terminators.
+        header.push_str(line);
+        if line.ends_with('\n') && !mask_quoted_content(&header).ends_with('\n') {
+            continue;
+        }
+        let normalized = strip_line_continuations(&header);
+        out.push_str(&normalized);
+        let masked = mask_quoted_content(&normalized);
+        for captures in heredoc.captures_iter(&normalized) {
             let start = captures.get(0).expect("full heredoc capture").start();
             if masked.as_bytes().get(start) != Some(&b'<')
-                || start.checked_sub(1).and_then(|i| line.as_bytes().get(i)) == Some(&b'<')
-                || line.as_bytes().get(start + 2) == Some(&b'<')
+                || start
+                    .checked_sub(1)
+                    .and_then(|i| normalized.as_bytes().get(i))
+                    == Some(&b'<')
+                || normalized.as_bytes().get(start + 2) == Some(&b'<')
             {
                 continue;
             }
@@ -215,7 +225,9 @@ fn strip_heredoc_bodies(command: &str) -> String {
                 captures.name("dash").is_some_and(|m| m.as_str() == "-"),
             ));
         }
+        header.clear();
     }
+    out.push_str(&strip_line_continuations(&header));
     out
 }
 
