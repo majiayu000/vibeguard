@@ -20,7 +20,8 @@ Usage:
   vibeguard-runtime pre-push
   vibeguard-runtime --version
 
-Install manages only its own hooks and instruction block. Git integration is
+Install registers hooks and removes its existing core instruction block.
+Rules remain available for explicit lookup. Git integration is
 explicit and never overwrites an existing user hook. Status reports observed
 facts and a read-only v1 inventory. It does not certify trust, complete
 coverage, or task verification, and it does not remove old hooks or edit crontab.

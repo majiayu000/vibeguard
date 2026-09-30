@@ -274,7 +274,7 @@ old rules
     let text = fs::read_to_string(&instructions).unwrap();
     assert!(text.contains("User-owned instructions"));
     assert!(text.contains("<!-- vibeguard-start -->"));
-    assert!(text.contains("<!-- vibeguard-core:start -->"));
+    assert!(!text.contains("<!-- vibeguard-core:start -->"));
     let saved: Value = serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
     assert_eq!(saved["custom"], true);
     let handlers = saved["hooks"]["PreToolUse"][0]["hooks"].as_array().unwrap();

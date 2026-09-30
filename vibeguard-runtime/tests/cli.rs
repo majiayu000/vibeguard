@@ -374,6 +374,7 @@ fn install_execute_and_uninstall_preserve_user_content() {
         success(&invoke(&["install", host, "--home", home_arg], "", None));
         let first_config = fs::read(&config_path).unwrap();
         let first_instructions = fs::read(&instructions).unwrap();
+        assert_eq!(first_instructions, user_text.as_bytes());
         success(&invoke(&["install", host, "--home", home_arg], "", None));
         assert_eq!(fs::read(&config_path).unwrap(), first_config);
         assert_eq!(fs::read(&instructions).unwrap(), first_instructions);
@@ -433,7 +434,7 @@ fn install_execute_and_uninstall_preserve_user_content() {
 
 #[cfg(unix)]
 #[test]
-fn status_requires_current_core_content_and_reinstall_repairs_it() {
+fn installation_and_status_do_not_require_instruction_files() {
     for host in ["claude", "codex"] {
         let temp = Temp::new();
         let home = temp.0.to_str().unwrap();
@@ -443,43 +444,62 @@ fn status_requires_current_core_content_and_reinstall_repairs_it() {
             "CLAUDE.md"
         });
         success(&invoke(&["install", host, "--home", home], "", None));
-        let current = fs::read_to_string(&instructions).unwrap();
-        let prefix = "User-owned prefix\r\n";
-        let suffix = "User-owned suffix without final newline";
-        for stale in [
-            String::new(),
-            "<!-- vibeguard-core:start -->\n<!-- vibeguard-core:end -->\n".to_string(),
-            current.replace("- U-29: Preserve the operation's error contract.\n", ""),
-            current.replace(".vibeguard/bin/", ".vibeguard/old-bin/"),
-        ] {
-            let edited = format!("{prefix}{stale}{suffix}");
-            fs::write(&instructions, &edited).unwrap();
-            let state = invoke(&["status", host, "--home", home], "", None);
-            assert_eq!(state.status.code(), Some(1), "{host}: {stale}");
-            assert_eq!(native(&state)["core_present"], false);
-            assert_eq!(fs::read_to_string(&instructions).unwrap(), edited);
-            success(&invoke(&["install", host, "--home", home], "", None));
-            let state = invoke(&["status", host, "--home", home], "", None);
-            success(&state);
-            assert_eq!(native(&state)["core_present"], true);
-            let repaired = fs::read_to_string(&instructions).unwrap();
-            assert_eq!(repaired.replace(&current, ""), format!("{prefix}{suffix}"));
-        }
-        for valid in [
-            format!("{prefix}{}{suffix}", current.replace('\n', "\r\n")),
-            current.trim_end_matches('\n').to_string(),
-        ] {
-            fs::write(&instructions, &valid).unwrap();
-            let state = invoke(&["status", host, "--home", home], "", None);
-            success(&state);
-            assert_eq!(native(&state)["core_present"], true);
-            assert_eq!(fs::read_to_string(&instructions).unwrap(), valid);
-        }
-        let malformed = "<!-- vibeguard-core:start -->\nincomplete";
-        fs::write(&instructions, malformed).unwrap();
+        assert!(!instructions.exists());
         let state = invoke(&["status", host, "--home", home], "", None);
-        assert_eq!(state.status.code(), Some(2));
-        assert_eq!(fs::read_to_string(&instructions).unwrap(), malformed);
+        success(&state);
+        assert!(native(&state).get("core_present").is_none());
+        for text in [
+            "User-owned instructions\r\nNo final newline",
+            "<!-- vibeguard-core:start -->\nEdited core\n<!-- vibeguard-core:end -->\n",
+            "<!-- vibeguard-core:start -->\nincomplete",
+        ] {
+            fs::write(&instructions, text).unwrap();
+            let state = invoke(&["status", host, "--home", home], "", None);
+            success(&state);
+            assert!(native(&state).get("core_present").is_none());
+            assert_eq!(fs::read_to_string(&instructions).unwrap(), text);
+        }
+        fs::remove_file(&instructions).unwrap();
+        for action in ["install", "uninstall", "uninstall"] {
+            success(&invoke(&[action, host, "--home", home], "", None));
+            assert!(!instructions.exists());
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn install_and_uninstall_remove_only_the_owned_core_block() {
+    for host in ["claude", "codex"] {
+        let temp = Temp::new();
+        let home = temp.0.to_str().unwrap();
+        let host_dir = temp.0.join(format!(".{host}"));
+        fs::create_dir(&host_dir).unwrap();
+        let instructions = host_dir.join(if host == "codex" {
+            "AGENTS.md"
+        } else {
+            "CLAUDE.md"
+        });
+        let prefix = "用户自己的指令\r\n";
+        let suffix = "User-owned suffix without final newline";
+        for action in ["install", "uninstall"] {
+            for owned in [
+                "<!-- vibeguard-core:start -->\nPrevious core\n<!-- vibeguard-core:end -->\n",
+                "<!-- vibeguard-core:start -->\r\nEdited core\r\n<!-- vibeguard-core:end -->\r\n",
+            ] {
+                fs::write(&instructions, format!("{prefix}{owned}{suffix}")).unwrap();
+                success(&invoke(&[action, host, "--home", home], "", None));
+                assert_eq!(
+                    fs::read_to_string(&instructions).unwrap(),
+                    format!("{prefix}{suffix}")
+                );
+                success(&invoke(&[action, host, "--home", home], "", None));
+                assert_eq!(
+                    fs::read_to_string(&instructions).unwrap(),
+                    format!("{prefix}{suffix}")
+                );
+            }
+        }
     }
 }
 

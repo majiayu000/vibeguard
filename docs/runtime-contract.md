@@ -46,7 +46,7 @@ There is no verified-tree flag. A previous result, background ID, command contai
 
 ## Installation
 
-| Target | Configuration | Instructions |
+| Target | Configuration | Existing instructions (owned-block removal) |
 |---|---|---|
 | Claude | `~/.claude/settings.json` | `~/.claude/CLAUDE.md` |
 | Codex | `$CODEX_HOME/hooks.json`, default `~/.codex/hooks.json` | Same directory's `AGENTS.md` |
@@ -54,7 +54,7 @@ There is no verified-tree flag. A previous result, background ID, command contai
 
 Binary: `~/.vibeguard/bin/vibeguard-runtime`. Observations: `~/.vibeguard/state/claude.json` and `codex.json`. `--home PATH` uses an isolated home and ignores ambient `CODEX_HOME`. `--repo PATH` applies only to Git. No shell profile/PATH changes.
 
-Unrelated JSON fields/handlers are preserved semantically; formatting may change. Markdown bytes outside standalone `vibeguard-core:start/end` markers are preserved, including CRLF and no final newline. Fenced examples are ignored. Incomplete/duplicate blocks fail before mutation.
+Unrelated JSON fields/handlers are preserved semantically; formatting may change. Install and uninstall remove an existing standalone `vibeguard-core:start/end` block without injecting replacement rules or lookup instructions. They do not create an instruction file. Markdown bytes outside those markers are preserved, including CRLF and no final newline. Fenced examples are ignored. Incomplete/duplicate blocks fail before mutation. The rule catalog and `rules --core` remain available for explicit reference.
 
 Codex installation also sets `[features].hooks = true` in the selected Codex directory's `config.toml`, preserving unrelated TOML settings and comments. Invalid TOML or a non-boolean hooks flag fails before installation writes. Uninstall leaves this shared host feature enabled for other hooks. Status reads the local feature setting (including the host's `codex_hooks` alias); absent settings use Codex's current enabled default. An explicit false setting makes status incomplete. This does not inspect higher-priority configuration or administrator requirements and cannot establish effective host permission or trust. See [Codex hooks](https://learn.chatgpt.com/docs/hooks#turn-hooks-off).
 
@@ -64,9 +64,9 @@ On macOS and Linux, replacement of an existing user file preserves its owner, gr
 
 ## Status and platforms
 
-Status exit 0 means expected entries, core, and required executable mode bits are present, without local `disableAllHooks: true`. Exit 1 means incomplete/disabled state; exit 2 means inspection error. The executable fields check mode bits, not ACLs or noexec mounts.
+Status exit 0 means expected hook entries and required executable mode bits are present, without local `disableAllHooks: true` or a disabled Codex hooks feature. Exit 1 means incomplete/disabled state; exit 2 means inspection error. The executable fields check mode bits, not ACLs or noexec mounts.
 
-`core_present` requires the managed instruction block to match the current core and expected installed binary path. LF/CRLF and a final newline are equivalent; other content differences mean incomplete state, even with paired markers. Text outside the block does not affect this check. Missing or stale content returns exit 1; malformed markers return exit 2. Reinstall restores the current block while preserving unmanaged text.
+Status does not report `core_present` or validate prompt text as a readiness condition. Missing, edited or malformed core text does not make a configured hook installation incomplete; status leaves instruction files untouched. Install and uninstall still reject malformed owned markers before writes because they may remove that block.
 
 `host_trust: "not_observed"` remains unknown even after a past call. Other configuration layers, host trust/reloading, and routes outside Bash are outside this diagnosis.
 

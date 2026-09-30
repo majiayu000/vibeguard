@@ -136,7 +136,11 @@ fn install_reinstall_and_uninstall_preserve_user_metadata() {
             "AGENTS.md"
         });
         fs::write(&config, "{\"user_setting\": true}\n").unwrap();
-        fs::write(&instructions, "# User notes\n").unwrap();
+        fs::write(
+            &instructions,
+            "<!-- vibeguard-core:start -->\nPrevious core\n<!-- vibeguard-core:end -->\n# User notes\n",
+        )
+        .unwrap();
         let feature_config = host_dir.join("config.toml");
         let mut files = vec![&config, &instructions];
         if host == "codex" {
@@ -182,7 +186,7 @@ fn install_reinstall_and_uninstall_preserve_user_metadata() {
 }
 
 #[test]
-fn uninstall_retains_empty_instructions_and_their_metadata() {
+fn installation_preserves_empty_instruction_files_and_leaves_missing_files_absent() {
     for host in ["claude", "codex"] {
         for preexisting in [false, true] {
             let home = Temp::new();
@@ -193,16 +197,23 @@ fn uninstall_retains_empty_instructions_and_their_metadata() {
             });
             success(invoke(&home.0, "uninstall", host));
             assert!(!instructions.exists());
-            if preexisting {
-                fs::create_dir_all(instructions.parent().unwrap()).unwrap();
-                fs::write(&instructions, "").unwrap();
-                use_alternate_group(&instructions);
-                fs::set_permissions(&instructions, fs::Permissions::from_mode(0o640)).unwrap();
-                xattr::set(&instructions, ATTRIBUTE, b"empty-user-file").unwrap();
-                add_acl(&instructions);
-            } else {
-                success(invoke(&home.0, "install", host));
+            if !preexisting {
+                for action in ["install", "install", "uninstall", "uninstall"] {
+                    success(invoke(&home.0, action, host));
+                    assert!(!instructions.exists());
+                }
+                continue;
             }
+            fs::create_dir_all(instructions.parent().unwrap()).unwrap();
+            fs::write(
+                &instructions,
+                "<!-- vibeguard-core:start -->\n<!-- vibeguard-core:end -->",
+            )
+            .unwrap();
+            use_alternate_group(&instructions);
+            fs::set_permissions(&instructions, fs::Permissions::from_mode(0o640)).unwrap();
+            xattr::set(&instructions, ATTRIBUTE, b"empty-user-file").unwrap();
+            add_acl(&instructions);
             let before = fs::metadata(&instructions).unwrap();
             let expected_acl = acl(&instructions);
             let expected_attribute = xattr::get(&instructions, ATTRIBUTE).unwrap();
@@ -218,11 +229,7 @@ fn uninstall_retains_empty_instructions_and_their_metadata() {
                     xattr::get(&instructions, ATTRIBUTE).unwrap(),
                     expected_attribute
                 );
-                if action == "uninstall" {
-                    assert_eq!(fs::read(&instructions).unwrap(), b"");
-                } else {
-                    assert!(!fs::read(&instructions).unwrap().is_empty());
-                }
+                assert_eq!(fs::read(&instructions).unwrap(), b"");
             }
         }
     }
