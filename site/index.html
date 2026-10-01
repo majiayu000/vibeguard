@@ -38,6 +38,7 @@
   <nav aria-label="Primary">
     <a href="#install">Install</a>
     <a href="#behavior">What it checks</a>
+    <a href="#faq">Tasks and FAQ</a>
     <a href="https://github.com/majiayu000/vibeguard/blob/main/docs/rule-reference.md">Rule reference</a>
     <a href="https://github.com/majiayu000/vibeguard">GitHub</a>
   </nav>
@@ -95,6 +96,48 @@
         <a href="https://github.com/majiayu000/vibeguard#readme">current README</a>.
         V2 removes the earlier static scanners, learning metrics, workflow
         routing, and Stop/test-keyword gates.</p>
+    </section>
+    <section id="faq">
+      <h2>Use VibeGuard in a coding session</h2>
+      <p>This is the Rust <code>vibeguard-runtime</code> project maintained at
+        <a href="https://github.com/majiayu000/vibeguard">majiayu000/vibeguard</a>.
+        Use that repository's releases and documentation when choosing an archive
+        or checking a command.</p>
+      <h3 id="lookup">How do I find a rule for the code I am reviewing?</h3>
+      <p>Start with the category, then open the relevant topic. For example:</p>
+      <pre><code>~/.vibeguard/bin/vibeguard-runtime rules rust
+~/.vibeguard/bin/vibeguard-runtime rules RS-01</code></pre>
+      <p>Read the topic's scope and exceptions before applying it. These commands
+        print guidance; they do not scan your source or decide whether a change
+        passes review. The <a href="https://github.com/majiayu000/vibeguard/blob/main/docs/rule-reference.md">rule reference</a>
+        lists the other categories and identifiers.</p>
+      <h3 id="status">Hooks are installed. Why is protection still uncertain?</h3>
+      <pre><code>~/.vibeguard/bin/vibeguard-runtime status codex</code></pre>
+      <p>Use <code>status claude</code> for Claude Code. An incomplete result points
+        to registration, the managed instruction block, executable mode bits, or
+        the local disable setting. Check the reported paths and the
+        <a href="https://github.com/majiayu000/vibeguard/blob/main/docs/runtime-contract.md#status-and-platforms">status contract</a>.
+        Even a complete result cannot establish host trust or reload state;
+        restart the host and review its native hook settings. The last observation
+        is a diagnostic, not proof that the current code passed tests.</p>
+      <h3 id="rules-and-hooks">Do review rules block every violation?</h3>
+      <p>No. The rule library guides the agent and reviewer. The runtime enforces
+        selected Bash spellings and the optional Git pre-push policy; other tools
+        and arbitrary shell programs are outside those checks. Keep host
+        permissions and repository protection in place. See
+        <a href="#behavior">what is checked</a> and the
+        <a href="https://github.com/majiayu000/vibeguard/blob/main/docs/runtime-contract.md#protocol">protocol boundaries</a>.</p>
+      <h3 id="versions">Why do older instructions mention different commands?</h3>
+      <p>V2 removed the earlier scanners, proxy, and workflow systems. Use the
+        README bundled with your exact release archive. For an existing v1
+        installation, follow the
+        <a href="https://github.com/majiayu000/vibeguard#breaking-v2-changes">version-specific uninstall sequence</a>
+        before installing v2; v2 inventories legacy files but leaves them in place.</p>
+      <p>For a reproducible installation or command problem, open a
+        <a href="https://github.com/majiayu000/vibeguard/issues">GitHub issue</a>
+        with the release version, platform, command, and redacted status output.
+        Use the <a href="https://github.com/majiayu000/vibeguard/blob/main/SECURITY.md">security policy</a>
+        for vulnerability reports.</p>
     </section>
   </main>
   <footer>
