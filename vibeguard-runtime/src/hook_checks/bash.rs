@@ -104,9 +104,14 @@ fn shell_words(text: &str) -> Option<Vec<ShellWord>> {
                     });
             }
             if c == '~' && quote.is_none() && at_start {
-                word.home_expansion |= chars
-                    .peek()
-                    .is_none_or(|(_, c)| *c == '/' || c.is_ascii_whitespace());
+                // Bare tilde and the root user's home are supported symbolic
+                // bases; other named-user expansions remain outside the grammar.
+                let tail = &text[index + 1..];
+                let tail = tail.strip_prefix("root").unwrap_or(tail);
+                word.home_expansion |= tail.is_empty()
+                    || tail.starts_with(|c: char| {
+                        matches!(c, '/' | '<' | '>') || c.is_ascii_whitespace()
+                    });
             }
             word.value.push(c);
             at_start = false;
@@ -125,16 +130,16 @@ fn shell_words(text: &str) -> Option<Vec<ShellWord>> {
 
 fn protected_path(word: &ShellWord) -> bool {
     if word.home_expansion {
-        for prefix in ["~", "$HOME", "${HOME}"] {
+        for prefix in ["~root", "~", "$HOME", "${HOME}"] {
             if let Some(tail) = word.value.strip_prefix(prefix)
                 && (tail.is_empty() || tail.starts_with('/'))
             {
-                // HOME is a recognized symbolic base, not an arbitrary variable
-                // expansion. A normalized empty tail or only parent components
-                // targets the home directory or one of its ancestors.
+                // An empty tail targets home. Remaining leading parents leave
+                // this symbolic base and may descend into a protected path;
+                // reject them without resolving HOME or looking up users.
                 return normalized_components(tail.trim_start_matches('/'))
-                    .iter()
-                    .all(|part| *part == "..");
+                    .first()
+                    .is_none_or(|part| *part == "..");
             }
         }
     }
