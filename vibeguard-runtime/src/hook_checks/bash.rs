@@ -1,12 +1,6 @@
 //! Limited recognition of destructive command spellings, not a shell sandbox.
 use regex::Regex;
 
-fn matches(pattern: &str, text: &str) -> bool {
-    Regex::new(pattern)
-        .expect("built-in command pattern")
-        .is_match(text)
-}
-
 pub fn blocked_reason(command: &str) -> Option<&'static str> {
     let command = strip_heredoc_bodies(command);
     let masked = mask_quoted_content(&command);
@@ -18,7 +12,6 @@ pub fn blocked_reason(command: &str) -> Option<&'static str> {
     ).expect("built-in command position pattern");
     for captures in starts.captures_iter(&masked) {
         let args = captures.name("args").expect("args capture");
-        let visible = args.as_str().trim_start();
         let Some(words) = shell_words(&paths[args.start()..args.end()]) else {
             continue;
         };
@@ -38,11 +31,7 @@ pub fn blocked_reason(command: &str) -> Option<&'static str> {
                     "Forced git clean is blocked. Preview with git clean -n and select the files to remove.",
                 );
             }
-        } else if matches(
-            r"^((-[A-Za-z]*([rR][A-Za-z]*f|f[A-Za-z]*[rR]))|(--recursive\s+--force|--force\s+--recursive))(\s|$)",
-            visible,
-        ) && words.iter().any(protected_path)
-        {
+        } else if forced_recursive_rm(&words) && words.iter().any(protected_path) {
             return Some(
                 "Recursive forced deletion of a root, home or system path is blocked. Inspect the target and use the specific intended directory.",
             );
@@ -107,7 +96,7 @@ fn shell_words(text: &str) -> Option<Vec<ShellWord>> {
                 at_start = false;
                 continue;
             }
-            if c == '$' && quote != Some('\'') {
+            if c == '$' && quote != Some('\'') && word.value.is_empty() {
                 let rest = &text[index..];
                 word.home_expansion |= rest.starts_with("${HOME}")
                     || rest.strip_prefix("$HOME").is_some_and(|tail| {
@@ -115,9 +104,14 @@ fn shell_words(text: &str) -> Option<Vec<ShellWord>> {
                     });
             }
             if c == '~' && quote.is_none() && at_start {
-                word.home_expansion |= chars
-                    .peek()
-                    .is_none_or(|(_, c)| *c == '/' || c.is_ascii_whitespace());
+                // Bare tilde and the root user's home are supported symbolic
+                // bases; other named-user expansions remain outside the grammar.
+                let tail = &text[index + 1..];
+                let tail = tail.strip_prefix("root").unwrap_or(tail);
+                word.home_expansion |= tail.is_empty()
+                    || tail.starts_with(|c: char| {
+                        matches!(c, '/' | '<' | '>') || c.is_ascii_whitespace()
+                    });
             }
             word.value.push(c);
             at_start = false;
@@ -135,13 +129,67 @@ fn shell_words(text: &str) -> Option<Vec<ShellWord>> {
 }
 
 fn protected_path(word: &ShellWord) -> bool {
-    let path = word.value.strip_suffix('/').unwrap_or(&word.value);
-    if word.home_expansion && matches!(path, "~" | "$HOME" | "${HOME}") {
-        return true;
+    if word.home_expansion {
+        for prefix in ["~root", "~", "$HOME", "${HOME}"] {
+            if let Some(tail) = word.value.strip_prefix(prefix)
+                && (tail.is_empty() || tail.starts_with('/'))
+            {
+                // An empty tail targets home. Remaining leading parents leave
+                // this symbolic base and may descend into a protected path;
+                // reject them without resolving HOME or looking up users.
+                return normalized_components(tail.trim_start_matches('/'))
+                    .first()
+                    .is_none_or(|part| *part == "..");
+            }
+        }
     }
-    word.value == "/"
-        || matches(r"^/(Users|home)(/[^/]*)?$", path)
-        || matches(r"^/(etc|var|usr|bin|sbin|opt|System|Library)(/|$)", path)
+    if !word.value.starts_with('/') {
+        return false;
+    }
+    let parts = normalized_components(&word.value);
+    parts.is_empty()
+        || parts == ["root"]
+        || (matches!(parts.first(), Some(&"Users" | &"home")) && parts.len() <= 2)
+        || matches!(
+            parts.first(),
+            Some(&"etc" | &"var" | &"usr" | &"bin" | &"sbin" | &"opt" | &"System" | &"Library")
+        )
+        || (cfg!(target_os = "macos")
+            && parts.first() == Some(&"private")
+            && matches!(parts.get(1), Some(&"etc" | &"var")))
+}
+
+fn normalized_components(path: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." if parts.last().is_some_and(|part| *part != "..") => {
+                parts.pop();
+            }
+            ".." if path.starts_with('/') => {}
+            part => parts.push(part),
+        }
+    }
+    parts
+}
+
+fn forced_recursive_rm(args: &[ShellWord]) -> bool {
+    let mut recursive = false;
+    let mut force = false;
+    for arg in args {
+        match arg.value.as_str() {
+            "--" => break,
+            "--recursive" => recursive = true,
+            "--force" => force = true,
+            arg if arg.starts_with('-') && !arg.starts_with("--") => {
+                recursive |= arg.contains(['r', 'R']);
+                force |= arg.contains('f');
+            }
+            _ => {}
+        }
+    }
+    recursive && force
 }
 
 fn forced_git_clean(args: &[&str]) -> bool {
@@ -181,40 +229,73 @@ fn forced_git_clean(args: &[&str]) -> bool {
 }
 
 fn strip_heredoc_bodies(command: &str) -> String {
-    let heredoc = Regex::new(r#"<<(?P<dash>-?)\s*(['"]?)(?P<tag>[A-Za-z0-9_]+)['"]?"#)
+    let heredoc = Regex::new(r#"<<(?P<dash>-?)\s*(?P<quote>['"]?)(?P<tag>[A-Za-z0-9_]+)['"]?"#)
         .expect("built-in heredoc pattern");
     let mut terminators = std::collections::VecDeque::new();
     let mut out = String::new();
+    let mut header = String::new();
+    let mut header_mask = ContentMask::default();
+    let mut body_line = String::new();
     for line in command.split_inclusive('\n') {
-        if let Some((expected, strip_tabs)) = terminators.front() {
+        if let Some((expected, strip_tabs, quoted)) = terminators.front() {
             let candidate = line.trim_end_matches(['\r', '\n']);
+            // Unquoted heredocs join escaped newlines before testing the
+            // delimiter. Quotes in body data do not alter this behavior.
+            if !quoted
+                && line.ends_with('\n')
+                && candidate.bytes().rev().take_while(|b| *b == b'\\').count() % 2 == 1
+            {
+                body_line.push_str(&candidate[..candidate.len() - 1]);
+                out.push('\n');
+                continue;
+            }
+            body_line.push_str(candidate);
             let candidate = if *strip_tabs {
-                candidate.trim_start_matches('\t')
+                body_line.trim_start_matches('\t')
             } else {
-                candidate
+                &body_line
             };
             if candidate == expected {
                 terminators.pop_front();
             }
+            body_line.clear();
             out.push('\n');
             continue;
         }
-        out.push_str(line);
-        let masked = mask_quoted_content(line);
-        for captures in heredoc.captures_iter(line) {
+        // Carry lexical state forward once per byte, rather than remasking
+        // the growing prefix at every continued physical line.
+        header.push_str(line);
+        let mut last = None;
+        for byte in line.bytes() {
+            last = Some(header_mask.mask_byte(byte, true));
+        }
+        if line.ends_with('\n') && last != Some(b'\n') {
+            continue;
+        }
+        let normalized = strip_line_continuations(&header);
+        out.push_str(&normalized);
+        let masked = mask_quoted_content(&normalized);
+        for captures in heredoc.captures_iter(&normalized) {
             let start = captures.get(0).expect("full heredoc capture").start();
             if masked.as_bytes().get(start) != Some(&b'<')
-                || start.checked_sub(1).and_then(|i| line.as_bytes().get(i)) == Some(&b'<')
-                || line.as_bytes().get(start + 2) == Some(&b'<')
+                || start
+                    .checked_sub(1)
+                    .and_then(|i| normalized.as_bytes().get(i))
+                    == Some(&b'<')
+                || normalized.as_bytes().get(start + 2) == Some(&b'<')
             {
                 continue;
             }
             terminators.push_back((
                 captures["tag"].to_string(),
                 captures.name("dash").is_some_and(|m| m.as_str() == "-"),
+                !captures["quote"].is_empty(),
             ));
         }
+        header.clear();
+        header_mask = ContentMask::default();
     }
+    out.push_str(&strip_line_continuations(&header));
     out
 }
 
@@ -222,64 +303,104 @@ fn mask_quoted_content(command: &str) -> String {
     mask_content(command, true)
 }
 
-fn mask_content(command: &str, hide_quotes: bool) -> String {
-    let mut bytes = command.as_bytes().to_vec();
-    let original = command.as_bytes();
-    let mut quote = None;
-    let mut comment = false;
-    let mut escaped = false;
-    let mut word_start = true;
-    for (index, byte) in original.iter().copied().enumerate() {
-        if comment {
-            if byte == b'\n' {
-                comment = false;
-                word_start = true;
-            } else {
-                bytes[index] = b' ';
-            }
-            continue;
-        }
-        if escaped {
-            if (quote.is_some() && hide_quotes)
-                || (quote.is_none() && matches!(byte, b';' | b'&' | b'|' | b'\n'))
-            {
-                bytes[index] = b' ';
-            }
-            escaped = false;
-            if byte != b'\n' {
-                word_start = false;
-            }
-            continue;
-        }
-        if byte == b'\\' && quote != Some(b'\'') {
-            escaped = true;
-            if quote.is_some() && hide_quotes {
-                bytes[index] = b' ';
-            }
-            continue;
-        }
-        if let Some(active) = quote {
-            if hide_quotes {
-                bytes[index] = b' ';
-            }
-            if byte == active {
-                quote = None;
-            }
-        } else if matches!(byte, b'\'' | b'"') {
-            quote = Some(byte);
-            word_start = false;
-            if hide_quotes {
-                bytes[index] = b' ';
-            }
-        } else if byte == b'#' && word_start {
-            bytes[index] = b' ';
-            comment = true;
+fn strip_line_continuations(command: &str) -> String {
+    let mut mask = ContentMask::default();
+    let mut bytes = command.bytes().peekable();
+    let mut out = Vec::with_capacity(command.len());
+    while let Some(byte) = bytes.next() {
+        // Double quotes also remove these pairs, before HOME source detection.
+        // Comments, single quotes and escaped backslashes retain literal data.
+        if byte == b'\\'
+            && bytes.peek() == Some(&b'\n')
+            && !mask.comment
+            && !mask.escaped
+            && mask.quote != Some(b'\'')
+        {
+            bytes.next();
         } else {
-            word_start = byte.is_ascii_whitespace()
-                || matches!(byte, b';' | b'&' | b'|' | b'(' | b')' | b'<' | b'>');
+            mask.mask_byte(byte, false);
+            out.push(byte);
         }
     }
+    String::from_utf8(out).expect("continuation removal preserves UTF-8")
+}
+
+fn mask_content(command: &str, hide_quotes: bool) -> String {
+    let mut mask = ContentMask::default();
+    let bytes = command
+        .bytes()
+        .map(|byte| mask.mask_byte(byte, hide_quotes))
+        .collect();
     String::from_utf8(bytes).expect("mask preserves UTF-8 outside quoted ranges")
+}
+
+struct ContentMask {
+    quote: Option<u8>,
+    comment: bool,
+    escaped: bool,
+    word_start: bool,
+}
+
+impl Default for ContentMask {
+    fn default() -> Self {
+        Self {
+            quote: None,
+            comment: false,
+            escaped: false,
+            word_start: true,
+        }
+    }
+}
+
+impl ContentMask {
+    fn mask_byte(&mut self, byte: u8, hide_quotes: bool) -> u8 {
+        if self.comment {
+            if byte == b'\n' {
+                self.comment = false;
+                self.word_start = true;
+                return byte;
+            }
+            return b' ';
+        }
+        if self.escaped {
+            self.escaped = false;
+            if byte != b'\n' {
+                self.word_start = false;
+            }
+            return if (self.quote.is_some() && hide_quotes)
+                || (self.quote.is_none() && matches!(byte, b';' | b'&' | b'|' | b'\n'))
+            {
+                b' '
+            } else {
+                byte
+            };
+        }
+        if byte == b'\\' && self.quote != Some(b'\'') {
+            self.escaped = true;
+            return if self.quote.is_some() && hide_quotes {
+                b' '
+            } else {
+                byte
+            };
+        }
+        if let Some(active) = self.quote {
+            if byte == active {
+                self.quote = None;
+            }
+            return if hide_quotes { b' ' } else { byte };
+        } else if matches!(byte, b'\'' | b'"') {
+            self.quote = Some(byte);
+            self.word_start = false;
+            return if hide_quotes { b' ' } else { byte };
+        } else if byte == b'#' && self.word_start {
+            self.comment = true;
+            return b' ';
+        } else {
+            self.word_start = byte.is_ascii_whitespace()
+                || matches!(byte, b';' | b'&' | b'|' | b'(' | b')' | b'<' | b'>');
+        }
+        byte
+    }
 }
 
 #[cfg(test)]
@@ -361,6 +482,91 @@ mod tests {
             assert!(blocked_reason(command).is_none(), "{command}");
         }
     }
+    #[test]
+    fn rm_options_use_parsed_words_and_stop_at_double_dash() {
+        for command in [
+            "rm -r -f /",
+            "rm -f -r /",
+            "rm -r --force /",
+            "rm --recursive -f /",
+            "rm -f --recursive /",
+            "rm --force -R /",
+            "rm '-r' '-f' /",
+            "sudo rm -r -f /",
+            "command rm -f -r /",
+            "env IGNORE=1 rm -r --force /",
+            "rm -r / --force",
+            "rm -r -f -- /",
+        ] {
+            assert!(blocked_reason(command).is_some(), "{command}");
+        }
+        for command in [
+            "rm -r /",
+            "rm -f /",
+            "rm -- -rf /",
+            "rm -r -- -f /",
+            "rm -f -- --recursive /",
+            "rm -r / > '-f'",
+            "rm -f / > '--recursive'",
+            "rm -r -f ./build",
+        ] {
+            assert!(blocked_reason(command).is_none(), "{command}");
+        }
+    }
+
+    #[test]
+    fn rm_protected_paths_are_normalized_lexically() {
+        for command in [
+            "rm -rf /.",
+            "rm -rf /..",
+            "rm -rf //",
+            "rm -rf ///",
+            "rm -rf /./",
+            "rm -rf /home/user/..",
+            "rm -rf /Users/foo/..",
+            "rm -rf /tmp/../etc",
+            "rm -rf /tmp/..//Users/foo/./",
+            "rm -rf /tmp/../var/log",
+            "rm -rf \"$HOME/..\"",
+            "rm -rf ~/..",
+            "rm -rf \"${HOME}/./\"",
+            "rm -rf \"$HOME/cache/..\"",
+            "rm -rf ~/cache/../..",
+            "rm -rf ~/../..",
+        ] {
+            assert!(blocked_reason(command).is_some(), "{command}");
+        }
+        for command in [
+            "rm -rf /tmp//build/./",
+            "rm -rf /etc/../tmp/build",
+            "rm -rf /Users/foo/cache",
+            "rm -rf /home/user/cache",
+            "rm -rf ~/cache",
+            "rm -rf \"$HOME/cache\"",
+            "rm -rf \"${HOME}/cache/../build\"",
+            "rm -rf '$HOME/..'",
+            "rm -rf '${HOME}/..'",
+            "rm -rf '~/..'",
+            r"rm -rf \$HOME/..",
+            "rm -rf '$HOME/'\"$HOME/..\"",
+            "rm -rf '~/'\"$HOME/..\"",
+        ] {
+            assert!(blocked_reason(command).is_none(), "{command}");
+        }
+        if cfg!(target_os = "macos") {
+            for command in [
+                "rm -rf /private/etc",
+                "rm -rf /private/var",
+                "rm -rf /private/etc/hosts",
+                "rm -rf /tmp/../private/var/log",
+            ] {
+                assert!(blocked_reason(command).is_some(), "{command}");
+            }
+        } else {
+            assert!(blocked_reason("rm -rf /private/etc").is_none());
+        }
+    }
+
     #[test]
     fn known_destructive_commands_are_blocked() {
         for command in [

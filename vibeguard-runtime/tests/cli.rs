@@ -118,6 +118,99 @@ fn native_hook_protocol_and_no_command_rewrites() {
 }
 
 #[test]
+fn native_hooks_preserve_line_continuation_semantics() {
+    for host in ["claude", "codex"] {
+        for command in [
+            "rm -rf \\\n/etc",
+            "rm -rf /e\\\ntc",
+            "rm -rf \\\n/",
+            "rm \\\n-rf \\\n/etc",
+            "git checkout \\\n.",
+            "git clean \\\n-fd",
+            "rm -rf \\\n  /etc",
+            "rm -r\\\nf /etc",
+            "r\\\nm -rf /etc",
+            "git cle\\\nan -fd",
+            "# note \\\ngit clean -fd",
+            "echo note\\\\\ngit clean -fd",
+            "echo 名前; rm -rf /e\\\ntc",
+            "cat <<EOF\\\n; git clean -fd\nbody\nEOF",
+            "cat <<'EOF' \\\n; git checkout .\nbody\nEOF",
+            "cat <<'EOF' 'note\\\n'; git clean -fd\nbody\nEOF",
+            "cat <<-EOF \\\n; rm -rf /e\\\ntc\n\tbody\n\tEOF",
+            "cat <<A <<B\\\n; git clean -fd\nbody\nA\nmore\nB",
+            "cat <<EO\\\nF; git clean -fd\nbody\nEOF",
+            "cat <<'EOF'\nbody\\\nEOF\ngit clean -fd",
+            "cat <<'EOF'\n\" \\\nEOF\ngit clean -fd",
+            "cat <<EOF\nEO\\\nF\ngit clean -fd",
+            "cat <<-EOF\n\tEO\\\nF\ngit checkout .",
+            "cat <<A <<'B'\nA\\\n\nbody\nB\ngit clean -fd",
+            "rm -rf \"$HO\\\nME\"",
+            "rm -rf \"${HO\\\nME}\"",
+            "rm -rf \"$\\\nHOME\"",
+        ] {
+            let denied = invoke(
+                &["hook", host],
+                &payload("PreToolUse", command).to_string(),
+                None,
+            );
+            success(&denied);
+            assert!(!denied.stdout.is_empty(), "{host}: {command:?}");
+            assert_eq!(
+                native(&denied)["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+                "{host}: {command:?}"
+            );
+        }
+        for command in [
+            "echo note\\; git clean -fd",
+            "rm -rf 'note\\\n/etc'",
+            "rm -rf \"note\\\n/etc\"",
+            "echo ok\\\nrm -rf /",
+            "echo ok \\\nrm -rf /",
+            "echo 'git clean \\\n-fd'",
+            "echo \"rm -rf \\\n/etc\"",
+            "# note \\\ngit clean -nfd",
+            "echo note\\\\\\\ngit clean -fd",
+            "cat <<'EOF'\nrm -rf \\\n/etc\nEOF",
+            "cat <<'EOF' \\\n\nrm -rf /etc\nEOF",
+            "cat <<'EOF' \\\n # note; git clean -fd\nbody\nEOF",
+            "cat <<'EOF' \\\n && printf '%s' 'git clean -fd'\nbody\nEOF",
+            "cat <<EOF \\\\\ngit clean -fd\nEOF",
+            "cat <<'EOF'\nEO\\\nF\ngit clean -fd",
+            "cat <<\"EOF\"\nEO\\\nF\ngit clean -fd",
+            "cat <<EOF\nbody\\\nEOF\ngit clean -fd",
+            "cat <<EOF\nEO\\\\\nF\ngit clean -fd",
+            "cat <<-EOF\nEO\\\n\tF\ngit clean -fd",
+            "rm -rf '$HO\\\nME'",
+            "rm -rf \"\\$HO\\\nME\"",
+        ] {
+            let allowed = invoke(
+                &["hook", host],
+                &payload("PreToolUse", command).to_string(),
+                None,
+            );
+            success(&allowed);
+            assert!(allowed.stdout.is_empty(), "{host}: {command:?}");
+        }
+    }
+}
+
+#[test]
+fn native_hooks_accept_large_continued_headers() {
+    let command = format!("{}echo ok", "\\\n".repeat(100_000));
+    for host in ["claude", "codex"] {
+        let allowed = invoke(
+            &["hook", host],
+            &payload("PreToolUse", &command).to_string(),
+            None,
+        );
+        success(&allowed);
+        assert!(allowed.stdout.is_empty(), "{host}");
+    }
+}
+
+#[test]
 fn malformed_input_fails_without_leaking_payload() {
     for input in [
         "",
@@ -259,6 +352,59 @@ fn native_hooks_preserve_shell_argument_semantics() {
             ("rm -rf '~'", false),
             ("rm -rf \"$HOME\"", true),
             ("rm -rf '/etc'", true),
+            ("rm -r -f /", true),
+            ("rm -f -r /", true),
+            ("rm -r --force /", true),
+            ("rm --recursive -f /", true),
+            ("sudo rm -r -f /", true),
+            ("sudo rm -rf /etc/../root", true),
+            ("rm -rf /root", true),
+            ("rm -rf /root/cache/..", true),
+            ("rm -rf '/tmp/../root/.'", true),
+            ("rm -rf /.", true),
+            ("rm -rf /..", true),
+            ("rm -rf //", true),
+            ("rm -rf ///", true),
+            ("rm -rf /./", true),
+            ("rm -rf /home/user/..", true),
+            ("rm -rf /Users/foo/..", true),
+            ("rm -rf \"$HOME/..\"", true),
+            ("rm -rf ~/..", true),
+            ("rm -rf /tmp/../etc", true),
+            ("rm -rf /private/etc", cfg!(target_os = "macos")),
+            ("rm -rf /private/var", cfg!(target_os = "macos")),
+            ("rm -rf \"$HOME/cache/..\"", true),
+            ("rm -rf \"$HOME/../../etc\"", true),
+            ("rm -rf ~/../../etc", true),
+            ("rm -rf \"${HOME}/cache/../../../var/log\"", true),
+            ("rm -rf ~/../sibling", true),
+            ("sudo rm -rf ~root", true),
+            ("rm -rf ~root>/tmp/log", true),
+            ("rm -rf ~root/.", true),
+            ("rm -rf ~root/cache/..", true),
+            ("rm -rf ~root/../etc", true),
+            ("rm -r \\\n-f ~root", true),
+            ("rm -rf \"$HOME/../../e\\\ntc\"", true),
+            ("rm -r -f -- /", true),
+            ("rm -r /", false),
+            ("rm -f /", false),
+            ("rm -- -rf /", false),
+            ("rm -rf '$HOME/..'", false),
+            ("rm -rf '~/..'", false),
+            ("rm -rf \"$HOME/cache\"", false),
+            ("rm -r -f ./build", false),
+            ("rm -rf /etc/../tmp/build", false),
+            ("rm -rf /root/cache", false),
+            ("rm -rf /root/../tmp/build", false),
+            ("rm -rf /rooted", false),
+            ("rm -rf ~root/cache", false),
+            ("rm -rf '~root'", false),
+            ("rm -rf \"~root\"", false),
+            ("rm -rf '~root/..'", false),
+            (r"rm -rf \~root", false),
+            ("rm -rf ~rooted", false),
+            ("rm -rf '~/../../etc'", false),
+            ("rm -rf '$HOME/../../etc'", false),
             ("git clean -fd -- -n", true),
             ("git clean --force -d", true),
             ("git clean -f --no-force", false),

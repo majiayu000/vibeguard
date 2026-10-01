@@ -18,6 +18,8 @@ The Bash recognizer masks comments, quoted data, and supported heredoc bodies. I
 
 Within these simple commands, path words retain the distinction between literal text and supported HOME/tilde expansion. Git clean options are read in order, stop at `--`, and consume `-e`/`--exclude` pattern arguments. A later `--no-force` or `--no-dry-run` resets its respective flag.
 
+Rm recognizes recursive and force flags across clustered or split short options and mixed long options, stopping option recognition at `--`. Absolute target paths are compared after lexically collapsing repeated slashes, `.` and `..`. Supported HOME, bare tilde and unquoted `~root` prefixes recognize paths that normalize to the home directory. Paths with remaining leading `..` components are conservatively denied: they leave the symbolic home base and may descend into a protected target, such as `$HOME/../../etc`. Ordinary home subdirectories and quoted literal HOME/tilde filenames remain allowed. No filesystem lookup, user lookup or general symlink resolution occurs; on macOS, `/private/etc` and `/private/var` are explicitly protected like `/etc` and `/var`.
+
 | Example | Recognition |
 |---|---|
 | `rm -rf '$HOME'`, `rm -rf '~'` | Allowed: literal relative filenames |
