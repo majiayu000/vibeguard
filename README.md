@@ -67,6 +67,9 @@ The Bash classifier is not a complete shell parser or a sandbox. Alternate comma
 
 `status` reports registration, managed instructions, required executable mode bits, the local disable flag, and the last observation. It cannot prove host trust, ACL access, mount execution policy, or complete coverage. A reported zero exit code does not certify that tests ran or that the current tree is verified.
 
+For a worked rule lookup, incomplete host status, and version-specific command
+questions, see the [website task guide and FAQ](https://majiayu000.github.io/vibeguard/#faq).
+
 ## Breaking v2 changes
 
 Removed the app-server proxy, package-manager rewriting, semantic grep scanners, Stop/test-keyword gates, profiles, learning/scoring systems, workflow routing, and duplicate scripts. The Rust runtime remains: each hook invocation starts, processes one event, and exits.
