@@ -63,8 +63,8 @@
         <li><strong>Optional Git pre-push hook:</strong> checks commit ancestry,
           rejects remote ref deletion and replacement of existing tags, and
           requires fast-forward branch updates.</li>
-        <li><strong>Installation diagnostics:</strong> report managed instructions,
-          hook registration, executable mode bits, and the last observation.</li>
+        <li><strong>Installation diagnostics:</strong> report hook registration,
+          executable mode bits, local hook settings, and the last observation.</li>
       </ul>
       <p>The Bash classifier is not a complete shell parser or sandbox. Alternate
         commands and disabled or untrusted hooks can bypass it; Git hooks are
@@ -114,8 +114,8 @@
       <h3 id="status">Hooks are installed. Why is protection still uncertain?</h3>
       <pre><code>~/.vibeguard/bin/vibeguard-runtime status codex</code></pre>
       <p>Use <code>status claude</code> for Claude Code. An incomplete result points
-        to registration, the managed instruction block, executable mode bits, or
-        the local disable setting. Check the reported paths and the
+        to registration, executable mode bits, or local hook settings. Prompt
+        text is not an installation-health requirement. Check the reported paths and the
         <a href="https://github.com/majiayu000/vibeguard/blob/main/docs/runtime-contract.md#status-and-platforms">status contract</a>.
         Even a complete result cannot establish host trust or reload state;
         restart the host and review its native hook settings. The last observation
