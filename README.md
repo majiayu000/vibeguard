@@ -2,7 +2,7 @@
 
 A Rust CLI for coding-agent rules, native hooks, and installation diagnostics.
 
-[中文](docs/README_CN.md) · [Runtime contract](docs/runtime-contract.md) · [Rule reference](docs/rule-reference.md) · [Contributing](CONTRIBUTING.md)
+[Website](https://majiayu000.github.io/vibeguard/) · [中文](docs/README_CN.md) · [Runtime contract](docs/runtime-contract.md) · [Rule reference](docs/rule-reference.md) · [Contributing](CONTRIBUTING.md)
 
 V2 keeps six short principles in host instructions and embeds 75 scoped review topics in one binary. Look up a relevant topic when needed. The library covers scope, facts, errors, security, workflow, Rust, Python, Go, and TypeScript.
 
@@ -66,6 +66,9 @@ Git protection is explicit: `~/.vibeguard/bin/vibeguard-runtime install git --re
 The Bash classifier is not a complete shell parser or a sandbox. Alternate commands, scripts, substitutions, other tools, and disabled or untrusted hooks can bypass it. Git hooks are also bypassable. Use host permissions and repository protection for access control.
 
 `status` reports registration, managed instructions, required executable mode bits, the local disable flag, and the last observation. It cannot prove host trust, ACL access, mount execution policy, or complete coverage. A reported zero exit code does not certify that tests ran or that the current tree is verified.
+
+For a worked rule lookup, incomplete host status, and version-specific command
+questions, see the [website task guide and FAQ](https://majiayu000.github.io/vibeguard/#faq).
 
 ## Breaking v2 changes
 
