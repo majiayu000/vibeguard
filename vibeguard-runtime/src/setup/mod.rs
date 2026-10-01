@@ -171,11 +171,6 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         None
     };
     let feature_enabled = feature_doc.as_ref().map(codex_hooks_enabled).transpose()?;
-    let instructions_path = options.instructions();
-    let old_instructions = read_text(&instructions_path)?;
-    let old_text = old_instructions.as_deref().unwrap_or("");
-    let replacement = markdown::block(&quote_path(&options.binary())?);
-    let core_present = markdown::matches_block(old_text, &replacement)?;
     let command = options.command()?;
     let specs = hook_specs(&options.host, &command);
     if action == "status" {
@@ -190,14 +185,13 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         let binary_executable = executable(&options.binary())?;
         let disabled = config.get("disableAllHooks").and_then(Value::as_bool);
         let ready = configured
-            && core_present
             && binary_executable
             && disabled != Some(true)
             && feature_enabled != Some(false);
         publish(
             json!({
                 "host": options.host, "config": config_path, "configured": configured,
-                "core_present": core_present, "binary_present": binary_present,
+                "binary_present": binary_present,
                 "binary_executable": binary_executable,
                 "host_hooks_feature_enabled": feature_enabled,
                 "host_hook_disable_flag": disabled, "host_trust": "not_observed",
@@ -209,10 +203,10 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         )?;
         return Ok(u8::from(!ready));
     }
-    let new_instructions = markdown::update(
-        old_text,
-        (action == "install").then_some(replacement.as_str()),
-    )?;
+    let instructions_path = options.instructions();
+    let old_instructions = read_text(&instructions_path)?;
+    let old_text = old_instructions.as_deref().unwrap_or("");
+    let new_instructions = markdown::remove(old_text)?;
     let new_features = if action == "install" {
         feature_doc.map(|mut doc| {
             let features = doc

@@ -4,7 +4,7 @@ A Rust CLI for coding-agent rules, native hooks, and installation diagnostics.
 
 [Website](https://majiayu000.github.io/vibeguard/) · [中文](docs/README_CN.md) · [Runtime contract](docs/runtime-contract.md) · [Rule reference](docs/rule-reference.md) · [Contributing](CONTRIBUTING.md)
 
-V2 keeps six short principles in host instructions and embeds 75 scoped review topics in one binary. Look up a relevant topic when needed. The library covers scope, facts, errors, security, workflow, Rust, Python, Go, and TypeScript.
+V2 embeds 75 scoped review topics for explicit lookup. Installation does not inject rules or lookup instructions into the host's prompt. The library covers scope, facts, errors, security, workflow, Rust, Python, Go, and TypeScript.
 
 Native Bash hooks reject a small set of destructive command spellings and record the latest observed outcome. An optional Git pre-push hook checks actual commit ancestry. The host owns permissions, sandboxing, tool execution, and the agent loop.
 
@@ -40,7 +40,7 @@ bash setup.sh install codex
 bash setup.sh install claude
 ```
 
-`setup.sh` builds the checked-out source and forwards arguments. Without arguments it prints help; it does not install automatically. Install copies the binary to `~/.vibeguard/bin/vibeguard-runtime` and registers the selected integration. Restart the host and review its native hook trust settings.
+`setup.sh` builds the checked-out source and forwards arguments. Without arguments it prints help; it does not install automatically. Install copies the binary to `~/.vibeguard/bin/vibeguard-runtime` and registers the selected integration. Installation removes an existing owned `vibeguard-core` block while preserving surrounding user instructions; it does not create an instruction file. Restart the host and review its native hook trust settings.
 
 ```bash
 ~/.vibeguard/bin/vibeguard-runtime rules
@@ -50,7 +50,7 @@ bash setup.sh install claude
 ~/.vibeguard/bin/vibeguard-runtime uninstall codex
 ```
 
-Categories: `common`, `rust`, `python`, `golang`, `typescript`. `rules --json` exports the catalog; `rules --core` prints the compact instructions.
+Categories: `common`, `rust`, `python`, `golang`, `typescript`. `rules --json` exports the catalog; `rules --core` prints the compact reference. Rule lookup is optional and is not a task-start requirement.
 
 Git protection is explicit: `~/.vibeguard/bin/vibeguard-runtime install git --repo /absolute/path/to/repository`. It refuses to replace a user-managed pre-push hook. Use `status git` or `uninstall git` with the same `--repo`.
 
@@ -65,7 +65,7 @@ Git protection is explicit: `~/.vibeguard/bin/vibeguard-runtime install git --re
 
 The Bash classifier is not a complete shell parser or a sandbox. Alternate commands, scripts, substitutions, other tools, and disabled or untrusted hooks can bypass it. Git hooks are also bypassable. Use host permissions and repository protection for access control.
 
-`status` reports registration, managed instructions, required executable mode bits, the local disable flag, and the last observation. It cannot prove host trust, ACL access, mount execution policy, or complete coverage. A reported zero exit code does not certify that tests ran or that the current tree is verified.
+`status` reports registration, required executable mode bits, local host hook settings, and the last observation. Prompt text is not an installation-health requirement. It cannot prove host trust, ACL access, mount execution policy, or complete coverage. A reported zero exit code does not certify that tests ran or that the current tree is verified.
 
 For a worked rule lookup, incomplete host status, and version-specific command
 questions, see the [website task guide and FAQ](https://majiayu000.github.io/vibeguard/#faq).
@@ -74,7 +74,7 @@ questions, see the [website task guide and FAQ](https://majiayu000.github.io/vib
 
 Removed the app-server proxy, package-manager rewriting, semantic grep scanners, Stop/test-keyword gates, profiles, learning/scoring systems, workflow routing, and duplicate scripts. The Rust runtime remains: each hook invocation starts, processes one event, and exits.
 
-There are no old command aliases, rule-ID aliases, data migration, or automatic v1 cleanup. For an existing v1 installation, follow that version's uninstall instructions first. V2 owns only its exact hook command and `vibeguard-core` Markdown block. Uninstall removes the selected integration and observation, but leaves the shared binary for other integrations and direct use.
+There are no old command aliases, rule-ID aliases, data migration, or automatic v1 cleanup. For an existing v1 installation, follow that version's uninstall instructions first. V2 owns only its exact hook command and existing `vibeguard-core` Markdown block. Install and uninstall remove that block without adding replacement guidance. Status no longer reports `core_present`. Uninstall removes the selected integration and observation, but leaves the shared binary for other integrations and direct use.
 
 `status`, `install`, and `uninstall` include a read-only `legacy` inventory. It lists known v1 hook commands, `<!-- vibeguard-start -->` regions, v1 files under `~/.vibeguard`, launchd and systemd unit files, and the account crontab when the selected home is this account's home. `--repo` adds that repository's root instruction files and its `pre-commit` and `pre-push` hooks. A different `--home` leaves the account crontab unread. `owned` and `suspected` record presence; they do not show that those commands ran. The inventory leaves every reported file in place.
 

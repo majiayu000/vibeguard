@@ -4,27 +4,15 @@ use std::ops::Range;
 const START: &str = "<!-- vibeguard-core:start -->";
 const END: &str = "<!-- vibeguard-core:end -->";
 
-pub fn block(command: &str) -> String {
-    format!(
-        "{START}\n{}\nRead only relevant rules with `{command} rules ID` or list categories with `{command} rules`. Rules are review guidance; use this repository's actual check commands.\n{END}\n",
-        crate::rules::CORE.trim_end()
-    )
-}
-
-pub fn update(original: &str, replacement: Option<&str>) -> Result<String> {
+pub fn remove(original: &str) -> Result<String> {
     match region(original)? {
         Some(range) => {
             let mut result = original.to_string();
-            result.replace_range(range, replacement.unwrap_or(""));
+            result.replace_range(range, "");
             Ok(result)
         }
-        None => Ok(format!("{}{original}", replacement.unwrap_or(""))),
+        None => Ok(original.to_string()),
     }
-}
-
-pub fn matches_block(original: &str, expected: &str) -> Result<bool> {
-    // Line endings and a final newline do not change the instruction content.
-    Ok(region(original)?.is_some_and(|range| original[range].lines().eq(expected.lines())))
 }
 
 fn region(text: &str) -> Result<Option<Range<usize>>> {
@@ -69,43 +57,26 @@ fn region(text: &str) -> Result<Option<Range<usize>>> {
 mod tests {
     use super::*;
     #[test]
-    fn current_block_matches_content_with_equivalent_line_endings() {
-        let expected = block("'/current/vibeguard-runtime'");
-        for text in [
-            expected.clone(),
-            expected.replace('\n', "\r\n"),
-            expected.trim_end_matches('\n').to_string(),
-            format!("User notes\n{expected}More notes without final newline"),
-        ] {
-            assert!(matches_block(&text, &expected).unwrap());
-        }
-        for text in [
-            String::new(),
-            format!("{START}\n{END}\n"),
-            expected.replace("/current/", "/previous/"),
-            expected.replace("- U-29: Preserve the operation's error contract.\n", ""),
-        ] {
-            assert!(!matches_block(&text, &expected).unwrap());
-        }
-        assert!(matches_block(START, &expected).is_err());
-    }
-    #[test]
     fn preserves_exact_unmanaged_bytes() {
         let original = "# User notes\r\nCustom instruction without final newline";
-        let managed = block("vibeguard-runtime");
-        let installed = update(original, Some(&managed)).unwrap();
-        assert_eq!(update(&installed, Some(&managed)).unwrap(), installed);
-        assert_eq!(update(&installed, None).unwrap(), original);
-        let mixed = format!("prefix\n{managed}suffix\r\n");
-        assert_eq!(update(&mixed, None).unwrap(), "prefix\nsuffix\r\n");
+        assert_eq!(remove(original).unwrap(), original);
+        for managed in [
+            format!("{START}\nPrevious core\n{END}\n"),
+            format!("{START}\r\nPrevious core\r\n{END}\r\n"),
+        ] {
+            let installed = format!("{managed}{original}");
+            assert_eq!(remove(&installed).unwrap(), original);
+            let mixed = format!("prefix\n{managed}suffix\r\n");
+            assert_eq!(remove(&mixed).unwrap(), "prefix\nsuffix\r\n");
+        }
+        assert_eq!(remove(&format!("{START}\n{END}")).unwrap(), "");
     }
     #[test]
     fn unicode_lines_outside_managed_block_do_not_panic() {
         let original = "这些规则偏向谨慎而非速度。\n# User notes\n";
-        let managed = block("vibeguard-runtime");
-        assert!(!matches_block(original, &managed).unwrap());
-        let installed = update(original, Some(&managed)).unwrap();
-        assert_eq!(update(&installed, None).unwrap(), original);
+        assert_eq!(remove(original).unwrap(), original);
+        let installed = format!("{START}\nPrevious core\n{END}\n{original}");
+        assert_eq!(remove(&installed).unwrap(), original);
     }
     #[test]
     fn examples_are_not_owned_blocks() {
@@ -114,8 +85,7 @@ mod tests {
             format!("Example mentions {START} inline."),
             format!("~~~\n{START}\n{END}\n~~~"),
         ] {
-            assert!(!matches_block(&original, &block("vibeguard-runtime")).unwrap());
-            assert_eq!(update(&original, None).unwrap(), original);
+            assert_eq!(remove(&original).unwrap(), original);
         }
     }
     #[test]
@@ -126,7 +96,7 @@ mod tests {
             format!("{END}\n{START}\n"),
             format!("{START}\n{START}\n{END}\n"),
         ] {
-            assert!(update(&original, Some("replacement")).is_err());
+            assert!(remove(&original).is_err());
         }
     }
 }
