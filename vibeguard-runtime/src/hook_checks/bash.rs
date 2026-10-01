@@ -181,29 +181,47 @@ fn forced_git_clean(args: &[&str]) -> bool {
 }
 
 fn strip_heredoc_bodies(command: &str) -> String {
-    let heredoc = Regex::new(r#"<<(?P<dash>-?)\s*(['"]?)(?P<tag>[A-Za-z0-9_]+)['"]?"#)
+    let heredoc = Regex::new(r#"<<(?P<dash>-?)\s*(?P<quote>['"]?)(?P<tag>[A-Za-z0-9_]+)['"]?"#)
         .expect("built-in heredoc pattern");
     let mut terminators = std::collections::VecDeque::new();
     let mut out = String::new();
     let mut header = String::new();
+    let mut header_mask = ContentMask::default();
+    let mut body_line = String::new();
     for line in command.split_inclusive('\n') {
-        if let Some((expected, strip_tabs)) = terminators.front() {
+        if let Some((expected, strip_tabs, quoted)) = terminators.front() {
             let candidate = line.trim_end_matches(['\r', '\n']);
+            // Unquoted heredocs join escaped newlines before testing the
+            // delimiter. Quotes in body data do not alter this behavior.
+            if !quoted
+                && line.ends_with('\n')
+                && candidate.bytes().rev().take_while(|b| *b == b'\\').count() % 2 == 1
+            {
+                body_line.push_str(&candidate[..candidate.len() - 1]);
+                out.push('\n');
+                continue;
+            }
+            body_line.push_str(candidate);
             let candidate = if *strip_tabs {
-                candidate.trim_start_matches('\t')
+                body_line.trim_start_matches('\t')
             } else {
-                candidate
+                &body_line
             };
             if candidate == expected {
                 terminators.pop_front();
             }
+            body_line.clear();
             out.push('\n');
             continue;
         }
-        // Finish the logical command line before starting heredoc data. Only
-        // headers are normalized; body lines must retain their terminators.
+        // Carry lexical state forward once per byte, rather than remasking
+        // the growing prefix at every continued physical line.
         header.push_str(line);
-        if line.ends_with('\n') && !mask_quoted_content(&header).ends_with('\n') {
+        let mut last = None;
+        for byte in line.bytes() {
+            last = Some(header_mask.mask_byte(byte, true));
+        }
+        if line.ends_with('\n') && last != Some(b'\n') {
             continue;
         }
         let normalized = strip_line_continuations(&header);
@@ -223,9 +241,11 @@ fn strip_heredoc_bodies(command: &str) -> String {
             terminators.push_back((
                 captures["tag"].to_string(),
                 captures.name("dash").is_some_and(|m| m.as_str() == "-"),
+                !captures["quote"].is_empty(),
             ));
         }
         header.clear();
+        header_mask = ContentMask::default();
     }
     out.push_str(&strip_line_continuations(&header));
     out
@@ -236,84 +256,103 @@ fn mask_quoted_content(command: &str) -> String {
 }
 
 fn strip_line_continuations(command: &str) -> String {
-    let masked = mask_quoted_content(command);
-    let mut chars = command.char_indices().peekable();
-    let mut out = String::with_capacity(command.len());
-    while let Some((index, character)) = chars.next() {
-        // An unquoted escaped newline is masked to a space while its backslash
-        // stays visible. Remove the pair before both masks so offsets agree and
-        // continuations within a word do not introduce an argument boundary.
-        if character == '\\'
-            && chars.peek().is_some_and(|(_, c)| *c == '\n')
-            && masked.as_bytes()[index] == b'\\'
-            && masked.as_bytes()[index + 1] == b' '
+    let mut mask = ContentMask::default();
+    let mut bytes = command.bytes().peekable();
+    let mut out = Vec::with_capacity(command.len());
+    while let Some(byte) = bytes.next() {
+        // Double quotes also remove these pairs, before HOME source detection.
+        // Comments, single quotes and escaped backslashes retain literal data.
+        if byte == b'\\'
+            && bytes.peek() == Some(&b'\n')
+            && !mask.comment
+            && !mask.escaped
+            && mask.quote != Some(b'\'')
         {
-            chars.next();
+            bytes.next();
         } else {
-            out.push(character);
+            mask.mask_byte(byte, false);
+            out.push(byte);
         }
     }
-    out
+    String::from_utf8(out).expect("continuation removal preserves UTF-8")
 }
 
 fn mask_content(command: &str, hide_quotes: bool) -> String {
-    let mut bytes = command.as_bytes().to_vec();
-    let original = command.as_bytes();
-    let mut quote = None;
-    let mut comment = false;
-    let mut escaped = false;
-    let mut word_start = true;
-    for (index, byte) in original.iter().copied().enumerate() {
-        if comment {
-            if byte == b'\n' {
-                comment = false;
-                word_start = true;
-            } else {
-                bytes[index] = b' ';
-            }
-            continue;
-        }
-        if escaped {
-            if (quote.is_some() && hide_quotes)
-                || (quote.is_none() && matches!(byte, b';' | b'&' | b'|' | b'\n'))
-            {
-                bytes[index] = b' ';
-            }
-            escaped = false;
-            if byte != b'\n' {
-                word_start = false;
-            }
-            continue;
-        }
-        if byte == b'\\' && quote != Some(b'\'') {
-            escaped = true;
-            if quote.is_some() && hide_quotes {
-                bytes[index] = b' ';
-            }
-            continue;
-        }
-        if let Some(active) = quote {
-            if hide_quotes {
-                bytes[index] = b' ';
-            }
-            if byte == active {
-                quote = None;
-            }
-        } else if matches!(byte, b'\'' | b'"') {
-            quote = Some(byte);
-            word_start = false;
-            if hide_quotes {
-                bytes[index] = b' ';
-            }
-        } else if byte == b'#' && word_start {
-            bytes[index] = b' ';
-            comment = true;
-        } else {
-            word_start = byte.is_ascii_whitespace()
-                || matches!(byte, b';' | b'&' | b'|' | b'(' | b')' | b'<' | b'>');
+    let mut mask = ContentMask::default();
+    let bytes = command
+        .bytes()
+        .map(|byte| mask.mask_byte(byte, hide_quotes))
+        .collect();
+    String::from_utf8(bytes).expect("mask preserves UTF-8 outside quoted ranges")
+}
+
+struct ContentMask {
+    quote: Option<u8>,
+    comment: bool,
+    escaped: bool,
+    word_start: bool,
+}
+
+impl Default for ContentMask {
+    fn default() -> Self {
+        Self {
+            quote: None,
+            comment: false,
+            escaped: false,
+            word_start: true,
         }
     }
-    String::from_utf8(bytes).expect("mask preserves UTF-8 outside quoted ranges")
+}
+
+impl ContentMask {
+    fn mask_byte(&mut self, byte: u8, hide_quotes: bool) -> u8 {
+        if self.comment {
+            if byte == b'\n' {
+                self.comment = false;
+                self.word_start = true;
+                return byte;
+            }
+            return b' ';
+        }
+        if self.escaped {
+            self.escaped = false;
+            if byte != b'\n' {
+                self.word_start = false;
+            }
+            return if (self.quote.is_some() && hide_quotes)
+                || (self.quote.is_none() && matches!(byte, b';' | b'&' | b'|' | b'\n'))
+            {
+                b' '
+            } else {
+                byte
+            };
+        }
+        if byte == b'\\' && self.quote != Some(b'\'') {
+            self.escaped = true;
+            return if self.quote.is_some() && hide_quotes {
+                b' '
+            } else {
+                byte
+            };
+        }
+        if let Some(active) = self.quote {
+            if byte == active {
+                self.quote = None;
+            }
+            return if hide_quotes { b' ' } else { byte };
+        } else if matches!(byte, b'\'' | b'"') {
+            self.quote = Some(byte);
+            self.word_start = false;
+            return if hide_quotes { b' ' } else { byte };
+        } else if byte == b'#' && self.word_start {
+            self.comment = true;
+            return b' ';
+        } else {
+            self.word_start = byte.is_ascii_whitespace()
+                || matches!(byte, b';' | b'&' | b'|' | b'(' | b')' | b'<' | b'>');
+        }
+        byte
+    }
 }
 
 #[cfg(test)]

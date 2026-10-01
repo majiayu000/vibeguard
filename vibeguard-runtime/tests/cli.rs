@@ -142,6 +142,12 @@ fn native_hooks_preserve_line_continuation_semantics() {
             "cat <<EO\\\nF; git clean -fd\nbody\nEOF",
             "cat <<'EOF'\nbody\\\nEOF\ngit clean -fd",
             "cat <<'EOF'\n\" \\\nEOF\ngit clean -fd",
+            "cat <<EOF\nEO\\\nF\ngit clean -fd",
+            "cat <<-EOF\n\tEO\\\nF\ngit checkout .",
+            "cat <<A <<'B'\nA\\\n\nbody\nB\ngit clean -fd",
+            "rm -rf \"$HO\\\nME\"",
+            "rm -rf \"${HO\\\nME}\"",
+            "rm -rf \"$\\\nHOME\"",
         ] {
             let denied = invoke(
                 &["hook", host],
@@ -171,6 +177,13 @@ fn native_hooks_preserve_line_continuation_semantics() {
             "cat <<'EOF' \\\n # note; git clean -fd\nbody\nEOF",
             "cat <<'EOF' \\\n && printf '%s' 'git clean -fd'\nbody\nEOF",
             "cat <<EOF \\\\\ngit clean -fd\nEOF",
+            "cat <<'EOF'\nEO\\\nF\ngit clean -fd",
+            "cat <<\"EOF\"\nEO\\\nF\ngit clean -fd",
+            "cat <<EOF\nbody\\\nEOF\ngit clean -fd",
+            "cat <<EOF\nEO\\\\\nF\ngit clean -fd",
+            "cat <<-EOF\nEO\\\n\tF\ngit clean -fd",
+            "rm -rf '$HO\\\nME'",
+            "rm -rf \"\\$HO\\\nME\"",
         ] {
             let allowed = invoke(
                 &["hook", host],
@@ -180,6 +193,20 @@ fn native_hooks_preserve_line_continuation_semantics() {
             success(&allowed);
             assert!(allowed.stdout.is_empty(), "{host}: {command:?}");
         }
+    }
+}
+
+#[test]
+fn native_hooks_accept_large_continued_headers() {
+    let command = format!("{}echo ok", "\\\n".repeat(100_000));
+    for host in ["claude", "codex"] {
+        let allowed = invoke(
+            &["hook", host],
+            &payload("PreToolUse", &command).to_string(),
+            None,
+        );
+        success(&allowed);
+        assert!(allowed.stdout.is_empty(), "{host}");
     }
 }
 
