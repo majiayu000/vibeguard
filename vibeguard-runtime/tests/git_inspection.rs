@@ -38,6 +38,7 @@ fn command(program: &str, repo: &Path) -> Command {
         .current_dir(repo)
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", NULL_FILE)
+        .env_remove("GIT_GRAFT_FILE")
         .env("GIT_ALLOW_PROTOCOL", "file");
     command
 }
@@ -111,9 +112,76 @@ fn object_types_ignore_replace_refs() {
     }
 }
 
+#[test]
+fn ancestry_ignores_default_and_external_grafts_in_worktrees_and_bare_repos() {
+    for bare in [false, true] {
+        let temp = Temp::new();
+        git(
+            &temp.0,
+            if bare {
+                &["init", "--bare", "-q"]
+            } else {
+                &["init", "-q"]
+            },
+        );
+        let tree = git(&temp.0, &["mktree"]);
+        let base = git(&temp.0, &["commit-tree", &tree, "-m", "base"]);
+        let next = git(&temp.0, &["commit-tree", &tree, "-p", &base, "-m", "next"]);
+        let divergent = git(&temp.0, &["commit-tree", &tree, "-m", "divergent"]);
+        let zero = "0".repeat(base.len());
+        for external in [false, true] {
+            let grafts = if external {
+                temp.0.join("external-grafts")
+            } else {
+                temp.0
+                    .join(git(&temp.0, &["rev-parse", "--git-path", "info/grafts"]))
+            };
+            fs::write(&grafts, format!("{divergent} {next}\n")).unwrap();
+            let with_grafts = |program| {
+                let mut command = command(program, &temp.0);
+                if external {
+                    command.env("GIT_GRAFT_FILE", &grafts);
+                }
+                command
+            };
+            // Even these raw-object flags still honor Git's legacy grafts.
+            success(
+                &with_grafts("git")
+                    .args([
+                        "--no-replace-objects",
+                        "--no-lazy-fetch",
+                        "merge-base",
+                        "--is-ancestor",
+                        &next,
+                        &divergent,
+                    ])
+                    .output()
+                    .unwrap(),
+            );
+            for (local, remote, expected) in [
+                (&next, &base, 0),
+                (&divergent, &zero, 0),
+                (&divergent, &next, 1),
+            ] {
+                let input = format!("HEAD {local} refs/heads/main {remote}\n");
+                let output = pre_push(&mut with_grafts(BIN), &input);
+                assert_eq!(
+                    output.status.code(),
+                    Some(expected),
+                    "bare={bare}, external={external}: {output:?}"
+                );
+                if expected == 1 {
+                    assert!(String::from_utf8_lossy(&output.stderr).contains("non-fast-forward"));
+                }
+            }
+            fs::remove_file(grafts).unwrap();
+        }
+    }
+}
+
 #[cfg(unix)]
 #[test]
-fn installed_hook_rejects_replaced_history_during_a_local_push() {
+fn installed_hook_rejects_local_history_overlays_during_a_local_push() {
     let temp = Temp::new();
     let repo = temp.0.join("repo");
     let remote = temp.0.join("remote.git");
@@ -151,20 +219,47 @@ fn installed_hook_rejects_replaced_history_during_a_local_push() {
         &repo,
         &["commit-tree", &tree, "-p", &next, "-m", "replacement"],
     );
-    git(&repo, &["replace", &divergent, &replacement]);
-    // Git's default local view falsely treats this divergent commit as a descendant.
-    git(&repo, &["merge-base", "--is-ancestor", &next, &divergent]);
-    let output = git_command(&repo)
-        .args(["push", "--force", remote_path, "HEAD:refs/heads/main"])
-        .output()
-        .unwrap();
-    assert!(!output.status.success(), "{output:?}");
-    assert!(
-        String::from_utf8_lossy(&output.stderr)
-            .contains("VibeGuard: non-fast-forward push is blocked"),
-        "{output:?}"
-    );
-    assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), next);
+    for overlay in ["replace", "grafts", "GIT_GRAFT_FILE"] {
+        let grafts = if overlay == "grafts" {
+            repo.join(".git/info/grafts")
+        } else {
+            temp.0.join("external-grafts")
+        };
+        let mut control = git_command(&repo);
+        let mut push = git_command(&repo);
+        if overlay == "replace" {
+            git(&repo, &["replace", &divergent, &replacement]);
+        } else {
+            fs::write(&grafts, format!("{divergent} {next}\n")).unwrap();
+            if overlay == "GIT_GRAFT_FILE" {
+                control.env("GIT_GRAFT_FILE", &grafts);
+                push.env("GIT_GRAFT_FILE", &grafts);
+            }
+        }
+        // Git's local view falsely treats this divergent commit as a descendant.
+        success(
+            &control
+                .args(["merge-base", "--is-ancestor", &next, &divergent])
+                .output()
+                .unwrap(),
+        );
+        let output = push
+            .args(["push", "--force", remote_path, "HEAD:refs/heads/main"])
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{overlay}: {output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("VibeGuard: non-fast-forward push is blocked"),
+            "{overlay}: {output:?}"
+        );
+        assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), next);
+        if overlay == "replace" {
+            git(&repo, &["replace", "-d", &divergent]);
+        } else {
+            fs::remove_file(grafts).unwrap();
+        }
+    }
 }
 
 #[cfg(unix)]

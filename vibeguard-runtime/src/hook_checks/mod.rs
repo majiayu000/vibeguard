@@ -80,7 +80,11 @@ pub fn pre_push(input: &str) -> Result<u8> {
 }
 
 fn inspect_git(args: &[&str]) -> Result<Output> {
+    // --no-replace-objects does not disable legacy grafts. Override both the
+    // default info/grafts file and any inherited GIT_GRAFT_FILE path.
+    let null_file = if cfg!(windows) { "NUL" } else { "/dev/null" };
     let output = Command::new("git")
+        .env("GIT_GRAFT_FILE", null_file)
         .args(["--no-replace-objects", "--no-lazy-fetch"])
         .args(args)
         .output()?;
