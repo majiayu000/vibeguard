@@ -34,6 +34,8 @@ These examples describe recognition, not a general safety guarantee. Shell subst
 
 Branches (`refs/heads/*`) must target commit objects directly; existing branches also require `git merge-base --is-ancestor`. Other namespaces allow new refs; existing updates retain the ancestry check after peeling tag objects to commits. Existing non-commit targets in those namespaces are explicitly rejected, rather than reported as missing objects. This is a limited local policy, not a complete implementation of Git's namespace rules. Missing required objects or Git inspection errors return exit 2; policy denials return exit 1. The hook processes all pushed refs, does not fetch, and can be bypassed with `--no-verify`; server-side ref protection remains necessary.
 
+Object-type and ancestry inspection use `git --no-replace-objects --no-lazy-fetch`, requiring Git 2.45 or newer. Local `refs/replace` entries cannot substitute object types or commit ancestry for these checks, and missing promisor objects are not downloaded automatically. Unsupported Git options produce exit 2 with the minimum-version requirement; the hook does not retry without those flags. If required objects are absent, fetch them separately before retrying the push. Git 2.45 introduced `--no-lazy-fetch`; see its [release notes](https://github.com/git/git/blob/v2.45.0/Documentation/RelNotes/2.45.0.txt).
+
 ## Observations
 
 Installed commands supply `--state-dir`; direct use without it creates no observation. Each host retains only the latest received event. Concurrent sessions can replace each other's last event.

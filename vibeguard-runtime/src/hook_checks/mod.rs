@@ -1,7 +1,7 @@
 pub mod bash;
 
 use crate::Result;
-use std::process::Command;
+use std::process::{Command, Output};
 
 pub fn pre_push(input: &str) -> Result<u8> {
     for line in input.lines().filter(|line| !line.trim().is_empty()) {
@@ -43,9 +43,7 @@ pub fn pre_push(input: &str) -> Result<u8> {
             } else {
                 format!("{oid}^{{}}")
             };
-            let result = Command::new("git")
-                .args(["cat-file", "-t", &object])
-                .output()?;
+            let result = inspect_git(&["cat-file", "-t", &object])?;
             if !result.status.success() {
                 return Err(
                     "could not inspect Git object; fetch the remote objects and retry".into(),
@@ -64,9 +62,7 @@ pub fn pre_push(input: &str) -> Result<u8> {
         if new_ref {
             continue;
         }
-        let result = Command::new("git")
-            .args(["merge-base", "--is-ancestor", remote, local])
-            .output()?;
+        let result = inspect_git(&["merge-base", "--is-ancestor", remote, local])?;
         match result.status.code() {
             Some(0) => {}
             Some(1) => {
@@ -81,6 +77,20 @@ pub fn pre_push(input: &str) -> Result<u8> {
         }
     }
     Ok(0)
+}
+
+fn inspect_git(args: &[&str]) -> Result<Output> {
+    let output = Command::new("git")
+        .args(["--no-replace-objects", "--no-lazy-fetch"])
+        .args(args)
+        .output()?;
+    if output.status.code() == Some(129) {
+        return Err(
+            "Git object inspection requires Git 2.45 or newer with --no-lazy-fetch; upgrade Git and retry"
+                .into(),
+        );
+    }
+    Ok(output)
 }
 
 fn valid_oid(value: &str) -> bool {

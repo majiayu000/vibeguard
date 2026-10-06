@@ -1,0 +1,235 @@
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+const BIN: &str = env!("CARGO_BIN_EXE_vibeguard-runtime");
+const NULL_FILE: &str = if cfg!(windows) { "NUL" } else { "/dev/null" };
+static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+struct Temp(PathBuf);
+impl Temp {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "vibeguard-git-inspection-{}-{}",
+            std::process::id(),
+            SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+}
+impl Drop for Temp {
+    fn drop(&mut self) {
+        if let Err(error) = fs::remove_dir_all(&self.0) {
+            if std::thread::panicking() {
+                eprintln!("test cleanup failed: {error}");
+            } else {
+                panic!("test cleanup failed: {error}");
+            }
+        }
+    }
+}
+
+fn command(program: &str, repo: &Path) -> Command {
+    let mut command = Command::new(program);
+    command
+        .current_dir(repo)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", NULL_FILE)
+        .env("GIT_ALLOW_PROTOCOL", "file");
+    command
+}
+
+fn git_command(repo: &Path) -> Command {
+    let mut command = command("git", repo);
+    command.args([
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+    ]);
+    command
+}
+
+fn success(output: &Output) {
+    assert!(
+        output.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn git(repo: &Path, args: &[&str]) -> String {
+    let output = git_command(repo).args(args).output().unwrap();
+    success(&output);
+    String::from_utf8(output.stdout).unwrap().trim().to_string()
+}
+
+fn pre_push(command: &mut Command, input: &str) -> Output {
+    let mut child = command
+        .arg("pre-push")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn object_types_ignore_replace_refs() {
+    let temp = Temp::new();
+    git(&temp.0, &["init", "-q"]);
+    fs::write(temp.0.join("value"), "base").unwrap();
+    git(&temp.0, &["add", "value"]);
+    git(&temp.0, &["commit", "-qm", "base"]);
+    let commit = git(&temp.0, &["rev-parse", "HEAD"]);
+    let blob = git(&temp.0, &["rev-parse", "HEAD:value"]);
+    git(&temp.0, &["replace", "-f", &blob, &commit]);
+    assert_eq!(git(&temp.0, &["cat-file", "-t", &blob]), "commit");
+
+    let zero = "0".repeat(commit.len());
+    for (destination, remote) in [
+        ("refs/heads/main", zero.as_str()),
+        ("refs/custom/main", commit.as_str()),
+    ] {
+        let record = format!("HEAD {blob} {destination} {remote}\n");
+        let output = pre_push(&mut command(BIN, &temp.0), &record);
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("commits"));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn installed_hook_rejects_replaced_history_during_a_local_push() {
+    let temp = Temp::new();
+    let repo = temp.0.join("repo");
+    let remote = temp.0.join("remote.git");
+    fs::create_dir(&repo).unwrap();
+    fs::create_dir(&remote).unwrap();
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["config", "core.hooksPath", ".git/hooks"]);
+    git(&remote, &["init", "--bare", "-q"]);
+    git(&repo, &["commit", "--allow-empty", "-qm", "base"]);
+    let base = git(&repo, &["rev-parse", "HEAD"]);
+    success(
+        &command(BIN, &repo)
+            .args([
+                "install",
+                "git",
+                "--home",
+                temp.0.to_str().unwrap(),
+                "--repo",
+                repo.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap(),
+    );
+    let remote_path = remote.to_str().unwrap();
+    git(&repo, &["push", remote_path, "HEAD:refs/heads/main"]);
+    git(&repo, &["commit", "--allow-empty", "-qm", "next"]);
+    let next = git(&repo, &["rev-parse", "HEAD"]);
+    git(&repo, &["push", remote_path, "HEAD:refs/heads/main"]);
+
+    git(&repo, &["checkout", "--detach", &base]);
+    git(&repo, &["commit", "--allow-empty", "-qm", "divergent"]);
+    let divergent = git(&repo, &["rev-parse", "HEAD"]);
+    let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]);
+    let replacement = git(
+        &repo,
+        &["commit-tree", &tree, "-p", &next, "-m", "replacement"],
+    );
+    git(&repo, &["replace", &divergent, &replacement]);
+    // Git's default local view falsely treats this divergent commit as a descendant.
+    git(&repo, &["merge-base", "--is-ancestor", &next, &divergent]);
+    let output = git_command(&repo)
+        .args(["push", "--force", remote_path, "HEAD:refs/heads/main"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("VibeGuard: non-fast-forward push is blocked"),
+        "{output:?}"
+    );
+    assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), next);
+}
+
+#[cfg(unix)]
+#[test]
+fn missing_promisor_object_does_not_start_a_fetch() {
+    let temp = Temp::new();
+    let repo = temp.0.join("repo");
+    let remote = temp.0.join("remote.git");
+    fs::create_dir(&repo).unwrap();
+    fs::create_dir(&remote).unwrap();
+    git(&repo, &["init", "-q"]);
+    git(&remote, &["init", "--bare", "-q"]);
+    let marker = temp.0.join("fetch-attempt");
+    let upload_pack = temp.0.join("upload-pack");
+    let quote = |path: &Path| format!("'{}'", path.to_str().unwrap().replace('\'', "'\\''"));
+    fs::write(
+        &upload_pack,
+        format!("#!/bin/sh\nprintf fetched > {}\nexit 1\n", quote(&marker)),
+    )
+    .unwrap();
+    git(
+        &repo,
+        &["config", "remote.origin.url", remote.to_str().unwrap()],
+    );
+    git(&repo, &["config", "remote.origin.promisor", "true"]);
+    git(
+        &repo,
+        &[
+            "config",
+            "remote.origin.uploadpack",
+            &format!("sh {}", quote(&upload_pack)),
+        ],
+    );
+    let missing = "1".repeat(40);
+    // Verify the fixture really attempts lazy fetch with ordinary cat-file.
+    let control = git_command(&repo)
+        .args(["cat-file", "-t", &missing])
+        .output()
+        .unwrap();
+    assert!(!control.status.success());
+    assert!(marker.exists());
+    fs::remove_file(&marker).unwrap();
+
+    let record = format!("HEAD {missing} refs/heads/main {}\n", "0".repeat(40));
+    let output = pre_push(&mut command(BIN, &repo), &record);
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("could not inspect Git object"));
+    assert!(!marker.exists(), "Git inspection attempted to fetch");
+}
+
+#[cfg(unix)]
+#[test]
+fn unsupported_git_options_report_the_minimum_version() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = Temp::new();
+    let git = temp.0.join("git");
+    fs::write(&git, "#!/bin/sh\nexit 129\n").unwrap();
+    fs::set_permissions(&git, fs::Permissions::from_mode(0o755)).unwrap();
+    let record = format!(
+        "HEAD {} refs/heads/main {}\n",
+        "1".repeat(40),
+        "0".repeat(40)
+    );
+    let output = pre_push(command(BIN, &temp.0).env("PATH", &temp.0), &record);
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Git 2.45 or newer"));
+}
