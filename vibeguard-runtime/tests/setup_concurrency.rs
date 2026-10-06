@@ -34,7 +34,17 @@ fn invoke(home: &Path, action: &str) -> Output {
         .unwrap()
 }
 
-fn hold(path: &Path) -> File {
+struct HeldLock(File);
+impl Drop for HeldLock {
+    fn drop(&mut self) {
+        // Another test's fork can briefly inherit this descriptor before exec
+        // closes it. Release the shared lock explicitly instead of waiting for
+        // the last inherited descriptor to close.
+        self.0.unlock().unwrap();
+    }
+}
+
+fn hold(path: &Path, context: &str) -> HeldLock {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     let file = OpenOptions::new()
         .read(true)
@@ -43,8 +53,9 @@ fn hold(path: &Path) -> File {
         .truncate(false)
         .open(path)
         .unwrap();
-    file.try_lock().unwrap();
-    file
+    file.try_lock()
+        .unwrap_or_else(|error| panic!("{context}: cannot lock {}: {error}", path.display()));
+    HeldLock(file)
 }
 
 fn assert_busy(output: Output) {
@@ -60,7 +71,7 @@ fn assert_busy(output: Output) {
 fn competing_setups_fail_without_mutating_configuration_and_status_stays_read_only() {
     let temp = Temp::new();
     let lock_path = temp.0.join(".vibeguard/setup.lock");
-    let lock = hold(&lock_path);
+    let lock = hold(&lock_path, "before initial installation");
     assert_busy(invoke(&temp.0, "install"));
     assert!(!temp.0.join(".claude/settings.json").exists());
     assert!(!temp.0.join(".vibeguard/bin/vibeguard-runtime").exists());
@@ -74,7 +85,7 @@ fn competing_setups_fail_without_mutating_configuration_and_status_stays_read_on
     );
     let config = temp.0.join(".claude/settings.json");
     let before = fs::read(&config).unwrap();
-    let lock = hold(&lock_path);
+    let lock = hold(&lock_path, "after installation completed");
     assert!(invoke(&temp.0, "status").status.success());
     assert_busy(invoke(&temp.0, "uninstall"));
     assert_eq!(fs::read(&config).unwrap(), before);
@@ -82,7 +93,7 @@ fn competing_setups_fail_without_mutating_configuration_and_status_stays_read_on
     assert!(invoke(&temp.0, "uninstall").status.success());
     assert!(lock_path.is_file());
     // Persistent lock files do not constitute an active lock after process exit.
-    drop(hold(&lock_path));
+    drop(hold(&lock_path, "after uninstall completed"));
 }
 
 #[test]
@@ -107,10 +118,13 @@ fn shared_codex_directory_is_locked_across_different_homes() {
     );
     let before = fs::read(shared.join("hooks.json")).unwrap();
     let lock_path = shared.join(".vibeguard-setup.lock");
-    let lock = hold(&lock_path);
+    let lock = hold(&lock_path, "after installing the first shared Codex home");
     assert_busy(run(&second));
     assert_eq!(fs::read(shared.join("hooks.json")).unwrap(), before);
     assert!(!second.join(".vibeguard/bin/vibeguard-runtime").exists());
     drop(lock);
-    drop(hold(&lock_path));
+    drop(hold(
+        &lock_path,
+        "after releasing the shared Codex fixture lock",
+    ));
 }
