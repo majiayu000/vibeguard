@@ -118,6 +118,48 @@ fn native_hook_protocol_and_no_command_rewrites() {
 }
 
 #[test]
+fn native_hooks_preserve_simple_command_lexical_boundaries() {
+    // These strings are JSON payload data; no proposed shell command is executed.
+    for host in ["claude", "codex"] {
+        for (command, denied) in [
+            ("git\nrm -rf /etc", true),
+            ("rm\ngit clean -fd", true),
+            ("git checkout . 2>/tmp/vibeguard-log", true),
+            ("git restore -- . 2>>/tmp/vibeguard-log", true),
+            ("git checkout . 0</tmp/vibeguard-input", true),
+            ("rm -rf 2>&1 /etc", true),
+            ("git clean 2>&1 -fd", true),
+            ("git clean -f 2>&1 -n", false),
+            ("git clean -f >| /tmp/vibeguard-log -n", false),
+            ("git clean -f &>/tmp/vibeguard-log -n", false),
+            ("'echo' git clean -fd", false),
+            ("'/bin/printf' '%s\\n' rm -rf /etc", false),
+            ("echo \\<<EOF\ngit clean -fd", true),
+            ("cat <<EOF-END\nEOF-END\ngit clean -fd", true),
+            ("cat <<EOF-END\ngit clean -fd\nEOF-END", false),
+        ] {
+            let output = invoke(
+                &["hook", host],
+                &payload("PreToolUse", command).to_string(),
+                None,
+            );
+            success(&output);
+            assert!(output.stderr.is_empty(), "{host}: {command:?}");
+            if denied {
+                assert!(!output.stdout.is_empty(), "{host}: {command:?}");
+                assert_eq!(
+                    native(&output)["hookSpecificOutput"]["permissionDecision"],
+                    "deny",
+                    "{host}: {command:?}"
+                );
+            } else {
+                assert!(output.stdout.is_empty(), "{host}: {command:?}");
+            }
+        }
+    }
+}
+
+#[test]
 fn native_hooks_preserve_line_continuation_semantics() {
     for host in ["claude", "codex"] {
         for command in [
