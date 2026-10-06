@@ -317,7 +317,8 @@ fn strip_heredoc_bodies(command: &str) -> String {
     let mut body_line = String::new();
     for line in command.split_inclusive('\n') {
         if let Some((expected, strip_tabs, quoted)) = terminators.front() {
-            let candidate = line.trim_end_matches(['\r', '\n']);
+            // Bash treats CR as data even in CRLF input. Only LF ends the line.
+            let candidate = line.strip_suffix('\n').unwrap_or(line);
             // Unquoted heredocs join escaped newlines before testing the
             // delimiter. Quotes in body data do not alter this behavior.
             if !quoted

@@ -160,6 +160,49 @@ fn native_hooks_preserve_simple_command_lexical_boundaries() {
 }
 
 #[test]
+fn native_hooks_preserve_carriage_returns_in_heredoc_delimiters() {
+    // Commands stay JSON data: exercise both native hook protocols without
+    // executing the proposed shell commands.
+    for host in ["claude", "codex"] {
+        for (command, denied) in [
+            ("cat <<EOF\nbody\nEOF\ngit clean -fd\n", true),
+            ("cat <<EOF\r\nbody\r\nEOF\r\ngit clean -fd\n", true),
+            ("cat <<'EOF'\r\nbody\r\nEOF\r\ngit clean -fd\n", true),
+            ("cat <<\"EOF\"\r\nbody\r\nEOF\r\ngit clean -fd\n", true),
+            ("cat <<'EOF\r'\nbody\nEOF\r\ngit clean -fd\n", true),
+            ("cat <<-EOF\r\n\tbody\r\n\tEOF\r\ngit clean -fd\n", true),
+            ("cat <<EOF\r\nbody\\\r\nEOF\r\ngit clean -fd\n", true),
+            ("cat <<EOF\r\nEO\\\nF\r\ngit clean -fd\n", true),
+            ("cat <<A <<B\r\nA\nB\r\ngit clean -fd\n", true),
+            ("cat <<EOF\r\r\nEOF\r\r\ngit clean -fd\n", true),
+            ("cat <<EOF\nEOF\r\ngit clean -fd\n", false),
+            ("cat <<EOF\r\nEOF\ngit clean -fd\n", false),
+            ("cat <<EOF\r\nEOF\r\r\ngit clean -fd\n", false),
+            ("cat <<'EOF'\r\ngit clean -fd\nEOF\r", false),
+            ("cat <<EOF\r\nEOF\r\nprintf '%s' 'git clean -fd'\n", false),
+        ] {
+            let output = invoke(
+                &["hook", host],
+                &payload("PreToolUse", command).to_string(),
+                None,
+            );
+            success(&output);
+            assert!(output.stderr.is_empty(), "{host}: {command:?}");
+            if denied {
+                assert!(!output.stdout.is_empty(), "{host}: {command:?}");
+                assert_eq!(
+                    native(&output)["hookSpecificOutput"]["permissionDecision"],
+                    "deny",
+                    "{host}: {command:?}"
+                );
+            } else {
+                assert!(output.stdout.is_empty(), "{host}: {command:?}");
+            }
+        }
+    }
+}
+
+#[test]
 fn native_hooks_preserve_line_continuation_semantics() {
     for host in ["claude", "codex"] {
         for command in [
