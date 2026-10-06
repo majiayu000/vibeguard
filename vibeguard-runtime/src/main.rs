@@ -12,7 +12,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const USAGE: &str = "VibeGuard — native hooks and a curated rule library
 
 Usage:
-  vibeguard-runtime rules [ID|category|--json|--core]
+  vibeguard-runtime rules [ID|category|--json|--core|--search TEXT]
   vibeguard-runtime hook <claude|codex> [--state-dir PATH]
   vibeguard-runtime install <claude|codex|git> [--home PATH] [--repo PATH]
   vibeguard-runtime uninstall <claude|codex|git> [--home PATH] [--repo PATH]

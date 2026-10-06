@@ -3,7 +3,7 @@
 Generated from the canonical Markdown. These are review topics, not claims of automatic enforcement.
 The library contains 75 topics; read only those relevant to the task.
 
-| ID | Topic | Scope |
+| ID | Topic | Severity |
 |---|---|---|
 | [U-01](../rules/claude-rules/common/coding-style.md) | Respect the requested contract | strict |
 | [U-02](../rules/claude-rules/common/coding-style.md) | Extract abstractions for a concrete shared responsibility | guideline |

@@ -1,0 +1,18 @@
+name: Dependency policy
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dependencies:
+    name: Resolved dependency policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2, cargo-deny 0.20.2
+        with:
+          rust-version: '1.95.0'
+          manifest-path: vibeguard-runtime/Cargo.toml
+          arguments: --locked --all-features --config deny.toml
+          command: check

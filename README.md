@@ -46,11 +46,14 @@ bash setup.sh install claude
 ~/.vibeguard/bin/vibeguard-runtime rules
 ~/.vibeguard/bin/vibeguard-runtime rules RS-01
 ~/.vibeguard/bin/vibeguard-runtime rules typescript
+~/.vibeguard/bin/vibeguard-runtime rules --search 'Promise'
 ~/.vibeguard/bin/vibeguard-runtime status codex
 ~/.vibeguard/bin/vibeguard-runtime uninstall codex
 ```
 
 Categories: `common`, `rust`, `python`, `golang`, `typescript`. `rules --json` exports the catalog; `rules --core` prints the compact reference. Rule lookup is optional and is not a task-start requirement.
+
+`rules --search 'cancellation errors'` finds rules containing every whitespace-separated term in their ID, title, source or body, ignoring case. It returns up to ten IDs, sources and titles, preferring title matches. Read a selected rule with `rules ID`. Empty queries and searches with no matches report an error; search does not change hook policy or inject instructions.
 
 Git protection is explicit: `~/.vibeguard/bin/vibeguard-runtime install git --repo /absolute/path/to/repository`. It refuses to replace a user-managed pre-push hook. Use `status git` or `uninstall git` with the same `--repo`.
 

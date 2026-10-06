@@ -14,6 +14,5 @@ cargo fmt --manifest-path vibeguard-runtime/Cargo.toml -- --check
 cargo check --locked --manifest-path vibeguard-runtime/Cargo.toml
 cargo clippy --locked --manifest-path vibeguard-runtime/Cargo.toml --all-targets -- -D warnings
 cargo test --locked --manifest-path vibeguard-runtime/Cargo.toml
-cargo build --locked --release --manifest-path vibeguard-runtime/Cargo.toml
-python3 scripts/ci/smoke_binary.py vibeguard-runtime/target/release/vibeguard-runtime
+python3 scripts/ci/smoke_binary.py --cargo-build vibeguard-runtime/Cargo.toml
 git diff --check

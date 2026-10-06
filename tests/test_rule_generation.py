@@ -34,6 +34,37 @@ class RuleGenerationTests(unittest.TestCase):
         self.assertEqual([r["id"] for r in rules], ["U-01"])
         self.assertIn("X-99", rules[0]["body"])
 
+    def test_unclosed_fence_reports_source_and_opening_line(self):
+        for marker in ("```rust", "~~~~", "   ```"):
+            with self.subTest(marker=marker), self.assertRaisesRegex(
+                    ValueError, r"one\.md:3: unclosed code fence"):
+                self.parse({"one.md": "## U-01: First (review)\nBody.\n"
+                            + marker + "\n## U-02: Hidden (review)\nBody.\n"})
+
+    def test_fence_closer_must_match_character_length_and_empty_info(self):
+        for opening, invalid_closer, closing in (
+                ("````markdown", "```", "````"),
+                ("~~~markdown", "```", "~~~~"),
+                ("```markdown", "```rust", "   ```")):
+            with self.subTest(opening=opening, invalid_closer=invalid_closer):
+                text = ("## U-01: First (review)\nBody.\n" + opening + "\n"
+                        + invalid_closer + "\n## X-99: Example (review)\n"
+                        + closing + "\n## U-02: Second (review)\nBody.\n")
+                rules = self.parse({"one.md": text})
+                self.assertEqual([r["id"] for r in rules], ["U-01", "U-02"])
+                self.assertIn("X-99", rules[0]["body"])
+
+    def test_unclosed_fence_before_first_rule_is_an_error(self):
+        with self.assertRaisesRegex(ValueError, r"one\.md:1: unclosed code fence"):
+            self.parse({"one.md": "```markdown\n## U-01: Hidden (review)\nBody.\n"})
+
+    def test_unicode_whitespace_does_not_close_a_fence(self):
+        for suffix in ("\u00a0", "\u3000"):
+            with self.subTest(suffix=suffix), self.assertRaisesRegex(
+                    ValueError, r"one\.md:3: unclosed code fence"):
+                self.parse({"one.md": "## U-01: First (review)\nBody.\n```markdown\n"
+                            + "```" + suffix + "\n## U-02: Hidden (review)\nBody.\n"})
+
     def test_checked_in_outputs_match_canonical_text(self):
         for path, expected in generator.generated_files(generator.parse_rules()).items():
             self.assertEqual(path.read_text(encoding="utf-8"), expected, str(path))
