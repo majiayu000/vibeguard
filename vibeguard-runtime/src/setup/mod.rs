@@ -7,7 +7,10 @@ use serde_json::{Value, json};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use support::{executable, make_executable, read_optional, read_text, shell_quote, write_atomic};
+use support::{
+    check_unchanged, executable, lock_setup, make_executable, read_optional, read_text,
+    shell_quote, write_atomic, write_atomic_if_unchanged,
+};
 
 struct Options {
     host: String,
@@ -243,30 +246,65 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
                 .expect("validated event array")
                 .push(spec);
         }
+    }
+    let observation = options.state().join(format!("{}.json", options.host));
+    let remove_observation = action == "uninstall" && read_optional(&observation)?.is_some();
+    let will_write = action == "install"
+        || config != original_config
+        || new_instructions != old_text
+        || remove_observation;
+    // Prevalidation remains read-only. Lock only after it succeeds, then detect
+    // snapshots changed by another setup or a host while we were preparing.
+    let locks = if will_write {
+        let locks = lock_setup(&options.home, &options.host_dir)?;
+        check_unchanged(&config_path, old_config.as_deref().map(str::as_bytes))?;
+        if options.host == "codex" {
+            check_unchanged(&feature_path, old_features.as_deref().map(str::as_bytes))?;
+        }
+        if new_instructions != old_text {
+            check_unchanged(
+                &instructions_path,
+                old_instructions.as_deref().map(str::as_bytes),
+            )?;
+        }
+        Some(locks)
+    } else {
+        None
+    };
+    if action == "install" {
         install_binary(&options)?;
     }
     if config != original_config {
-        write_atomic(
+        write_atomic_if_unchanged(
             &config_path,
             (serde_json::to_string_pretty(&config)? + "\n").as_bytes(),
             0o600,
+            old_config.as_deref().map(str::as_bytes),
         )?;
     }
     if let Some(text) = new_features
         && old_features.as_deref() != Some(&text)
     {
-        write_atomic(&feature_path, text.as_bytes(), 0o600)?;
+        write_atomic_if_unchanged(
+            &feature_path,
+            text.as_bytes(),
+            0o600,
+            old_features.as_deref().map(str::as_bytes),
+        )?;
     }
     if new_instructions != old_text {
         // An empty result does not establish that we own the file itself.
-        write_atomic(&instructions_path, new_instructions.as_bytes(), 0o600)?;
+        write_atomic_if_unchanged(
+            &instructions_path,
+            new_instructions.as_bytes(),
+            0o600,
+            old_instructions.as_deref().map(str::as_bytes),
+        )?;
     }
-    if action == "uninstall" {
-        let observation = options.state().join(format!("{}.json", options.host));
-        if read_optional(&observation)?.is_some() {
-            fs::remove_file(observation)?;
-        }
+    if remove_observation && read_optional(&observation)?.is_some() {
+        fs::remove_file(observation)?;
     }
+    drop(locks);
     publish(
         json!({
             "action":action,"host":options.host,"config":config_path,"instructions":instructions_path,
@@ -501,15 +539,34 @@ fn git_integration(action: &str, options: &Options) -> Result<u8> {
     if existing.is_some() && !owned {
         return Err("existing pre-push hook is user-managed; no files were changed".into());
     }
+    let locks = if action == "install" || owned {
+        let locks = lock_setup(
+            &options.home,
+            path.parent()
+                .ok_or("pre-push hook has no parent directory")?,
+        )?;
+        check_unchanged(&path, existing.as_deref().map(str::as_bytes))?;
+        Some(locks)
+    } else {
+        None
+    };
     if action == "install" {
         install_binary(options)?;
         if !owned {
-            write_atomic(&path, expected.as_bytes(), 0o755)?;
+            write_atomic_if_unchanged(
+                &path,
+                expected.as_bytes(),
+                0o755,
+                existing.as_deref().map(str::as_bytes),
+            )?;
         }
+        check_unchanged(&path, Some(expected.as_bytes()))?;
         make_executable(&path)?;
     } else if owned {
+        check_unchanged(&path, existing.as_deref().map(str::as_bytes))?;
         fs::remove_file(&path)?;
     }
+    drop(locks);
     publish(
         json!({"action":action,"host":"git","hook":path}),
         options,

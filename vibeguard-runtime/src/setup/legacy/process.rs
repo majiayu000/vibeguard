@@ -11,8 +11,11 @@ pub(super) enum CommandOutput {
 }
 
 pub(super) fn command_output(program: &str, args: &[&str], timeout: Duration) -> CommandOutput {
-    let child = match Command::new(program)
-        .args(args)
+    command_with_timeout(Command::new(program).args(args), timeout)
+}
+
+pub(super) fn command_with_timeout(command: &mut Command, timeout: Duration) -> CommandOutput {
+    let child = match command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
