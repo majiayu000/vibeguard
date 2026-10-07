@@ -15,7 +15,7 @@ DSH ToolRuntime 自行请求 ApprovalService 审批并记录 `approval/asked`、
 
 ## 环境与本地安装
 
-需要 Node.js `^22.19.0` 或 `>=24`，以及 DSH **0.2.0-rc.2**（`next`）。测试使用已发布 npm 包，不承诺其他预发布版本兼容。VibeGuard 必须从本版本构建并支持 `hook dsh`；旧二进制会拒绝调用。
+需要 Node.js `^22.19.0` 或 `>=24`，以及 DSH **0.2.0-rc.2**（`next`）。测试使用已发布 npm 包，不承诺其他预发布版本兼容。VibeGuard 必须使用 **2.0.2** 或从本版本构建并支持 `hook dsh`；旧二进制会拒绝调用。
 
 在 VibeGuard 源码目录运行：
 

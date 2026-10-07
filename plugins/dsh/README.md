@@ -17,7 +17,7 @@ This adapter does not register session-start, Stop, Read, Edit or Write hooks: c
 
 - Node.js `^22.19.0` or `>=24`
 - DSH packages **0.2.0-rc.2** (`next`), tested as published npm artifacts. No claim of compatibility with other prereleases.
-- A VibeGuard binary built from this revision, supporting `hook dsh`; old binaries fail closed.
+- VibeGuard **2.0.2** or a binary built from this revision, supporting `hook dsh`; old binaries fail closed.
 
 From the VibeGuard checkout:
 
