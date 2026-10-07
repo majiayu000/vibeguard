@@ -22,7 +22,7 @@ This adapter does not register session-start, Stop, Read, Edit or Write hooks: c
 From the VibeGuard checkout:
 
 ```bash
-cargo build --locked --release --manifest-path vibeguard-runtime/Cargo.toml
+cargo build --locked --manifest-path vibeguard-runtime/Cargo.toml
 cd plugins/dsh
 npm ci
 npm run check
@@ -43,7 +43,7 @@ The `vibeguard` bundle row requires the profile's normal DSH base bundle and a m
     timeoutMs: 5000
 ```
 
-Empty paths select `~/.vibeguard/bin/vibeguard-runtime` and `~/.vibeguard/state`. Missing binary aborts plugin loading with a build instruction; it is never downloaded automatically. `timeoutMs` bounds each runtime call. Install the current release binary or point `runtimePath` to `vibeguard-runtime/target/release/vibeguard-runtime`.
+Empty paths select `~/.vibeguard/bin/vibeguard-runtime` and `~/.vibeguard/state`. Missing binary aborts plugin loading with a build instruction; it is never downloaded automatically. `timeoutMs` bounds each runtime call. Install the current release binary or point `runtimePath` to `vibeguard-runtime/target/debug/vibeguard-runtime`.
 
 The runtime uses the profile's shell executor and sandbox. Give `stateDir` a writable location inside the configured workspace when the sandbox restricts home-directory writes; an unavailable observation directory produces a notice. The adapter does not add sandbox exemptions.
 

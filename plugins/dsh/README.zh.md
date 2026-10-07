@@ -20,7 +20,7 @@ DSH ToolRuntime 自行请求 ApprovalService 审批并记录 `approval/asked`、
 在 VibeGuard 源码目录运行：
 
 ```bash
-cargo build --locked --release --manifest-path vibeguard-runtime/Cargo.toml
+cargo build --locked --manifest-path vibeguard-runtime/Cargo.toml
 cd plugins/dsh
 npm ci
 npm run check
@@ -41,7 +41,7 @@ dsh --profile demo --dump-config
     timeoutMs: 5000
 ```
 
-空路径选择 `~/.vibeguard/bin/vibeguard-runtime` 和 `~/.vibeguard/state`。缺二进制时加载失败并提示构建命令，不自动下载。`timeoutMs` 限制每次运行时调用。可以直接指向 `vibeguard-runtime/target/release/vibeguard-runtime`。
+空路径选择 `~/.vibeguard/bin/vibeguard-runtime` 和 `~/.vibeguard/state`。缺二进制时加载失败并提示构建命令，不自动下载。`timeoutMs` 限制每次运行时调用。可以直接指向 `vibeguard-runtime/target/debug/vibeguard-runtime`。
 
 运行时遵循 profile 的 shell 执行器和沙箱。沙箱限制主目录写入时，把 `stateDir` 指向配置工作区内的可写目录；无法写观察时会提示。适配不会添加沙箱豁免。
 
