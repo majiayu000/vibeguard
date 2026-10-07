@@ -24,8 +24,8 @@ impl Options {
     fn parse(args: &[String]) -> Result<Self> {
         let host = args
             .first()
-            .filter(|v| matches!(v.as_str(), "claude" | "codex" | "git"))
-            .ok_or("target must be claude, codex or git")?
+            .filter(|v| matches!(v.as_str(), "claude" | "codex" | "grok" | "git"))
+            .ok_or("target must be claude, codex, grok or git")?
             .clone();
         let mut explicit_home = None;
         let mut repo = None;
@@ -70,6 +70,13 @@ impl Options {
         .join(".gemini");
         let host_dir = if host == "codex" {
             codex_dir.clone()
+        } else if host == "grok" && !is_explicit {
+            std::env::var_os("GROK_HOME")
+                .filter(|p| !p.is_empty())
+                .map(PathBuf::from)
+                .map(absolute)
+                .transpose()?
+                .unwrap_or_else(|| home.join(".grok"))
         } else {
             home.join(format!(".{host}"))
         };
@@ -95,17 +102,17 @@ impl Options {
         self.home.join(".vibeguard/state")
     }
     fn config(&self) -> PathBuf {
-        self.host_dir.join(if self.host == "codex" {
-            "hooks.json"
-        } else {
-            "settings.json"
+        self.host_dir.join(match self.host.as_str() {
+            "codex" => "hooks.json",
+            "grok" => "hooks/vibeguard.json",
+            _ => "settings.json",
         })
     }
     fn instructions(&self) -> PathBuf {
-        self.host_dir.join(if self.host == "codex" {
-            "AGENTS.md"
-        } else {
-            "CLAUDE.md"
+        self.host_dir.join(match self.host.as_str() {
+            "codex" => "AGENTS.md",
+            "grok" => "rules/vibeguard.md",
+            _ => "CLAUDE.md",
         })
     }
     fn command(&self) -> Result<String> {
@@ -196,7 +203,11 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
                 "host_hooks_feature_enabled": feature_enabled,
                 "host_hook_disable_flag": disabled, "host_trust": "not_observed",
                 "last_observation": logging::latest(&options.state(), &options.host)?,
-                "coverage": "registered Bash events only; not a sandbox or task-verification certificate"
+                "coverage": if options.host == "grok" {
+                    "registered run_terminal_command events only; not a sandbox or task-verification certificate"
+                } else {
+                    "registered Bash events only; not a sandbox or task-verification certificate"
+                }
             }),
             &options,
             Some(ready),
@@ -413,7 +424,7 @@ fn validate_config(config: &Value) -> Result<()> {
 }
 
 fn hook_specs(host: &str, command: &str) -> Vec<(String, Value)> {
-    let events: &[&str] = if host == "claude" {
+    let events: &[&str] = if matches!(host, "claude" | "grok") {
         &["PreToolUse", "PostToolUse", "PostToolUseFailure"]
     } else {
         &["PreToolUse", "PostToolUse"]
@@ -424,7 +435,8 @@ fn hook_specs(host: &str, command: &str) -> Vec<(String, Value)> {
             (
                 (*event).to_string(),
                 json!({
-                    "matcher":"Bash","hooks":[{"type":"command","command":command,"timeout":10}]
+                    "matcher": if host == "grok" { "run_terminal_command" } else { "Bash" },
+                    "hooks":[{"type":"command","command":command,"timeout":10}]
                 }),
             )
         })

@@ -13,10 +13,10 @@ const USAGE: &str = "VibeGuard — native hooks and a curated rule library
 
 Usage:
   vibeguard-runtime rules [ID|category|--json|--core]
-  vibeguard-runtime hook <claude|codex|dsh> [--state-dir PATH]
-  vibeguard-runtime install <claude|codex|git> [--home PATH] [--repo PATH]
-  vibeguard-runtime uninstall <claude|codex|git> [--home PATH] [--repo PATH]
-  vibeguard-runtime status <claude|codex|git> [--home PATH] [--repo PATH]
+  vibeguard-runtime hook <claude|codex|grok|dsh> [--state-dir PATH]
+  vibeguard-runtime install <claude|codex|grok|git> [--home PATH] [--repo PATH]
+  vibeguard-runtime uninstall <claude|codex|grok|git> [--home PATH] [--repo PATH]
+  vibeguard-runtime status <claude|codex|grok|git> [--home PATH] [--repo PATH]
   vibeguard-runtime pre-push
   vibeguard-runtime --version
 
@@ -34,7 +34,7 @@ fn main() -> ExitCode {
         Ok(code) => ExitCode::from(code),
         Err(error) => {
             eprintln!("VibeGuard: {error}");
-            // Both supported hosts interpret hook exit 2 as a visible failure.
+            // Protocol/runtime failures remain visible; hosts own their handling.
             ExitCode::from(2)
         }
     }

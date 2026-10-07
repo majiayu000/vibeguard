@@ -143,7 +143,7 @@ fn is_v2_hook_command(command: &str) -> bool {
         && words.get(index + 1).map(String::as_str) == Some("hook")
         && matches!(
             words.get(index + 2).map(String::as_str),
-            Some("claude" | "codex")
+            Some("claude" | "codex" | "grok")
         )
         && words.get(index + 3).map(String::as_str) == Some("--state-dir")
         && words.len() == index + 5

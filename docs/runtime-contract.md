@@ -4,7 +4,11 @@ One local Rust executable handles hooks, rules, and installation. It does not ru
 
 ## Protocol
 
-`hook claude`, `hook codex`, and `hook dsh` consume one JSON object on stdin, capped at 4 MiB. Required fields are event name, nonempty cwd, tool name `Bash`, and `tool_input.command`. Malformed input/unsupported events return exit 2; payload contents are not echoed. DSH accepts PreToolUse/PostToolUse and records its own `dsh` host attribution; the npm adapter translates DSH tool values to this protocol.
+`hook claude`, `hook codex`, `hook grok`, and `hook dsh` consume one JSON object on stdin, capped at 4 MiB. Claude/Codex/DSH required fields are event name, nonempty cwd, tool name `Bash`, and `tool_input.command`. Malformed input/unsupported events return exit 2; payload contents are not echoed. DSH accepts PreToolUse/PostToolUse and records its own `dsh` host attribution; the npm adapter translates DSH tool values to this protocol.
+
+Grok accepts `run_terminal_command` (and its matcher spelling `Bash`), native `hookEventName` values `pre_tool_use`, `post_tool_use`, `post_tool_use_failure`, and the documented Claude-style aliases. `toolName`, `toolInput`, `toolResult`, `toolUseId`, and `isInterrupt` map to the corresponding common fields; native camelCase values take precedence. Only `toolInput.command` is evaluated; no `cmd`/`script` guesses or other shell tools are accepted. Pre-use input marked `toolInputTruncated: true` is an error. Post-use input may be truncated because it is not evaluated. A string/truncated result has no inferred exit code; `isBackgrounded: true` records `running` without a completed exit code. Failure events require `error` and honor `isInterrupt`.
+
+When Grok imports the Claude registration, `hook claude` recognizes its native envelope or `run_terminal_command` tool name and uses the Grok protocol and observation file. `hook codex` remains strict. Grok accepts the same native `hookSpecificOutput.permissionDecision` deny output with exit 0. Grok also treats pre-use exit 2 as denial, but arbitrary hook failures/timeouts can fail open; protocol errors are not a universal protection guarantee. Both registrations may run when Claude compatibility is enabled; each evaluates the same policy, and observations retain only the last event.
 
 | Event | Claude | Codex | Behavior |
 |---|---|---|---|
@@ -12,9 +16,11 @@ One local Rust executable handles hooks, rules, and installation. It does not ru
 | PostToolUse / Bash | Yes | Yes | Optional latest outcome observation |
 | PostToolUseFailure / Bash | Yes | No | Failed/interrupted observation; Claude error field required |
 
+Grok registers the same three events for `run_terminal_command`. These selected shell checks do not add hooks for every tool or lifecycle event.
+
 Policy denial uses native JSON with exit 0. Exit 2 denotes runtime/protocol error; host error handling is not a universal fail-closed guarantee. No `ask` decision is emitted. No Stop, Read, search, apply_patch, Edit, MCP, or hosted-tool hooks are registered.
 
-The [DSH adapter](../plugins/dsh/README.md) maps a pre-call policy denial to DSH's `ask` decision. DSH's ToolRuntime owns the approval request and records `approval/asked` and `approval/decided`; a grant applies once, and refusal, cancellation, absent approval service/channel, or an agent-less call denies dispatch. A runtime/process/protocol failure is a hard pre-call denial, never an approval request. Post-call observation failures are notices and preserve the completed tool result. DSH installation uses its profile plugin command; the Rust install/status commands still target Claude, Codex and Git only.
+The [DSH adapter](../plugins/dsh/README.md) maps a pre-call policy denial to DSH's `ask` decision. DSH's ToolRuntime owns the approval request and records `approval/asked` and `approval/decided`; a grant applies once, and refusal, cancellation, absent approval service/channel, or an agent-less call denies dispatch. A runtime/process/protocol failure is a hard pre-call denial, never an approval request. Post-call observation failures are notices and preserve the completed tool result. DSH installation uses its profile plugin command; the Rust install/status commands target Claude, Codex, Grok and Git only.
 
 The Bash recognizer masks comments, quoted data, and supported heredoc bodies. It recognizes bulk `git checkout/restore .`, forced `git clean` except dry-run, and selected forced recursive removal of root/home/system paths. It does not interpret arbitrary shell grammar, scripts, aliases, substitutions, variables generally, or alternate tools.
 
@@ -54,9 +60,12 @@ There is no verified-tree flag. A previous result, background ID, command contai
 |---|---|---|
 | Claude | `~/.claude/settings.json` | `~/.claude/CLAUDE.md` |
 | Codex | `$CODEX_HOME/hooks.json`, default `~/.codex/hooks.json` | Same directory's `AGENTS.md` |
+| Grok | `$GROK_HOME/hooks/vibeguard.json`, default `~/.grok/hooks/vibeguard.json` | Same Grok directory's existing `rules/vibeguard.md` |
 | Git | Resolved `git --git-path hooks/pre-push`, honoring core.hooksPath | None |
 
-Binary: `~/.vibeguard/bin/vibeguard-runtime`. Observations: `~/.vibeguard/state/claude.json` and `codex.json`. `--home PATH` uses an isolated home and ignores ambient `CODEX_HOME`. `--repo PATH` applies only to Git. No shell profile/PATH changes.
+Binary: `~/.vibeguard/bin/vibeguard-runtime`. Observations: `~/.vibeguard/state/claude.json`, `codex.json`, and `grok.json`. Grok observations retain the real tool name. `--home PATH` uses an isolated home and ignores ambient `CODEX_HOME` and `GROK_HOME`. `--repo PATH` applies only to Git. No shell profile/PATH changes.
+
+Grok installation preserves other hook files and `config.toml`, including `compat.claude.hooks`; it does not register a Python adapter or inject default rules. Status checks its native hook file, executable bits and latest Grok observation. It does not inspect effective Grok config layers, imported Claude hooks, `allow_managed_hooks_only`, folder trust or host reload state, and cannot prove dispatch. Uninstall removes only its exact commands/current block and Grok observation, retaining the shared binary and user material.
 
 Unrelated JSON fields/handlers are preserved semantically; formatting may change. Install and uninstall remove an existing standalone `vibeguard-core:start/end` block without injecting replacement rules or lookup instructions. They do not create an instruction file. Markdown bytes outside those markers are preserved, including CRLF and no final newline. Fenced examples are ignored. Incomplete/duplicate blocks fail before mutation. The rule catalog and `rules --core` remain available for explicit reference.
 
@@ -80,4 +89,4 @@ Migration commands are in `legacy.migration`: v1 source `bash setup.sh --clean`,
 
 Native installation supports macOS, Linux, and WSL. Windows install/uninstall errors without writes; portable CLI/protocol tests run in Windows CI.
 
-Verified against [Codex hooks](https://learn.chatgpt.com/docs/hooks) and [Claude Code hooks](https://code.claude.com/docs/en/hooks), accessed 2026-09-17. Host support is broader than VibeGuard's selected Bash registration.
+Verified against [Codex hooks](https://learn.chatgpt.com/docs/hooks) and [Claude Code hooks](https://code.claude.com/docs/en/hooks), accessed 2026-09-17. Grok was checked against [Grok hooks](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md) and [event serialization](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-hooks/src/event.rs), accessed 2026-10-07. Host support is broader than VibeGuard's selected shell registration.
