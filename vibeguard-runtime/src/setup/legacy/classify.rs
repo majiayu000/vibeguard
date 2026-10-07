@@ -161,18 +161,17 @@ fn is_assignment(word: &str) -> bool {
 pub(super) fn owned_word(word: &str) -> bool {
     let trimmed = word.trim_end_matches('/');
     [
-        "/run-hook.sh",
-        "/run-hook-codex.sh",
-        "/run-hook-gemini.sh",
-        "/pre-commit-guard.sh",
-        "/hooks/git/pre-push",
+        "/.vibeguard/run-hook.sh",
+        "/.vibeguard/run-hook-codex.sh",
+        "/.vibeguard/run-hook-gemini.sh",
         "/.vibeguard/pre-commit",
         "/.vibeguard/pre-push",
-        "/scripts/gc/gc-scheduled.sh",
     ]
     .iter()
     .any(|ending| trimmed.ends_with(ending))
         || trimmed.contains("/.vibeguard/installed/hooks/")
+        || ((trimmed.contains("/.vibeguard/dist/") || trimmed.contains("/.vibeguard/installed/"))
+            && trimmed.ends_with("/scripts/gc/gc-scheduled.sh"))
 }
 
 fn mentions_legacy_markdown(line: &str) -> bool {
@@ -202,12 +201,11 @@ pub(super) fn mentions_v1(text: &str) -> bool {
         || text.contains("pre-bash-guard.sh")
         || text.contains("pre-commit-guard.sh")
         || text.contains("gc-scheduled.sh")
+        || text.contains("hooks/git/pre-push")
 }
 
 pub(super) fn v1_hook_body(text: &str) -> bool {
-    text.contains("pre-commit-guard.sh")
-        || text.contains("hooks/git/pre-push")
-        || text.contains("VibeGuard Pre-Commit Hook Wrapper")
+    text.contains("VibeGuard Pre-Commit Hook Wrapper")
         || text.contains("VibeGuard Pre-Push Hook Wrapper")
 }
 
@@ -343,7 +341,7 @@ mod tests {
             classify_command(
                 "bash \"/home/user/my vibeguard/scripts/gc/gc-scheduled.sh\" --scheduled"
             ),
-            Some("owned")
+            Some("suspected")
         );
         assert_eq!(
             classify_command("'/opt/vibeguard-runtime' hook claude --state-dir '/state'"),
@@ -367,10 +365,28 @@ mod tests {
 ";
         let findings = crontab_findings(text);
         assert_eq!(findings.len(), 2);
-        assert_eq!(findings[0]["evidence"], "owned");
+        assert_eq!(findings[0]["evidence"], "suspected");
         assert_eq!(findings[0]["location"], "crontab:1");
         assert_eq!(findings[1]["evidence"], "suspected");
         assert_eq!(findings[1]["location"], "crontab:2");
+    }
+
+    #[test]
+    fn generic_script_names_do_not_establish_v1_ownership() {
+        for command in [
+            "bash /opt/acme-tools/run-hook.sh",
+            "exec /opt/acme-tools/hooks/git/pre-push",
+            "bash /opt/acme-tools/scripts/gc/gc-scheduled.sh",
+        ] {
+            assert_eq!(classify_command(command), Some("suspected"), "{command}");
+            assert!(!v1_hook_body(command));
+        }
+        assert!(v1_hook_body(
+            "#!/bin/sh\n# VibeGuard Pre-Push Hook Wrapper\n"
+        ));
+        assert!(owned_word(
+            "/home/user/.vibeguard/dist/current/scripts/gc/gc-scheduled.sh"
+        ));
     }
 
     #[test]

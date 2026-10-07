@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.0 — Unreleased
+
+- Preview installation with `install --dry-run` before writing host or Git integration files; preserve user-owned configuration and report disabled hooks.
+- Integrate #831–#834: original local Git-object inspection, Bash command/redirection/heredoc boundaries, rule/build/evaluation checks, and concurrent setup protection with bounded legacy inventory.
+- Keep host observations and model-effect evidence separate from installation completeness; no task-verification or broad productivity claim.
+
 ## 2.0.2 — 2026-10-07
 
 - Add `hook dsh` for Bash policy checks and structured result observations with explicit DSH host attribution.

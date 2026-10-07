@@ -1,103 +1,184 @@
 //! Limited recognition of destructive command spellings, not a shell sandbox.
-use regex::Regex;
-
 pub fn blocked_reason(command: &str) -> Option<&'static str> {
     let command = strip_heredoc_bodies(command);
-    let masked = mask_quoted_content(&command);
-    let paths = mask_content(&command, false);
-    // Match actual command positions. Quoted text and comments are blanked,
-    // preserving byte offsets so path arguments can be inspected separately.
-    let starts = Regex::new(
-        r"(?m)(^|[;&|\n])\s*(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]*\s+)*(?:command\s+)?(?:sudo\s+)?(?P<name>\\?rm|git)\s+?(?P<args>[^;&|\n]*)",
-    ).expect("built-in command position pattern");
-    for captures in starts.captures_iter(&masked) {
-        let args = captures.name("args").expect("args capture");
-        let Some(words) = shell_words(&paths[args.start()..args.end()]) else {
-            continue;
-        };
-        if &captures["name"] == "git" {
-            let values: Vec<_> = words.iter().map(|word| word.value.as_str()).collect();
-            let target = if values.get(1) == Some(&"--") { 2 } else { 1 };
-            if matches!(values.first(), Some(&"checkout" | &"restore"))
-                && values.get(target) == Some(&".")
-                && values.len() == target + 1
-            {
-                return Some(
-                    "Bulk git checkout/restore of the working tree is blocked. Inspect the diff and target the intended files.",
-                );
+    let mut lexer = ShellLexer::new(&command);
+    let mut words = Vec::new();
+    let mut redirect_target = false;
+    while let Some(token) = lexer.next_token().ok()? {
+        match token {
+            Token::Word(word) if !redirect_target => words.push(word),
+            Token::Word(_) => redirect_target = false,
+            Token::Redirect(_) => redirect_target = true,
+            Token::Boundary => {
+                if !redirect_target && let Some(reason) = simple_command_reason(&words) {
+                    return Some(reason);
+                }
+                words.clear();
+                redirect_target = false;
             }
-            if values.first() == Some(&"clean") && forced_git_clean(&values[1..]) {
-                return Some(
-                    "Forced git clean is blocked. Preview with git clean -n and select the files to remove.",
-                );
-            }
-        } else if forced_recursive_rm(&words) && words.iter().any(protected_path) {
+        }
+    }
+    if redirect_target {
+        None
+    } else {
+        simple_command_reason(&words)
+    }
+}
+
+fn simple_command_reason(words: &[ShellWord<'_>]) -> Option<&'static str> {
+    let mut args = words;
+    if args.first().is_some_and(|word| word.raw == "env") {
+        args = &args[1..];
+    }
+    while args.first().is_some_and(|word| {
+        word.raw.split_once('=').is_some_and(|(name, _)| {
+            let mut bytes = name.bytes();
+            bytes
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == b'_')
+                && bytes.all(|c| c.is_ascii_alphanumeric() || c == b'_')
+        })
+    }) {
+        args = &args[1..];
+    }
+    for wrapper in ["command", "sudo"] {
+        if args.first().is_some_and(|word| word.raw == wrapper) {
+            args = &args[1..];
+        }
+    }
+    let (name, args) = args.split_first()?;
+    if name.raw == "git" {
+        let values: Vec<_> = args.iter().map(|word| word.value.as_str()).collect();
+        let target = if values.get(1) == Some(&"--") { 2 } else { 1 };
+        if matches!(values.first(), Some(&"checkout" | &"restore"))
+            && values.get(target) == Some(&".")
+            && values.len() == target + 1
+        {
             return Some(
-                "Recursive forced deletion of a root, home or system path is blocked. Inspect the target and use the specific intended directory.",
+                "Bulk git checkout/restore of the working tree is blocked. Inspect the diff and target the intended files.",
             );
         }
+        if values.first() == Some(&"clean") && forced_git_clean(&values[1..]) {
+            return Some(
+                "Forced git clean is blocked. Preview with git clean -n and select the files to remove.",
+            );
+        }
+    } else if matches!(name.raw, "rm" | "\\rm")
+        && forced_recursive_rm(args)
+        && args.iter().any(protected_path)
+    {
+        return Some(
+            "Recursive forced deletion of a root, home or system path is blocked. Inspect the target and use the specific intended directory.",
+        );
     }
     None
 }
 
-struct ShellWord {
+struct ShellWord<'a> {
+    raw: &'a str,
     value: String,
     home_expansion: bool,
+    quoted: bool,
 }
 
-// Only decode simple words; never evaluate variables or substitutions. Track
-// HOME/tilde at the source position so quoted literals cannot become expansions.
-fn shell_words(text: &str) -> Option<Vec<ShellWord>> {
-    let mut words = Vec::new();
-    let mut chars = text.char_indices().peekable();
-    let mut redirect_target = false;
-    while chars.peek().is_some() {
-        while chars.peek().is_some_and(|(_, c)| c.is_ascii_whitespace()) {
-            chars.next();
+enum Token<'a> {
+    Word(ShellWord<'a>),
+    Redirect(&'a str),
+    Boundary,
+}
+
+struct ShellLexer<'a> {
+    text: &'a str,
+    chars: std::iter::Peekable<std::str::CharIndices<'a>>,
+}
+
+impl<'a> ShellLexer<'a> {
+    fn new(text: &'a str) -> Self {
+        Self {
+            text,
+            chars: text.char_indices().peekable(),
         }
-        if chars.peek().is_none() {
-            break;
-        }
-        if chars.peek().is_some_and(|(_, c)| matches!(c, '<' | '>')) {
-            // Redirection operands are shell data, never command options.
-            while chars.peek().is_some_and(|(_, c)| matches!(c, '<' | '>')) {
-                chars.next();
+    }
+
+    fn next_token(&mut self) -> Result<Option<Token<'a>>, ()> {
+        while let Some(&(_, c)) = self.chars.peek() {
+            if matches!(c, ' ' | '\t') {
+                self.chars.next();
+            } else if c == '#' {
+                while self.chars.peek().is_some_and(|(_, c)| *c != '\n') {
+                    self.chars.next();
+                }
+            } else {
+                break;
             }
-            redirect_target = true;
-            continue;
         }
+        let Some(&(start, c)) = self.chars.peek() else {
+            return Ok(None);
+        };
+        let rest = &self.text[start..];
+        // An adjacent unquoted decimal fd belongs to the redirection, not argv.
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        let offset = if rest[digits..].starts_with(['<', '>']) {
+            digits
+        } else {
+            0
+        };
+        let operator = &rest[offset..];
+        if let Some(op) = [
+            "&>>", "<<<", "<<-", ">>", "<<", "<>", ">&", "<&", ">|", "&>", ">", "<",
+        ]
+        .into_iter()
+        .find(|op| operator.starts_with(op))
+        {
+            for _ in 0..offset + op.len() {
+                self.chars.next();
+            }
+            return Ok(Some(Token::Redirect(&operator[..op.len()])));
+        }
+        if matches!(c, ';' | '&' | '|' | '\n') {
+            self.chars.next();
+            return Ok(Some(Token::Boundary));
+        }
+        self.word().map(|word| Some(Token::Word(word))).ok_or(())
+    }
+
+    // Decode only simple words; retain source spelling and expansion origin.
+    // Quoted words still occupy their command/argument position.
+    fn word(&mut self) -> Option<ShellWord<'a>> {
+        let start = self.chars.peek()?.0;
         let mut word = ShellWord {
+            raw: "",
             value: String::new(),
             home_expansion: false,
+            quoted: false,
         };
         let mut quote = None;
         let mut at_start = true;
-        while let Some(&(index, c)) = chars.peek() {
-            if quote.is_none() && matches!(c, '<' | '>') {
+        while let Some(&(index, c)) = self.chars.peek() {
+            if quote.is_none() && matches!(c, ' ' | '\t' | '\n' | ';' | '&' | '|' | '<' | '>') {
                 break;
             }
-            chars.next();
-            if quote.is_none() && c.is_ascii_whitespace() {
-                break;
-            }
+            self.chars.next();
             if c == '\\' && quote != Some('\'') {
-                let (_, next) = chars.next()?;
+                let (_, next) = self.chars.next()?;
                 if next != '\n' {
                     if quote == Some('"') && !matches!(next, '$' | '`' | '"' | '\\') {
                         word.value.push('\\');
                     }
                     word.value.push(next);
+                    word.quoted = true;
                     at_start = false;
                 }
                 continue;
             }
             if matches!(c, '\'' | '"') && (quote.is_none() || quote == Some(c)) {
                 quote = if quote.is_none() { Some(c) } else { None };
+                word.quoted = true;
                 at_start = false;
                 continue;
             }
             if c == '$' && quote != Some('\'') && word.value.is_empty() {
-                let rest = &text[index..];
+                let rest = &self.text[index..];
                 word.home_expansion |= rest.starts_with("${HOME}")
                     || rest.strip_prefix("$HOME").is_some_and(|tail| {
                         !tail.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')
@@ -106,11 +187,11 @@ fn shell_words(text: &str) -> Option<Vec<ShellWord>> {
             if c == '~' && quote.is_none() && at_start {
                 // Bare tilde and the root user's home are supported symbolic
                 // bases; other named-user expansions remain outside the grammar.
-                let tail = &text[index + 1..];
+                let tail = &self.text[index + 1..];
                 let tail = tail.strip_prefix("root").unwrap_or(tail);
                 word.home_expansion |= tail.is_empty()
                     || tail.starts_with(|c: char| {
-                        matches!(c, '/' | '<' | '>') || c.is_ascii_whitespace()
+                        matches!(c, '/' | '<' | '>' | ';' | '&' | '|' | ' ' | '\t' | '\n')
                     });
             }
             word.value.push(c);
@@ -119,13 +200,13 @@ fn shell_words(text: &str) -> Option<Vec<ShellWord>> {
         if quote.is_some() {
             return None;
         }
-        if redirect_target {
-            redirect_target = false;
-        } else {
-            words.push(word);
-        }
+        let end = self
+            .chars
+            .peek()
+            .map_or(self.text.len(), |(index, _)| *index);
+        word.raw = &self.text[start..end];
+        Some(word)
     }
-    Some(words)
 }
 
 fn protected_path(word: &ShellWord) -> bool {
@@ -229,8 +310,6 @@ fn forced_git_clean(args: &[&str]) -> bool {
 }
 
 fn strip_heredoc_bodies(command: &str) -> String {
-    let heredoc = Regex::new(r#"<<(?P<dash>-?)\s*(?P<quote>['"]?)(?P<tag>[A-Za-z0-9_]+)['"]?"#)
-        .expect("built-in heredoc pattern");
     let mut terminators = std::collections::VecDeque::new();
     let mut out = String::new();
     let mut header = String::new();
@@ -238,7 +317,8 @@ fn strip_heredoc_bodies(command: &str) -> String {
     let mut body_line = String::new();
     for line in command.split_inclusive('\n') {
         if let Some((expected, strip_tabs, quoted)) = terminators.front() {
-            let candidate = line.trim_end_matches(['\r', '\n']);
+            // Bash treats CR as data even in CRLF input. Only LF ends the line.
+            let candidate = line.strip_suffix('\n').unwrap_or(line);
             // Unquoted heredocs join escaped newlines before testing the
             // delimiter. Quotes in body data do not alter this behavior.
             if !quoted
@@ -274,33 +354,26 @@ fn strip_heredoc_bodies(command: &str) -> String {
         }
         let normalized = strip_line_continuations(&header);
         out.push_str(&normalized);
-        let masked = mask_quoted_content(&normalized);
-        for captures in heredoc.captures_iter(&normalized) {
-            let start = captures.get(0).expect("full heredoc capture").start();
-            if masked.as_bytes().get(start) != Some(&b'<')
-                || start
-                    .checked_sub(1)
-                    .and_then(|i| normalized.as_bytes().get(i))
-                    == Some(&b'<')
-                || normalized.as_bytes().get(start + 2) == Some(&b'<')
-            {
-                continue;
+        let mut lexer = ShellLexer::new(&normalized);
+        let mut heredoc = None;
+        while let Ok(Some(token)) = lexer.next_token() {
+            match token {
+                Token::Redirect(op @ ("<<" | "<<-")) => heredoc = Some(op == "<<-"),
+                Token::Word(word) => {
+                    if let Some(strip_tabs) = heredoc.take() {
+                        // The entire word is the delimiter after quote removal;
+                        // never truncate it to an alphanumeric prefix.
+                        terminators.push_back((word.value, strip_tabs, word.quoted));
+                    }
+                }
+                _ => heredoc = None,
             }
-            terminators.push_back((
-                captures["tag"].to_string(),
-                captures.name("dash").is_some_and(|m| m.as_str() == "-"),
-                !captures["quote"].is_empty(),
-            ));
         }
         header.clear();
         header_mask = ContentMask::default();
     }
     out.push_str(&strip_line_continuations(&header));
     out
-}
-
-fn mask_quoted_content(command: &str) -> String {
-    mask_content(command, true)
 }
 
 fn strip_line_continuations(command: &str) -> String {
@@ -323,15 +396,6 @@ fn strip_line_continuations(command: &str) -> String {
         }
     }
     String::from_utf8(out).expect("continuation removal preserves UTF-8")
-}
-
-fn mask_content(command: &str, hide_quotes: bool) -> String {
-    let mut mask = ContentMask::default();
-    let bytes = command
-        .bytes()
-        .map(|byte| mask.mask_byte(byte, hide_quotes))
-        .collect();
-    String::from_utf8(bytes).expect("mask preserves UTF-8 outside quoted ranges")
 }
 
 struct ContentMask {
@@ -406,6 +470,117 @@ impl ContentMask {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn simple_command_boundaries_preserve_decisions() {
+        // All commands are inert classifier inputs, including the policy denials.
+        for (command, denied) in [
+            ("git checkout .", true),
+            ("git restore -- .", true),
+            ("git clean -fd", true),
+            ("rm -rf /etc", true),
+            ("git clean -nfd", false),
+            ("rm -rf ./build", false),
+            ("'echo' git clean -fd", false),
+            ("'/bin/printf' '%s\\n' rm -rf /etc", false),
+        ] {
+            for prefix in ["", "git\n", "rm\n", "env\n", "git\n\n", "echo ok;\n"] {
+                let input = format!("{prefix}{command}");
+                assert_eq!(blocked_reason(&input).is_some(), denied, "{input:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn redirections_preserve_argv_at_every_word_boundary() {
+        let cases: &[(&[&str], bool)] = &[
+            (&["git", "checkout", "."], true),
+            (&["git", "restore", "--", "."], true),
+            (&["git", "clean", "-fd"], true),
+            (&["git", "clean", "-f", "-n"], false),
+            (&["git", "clean", "-f", "-e", "-n"], true),
+            (&["git", "clean", "-f", "--no-force"], false),
+            (&["rm", "-rf", "/etc"], true),
+            (&["rm", "-rf", "./build"], false),
+            (
+                &[
+                    "env",
+                    "X='a b'",
+                    "command",
+                    "sudo",
+                    "rm",
+                    "-rf",
+                    "\"$HOME\"",
+                ],
+                true,
+            ),
+            (&["'echo'", "git", "clean", "-fd"], false),
+        ];
+        for &(words, denied) in cases {
+            for redirect in [
+                ">out",
+                "2>out",
+                "2>>out",
+                "0<in",
+                "2>&1",
+                "0<&3",
+                ">|out",
+                "&>out",
+                "&>>out",
+                "3<>file",
+                ">&2",
+                "2>&-",
+                ">'-n'",
+                "2>'--no-force'",
+                ">'; git clean -fd'",
+            ] {
+                for index in 0..=words.len() {
+                    let mut tokens = words.to_vec();
+                    tokens.insert(index, redirect);
+                    let input = tokens.join(" ");
+                    assert_eq!(blocked_reason(&input).is_some(), denied, "{input:?}");
+                }
+            }
+        }
+        // A quoted, escaped, or separated number remains an ordinary argument.
+        for input in [
+            "git checkout . '2'>out",
+            "git checkout . \\2>out",
+            "git checkout . 2 >out",
+        ] {
+            assert!(blocked_reason(input).is_none(), "{input:?}");
+        }
+    }
+
+    #[test]
+    fn heredocs_use_whole_delimiter_words_and_unescaped_operators() {
+        for (delimiter, terminator) in [
+            ("EOF-END", "EOF-END"),
+            ("'EOF-END'", "EOF-END"),
+            ("E'O'F-END", "EOF-END"),
+            ("\\EOF-END", "EOF-END"),
+            ("'EOF END'", "EOF END"),
+            ("'名前'", "名前"),
+            ("''", ""),
+        ] {
+            let body = format!("cat <<{delimiter}\ngit clean -fd\n{terminator}\n");
+            assert!(blocked_reason(&body).is_none(), "{body:?}");
+            let later_command = format!("{body}git clean -fd");
+            assert!(
+                blocked_reason(&later_command).is_some(),
+                "{later_command:?}"
+            );
+        }
+        for input in [
+            "echo \\<<EOF\ngit clean -fd",
+            "echo \\<\\<EOF\ngit clean -fd",
+            "echo '<<EOF'\ngit clean -fd",
+            "cat <<<EOF\ngit clean -fd",
+        ] {
+            assert!(blocked_reason(input).is_some(), "{input:?}");
+        }
+    }
+
     #[test]
     fn shell_literals_and_comment_boundaries_are_preserved() {
         for command in [

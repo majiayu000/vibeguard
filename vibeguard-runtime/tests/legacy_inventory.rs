@@ -3,9 +3,11 @@
 use serde_json::{Value, json};
 use std::fs;
 use std::os::unix::fs::symlink;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_vibeguard-runtime");
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -68,6 +70,289 @@ fn evidences<'a>(report: &'a Value, category: &str) -> Vec<&'a str> {
         .filter(|finding| finding["category"] == category)
         .map(|finding| finding["evidence"].as_str().unwrap())
         .collect()
+}
+
+fn run_bounded(args: &[&str], home: &Path, timeout: Duration) -> Output {
+    let mut child = Command::new(BIN)
+        .args(args)
+        .env("HOME", home)
+        .env_remove("CODEX_HOME")
+        .env_remove("GEMINI_CLI_HOME")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + timeout;
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            // Include an in-flight Git probe when failing a regression timeout.
+            let _ = Command::new("kill")
+                .args(["-s", "KILL", "--", &format!("-{}", child.id())])
+                .status();
+            let _ = child.kill();
+            child.wait().unwrap();
+            panic!("{args:?} blocked while inspecting a nonregular legacy file");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn nonregular_legacy_files_do_not_block_install_status_or_uninstall() {
+    let temp = Temp::new();
+    fs::create_dir(temp.0.join(".gemini")).unwrap();
+    let paths = [
+        temp.0.join(".gemini/settings.json"),
+        temp.0.join(".gemini/GEMINI.md"),
+    ];
+    assert!(
+        Command::new("mkfifo")
+            .args(&paths)
+            .status()
+            .unwrap()
+            .success()
+    );
+    for action in ["install", "status", "uninstall"] {
+        let output = run_bounded(
+            &[action, "claude", "--home", temp.0.to_str().unwrap()],
+            &temp.0,
+            Duration::from_secs(5),
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report = json_output(&output);
+        for path in &paths {
+            assert!(
+                report["legacy"]["findings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|item| {
+                        item["location"] == path.to_str().unwrap()
+                            && item["evidence"] == "not_checked"
+                            && item["detail"]
+                                .as_str()
+                                .unwrap()
+                                .contains("not a regular file")
+                    })
+            );
+        }
+    }
+}
+
+#[test]
+fn blocked_git_configuration_is_advisory_and_normal_inspection_recovers() {
+    let temp = Temp::new();
+    let home = temp.0.join("home");
+    let repo = temp.0.join("repo");
+    fs::create_dir(&home).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "-q"])
+            .arg(&repo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    fs::write(
+        repo.join("CLAUDE.md"),
+        "<!-- vibeguard-start -->\nold\n<!-- vibeguard-end -->\n",
+    )
+    .unwrap();
+    let run = |action: &str| {
+        run_bounded(
+            &[
+                action,
+                "claude",
+                "--home",
+                home.to_str().unwrap(),
+                "--repo",
+                repo.to_str().unwrap(),
+            ],
+            &home,
+            Duration::from_secs(15),
+        )
+    };
+    // A real Git control establishes that the root is normally inspected.
+    let before = run("status");
+    assert_eq!(before.status.code(), Some(1));
+    assert_eq!(evidences(&json_output(&before), "markdown"), vec!["owned"]);
+    let config_path = repo.join(".git/config");
+    let original_config = fs::read(&config_path).unwrap();
+    fs::remove_file(&config_path).unwrap();
+    assert!(
+        Command::new("mkfifo")
+            .arg(&config_path)
+            .status()
+            .unwrap()
+            .success()
+    );
+
+    let installed = run("install");
+    assert!(
+        installed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&installed.stderr)
+    );
+    let report = json_output(&installed);
+    assert_eq!(report["action"], "install");
+    assert_eq!(report["host"], "claude");
+    let unavailable: Vec<_> = report["legacy"]["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| {
+            item["category"] == "repository_root" || item["category"] == "repository_hook"
+        })
+        .collect();
+    assert_eq!(unavailable.len(), 3);
+    assert!(
+        unavailable
+            .iter()
+            .all(|item| item["evidence"] == "not_checked"
+                && item["detail"].as_str().unwrap().contains("timed out"))
+    );
+    assert!(home.join(".vibeguard/bin/vibeguard-runtime").is_file());
+    let installed_settings: Value =
+        serde_json::from_slice(&fs::read(home.join(".claude/settings.json")).unwrap()).unwrap();
+    assert_eq!(installed_settings["hooks"].as_object().unwrap().len(), 3);
+
+    fs::remove_file(&config_path).unwrap();
+    fs::write(&config_path, original_config).unwrap();
+    let recovered = run("status");
+    assert!(recovered.status.success());
+    let report = json_output(&recovered);
+    assert_eq!(evidences(&report, "markdown"), vec!["owned"]);
+    assert!(
+        !report["legacy"]["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| {
+                (item["category"] == "repository_root" || item["category"] == "repository_hook")
+                    && item["evidence"] == "not_checked"
+            })
+    );
+}
+
+#[test]
+fn repository_inventory_resolves_worktree_root_from_a_subdirectory() {
+    let temp = Temp::new();
+    let repo = temp.0.join("repo");
+    let nested = repo.join("src/deep");
+    fs::create_dir_all(&nested).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "-q"])
+            .arg(&repo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    fs::write(
+        repo.join("CLAUDE.md"),
+        "<!-- vibeguard-start -->\nold\n<!-- vibeguard-end -->\n",
+    )
+    .unwrap();
+    fs::create_dir(repo.join(".claude")).unwrap();
+    fs::write(
+        repo.join(".claude/settings.json"),
+        json!({"hooks":{"PreToolUse":[{"hooks":[{
+            "type":"command", "command":"bash /home/user/.vibeguard/run-hook.sh"
+        }]}]}})
+        .to_string(),
+    )
+    .unwrap();
+    let mut reports = Vec::new();
+    for directory in [&repo, &nested] {
+        let output = run(
+            &[
+                "status",
+                "git",
+                "--home",
+                temp.0.to_str().unwrap(),
+                "--repo",
+                directory.to_str().unwrap(),
+            ],
+            &temp.0,
+            &[],
+        );
+        let report = json_output(&output);
+        let findings: Vec<_> = report["legacy"]["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|item| item["category"] == "markdown" || item["category"] == "handler")
+            .cloned()
+            .collect();
+        assert_eq!(findings.len(), 2);
+        reports.push(findings);
+    }
+    assert_eq!(reports[0], reports[1]);
+}
+
+#[test]
+fn bare_repository_has_no_worktree_instruction_inventory() {
+    let temp = Temp::new();
+    let repo = temp.0.join("bare.git");
+    assert!(
+        Command::new("git")
+            .args(["init", "--bare", "-q"])
+            .arg(&repo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    fs::write(
+        repo.join("CLAUDE.md"),
+        "<!-- vibeguard-start -->\nold\n<!-- vibeguard-end -->\n",
+    )
+    .unwrap();
+    let output = run(
+        &[
+            "status",
+            "git",
+            "--home",
+            temp.0.to_str().unwrap(),
+            "--repo",
+            repo.to_str().unwrap(),
+        ],
+        &temp.0,
+        &[],
+    );
+    let report = json_output(&output);
+    assert!(evidences(&report, "markdown").is_empty());
+    assert!(evidences(&report, "repository_root").is_empty());
+}
+
+#[test]
+fn generic_script_suffixes_remain_suspected_instead_of_owned() {
+    let temp = Temp::new();
+    fs::create_dir(temp.0.join(".claude")).unwrap();
+    fs::write(
+        temp.0.join(".claude/settings.json"),
+        json!({"hooks":{"PreToolUse":[{"hooks":[{
+            "type":"command", "command":"bash /opt/acme-tools/run-hook.sh"
+        }]}]}})
+        .to_string(),
+    )
+    .unwrap();
+    let output = run(
+        &["status", "claude", "--home", temp.0.to_str().unwrap()],
+        &temp.0,
+        &[],
+    );
+    assert_eq!(
+        evidences(&json_output(&output), "handler"),
+        vec!["suspected"]
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("possible v1 remnants"));
 }
 
 #[test]

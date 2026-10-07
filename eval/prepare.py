@@ -31,9 +31,30 @@ mod tests {
 ''',
 }
 
-def prepare(destination):
+PROPAGATION_PARSER = '''pub fn parse_limit(input: Option<&str>) -> Result<u32, String> {
+    match input {
+        None => Ok(10),
+        Some(text) => text.parse().map_err(|error| format!("invalid limit: {error}")),
+    }
+}
+'''
+
+def prepare(destination, task="baseline"):
+    if task not in ("baseline", "error-propagation"):
+        raise ValueError(f"unknown fixture task: {task}")
+    files = FILES.copy()
+    if task == "error-propagation":
+        tests = FILES["src/lib.rs"].split("#[cfg(test)]", 1)[1]
+        files["src/lib.rs"] = PROPAGATION_PARSER + "\n#[cfg(test)]" + tests
+        files["README.md"] = (
+            "# Limit propagation task\n\nRun cargo test. An absent limit defaults to 10; "
+            "explicit unsigned values are returned unchanged. Malformed or overflowing "
+            "input returns an error. This parser is already correct.\n\n"
+            "Task: add pub fn read_limit(input: Option<&str>) -> Result<u32, String> "
+            "that propagates parse_limit's result without a fallback. Preserve the "
+            "existing parser and unrelated user note.\n")
     destination.mkdir(parents=True, exist_ok=False)
-    for relative, content in FILES.items():
+    for relative, content in files.items():
         path = destination / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
@@ -41,10 +62,11 @@ def prepare(destination):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("destination", type=Path)
+    parser.add_argument("--task", choices=("baseline", "error-propagation"), default="baseline")
     args = parser.parse_args()
     try:
-        prepare(args.destination)
-    except (OSError, UnicodeError) as error:
+        prepare(args.destination, args.task)
+    except (OSError, UnicodeError, ValueError) as error:
         parser.exit(1, f"fixture creation failed: {error}\n")
     print(f"Created {args.destination}; run cargo test there. No model was invoked.")
 

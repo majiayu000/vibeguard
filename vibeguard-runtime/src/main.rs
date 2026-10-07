@@ -12,15 +12,16 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const USAGE: &str = "VibeGuard — native hooks and a curated rule library
 
 Usage:
-  vibeguard-runtime rules [ID|category|--json|--core]
+  vibeguard-runtime rules [ID|category|--json|--core|--search TEXT]
   vibeguard-runtime hook <claude|codex|grok|dsh> [--state-dir PATH]
-  vibeguard-runtime install <claude|codex|grok|git> [--home PATH] [--repo PATH]
+  vibeguard-runtime install <claude|codex|grok|git> [--dry-run] [--home PATH] [--repo PATH]
   vibeguard-runtime uninstall <claude|codex|grok|git> [--home PATH] [--repo PATH]
   vibeguard-runtime status <claude|codex|grok|git> [--home PATH] [--repo PATH]
   vibeguard-runtime pre-push
   vibeguard-runtime --version
 
 Install registers hooks and removes its existing core instruction block.
+Install --dry-run previews the planned changes without writing any files.
 Rules remain available for explicit lookup. Git integration is
 explicit and never overwrites an existing user hook. Status reports observed
 facts and a read-only v1 inventory. It does not certify trust, complete

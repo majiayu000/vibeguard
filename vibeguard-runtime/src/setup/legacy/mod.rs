@@ -8,15 +8,17 @@ use classify::{
 };
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use process::account_home;
-use process::{CommandOutput, command_output};
+use process::{CommandOutput, command_output, command_with_timeout};
 
 use serde_json::{Value, json};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
 const READ_LIMIT: u64 = 1024 * 1024;
+const GIT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub fn inventory(options: &Options) -> Value {
     let mut findings = Vec::new();
@@ -284,10 +286,16 @@ fn scheduler_file(path: &Path, detail: &str, findings: &mut Vec<Value>) -> Value
 }
 
 fn inspect_repository(repo: &Path, findings: &mut Vec<Value>) {
-    for name in ["CLAUDE.md", "AGENTS.md", "GEMINI.md"] {
-        inspect_markdown(&repo.join(name), findings);
+    match repository_root(repo) {
+        Ok(Some(root)) => {
+            for name in ["CLAUDE.md", "AGENTS.md", "GEMINI.md"] {
+                inspect_markdown(&root.join(name), findings);
+            }
+            inspect_hook_config(&root.join(".claude/settings.json"), findings);
+        }
+        Ok(None) => {} // A bare repository has no working-tree instruction files.
+        Err(detail) => findings.push(not_checked(repo, "repository_root", &detail)),
     }
-    inspect_hook_config(&repo.join(".claude/settings.json"), findings);
     for hook in ["pre-commit", "pre-push"] {
         match git_hook_path(repo, hook) {
             Ok(path) => inspect_git_hook(&path, findings),
@@ -298,6 +306,40 @@ fn inspect_repository(repo: &Path, findings: &mut Vec<Value>) {
                 &format!("{hook}: {detail}"),
                 None,
             )),
+        }
+    }
+}
+
+fn repository_root(repo: &Path) -> Result<Option<PathBuf>, String> {
+    let output = git_probe(repo, &["rev-parse", "--show-toplevel"])?;
+    if output.status.success() {
+        let text = String::from_utf8(output.stdout)
+            .map_err(|_| "repository root is not UTF-8".to_string())?;
+        let root = text.trim_end_matches(['\r', '\n']);
+        if root.is_empty() {
+            return Err("git returned an empty repository root".into());
+        }
+        return Ok(Some(PathBuf::from(root)));
+    }
+    let bare = git_probe(repo, &["rev-parse", "--is-bare-repository"])?;
+    if bare.status.success() && bare.stdout == b"true\n" {
+        Ok(None)
+    } else {
+        Err(format!(
+            "cannot resolve repository root: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+fn git_probe(repo: &Path, args: &[&str]) -> Result<std::process::Output, String> {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(repo).args(args);
+    match command_with_timeout(&mut command, GIT_PROBE_TIMEOUT) {
+        CommandOutput::Success(output) => Ok(output),
+        CommandOutput::Missing => Err("git is unavailable; repository was not inspected".into()),
+        CommandOutput::TimedOut(detail) | CommandOutput::Failed(detail) => {
+            Err(format!("git inventory probe: {detail}"))
         }
     }
 }
@@ -370,17 +412,15 @@ fn inspect_git_hook(path: &Path, findings: &mut Vec<Value>) {
 }
 
 fn git_hook_path(repo: &Path, hook: &str) -> Result<PathBuf, String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args([
+    let output = git_probe(
+        repo,
+        &[
             "rev-parse",
             "--path-format=absolute",
             "--git-path",
             &format!("hooks/{hook}"),
-        ])
-        .output()
-        .map_err(|error| format!("git rev-parse failed: {error}"))?;
+        ],
+    )?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr);
         return Err(detail.trim().to_string());
@@ -508,16 +548,47 @@ fn read_record(path: &Path) -> Record {
         Err(error) => Record::Error(error.to_string()),
         Ok(metadata) if metadata.file_type().is_symlink() => Record::Symlink,
         Ok(metadata) if metadata.is_dir() => Record::Directory,
+        Ok(metadata) if !metadata.is_file() => Record::Error(format!(
+            "{} is not a regular file and was not read",
+            path.display()
+        )),
         Ok(metadata) if metadata.len() > READ_LIMIT => Record::TooBig(format!(
             "{} exceeds 1 MiB and was not fully read",
             path.display()
         )),
-        Ok(_) => match fs::read(path) {
-            Ok(bytes) => match String::from_utf8(bytes) {
-                Ok(text) => Record::Text(text),
-                Err(_) => Record::NotUtf8(format!("{} is not UTF-8", path.display())),
-            },
+        Ok(_) => match fs::File::open(path) {
+            Ok(file) => read_bounded(file, path),
             Err(error) => Record::Error(error.to_string()),
         },
+    }
+}
+
+fn read_bounded(reader: impl Read, path: &Path) -> Record {
+    let mut bytes = Vec::new();
+    if let Err(error) = reader.take(READ_LIMIT + 1).read_to_end(&mut bytes) {
+        return Record::Error(error.to_string());
+    }
+    if bytes.len() as u64 > READ_LIMIT {
+        return Record::TooBig(format!(
+            "{} exceeds 1 MiB and was not fully read",
+            path.display()
+        ));
+    }
+    match String::from_utf8(bytes) {
+        Ok(text) => Record::Text(text),
+        Err(_) => Record::NotUtf8(format!("{} is not UTF-8", path.display())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn content_read_is_bounded_even_without_a_size_hint() {
+        assert!(matches!(
+            read_bounded(std::io::repeat(b'x'), Path::new("growing-file")),
+            Record::TooBig(_)
+        ));
     }
 }
