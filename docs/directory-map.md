@@ -11,6 +11,7 @@
 | `scripts/ci/` | Current rule, documentation, and binary checks |
 | `tests/` | Python tooling regression tests |
 | `plugins/vibeguard/` | Optional Codex help skill, no second runtime or installer |
+| `plugins/dsh/` | DSH Bash pre/post adapter; policy stays in the Rust runtime |
 | `eval/` | Reproducible task fixture and evaluation protocol |
 | `docs/` | Current user and runtime documentation |
 | `site/` | Static source for the existing public landing page and sitemap |

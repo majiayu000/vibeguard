@@ -13,7 +13,7 @@ const USAGE: &str = "VibeGuard — native hooks and a curated rule library
 
 Usage:
   vibeguard-runtime rules [ID|category|--json|--core]
-  vibeguard-runtime hook <claude|codex> [--state-dir PATH]
+  vibeguard-runtime hook <claude|codex|dsh> [--state-dir PATH]
   vibeguard-runtime install <claude|codex|git> [--home PATH] [--repo PATH]
   vibeguard-runtime uninstall <claude|codex|git> [--home PATH] [--repo PATH]
   vibeguard-runtime status <claude|codex|git> [--home PATH] [--repo PATH]
