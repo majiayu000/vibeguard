@@ -12,6 +12,8 @@ VibeGuard 继续用 Rust 实现，提供规则查询、原生 Bash hooks、显�
 ./vibeguard-runtime install codex
 # 或 Claude Code：
 ./vibeguard-runtime install claude
+# 或 Grok：
+./vibeguard-runtime install grok
 ~/.vibeguard/bin/vibeguard-runtime status codex
 ~/.vibeguard/bin/vibeguard-runtime uninstall codex
 ```
@@ -24,13 +26,19 @@ VibeGuard 继续用 Rust 实现，提供规则查询、原生 Bash hooks、显�
 bash setup.sh install codex
 # 或 Claude Code：
 bash setup.sh install claude
+# 或 Grok：
+bash setup.sh install grok
 ~/.vibeguard/bin/vibeguard-runtime rules rust
 ~/.vibeguard/bin/vibeguard-runtime status codex
 ```
 
 需要仓库指定的 Rust 工具链。原生安装支持 macOS、Linux、WSL；Windows 原生安装未实现，会明确报错。安装注册所选宿主的 hooks，并移除已有的 `vibeguard-core` 受管说明块，保留周围用户内容；不会创建说明文件。重启宿主并检查 hook 信任设置。
 
-安装不再向全局说明注入通用原则或规则查询指令。完整规则嵌入二进制，按需主动查询；`rules --core` 仍可输出简短参考。规则查询不是开工前置步骤。编译器、Clippy、Ruff、ESLint、Go 工具负责各自专业检查。
+安装不再向全局说明注入通用原则或规则查询指令。
+
+Grok 安装在 `$GROK_HOME`（默认 `~/.grok`）写入 `hooks/vibeguard.json`，支持 shell 执行前、执行后与调用失败事件，不创建默认指令文件。更新共享二进制后，Grok 从 Claude 继承的 VibeGuard hooks 也能直接处理 Grok 格式，观察写入独立的 `grok.json`；不需要 Python 脚本，也不修改 `compat.claude.hooks`。两套注册同时存在时可能重复检查，使用相同策略与最近观察。`status grok` 检查原生注册，不认证继承的 hooks 或宿主最终策略；卸载使用 `uninstall grok`。
+
+完整规则嵌入二进制，按需主动查询；`rules --core` 仍可输出简短参考。规则查询不是开工前置步骤。编译器、Clippy、Ruff、ESLint、Go 工具负责各自专业检查。
 
 | 能力 | 边界 |
 |---|---|
@@ -41,10 +49,12 @@ bash setup.sh install claude
 
 已移除弱语义扫描、包管理器改写、Stop 计数与测试关键词判断、自动学习、价值评分及重复工作流。提醒覆盖随之减少，原生宿主不是旧检查的等价替代。
 
-`uninstall codex` 或 `uninstall claude` 移除所选集成和观察文件，共享二进制仍保留。没有旧命令、旧 ID 或旧数据兼容。已有 v1 安装先按对应旧版说明卸载，新版不自动清理旧受管区。
+`uninstall codex`、`uninstall claude` 或 `uninstall grok` 移除所选集成和观察文件，共享二进制仍保留。没有旧命令、旧 ID 或旧数据兼容。已有 v1 安装先按对应旧版说明卸载，新版不自动清理旧受管区。
 
 `status`、`install` 和 `uninstall` 会附带只读的 `legacy` 清单：已知 v1 hook 命令、`<!-- vibeguard-start -->` 区域、`~/.vibeguard` 下的 v1 文件、launchd/systemd 单元，以及在所选 home 就是本账户 home 时的账户 crontab。`--repo` 额外查看该仓库根目录说明和 `pre-commit`/`pre-push`。换一个 `--home` 时不读取账户 crontab。`owned` 和 `suspected` 只表示文件在场，不表示这些命令执行过，也不会删除它们。
 
 先备份清单里的文件。v1 源码目录执行 `bash setup.sh --clean`；v1 发布快照执行 `bash ~/.vibeguard/dist/current/setup.sh --clean`。删掉源码目录不会卸掉 hook 和定时任务。然后再安装 v2：源码用 `bash setup.sh install codex`，解压后的发布包用 `./vibeguard-runtime install codex`。重启宿主后查看 `status`。
 
 完整决策见 [Rust 重构方案](../plan/2026-09-17-frontier-model-reconstruction.md) 和 [125 条对照](../plan/2026-09-17-rule-by-rule-audit.md)。开发检查运行 `bash scripts/local-contract-check.sh`。模型收益按 [评测协议](../eval/README.md) 单独验证，代码测试不能证明对 Astra/Fable 的生产率提升。
+
+DeepSeek Harness 可使用 [DSH Bash 适配](../plugins/dsh/README.zh.md)，复用 Rust 命令策略与结果观察，并走 DSH 原生审批。

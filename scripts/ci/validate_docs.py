@@ -10,7 +10,7 @@ def errors(mode):
     failures = []
     paths = list(ROOT.glob("*.md"))
     for folder in ("docs", "plan", "plugins", "rules", "eval", "claude-md"):
-        paths.extend((ROOT / folder).rglob("*.md"))
+        paths.extend(path for path in (ROOT / folder).rglob("*.md") if "node_modules" not in path.parts)
     for path in sorted(paths):
         text = path.read_text(encoding="utf-8")
         if mode == "links":
@@ -22,7 +22,8 @@ def errors(mode):
                 if not (path.parent / unquote(parsed.path)).resolve().exists():
                     failures.append(f"{path.relative_to(ROOT)}: missing {target}")
         elif "plan" not in path.relative_to(ROOT).parts:
-            for target in re.findall(r"(?:bash|python3)\s+((?:scripts|eval)/[A-Za-z0-9_./-]+\.(?:sh|py))", text):
+            command_text = text.replace('\\\n', "")
+            for target in re.findall(r"(?:bash|python3)\s+((?:scripts|eval)/[A-Za-z0-9_./-]+\.(?:sh|py))", command_text):
                 if not (ROOT / target).is_file():
                     failures.append(f"{path.relative_to(ROOT)}: missing command {target}")
     return failures

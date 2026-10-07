@@ -1,0 +1,3 @@
+- insert:
+    - id: vibeguard
+      name: '@vibeguard/dsh'

@@ -15,7 +15,7 @@ pub fn record(
         "observed_at_unix_ms": SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),
         "host": host,
         "event": input["hook_event_name"],
-        "tool": "Bash",
+        "tool": input["tool_name"],
         "tool_use_id": input.get("tool_use_id").and_then(Value::as_str),
         "cwd": input["cwd"],
         "outcome": outcome,

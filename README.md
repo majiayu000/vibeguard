@@ -8,6 +8,8 @@ V2 embeds 75 scoped review topics for explicit lookup. Installation does not inj
 
 Native Bash hooks reject a small set of destructive command spellings and record the latest observed outcome. An optional Git pre-push hook checks actual commit ancestry. The host owns permissions, sandboxing, tool execution, and the agent loop.
 
+DeepSeek Harness users can load the [DSH Bash adapter](plugins/dsh/README.md). It calls this Rust runtime, routes policy blocks through DSH's native approval, and fails closed when the pre-call runtime fails.
+
 ## Install from a release archive
 
 Download the archive for your OS and CPU from [Releases](https://github.com/majiayu000/vibeguard/releases), extract it, and open a terminal in the extracted directory. macOS, Linux and WSL are supported; choose a Linux archive for WSL. No Rust toolchain or source checkout is required for this path. Run:
@@ -16,6 +18,8 @@ Download the archive for your OS and CPU from [Releases](https://github.com/maji
 ./vibeguard-runtime install codex
 # Or select Claude Code:
 ./vibeguard-runtime install claude
+# Or select Grok:
+./vibeguard-runtime install grok
 ```
 
 The archive contains the executable, this README and LICENSE. Installation copies the executable to `~/.vibeguard/bin/vibeguard-runtime`. Restart the selected host and review its native hook trust settings. Check or remove that integration with:
@@ -25,7 +29,7 @@ The archive contains the executable, this README and LICENSE. Installation copie
 ~/.vibeguard/bin/vibeguard-runtime uninstall codex
 ```
 
-Use `claude` instead of `codex` for Claude Code. Uninstall retains the shared executable. Earlier release assets follow their own version's instructions.
+Use `claude` or `grok` instead of `codex` for those hosts. Uninstall retains the shared executable. Earlier release assets follow their own version's instructions.
 
 ## Build and install from source
 
@@ -38,6 +42,8 @@ bash setup.sh --help
 bash setup.sh install codex
 # Or select Claude Code:
 bash setup.sh install claude
+# Or select Grok:
+bash setup.sh install grok
 ```
 
 `setup.sh` builds the checked-out source and forwards arguments. Without arguments it prints help; it does not install automatically. Install copies the binary to `~/.vibeguard/bin/vibeguard-runtime` and registers the selected integration. Installation removes an existing owned `vibeguard-core` block while preserving surrounding user instructions; it does not create an instruction file. Restart the host and review its native hook trust settings.
@@ -54,6 +60,8 @@ bash setup.sh install claude
 Categories: `common`, `rust`, `python`, `golang`, `typescript`. `rules --json` exports the catalog; `rules --core` prints the compact reference. Rule lookup is optional and is not a task-start requirement.
 
 `rules --search 'cancellation errors'` finds rules containing every whitespace-separated term in their ID, title, source or body, ignoring case. It returns up to ten IDs, sources and titles, preferring title matches. Read a selected rule with `rules ID`. Empty queries and searches with no matches report an error; search does not change hook policy or inject instructions.
+
+Grok installation writes `$GROK_HOME/hooks/vibeguard.json` (default `~/.grok`). It supports native shell pre-use, result and failure events without creating default instruction files. Grok's imported Claude hooks also work with the updated shared binary; observations go to `grok.json`, not `claude.json`. No Python adapter or change to `compat.claude.hooks` is required. Both registrations may evaluate a Grok event when installed together; each uses the same policy and latest observation. Status checks the native registration, not imported hooks or effective managed policy. See the [protocol contract](docs/runtime-contract.md).
 
 Git protection is explicit: `~/.vibeguard/bin/vibeguard-runtime install git --repo /absolute/path/to/repository`. It refuses to replace a user-managed pre-push hook. Use `status git` or `uninstall git` with the same `--repo`.
 
