@@ -1,6 +1,9 @@
 //! Limited recognition of destructive command spellings, not a shell sandbox.
 pub fn blocked_reason(command: &str) -> Option<&'static str> {
-    let command = strip_heredoc_bodies(command);
+    let command = match strip_heredoc_bodies(command) {
+        Ok(command) => command,
+        Err(reason) => return Some(reason),
+    };
     let mut lexer = ShellLexer::new(&command);
     let mut words = Vec::new();
     let mut redirect_target = false;
@@ -79,6 +82,7 @@ struct ShellWord<'a> {
     value: String,
     home_expansion: bool,
     quoted: bool,
+    dollar_quoted: bool,
 }
 
 enum Token<'a> {
@@ -151,6 +155,7 @@ impl<'a> ShellLexer<'a> {
             value: String::new(),
             home_expansion: false,
             quoted: false,
+            dollar_quoted: false,
         };
         let mut quote = None;
         let mut at_start = true;
@@ -176,6 +181,15 @@ impl<'a> ShellLexer<'a> {
                 word.quoted = true;
                 at_start = false;
                 continue;
+            }
+            if c == '$'
+                && quote.is_none()
+                && self
+                    .chars
+                    .peek()
+                    .is_some_and(|(_, next)| matches!(next, '\'' | '"'))
+            {
+                word.dollar_quoted = true;
             }
             if c == '$' && quote != Some('\'') && word.value.is_empty() {
                 let rest = &self.text[index..];
@@ -309,7 +323,7 @@ fn forced_git_clean(args: &[&str]) -> bool {
     force && !dry_run
 }
 
-fn strip_heredoc_bodies(command: &str) -> String {
+fn strip_heredoc_bodies(command: &str) -> Result<String, &'static str> {
     let mut terminators = std::collections::VecDeque::new();
     let mut out = String::new();
     let mut header = String::new();
@@ -361,6 +375,11 @@ fn strip_heredoc_bodies(command: &str) -> String {
                 Token::Redirect(op @ ("<<" | "<<-")) => heredoc = Some(op == "<<-"),
                 Token::Word(word) => {
                     if let Some(strip_tabs) = heredoc.take() {
+                        // ANSI-C escapes and locale translation need shell evaluation;
+                        // never use a guessed terminator to hide the remaining commands.
+                        if word.dollar_quoted {
+                            return Err("Unsupported dollar-quoted heredoc delimiter");
+                        }
                         // The entire word is the delimiter after quote removal;
                         // never truncate it to an alphanumeric prefix.
                         terminators.push_back((word.value, strip_tabs, word.quoted));
@@ -373,7 +392,7 @@ fn strip_heredoc_bodies(command: &str) -> String {
         header_mask = ContentMask::default();
     }
     out.push_str(&strip_line_continuations(&header));
-    out
+    Ok(out)
 }
 
 fn strip_line_continuations(command: &str) -> String {
@@ -794,6 +813,26 @@ mod tests {
             "git push --force-with-lease origin main",
         ] {
             assert!(blocked_reason(command).is_none(), "{command}");
+        }
+    }
+    #[test]
+    fn unsupported_dollar_quoted_heredoc_delimiters_are_rejected() {
+        for command in [
+            "cat <<$'EOF'\ntext\nEOF\ngit clean -fd",
+            "cat <<-$'EOF'\n\ttext\n\tEOF\ngit clean -fd",
+            "cat <<$'E\\x4fF'\ntext\nEOF\ngit clean -fd",
+            "cat <<E$'OF'\ntext\nEOF\ngit clean -fd",
+            "cat <<$\"EOF\"\ntext\nEOF\ngit clean -fd",
+            "cat <<$'EOF'\nordinary body\nEOF\n",
+        ] {
+            assert!(blocked_reason(command).is_some(), "{command:?}");
+        }
+        for command in [
+            "cat <<'$EOF'\ngit clean -fd\n$EOF\n",
+            "cat <<\"$'EOF'\"\ngit clean -fd\n$'EOF'\n",
+            "echo \"$'EOF'\"",
+        ] {
+            assert!(blocked_reason(command).is_none(), "{command:?}");
         }
     }
     #[test]
