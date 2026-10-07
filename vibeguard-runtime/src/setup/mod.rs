@@ -194,6 +194,9 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         publish(
             json!({
                 "host": options.host, "config": config_path, "configured": configured,
+                "installation_home": options.home,
+                "binary": options.binary(), "state_dir": options.state(),
+                "hook_registrations": hook_registrations(&config, &command),
                 "binary_present": binary_present,
                 "binary_executable": binary_executable,
                 "host_hooks_feature_enabled": feature_enabled,
@@ -325,6 +328,20 @@ fn publish(mut value: Value, options: &Options, status_ready: Option<bool>) -> R
     let legacy = legacy::inventory(options);
     if let Some(ready) = status_ready {
         eprintln!("{}", status_summary(options, ready, &legacy, &value));
+        if value["hook_registrations"]
+            .as_array()
+            .is_some_and(|entries| {
+                entries
+                    .iter()
+                    .any(|entry| entry["selected_instance"] == false)
+            })
+        {
+            eprintln!(
+                "Additional command handlers are registered in {}; inspect hook_registrations for their configured commands. This status checks the installation at {}.",
+                options.config().display(),
+                options.home.display()
+            );
+        }
     } else if let Some(message) = legacy::attention_message(&legacy) {
         eprintln!("{message}");
     }
@@ -467,6 +484,41 @@ fn hook_specs(host: &str, command: &str) -> Vec<(String, Value)> {
             )
         })
         .collect()
+}
+
+fn hook_registrations(config: &Value, selected_command: &str) -> Vec<Value> {
+    let mut registrations = Vec::new();
+    let Some(events) = config.get("hooks").and_then(Value::as_object) else {
+        return registrations;
+    };
+    for (event, groups) in events {
+        for (group_index, group) in groups
+            .as_array()
+            .expect("validated groups")
+            .iter()
+            .enumerate()
+        {
+            for (hook_index, handler) in group["hooks"]
+                .as_array()
+                .expect("validated handlers")
+                .iter()
+                .enumerate()
+            {
+                if handler["type"] != "command" {
+                    continue;
+                }
+                let Some(command) = handler["command"].as_str() else {
+                    continue;
+                };
+                registrations.push(json!({
+                    "event": event, "group_index": group_index, "hook_index": hook_index,
+                    "matcher": group.get("matcher"), "command": command,
+                    "selected_instance": command == selected_command
+                }));
+            }
+        }
+    }
+    registrations
 }
 
 fn prune_own_hooks(config: &mut Value, command: &str) {
