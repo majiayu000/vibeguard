@@ -14,6 +14,7 @@ struct Options {
     home: PathBuf,
     explicit_home: bool,
     host_dir: PathBuf,
+    claude_dir: PathBuf,
     codex_dir: PathBuf,
     gemini_dir: PathBuf,
     repo: PathBuf,
@@ -47,6 +48,16 @@ impl Options {
         let home = absolute(home)?;
         // An explicit --home is an isolated installation. Ambient host directories
         // belong to the account, not to that home.
+        let claude_dir = if is_explicit {
+            None
+        } else {
+            std::env::var_os("CLAUDE_CONFIG_DIR")
+                .filter(|p| !p.is_empty())
+                .map(PathBuf::from)
+                .map(absolute)
+                .transpose()?
+        }
+        .unwrap_or_else(|| home.join(".claude"));
         let codex_dir = if is_explicit {
             None
         } else {
@@ -68,7 +79,9 @@ impl Options {
         }
         .unwrap_or_else(|| home.clone())
         .join(".gemini");
-        let host_dir = if host == "codex" {
+        let host_dir = if host == "claude" {
+            claude_dir.clone()
+        } else if host == "codex" {
             codex_dir.clone()
         } else if host == "grok" && !is_explicit {
             std::env::var_os("GROK_HOME")
@@ -80,11 +93,13 @@ impl Options {
         } else {
             home.join(format!(".{host}"))
         };
+        quote_path(&host_dir)?;
         Ok(Self {
             host,
             home,
             explicit_home: is_explicit,
             host_dir,
+            claude_dir,
             codex_dir,
             gemini_dir,
             repo: absolute(repo.unwrap_or(std::env::current_dir()?))?,

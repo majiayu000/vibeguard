@@ -21,14 +21,14 @@ const READ_LIMIT: u64 = 1024 * 1024;
 pub fn inventory(options: &Options) -> Value {
     let mut findings = Vec::new();
     for path in [
-        options.home.join(".claude/settings.json"),
+        options.claude_dir.join("settings.json"),
         options.codex_dir.join("hooks.json"),
         options.gemini_dir.join("settings.json"),
     ] {
         inspect_hook_config(&path, &mut findings);
     }
     for path in [
-        options.home.join(".claude/CLAUDE.md"),
+        options.claude_dir.join("CLAUDE.md"),
         options.codex_dir.join("AGENTS.md"),
         options.gemini_dir.join("GEMINI.md"),
     ] {

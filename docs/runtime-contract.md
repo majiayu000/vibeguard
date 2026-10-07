@@ -58,12 +58,12 @@ There is no verified-tree flag. A previous result, background ID, command contai
 
 | Target | Configuration | Existing instructions (owned-block removal) |
 |---|---|---|
-| Claude | `~/.claude/settings.json` | `~/.claude/CLAUDE.md` |
+| Claude | `$CLAUDE_CONFIG_DIR/settings.json`, default `~/.claude/settings.json` | Same directory's `CLAUDE.md` |
 | Codex | `$CODEX_HOME/hooks.json`, default `~/.codex/hooks.json` | Same directory's `AGENTS.md` |
 | Grok | `$GROK_HOME/hooks/vibeguard.json`, default `~/.grok/hooks/vibeguard.json` | Same Grok directory's existing `rules/vibeguard.md` |
 | Git | Resolved `git --git-path hooks/pre-push`, honoring core.hooksPath | None |
 
-Binary: `~/.vibeguard/bin/vibeguard-runtime`. Observations: `~/.vibeguard/state/claude.json`, `codex.json`, and `grok.json`. Grok observations retain the real tool name. `--home PATH` uses an isolated home and ignores ambient `CODEX_HOME` and `GROK_HOME`. `--repo PATH` applies only to Git. No shell profile/PATH changes.
+Binary: `~/.vibeguard/bin/vibeguard-runtime`. Observations: `~/.vibeguard/state/claude.json`, `codex.json`, and `grok.json`. Grok observations retain the real tool name. `--home PATH` uses an isolated home and ignores ambient `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, and `GEMINI_CLI_HOME`. Nonempty relative host-directory overrides resolve against the current working directory; empty overrides use the defaults. `--repo PATH` applies only to Git. No shell profile/PATH changes.
 
 Grok installation preserves other hook files and `config.toml`, including `compat.claude.hooks`; it does not register a Python adapter or inject default rules. Status checks its native hook file, executable bits and latest Grok observation. It does not inspect effective Grok config layers, imported Claude hooks, `allow_managed_hooks_only`, folder trust or host reload state, and cannot prove dispatch. Uninstall removes only its exact commands/current block and Grok observation, retaining the shared binary and user material.
 
