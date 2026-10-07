@@ -2,7 +2,7 @@
 
 [中文](README.zh.md)
 
-`@vibeguard/dsh` forwards DSH Bash pre/post events to the local VibeGuard Rust executable. Command policy and outcome storage remain in Rust.
+`@vibeguard-ai/dsh` forwards DSH Bash pre/post events to the local VibeGuard Rust executable. Command policy and outcome storage remain in Rust.
 
 | DSH boundary | Behavior |
 |---|---|
@@ -17,7 +17,7 @@ This adapter does not register session-start, Stop, Read, Edit or Write hooks: c
 
 - Node.js `^22.19.0` or `>=24`
 - DSH packages **0.2.0-rc.2** (`next`), tested as published npm artifacts. No claim of compatibility with other prereleases.
-- VibeGuard **2.0.2** or a binary built from this revision, supporting `hook dsh`; old binaries fail closed.
+- The published VibeGuard **2.0.2** release binary, supporting `hook dsh`; old binaries fail closed. A binary built from this revision also works.
 
 From the VibeGuard checkout:
 
@@ -29,7 +29,7 @@ npm run check
 npm test
 npm pack --pack-destination dist
 
-dsh plugin --profile demo add ./dist/vibeguard-dsh-0.1.0.tgz
+dsh plugin --profile demo add ./dist/vibeguard-ai-dsh-0.1.0.tgz
 dsh --profile demo --dump-config
 ```
 
@@ -53,6 +53,6 @@ Only `dsh.json`, the latest observation, is stored. It contains host, event, tim
 
 `npm test` composes real Cordis, ToolRuntime, ApprovalService, Session, AgentLoop and local subprocess/shell services. A test Bash tool records dispatch without evaluating its input; dangerous payloads go only to the real Rust guard on stdin. Tests cover native approval outcomes and audit events, missing approval, cancellation, runtime/protocol failure, structured result observations and teardown.
 
-The package is a local publish-ready artifact; installation examples use a tarball until its npm version is published.
+VibeGuard 2.0.2 is [published](https://github.com/majiayu000/vibeguard/releases/tag/v2.0.2). The adapter is prepared under the new `@vibeguard-ai` namespace but is not yet published to npm; install its local tarball above until `@vibeguard-ai/dsh@0.1.0` is publicly available.
 
 Official seams: [tools](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/core/tools), [user approval](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/interaction/user-approval), [shell](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/shell/shell). These sources iterate; the published version above defines the tested API.
