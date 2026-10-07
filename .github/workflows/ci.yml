@@ -7,6 +7,8 @@ on:
 permissions:
   contents: read
 jobs:
+  dependencies:
+    uses: ./.github/workflows/dependencies.yml
   rust:
     name: ${{ matrix.os == 'windows-latest' && 'CI' || 'Core CI' }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

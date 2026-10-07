@@ -61,6 +61,213 @@ fn success(output: &Output) {
 fn payload(event: &str, command: &str) -> Value {
     json!({"hook_event_name":event,"tool_name":"Bash","tool_input":{"command":command},"cwd":"/test/repo","tool_use_id":"test-call"})
 }
+
+#[cfg(unix)]
+#[test]
+fn installation_preview_is_read_only_and_matches_host_changes() {
+    use std::collections::BTreeMap;
+    use std::os::unix::fs::PermissionsExt;
+    fn snapshot(path: &Path) -> BTreeMap<PathBuf, (u32, Vec<u8>)> {
+        let mut result = BTreeMap::new();
+        for entry in fs::read_dir(path).unwrap() {
+            let path = entry.unwrap().path();
+            let metadata = fs::metadata(&path).unwrap();
+            result.insert(
+                path.clone(),
+                (
+                    metadata.permissions().mode(),
+                    if metadata.is_file() {
+                        fs::read(&path).unwrap()
+                    } else {
+                        Vec::new()
+                    },
+                ),
+            );
+            if metadata.is_dir() {
+                result.extend(snapshot(&path));
+            }
+        }
+        result
+    }
+    for host in ["claude", "codex", "grok"] {
+        let temp = Temp::new();
+        let home = temp.0.join("new-home");
+        let args = [
+            "install",
+            host,
+            "--dry-run",
+            "--home",
+            home.to_str().unwrap(),
+        ];
+        let output = invoke(&args, "", None);
+        success(&output);
+        assert!(!home.exists(), "preview created the home or setup locks");
+        let plan = native(&output);
+        assert_eq!(plan["dry_run"], true);
+        assert_eq!(
+            plan["details"]["matcher"],
+            if host == "grok" {
+                "run_terminal_command"
+            } else {
+                "Bash"
+            }
+        );
+        assert_eq!(plan["host_trust"], "not_observed");
+        assert!(
+            plan["changes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|c| c["operation"] == "register_hooks")
+        );
+        let dir = home.join(format!(".{host}"));
+        fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join(match host {
+            "codex" => "hooks.json",
+            "grok" => "hooks/vibeguard.json",
+            _ => "settings.json",
+        });
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        fs::write(&config_path, "{\"disableAllHooks\":true,\"user\":7,\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"echo user\"}]}]}}").unwrap();
+        let instructions = dir.join(match host {
+            "codex" => "AGENTS.md",
+            "grok" => "rules/vibeguard.md",
+            _ => "CLAUDE.md",
+        });
+        fs::create_dir_all(instructions.parent().unwrap()).unwrap();
+        fs::write(&instructions, "user note\r\n<!-- vibeguard-core:start -->\r\nold owned text\r\n<!-- vibeguard-core:end -->\r\nkeep me").unwrap();
+        if host == "codex" {
+            fs::write(
+                dir.join("config.toml"),
+                "# user comment\nmodel = 'user-model'\n[features]\nhooks = false\n",
+            )
+            .unwrap();
+        }
+        let before = snapshot(&home);
+        let output = invoke(&args, "", None);
+        success(&output);
+        assert_eq!(snapshot(&home), before);
+        let plan = native(&output);
+        assert_eq!(plan["details"]["host_hook_disable_flag"], true);
+        assert!(String::from_utf8_lossy(&output.stderr).contains("Host hooks are disabled"));
+        success(&invoke(
+            &["install", host, "--home", home.to_str().unwrap()],
+            "",
+            None,
+        ));
+        for change in plan["changes"].as_array().unwrap() {
+            assert!(Path::new(change["path"].as_str().unwrap()).is_file());
+        }
+        let config: Value = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        assert_eq!(config["user"], 7);
+        assert_eq!(config["disableAllHooks"], true);
+        assert_eq!(
+            config["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            "echo user"
+        );
+        assert_eq!(
+            fs::read_to_string(instructions).unwrap(),
+            "user note\r\nkeep me"
+        );
+        let before = snapshot(&home);
+        let output = invoke(&args, "", None);
+        success(&output);
+        assert!(native(&output)["changes"].as_array().unwrap().is_empty());
+        assert_eq!(snapshot(&home), before);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn installation_preview_preserves_rejections_and_git_ownership() {
+    let temp = Temp::new();
+    let home = temp.0.join("home");
+    let repo = temp.0.join("repo");
+    fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["config", "core.hooksPath", ".git/hooks"]);
+    let args = [
+        "install",
+        "git",
+        "--home",
+        home.to_str().unwrap(),
+        "--repo",
+        repo.to_str().unwrap(),
+        "--dry-run",
+    ];
+    let output = invoke(&args, "", None);
+    success(&output);
+    assert!(!home.exists());
+    let hook = repo.join(".git/hooks/pre-push");
+    assert!(!hook.exists());
+    assert!(
+        native(&output)["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["operation"] == "register_pre_push")
+    );
+    fs::write(&hook, "#!/bin/sh\necho user\n").unwrap();
+    let output = invoke(&args, "", None);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("user-managed"));
+    assert_eq!(fs::read_to_string(&hook).unwrap(), "#!/bin/sh\necho user\n");
+    assert!(!home.exists());
+    fs::create_dir_all(home.join(".codex")).unwrap();
+    fs::write(home.join(".codex/hooks.json"), "invalid JSON").unwrap();
+    assert_eq!(
+        invoke(
+            &[
+                "install",
+                "codex",
+                "--dry-run",
+                "--home",
+                home.to_str().unwrap()
+            ],
+            "",
+            None
+        )
+        .status
+        .code(),
+        Some(2)
+    );
+    assert!(!home.join(".vibeguard").exists());
+    for action in ["status", "uninstall"] {
+        assert_eq!(
+            invoke(
+                &[
+                    action,
+                    "claude",
+                    "--dry-run",
+                    "--home",
+                    home.to_str().unwrap()
+                ],
+                "",
+                None
+            )
+            .status
+            .code(),
+            Some(2)
+        );
+    }
+    assert_eq!(
+        invoke(
+            &[
+                "install",
+                "claude",
+                "--dry-run",
+                "--dry-run",
+                "--home",
+                home.to_str().unwrap()
+            ],
+            "",
+            None
+        )
+        .status
+        .code(),
+        Some(2)
+    );
+}
 fn native(output: &Output) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
@@ -113,6 +320,91 @@ fn native_hook_protocol_and_no_command_rewrites() {
             );
             success(&allowed);
             assert!(allowed.stdout.is_empty());
+        }
+    }
+}
+
+#[test]
+fn native_hooks_preserve_simple_command_lexical_boundaries() {
+    // These strings are JSON payload data; no proposed shell command is executed.
+    for host in ["claude", "codex"] {
+        for (command, denied) in [
+            ("git\nrm -rf /etc", true),
+            ("rm\ngit clean -fd", true),
+            ("git checkout . 2>/tmp/vibeguard-log", true),
+            ("git restore -- . 2>>/tmp/vibeguard-log", true),
+            ("git checkout . 0</tmp/vibeguard-input", true),
+            ("rm -rf 2>&1 /etc", true),
+            ("git clean 2>&1 -fd", true),
+            ("git clean -f 2>&1 -n", false),
+            ("git clean -f >| /tmp/vibeguard-log -n", false),
+            ("git clean -f &>/tmp/vibeguard-log -n", false),
+            ("'echo' git clean -fd", false),
+            ("'/bin/printf' '%s\\n' rm -rf /etc", false),
+            ("echo \\<<EOF\ngit clean -fd", true),
+            ("cat <<EOF-END\nEOF-END\ngit clean -fd", true),
+            ("cat <<EOF-END\ngit clean -fd\nEOF-END", false),
+        ] {
+            let output = invoke(
+                &["hook", host],
+                &payload("PreToolUse", command).to_string(),
+                None,
+            );
+            success(&output);
+            assert!(output.stderr.is_empty(), "{host}: {command:?}");
+            if denied {
+                assert!(!output.stdout.is_empty(), "{host}: {command:?}");
+                assert_eq!(
+                    native(&output)["hookSpecificOutput"]["permissionDecision"],
+                    "deny",
+                    "{host}: {command:?}"
+                );
+            } else {
+                assert!(output.stdout.is_empty(), "{host}: {command:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn native_hooks_preserve_carriage_returns_in_heredoc_delimiters() {
+    // Commands stay JSON data: exercise both native hook protocols without
+    // executing the proposed shell commands.
+    for host in ["claude", "codex"] {
+        for (command, denied) in [
+            ("cat <<EOF\nbody\nEOF\ngit clean -fd\n", true),
+            ("cat <<EOF\r\nbody\r\nEOF\r\ngit clean -fd\n", true),
+            ("cat <<'EOF'\r\nbody\r\nEOF\r\ngit clean -fd\n", true),
+            ("cat <<\"EOF\"\r\nbody\r\nEOF\r\ngit clean -fd\n", true),
+            ("cat <<'EOF\r'\nbody\nEOF\r\ngit clean -fd\n", true),
+            ("cat <<-EOF\r\n\tbody\r\n\tEOF\r\ngit clean -fd\n", true),
+            ("cat <<EOF\r\nbody\\\r\nEOF\r\ngit clean -fd\n", true),
+            ("cat <<EOF\r\nEO\\\nF\r\ngit clean -fd\n", true),
+            ("cat <<A <<B\r\nA\nB\r\ngit clean -fd\n", true),
+            ("cat <<EOF\r\r\nEOF\r\r\ngit clean -fd\n", true),
+            ("cat <<EOF\nEOF\r\ngit clean -fd\n", false),
+            ("cat <<EOF\r\nEOF\ngit clean -fd\n", false),
+            ("cat <<EOF\r\nEOF\r\r\ngit clean -fd\n", false),
+            ("cat <<'EOF'\r\ngit clean -fd\nEOF\r", false),
+            ("cat <<EOF\r\nEOF\r\nprintf '%s' 'git clean -fd'\n", false),
+        ] {
+            let output = invoke(
+                &["hook", host],
+                &payload("PreToolUse", command).to_string(),
+                None,
+            );
+            success(&output);
+            assert!(output.stderr.is_empty(), "{host}: {command:?}");
+            if denied {
+                assert!(!output.stdout.is_empty(), "{host}: {command:?}");
+                assert_eq!(
+                    native(&output)["hookSpecificOutput"]["permissionDecision"],
+                    "deny",
+                    "{host}: {command:?}"
+                );
+            } else {
+                assert!(output.stdout.is_empty(), "{host}: {command:?}");
+            }
         }
     }
 }

@@ -22,6 +22,10 @@ python3 scripts/ci/smoke_grok.py vibeguard-runtime/target/release/vibeguard-runt
 
 It uses a temporary home/repository and a local scripted model endpoint, without account credentials or a real model. It verifies Grok discovery, allowed/nonzero shell results and policy denial through both native and Claude-imported registrations. The forced-clean fixture targets only that temporary repository, with an untracked sentinel to detect accidental execution. It does not alter the account's hook configuration. This optional check requires the external Grok binary; the standard local gate and platform CI still test the portable Grok protocol and installer without it.
 
+The source launcher and local smoke gate use the executable selected by Cargo, including a configured `CARGO_TARGET_DIR` or `build.target-dir`. The smoke gate reads the build's artifact messages rather than guessing a path to an earlier binary.
+
+CI and release verification also run the reusable dependency-policy workflow against the locked Rust graph and `deny.toml`, including advisories, licenses, duplicate versions, and dependency sources. This online check is separate from the local contract gate; unavailable advisory data is a failed check. To run it locally with cargo-deny 0.20.2 installed, use `cargo deny --manifest-path vibeguard-runtime/Cargo.toml --locked --all-features --config deny.toml check`.
+
 Release publishing is a separate maintainer action. Tagged releases verify the version, build and smoke native binaries, and package only the executable, README, and license. Review the source before creating a tag.
 
 See [AGENTS.md](AGENTS.md), [directory map](docs/directory-map.md), and [security policy](SECURITY.md).

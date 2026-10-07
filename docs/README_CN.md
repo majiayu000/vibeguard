@@ -9,6 +9,7 @@ VibeGuard 继续用 Rust 实现，提供规则查询、原生 Bash hooks、显�
 从 [Releases](https://github.com/majiayu000/vibeguard/releases) 下载适合系统与 CPU 的 v2 压缩包，解压后在该目录运行，无需源码或 Rust 工具链：
 
 ```bash
+./vibeguard-runtime install codex --dry-run
 ./vibeguard-runtime install codex
 # 或 Claude Code：
 ./vibeguard-runtime install claude
@@ -22,7 +23,10 @@ VibeGuard 继续用 Rust 实现，提供规则查询、原生 Bash hooks、显�
 
 从源码构建则在源码目录运行：
 
+安装前可用 `install codex --dry-run`（或 `claude` / `git`）只读预览将改动的文件、注册命令和持久锁文件。它复用安装校验，不创建目录，不获取锁，不证明写入权限或实际防护。安装会保留用户自有内容和 `disableAllHooks` 设置；已禁用的 hooks 仍需用户检查后启用。
+
 ```bash
+bash setup.sh install codex --dry-run
 bash setup.sh install codex
 # 或 Claude Code：
 bash setup.sh install claude

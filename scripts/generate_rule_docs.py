@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CANONICAL = ROOT / "rules" / "claude-rules"
 HEADING = re.compile(r"^## ([A-Z]+-[A-Za-z0-9-]+): (.+) \(([^)]+)\)$")
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 CORE_IDS = ("U-04", "W-11", "U-29", "W-03", "SEC-02", "SEC-18")
 
 def parse_rules():
@@ -17,7 +18,7 @@ def parse_rules():
     for source in sorted(CANONICAL.rglob("*.md")):
         current = None
         body = []
-        fence = False
+        fence = None
         def flush():
             if current is not None:
                 current["body"] = "\n".join(body).strip()
@@ -25,9 +26,20 @@ def parse_rules():
                     raise ValueError(f"{source}: empty body for {current['id']}")
                 rules.append(current.copy())
         for number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1):
-            if line.startswith("```"):
-                fence = not fence
-            match = None if fence else HEADING.fullmatch(line)
+            marker = FENCE.fullmatch(line)
+            if fence is not None:
+                if current is not None:
+                    body.append(line)
+                if (marker and marker[1][0] == fence[0]
+                        and len(marker[1]) >= fence[1] and not marker[2].strip(" \t")):
+                    fence = None
+                continue
+            if marker and not (marker[1][0] == "`" and "`" in marker[2]):
+                fence = (marker[1][0], len(marker[1]), number)
+                if current is not None:
+                    body.append(line)
+                continue
+            match = HEADING.fullmatch(line)
             if match:
                 flush()
                 rule_id, title, severity = match.groups()
@@ -37,10 +49,12 @@ def parse_rules():
                 current = dict(id=rule_id, title=title, severity=severity,
                                source=source.relative_to(CANONICAL).as_posix())
                 body = []
-            elif not fence and line.startswith("## "):
+            elif line.startswith("## "):
                 raise ValueError(f"{source}:{number}: malformed rule heading")
             elif current is not None:
                 body.append(line)
+        if fence is not None:
+            raise ValueError(f"{source}:{fence[2]}: unclosed code fence")
         flush()
     if not rules:
         raise ValueError("canonical rule library is empty")
@@ -58,7 +72,7 @@ def generated_files(rules):
     lines = ["# Rule reference", "",
              "Generated from the canonical Markdown. These are review topics, not claims of automatic enforcement.",
              f"The library contains {len(rules)} topics; read only those relevant to the task.", "",
-             "| ID | Topic | Scope |", "|---|---|---|"]
+             "| ID | Topic | Severity |", "|---|---|---|"]
     for r in rules:
         link = "../rules/claude-rules/" + r["source"]
         lines.append(f"| [{r['id']}]({link}) | {r['title']} | {r['severity']} |")

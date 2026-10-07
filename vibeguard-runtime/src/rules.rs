@@ -18,9 +18,54 @@ pub fn catalog() -> Result<Vec<Rule>> {
 
 pub const CORE: &str = include_str!("../../claude-md/vibeguard-rules.md");
 
+fn search<'a>(rules: &'a [Rule], query: &str) -> Result<Vec<&'a Rule>> {
+    let terms: Vec<_> = query.split_whitespace().map(str::to_lowercase).collect();
+    if terms.is_empty() {
+        return Err("rules --search needs at least one nonempty term".into());
+    }
+    let mut matches: Vec<_> = rules
+        .iter()
+        .filter_map(|rule| {
+            let text =
+                format!("{} {} {} {}", rule.id, rule.title, rule.source, rule.body).to_lowercase();
+            if !terms.iter().all(|term| text.contains(term)) {
+                return None;
+            }
+            let title = rule.title.to_lowercase();
+            let title_matches = terms.iter().filter(|term| title.contains(*term)).count();
+            Some((title_matches, rule))
+        })
+        .collect();
+    matches.sort_by(|(left_score, left), (right_score, right)| {
+        right_score
+            .cmp(left_score)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    Ok(matches.into_iter().map(|(_, rule)| rule).collect())
+}
+
 pub fn run(args: &[String]) -> Result<u8> {
+    if let [flag, query] = args
+        && flag == "--search"
+    {
+        let rules = catalog()?;
+        let selected = search(&rules, query)?;
+        if selected.is_empty() {
+            return Err("no rules match the search terms".into());
+        }
+        for rule in selected.iter().take(10) {
+            println!("{}\t{}\t{}", rule.id, rule.source, rule.title);
+        }
+        if selected.len() > 10 {
+            eprintln!(
+                "Showing 10 of {} matches; refine the search terms.",
+                selected.len()
+            );
+        }
+        return Ok(0);
+    }
     if args.len() > 1 {
-        return Err("rules takes at most one ID, category, --json or --core".into());
+        return Err("usage: rules [ID|category|--json|--core|--search TEXT]".into());
     }
     let rules = catalog()?;
     match args.first().map(String::as_str) {
@@ -67,5 +112,43 @@ mod tests {
         for rule in rules {
             assert!(!rule.body.trim().is_empty(), "{}", rule.id);
         }
+    }
+
+    #[test]
+    fn keyword_search_matches_all_terms_and_prefers_titles() {
+        let rules = vec![
+            Rule {
+                id: "T-01".into(),
+                title: "Background work".into(),
+                severity: "review".into(),
+                source: "rust/quality.md".into(),
+                body: "Preserve cancellation errors.".into(),
+            },
+            Rule {
+                id: "T-02".into(),
+                title: "Cancellation".into(),
+                severity: "review".into(),
+                source: "rust/quality.md".into(),
+                body: "Propagate errors.".into(),
+            },
+            Rule {
+                id: "T-03".into(),
+                title: "Errors".into(),
+                severity: "review".into(),
+                source: "python/quality.md".into(),
+                body: "Preserve exceptions.".into(),
+            },
+        ];
+        let found = search(&rules, "CANCELLATION errors").unwrap();
+        assert_eq!(
+            found
+                .iter()
+                .map(|rule| rule.id.as_str())
+                .collect::<Vec<_>>(),
+            ["T-02", "T-01"]
+        );
+        assert_eq!(search(&rules, "PYTHON exceptions").unwrap()[0].id, "T-03");
+        assert!(search(&rules, "cancellation python").unwrap().is_empty());
+        assert!(search(&rules, " \t ").is_err());
     }
 }

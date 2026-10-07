@@ -7,7 +7,10 @@ use serde_json::{Value, json};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use support::{executable, make_executable, read_optional, read_text, shell_quote, write_atomic};
+use support::{
+    check_unchanged, executable, lock_setup, make_executable, read_optional, read_text,
+    shell_quote, write_atomic, write_atomic_if_unchanged,
+};
 
 struct Options {
     host: String,
@@ -19,6 +22,7 @@ struct Options {
     gemini_dir: PathBuf,
     repo: PathBuf,
     inspect_repo: bool,
+    dry_run: bool,
 }
 
 impl Options {
@@ -30,8 +34,13 @@ impl Options {
             .clone();
         let mut explicit_home = None;
         let mut repo = None;
+        let mut dry_run = false;
         let mut rest = args[1..].iter();
         while let Some(flag) = rest.next() {
+            if flag == "--dry-run" && !dry_run {
+                dry_run = true;
+                continue;
+            }
             let value = rest.next().ok_or("option requires a path")?;
             match flag.as_str() {
                 "--home" if explicit_home.is_none() => explicit_home = Some(PathBuf::from(value)),
@@ -104,6 +113,7 @@ impl Options {
             gemini_dir,
             repo: absolute(repo.unwrap_or(std::env::current_dir()?))?,
             inspect_repo,
+            dry_run,
         })
     }
     fn binary(&self) -> PathBuf {
@@ -160,6 +170,9 @@ fn quote_path(path: &Path) -> Result<String> {
 
 pub fn run(action: &str, args: &[String]) -> Result<u8> {
     let options = Options::parse(args)?;
+    if options.dry_run && action != "install" {
+        return Err("--dry-run is supported only by install".into());
+    }
     if action != "status" && !cfg!(unix) {
         return Err("native installation currently supports macOS, Linux and WSL; no configuration was changed".into());
     }
@@ -213,6 +226,9 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         publish(
             json!({
                 "host": options.host, "config": config_path, "configured": configured,
+                "installation_home": options.home,
+                "binary": options.binary(), "state_dir": options.state(),
+                "hook_registrations": hook_registrations(&config, &command),
                 "binary_present": binary_present,
                 "binary_executable": binary_executable,
                 "host_hooks_feature_enabled": feature_enabled,
@@ -269,30 +285,88 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
                 .expect("validated event array")
                 .push(spec);
         }
+    }
+    let observation = options.state().join(format!("{}.json", options.host));
+    let remove_observation = action == "uninstall" && read_optional(&observation)?.is_some();
+    let will_write = action == "install"
+        || config != original_config
+        || new_instructions != old_text
+        || remove_observation;
+    if options.dry_run {
+        let mut changes = binary_changes(&options)?;
+        if config != original_config {
+            changes.push(json!({"path":config_path,"operation":"register_hooks",
+                "events":hook_specs(&options.host, &command).into_iter().map(|(event, _)| event).collect::<Vec<_>>() }));
+        }
+        if let Some(text) = &new_features
+            && old_features.as_deref() != Some(text)
+        {
+            changes.push(json!({"path":feature_path,"operation":"enable_hooks_feature"}));
+        }
+        if new_instructions != old_text {
+            changes.push(json!({"path":instructions_path,"operation":"remove_owned_core_block"}));
+        }
+        return preview(
+            &options,
+            changes,
+            &options.host_dir,
+            json!({"hook_command":command,"matcher":if options.host == "grok" { "run_terminal_command" } else { "Bash" },
+                "host_hook_disable_flag":config.get("disableAllHooks"),
+                "observation":"created by a received hook event; installation does not create an observation"}),
+        );
+    }
+    // Prevalidation remains read-only. Lock only after it succeeds, then detect
+    // snapshots changed by another setup or a host while we were preparing.
+    let locks = if will_write {
+        let locks = lock_setup(&options.home, &options.host_dir)?;
+        check_unchanged(&config_path, old_config.as_deref().map(str::as_bytes))?;
+        if options.host == "codex" {
+            check_unchanged(&feature_path, old_features.as_deref().map(str::as_bytes))?;
+        }
+        if new_instructions != old_text {
+            check_unchanged(
+                &instructions_path,
+                old_instructions.as_deref().map(str::as_bytes),
+            )?;
+        }
+        Some(locks)
+    } else {
+        None
+    };
+    if action == "install" {
         install_binary(&options)?;
     }
     if config != original_config {
-        write_atomic(
+        write_atomic_if_unchanged(
             &config_path,
             (serde_json::to_string_pretty(&config)? + "\n").as_bytes(),
             0o600,
+            old_config.as_deref().map(str::as_bytes),
         )?;
     }
     if let Some(text) = new_features
         && old_features.as_deref() != Some(&text)
     {
-        write_atomic(&feature_path, text.as_bytes(), 0o600)?;
+        write_atomic_if_unchanged(
+            &feature_path,
+            text.as_bytes(),
+            0o600,
+            old_features.as_deref().map(str::as_bytes),
+        )?;
     }
     if new_instructions != old_text {
         // An empty result does not establish that we own the file itself.
-        write_atomic(&instructions_path, new_instructions.as_bytes(), 0o600)?;
+        write_atomic_if_unchanged(
+            &instructions_path,
+            new_instructions.as_bytes(),
+            0o600,
+            old_instructions.as_deref().map(str::as_bytes),
+        )?;
     }
-    if action == "uninstall" {
-        let observation = options.state().join(format!("{}.json", options.host));
-        if read_optional(&observation)?.is_some() {
-            fs::remove_file(observation)?;
-        }
+    if remove_observation && read_optional(&observation)?.is_some() {
+        fs::remove_file(observation)?;
     }
+    drop(locks);
     publish(
         json!({
             "action":action,"host":options.host,"config":config_path,"instructions":instructions_path,
@@ -313,6 +387,20 @@ fn publish(mut value: Value, options: &Options, status_ready: Option<bool>) -> R
     let legacy = legacy::inventory(options);
     if let Some(ready) = status_ready {
         eprintln!("{}", status_summary(options, ready, &legacy, &value));
+        if value["hook_registrations"]
+            .as_array()
+            .is_some_and(|entries| {
+                entries
+                    .iter()
+                    .any(|entry| entry["selected_instance"] == false)
+            })
+        {
+            eprintln!(
+                "Additional command handlers are registered in {}; inspect hook_registrations for their configured commands. This status checks the installation at {}.",
+                options.config().display(),
+                options.home.display()
+            );
+        }
     } else if let Some(message) = legacy::attention_message(&legacy) {
         eprintln!("{message}");
     }
@@ -458,6 +546,41 @@ fn hook_specs(host: &str, command: &str) -> Vec<(String, Value)> {
         .collect()
 }
 
+fn hook_registrations(config: &Value, selected_command: &str) -> Vec<Value> {
+    let mut registrations = Vec::new();
+    let Some(events) = config.get("hooks").and_then(Value::as_object) else {
+        return registrations;
+    };
+    for (event, groups) in events {
+        for (group_index, group) in groups
+            .as_array()
+            .expect("validated groups")
+            .iter()
+            .enumerate()
+        {
+            for (hook_index, handler) in group["hooks"]
+                .as_array()
+                .expect("validated handlers")
+                .iter()
+                .enumerate()
+            {
+                if handler["type"] != "command" {
+                    continue;
+                }
+                let Some(command) = handler["command"].as_str() else {
+                    continue;
+                };
+                registrations.push(json!({
+                    "event": event, "group_index": group_index, "hook_index": hook_index,
+                    "matcher": group.get("matcher"), "command": command,
+                    "selected_instance": command == selected_command
+                }));
+            }
+        }
+    }
+    registrations
+}
+
 fn prune_own_hooks(config: &mut Value, command: &str) {
     let Some(hooks) = config.get_mut("hooks") else {
         return;
@@ -487,6 +610,57 @@ fn install_binary(options: &Options) -> Result<()> {
     Ok(())
 }
 
+fn binary_changes(options: &Options) -> Result<Vec<Value>> {
+    let current = fs::read(std::env::current_exe()?)?;
+    let existing = read_optional(&options.binary())?;
+    let mut changes = Vec::new();
+    if existing.as_deref() != Some(current.as_slice()) {
+        changes.push(json!({"path":options.binary(),"operation":"copy_executable"}));
+    } else if !executable(&options.binary())? {
+        changes.push(json!({"path":options.binary(),"operation":"restore_execute_bits"}));
+    }
+    Ok(changes)
+}
+
+fn preview(
+    options: &Options,
+    changes: Vec<Value>,
+    resource_dir: &Path,
+    details: Value,
+) -> Result<u8> {
+    eprintln!(
+        "VibeGuard {} installation preview; no files were changed.",
+        options.host
+    );
+    for change in &changes {
+        eprintln!(
+            "  {}: {}",
+            change["operation"].as_str().unwrap_or_default(),
+            change["path"].as_str().unwrap_or_default()
+        );
+    }
+    eprintln!(
+        "Installation also acquires persistent setup lock files. User-owned handlers and guidance are preserved."
+    );
+    if details["host_hook_disable_flag"] == true {
+        eprintln!(
+            "Host hooks are disabled; install preserves disableAllHooks. Review that setting before exercising a hook."
+        );
+    }
+    eprintln!(
+        "Next: rerun install without --dry-run, then exercise the selected integration and inspect status. Preview does not prove write access, host trust or active protection."
+    );
+    publish(
+        json!({"action":"install","dry_run":true,"host":options.host,
+        "changes":changes,"setup_locks":[options.home.join(".vibeguard/setup.lock"),resource_dir.join(".vibeguard-setup.lock")],
+        "details":details,"host_trust":"not_observed",
+        "note":"Read-only preview of current inputs; concurrent edits and write/metadata errors can still make installation fail."}),
+        options,
+        None,
+    )?;
+    Ok(0)
+}
+
 fn git_hook_path(options: &Options) -> Result<PathBuf> {
     let result = Command::new("git")
         .arg("-C")
@@ -505,6 +679,13 @@ fn git_hook_path(options: &Options) -> Result<PathBuf> {
 }
 
 fn git_integration(action: &str, options: &Options) -> Result<u8> {
+    if matches!(action, "install" | "status")
+        && !crate::hook_checks::inspect_git(&["--version"])?
+            .status
+            .success()
+    {
+        return Err("cannot verify Git object inspection support".into());
+    }
     let path = git_hook_path(options)?;
     let expected = format!(
         "#!/bin/sh\n# VibeGuard native pre-push hook\nexec {} pre-push\n",
@@ -528,15 +709,49 @@ fn git_integration(action: &str, options: &Options) -> Result<u8> {
     if existing.is_some() && !owned {
         return Err("existing pre-push hook is user-managed; no files were changed".into());
     }
+    if options.dry_run {
+        let mut changes = binary_changes(options)?;
+        if !owned {
+            changes.push(json!({"path":path,"operation":"register_pre_push"}));
+        } else if !executable(&path)? {
+            changes.push(json!({"path":path,"operation":"restore_execute_bits"}));
+        }
+        return preview(
+            options,
+            changes,
+            path.parent()
+                .ok_or("pre-push hook has no parent directory")?,
+            json!({"hook":path,"hook_command":format!("{} pre-push",quote_path(&options.binary())?)}),
+        );
+    }
+    let locks = if action == "install" || owned {
+        let locks = lock_setup(
+            &options.home,
+            path.parent()
+                .ok_or("pre-push hook has no parent directory")?,
+        )?;
+        check_unchanged(&path, existing.as_deref().map(str::as_bytes))?;
+        Some(locks)
+    } else {
+        None
+    };
     if action == "install" {
         install_binary(options)?;
         if !owned {
-            write_atomic(&path, expected.as_bytes(), 0o755)?;
+            write_atomic_if_unchanged(
+                &path,
+                expected.as_bytes(),
+                0o755,
+                existing.as_deref().map(str::as_bytes),
+            )?;
         }
+        check_unchanged(&path, Some(expected.as_bytes()))?;
         make_executable(&path)?;
     } else if owned {
+        check_unchanged(&path, existing.as_deref().map(str::as_bytes))?;
         fs::remove_file(&path)?;
     }
+    drop(locks);
     publish(
         json!({"action":action,"host":"git","hook":path}),
         options,

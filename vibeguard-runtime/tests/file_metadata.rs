@@ -318,5 +318,13 @@ fn metadata_write_error_preserves_original_and_cleans_temporary_file() {
         xattr::get(&config, ATTRIBUTE).unwrap().unwrap(),
         b"original"
     );
-    assert_eq!(fs::read_dir(host_dir).unwrap().count(), 1);
+    let mut entries: Vec<_> = fs::read_dir(host_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [".vibeguard-setup.lock", "hooks.json"].map(std::ffi::OsString::from)
+    );
 }
