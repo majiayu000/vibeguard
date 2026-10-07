@@ -79,7 +79,7 @@ pub fn pre_push(input: &str) -> Result<u8> {
     Ok(0)
 }
 
-fn inspect_git(args: &[&str]) -> Result<Output> {
+pub(crate) fn inspect_git(args: &[&str]) -> Result<Output> {
     // --no-replace-objects does not disable legacy grafts. Override both the
     // default info/grafts file and any inherited GIT_GRAFT_FILE path.
     let null_file = if cfg!(windows) { "NUL" } else { "/dev/null" };

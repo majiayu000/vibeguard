@@ -328,3 +328,77 @@ fn unsupported_git_options_report_the_minimum_version() {
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     assert!(String::from_utf8_lossy(&output.stderr).contains("Git 2.45 or newer"));
 }
+
+#[cfg(unix)]
+#[test]
+fn unsupported_git_is_rejected_before_setup_but_can_uninstall() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let real_git = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|path| path.join("git"))
+        .find(|path| path.is_file())
+        .unwrap()
+        .canonicalize()
+        .unwrap();
+    let temp = Temp::new();
+    let repo = temp.0.join("repo");
+    fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["config", "core.hooksPath", ".git/hooks"]);
+    let hook = repo.join(".git/hooks/pre-push");
+    let fake_bin = temp.0.join("old-git");
+    fs::create_dir(&fake_bin).unwrap();
+    let fake_git = fake_bin.join("git");
+    fs::write(
+        &fake_git,
+        "#!/bin/sh\ncase \" $* \" in *' --no-lazy-fetch '*) exit 129;; esac\nexec \"$VIBEGUARD_TEST_REAL_GIT\" \"$@\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&fake_git, fs::Permissions::from_mode(0o755)).unwrap();
+    let home = temp.0.join("home");
+    for (action, dry_run) in [("install", false), ("install", true), ("status", false)] {
+        let mut request = command(BIN, &repo);
+        request
+            .env("PATH", &fake_bin)
+            .env("VIBEGUARD_TEST_REAL_GIT", &real_git)
+            .args([action, "git", "--home"])
+            .arg(&home)
+            .arg("--repo")
+            .arg(&repo);
+        if dry_run {
+            request.arg("--dry-run");
+        }
+        let output = request.output().unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{action} dry={dry_run}: {output:?}"
+        );
+        assert!(String::from_utf8_lossy(&output.stderr).contains("Git 2.45 or newer"));
+        assert!(!home.exists(), "unsupported Git created setup files");
+        assert!(!hook.exists(), "unsupported Git installed a hook");
+    }
+
+    success(
+        &command(BIN, &repo)
+            .args(["install", "git", "--home"])
+            .arg(&home)
+            .arg("--repo")
+            .arg(&repo)
+            .output()
+            .unwrap(),
+    );
+    assert!(hook.exists());
+    success(
+        &command(BIN, &repo)
+            .env("PATH", &fake_bin)
+            .env("VIBEGUARD_TEST_REAL_GIT", &real_git)
+            .args(["uninstall", "git", "--home"])
+            .arg(&home)
+            .arg("--repo")
+            .arg(&repo)
+            .output()
+            .unwrap(),
+    );
+    assert!(!hook.exists(), "old Git must still allow removing the hook");
+}

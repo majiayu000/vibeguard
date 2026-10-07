@@ -679,6 +679,13 @@ fn git_hook_path(options: &Options) -> Result<PathBuf> {
 }
 
 fn git_integration(action: &str, options: &Options) -> Result<u8> {
+    if matches!(action, "install" | "status")
+        && !crate::hook_checks::inspect_git(&["--version"])?
+            .status
+            .success()
+    {
+        return Err("cannot verify Git object inspection support".into());
+    }
     let path = git_hook_path(options)?;
     let expected = format!(
         "#!/bin/sh\n# VibeGuard native pre-push hook\nexec {} pre-push\n",
