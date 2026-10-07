@@ -93,6 +93,7 @@ impl Options {
         } else {
             home.join(format!(".{host}"))
         };
+        quote_path(&host_dir)?;
         Ok(Self {
             host,
             home,

@@ -1,7 +1,9 @@
 #![cfg(unix)]
 
 use serde_json::{Value, json};
+use std::ffi::OsString;
 use std::fs;
+use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -201,4 +203,46 @@ fn unset_override_uses_default_directory() {
 #[test]
 fn explicit_home_ignores_ambient_override() {
     lifecycle(Some("absolute"), true);
+}
+
+#[test]
+fn non_utf8_override_fails_before_mutating_setup_files() {
+    let temp = Temp::new();
+    let home = temp.0.join("home");
+    let host_dir = temp.0.join(OsString::from_vec(b"claude-\xff".to_vec()));
+    let initial = format!("{USER_TEXT}{CORE}{LEGACY}");
+    // Linux permits arbitrary path bytes; APFS does not.
+    #[cfg(target_os = "linux")]
+    {
+        fs::create_dir(&host_dir).unwrap();
+        fs::write(host_dir.join("settings.json"), "{\"custom\":true}\n").unwrap();
+        fs::write(host_dir.join("CLAUDE.md"), &initial).unwrap();
+    }
+    for action in ["install", "uninstall"] {
+        let output = Command::new(BIN)
+            .args([action, "claude"])
+            .current_dir(&temp.0)
+            .env("HOME", &home)
+            .env("CLAUDE_CONFIG_DIR", &host_dir)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{action}");
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("panicked"));
+        assert!(!home.exists(), "{action} created home state");
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(
+                fs::read_to_string(host_dir.join("settings.json")).unwrap(),
+                "{\"custom\":true}\n"
+            );
+            assert_eq!(
+                fs::read_to_string(host_dir.join("CLAUDE.md")).unwrap(),
+                initial
+            );
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = initial;
+    let (code, _) = run("install", &temp.0, &home, Some(&host_dir), true);
+    assert_eq!(code, 0);
 }
