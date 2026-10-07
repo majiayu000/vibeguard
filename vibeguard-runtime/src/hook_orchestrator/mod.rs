@@ -6,14 +6,14 @@ pub fn run(args: &[String]) -> Result<u8> {
     let host = args
         .first()
         .map(String::as_str)
-        .ok_or("hook needs claude or codex")?;
-    if !matches!(host, "claude" | "codex") {
-        return Err("hook host must be claude or codex".into());
+        .ok_or("hook needs claude, codex or dsh")?;
+    if !matches!(host, "claude" | "codex" | "dsh") {
+        return Err("hook host must be claude, codex or dsh".into());
     }
     let state_dir = match &args[1..] {
         [] => None,
         [flag, path] if flag == "--state-dir" => Some(Path::new(path)),
-        _ => return Err("usage: hook <claude|codex> [--state-dir PATH]".into()),
+        _ => return Err("usage: hook <claude|codex|dsh> [--state-dir PATH]".into()),
     };
     let input: Value =
         serde_json::from_str(&read_stdin()?).map_err(|_| "hook input must be valid JSON")?;
@@ -125,8 +125,8 @@ mod tests {
         json!({"hook_event_name":event,"tool_name":"Bash","tool_input":{"command":command},"cwd":"/repo"})
     }
     #[test]
-    fn both_hosts_receive_native_denial_and_quiet_pass() {
-        for host in ["claude", "codex"] {
+    fn supported_hosts_receive_native_denial_and_quiet_pass() {
+        for host in ["claude", "codex", "dsh"] {
             let (denied, outcome, _) =
                 evaluate(host, &payload("PreToolUse", "git clean -fd")).unwrap();
             assert_eq!(outcome, "denied");

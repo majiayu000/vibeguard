@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.2 — 2026-10-07
+
+- Add `hook dsh` for Bash policy checks and structured result observations with explicit DSH host attribution.
+- Add the optional `@vibeguard/dsh` 0.1.0 adapter for published DeepSeek Harness 0.2.0-rc.2: native approval for policy blocks, hard denial for pre-call runtime failures, and preserved completed results on observation failure.
+- Include bilingual source/install instructions and real DSH lifecycle and approval integration checks.
+
 ## 2.0.1 — 2026-09-25
 
 - Fix a panic in `status`, `install`, and `uninstall` when an instruction file contains a line beginning with a multibyte Unicode character.

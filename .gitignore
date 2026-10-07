@@ -5,3 +5,6 @@ __pycache__/
 *.swo
 artifacts/
 .tmp-*/
+
+plugins/dsh/node_modules/
+plugins/dsh/dist/

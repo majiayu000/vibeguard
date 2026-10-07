@@ -4,7 +4,7 @@ One local Rust executable handles hooks, rules, and installation. It does not ru
 
 ## Protocol
 
-`hook claude` and `hook codex` consume one JSON object on stdin, capped at 4 MiB. Required fields are event name, nonempty cwd, tool name `Bash`, and `tool_input.command`. Malformed input/unsupported events return exit 2; payload contents are not echoed.
+`hook claude`, `hook codex`, and `hook dsh` consume one JSON object on stdin, capped at 4 MiB. Required fields are event name, nonempty cwd, tool name `Bash`, and `tool_input.command`. Malformed input/unsupported events return exit 2; payload contents are not echoed. DSH accepts PreToolUse/PostToolUse and records its own `dsh` host attribution; the npm adapter translates DSH tool values to this protocol.
 
 | Event | Claude | Codex | Behavior |
 |---|---|---|---|
@@ -13,6 +13,8 @@ One local Rust executable handles hooks, rules, and installation. It does not ru
 | PostToolUseFailure / Bash | Yes | No | Failed/interrupted observation; Claude error field required |
 
 Policy denial uses native JSON with exit 0. Exit 2 denotes runtime/protocol error; host error handling is not a universal fail-closed guarantee. No `ask` decision is emitted. No Stop, Read, search, apply_patch, Edit, MCP, or hosted-tool hooks are registered.
+
+The [DSH adapter](../plugins/dsh/README.md) maps a pre-call policy denial to DSH's `ask` decision. DSH's ToolRuntime owns the approval request and records `approval/asked` and `approval/decided`; a grant applies once, and refusal, cancellation, absent approval service/channel, or an agent-less call denies dispatch. A runtime/process/protocol failure is a hard pre-call denial, never an approval request. Post-call observation failures are notices and preserve the completed tool result. DSH installation uses its profile plugin command; the Rust install/status commands still target Claude, Codex and Git only.
 
 The Bash recognizer masks comments, quoted data, and supported heredoc bodies. It recognizes bulk `git checkout/restore .`, forced `git clean` except dry-run, and selected forced recursive removal of root/home/system paths. It does not interpret arbitrary shell grammar, scripts, aliases, substitutions, variables generally, or alternate tools.
 
@@ -36,7 +38,7 @@ Branches (`refs/heads/*`) must target commit objects directly; existing branches
 
 ## Observations
 
-Installed commands supply `--state-dir`; direct use without it creates no observation. Each host retains only the latest received event. Concurrent sessions can replace each other's last event.
+Installed commands supply `--state-dir`; direct use without it creates no observation. Each host retains only the latest received event, including `dsh.json` for the DSH adapter. Concurrent sessions can replace each other's last event.
 
 Observation writes are best-effort diagnostics. If a write returns an error, the hook preserves its evaluated policy decision and exit 0, emits a user-facing `systemMessage` warning, and writes diagnostic details to stderr. It does not block an otherwise allowed call or replace a completed tool result. The warning notes that status may show an older observation; a failed write cannot establish a fresh result. Malformed protocol and policy evaluation errors still return exit 2. This does not make filesystem I/O nonblocking or provide a timeout guarantee.
 

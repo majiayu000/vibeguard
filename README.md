@@ -8,6 +8,8 @@ V2 embeds 75 scoped review topics for explicit lookup. Installation does not inj
 
 Native Bash hooks reject a small set of destructive command spellings and record the latest observed outcome. An optional Git pre-push hook checks actual commit ancestry. The host owns permissions, sandboxing, tool execution, and the agent loop.
 
+DeepSeek Harness users can load the [DSH Bash adapter](plugins/dsh/README.md). It calls this Rust runtime, routes policy blocks through DSH's native approval, and fails closed when the pre-call runtime fails.
+
 ## Install from a release archive
 
 Download the archive for your OS and CPU from [Releases](https://github.com/majiayu000/vibeguard/releases), extract it, and open a terminal in the extracted directory. macOS, Linux and WSL are supported; choose a Linux archive for WSL. No Rust toolchain or source checkout is required for this path. Run:
