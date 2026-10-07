@@ -26,24 +26,30 @@ impl Drop for Temp {
     }
 }
 
-fn invoke(args: &[&str], input: &Value) -> Output {
+fn invoke(args: &[&str], input: Option<&Value>) -> Output {
     let mut command = Command::new(BIN);
     command.args(args);
     run(command, input)
 }
-fn run(mut command: Command, input: &Value) -> Output {
+fn run(mut command: Command, input: Option<&Value>) -> Output {
     let mut child = command
-        .stdin(Stdio::piped())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(input.to_string().as_bytes())
-        .unwrap();
+    if let Some(input) = input {
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.to_string().as_bytes())
+            .unwrap();
+    }
     child.wait_with_output().unwrap()
 }
 fn success(output: &Output) {
@@ -76,12 +82,12 @@ fn native_and_claude_imported_hooks_allow_and_deny_without_executing_input() {
             "git clean -nfd",
             &format!("touch {}", sentinel.display()),
         ] {
-            let output = invoke(&["hook", host], &payload("pre_tool_use", command));
+            let output = invoke(&["hook", host], Some(&payload("pre_tool_use", command)));
             success(&output);
             assert!(output.stdout.is_empty());
         }
         for command in ["git clean -fd", "git restore .", "rm -rf /"] {
-            let output = invoke(&["hook", host], &payload("pre_tool_use", command));
+            let output = invoke(&["hook", host], Some(&payload("pre_tool_use", command)));
             success(&output);
             assert_eq!(
                 value(&output)["hookSpecificOutput"]["permissionDecision"],
@@ -95,7 +101,7 @@ fn native_and_claude_imported_hooks_allow_and_deny_without_executing_input() {
     }
     assert!(!sentinel.exists());
     assert_eq!(
-        invoke(&["hook", "codex"], &payload("pre_tool_use", "ls"))
+        invoke(&["hook", "codex"], Some(&payload("pre_tool_use", "ls")))
             .status
             .code(),
         Some(2)
@@ -108,7 +114,7 @@ fn documented_aliases_and_canonical_precedence_do_not_bypass_policy() {
         "tool_name":"run_terminal_command","tool_input":{"command":"git clean -fd"}});
     for host in ["grok", "claude"] {
         assert_eq!(
-            value(&invoke(&["hook", host], &alias))["hookSpecificOutput"]["permissionDecision"],
+            value(&invoke(&["hook", host], Some(&alias)))["hookSpecificOutput"]["permissionDecision"],
             "deny"
         );
         let mut conflicting = payload("pre_tool_use", "git clean -fd");
@@ -116,7 +122,7 @@ fn documented_aliases_and_canonical_precedence_do_not_bypass_policy() {
         conflicting["tool_name"] = json!("Bash");
         conflicting["tool_input"] = json!({"command":"ls"});
         assert_eq!(
-            value(&invoke(&["hook", host], &conflicting))["hookSpecificOutput"]["permissionDecision"],
+            value(&invoke(&["hook", host], Some(&conflicting)))["hookSpecificOutput"]["permissionDecision"],
             "deny"
         );
     }
@@ -141,7 +147,7 @@ fn malformed_unknown_and_truncated_pre_events_remain_errors_without_leaks() {
     }
     for host in ["grok", "claude"] {
         for input in &inputs {
-            let output = invoke(&["hook", host], input);
+            let output = invoke(&["hook", host], Some(input));
             assert_eq!(output.status.code(), Some(2));
             assert!(output.stdout.is_empty());
             assert!(!String::from_utf8_lossy(&output.stderr).contains("PRIVATE_SENTINEL"));
@@ -176,7 +182,7 @@ fn observations_use_grok_identity_and_structured_results_only() {
             input["toolInput"] = json!("truncated input");
             input["toolInputTruncated"] = json!(true);
             input["toolResult"] = response;
-            success(&invoke(&["hook", host, "--state-dir", state], &input));
+            success(&invoke(&["hook", host, "--state-dir", state], Some(&input)));
             let text = fs::read_to_string(dir.0.join("grok.json")).unwrap();
             let observed: Value = serde_json::from_str(&text).unwrap();
             assert_eq!(observed["host"], "grok");
@@ -195,7 +201,7 @@ fn observations_use_grok_identity_and_structured_results_only() {
             let mut input = payload("post_tool_use", "ls");
             input["toolResult"] = json!({"exit_code":0});
             input[flag] = json!(true);
-            success(&invoke(&["hook", host, "--state-dir", state], &input));
+            success(&invoke(&["hook", host, "--state-dir", state], Some(&input)));
             let observed: Value =
                 serde_json::from_slice(&fs::read(dir.0.join("grok.json")).unwrap()).unwrap();
             assert_eq!(observed["outcome"], outcome);
@@ -205,7 +211,7 @@ fn observations_use_grok_identity_and_structured_results_only() {
             let mut input = payload("post_tool_use_failure", "ls");
             input["error"] = json!("PRIVATE_ERROR");
             input["isInterrupt"] = json!(interrupted);
-            success(&invoke(&["hook", host, "--state-dir", state], &input));
+            success(&invoke(&["hook", host, "--state-dir", state], Some(&input)));
             let observed: Value =
                 serde_json::from_slice(&fs::read(dir.0.join("grok.json")).unwrap()).unwrap();
             assert_eq!(
@@ -216,12 +222,20 @@ fn observations_use_grok_identity_and_structured_results_only() {
         }
     }
     let mut missing = payload("post_tool_use", "ls");
-    assert_eq!(invoke(&["hook", "grok"], &missing).status.code(), Some(2));
+    assert_eq!(
+        invoke(&["hook", "grok"], Some(&missing)).status.code(),
+        Some(2)
+    );
     missing["toolResult"] = json!({"exit_code":"0"});
-    assert_eq!(invoke(&["hook", "grok"], &missing).status.code(), Some(2));
+    assert_eq!(
+        invoke(&["hook", "grok"], Some(&missing)).status.code(),
+        Some(2)
+    );
     let missing_error = payload("post_tool_use_failure", "ls");
     assert_eq!(
-        invoke(&["hook", "grok"], &missing_error).status.code(),
+        invoke(&["hook", "grok"], Some(&missing_error))
+            .status
+            .code(),
         Some(2)
     );
 }
@@ -235,7 +249,7 @@ fn optional_observation_failure_preserves_grok_policy() {
         for (command, denied) in [("ls", false), ("git clean -fd", true)] {
             let output = invoke(
                 &["hook", host, "--state-dir", state.to_str().unwrap()],
-                &payload("pre_tool_use", command),
+                Some(&payload("pre_tool_use", command)),
             );
             success(&output);
             let output = value(&output);
@@ -272,7 +286,7 @@ fn native_installation_roundtrip_preserves_user_files_and_executes_registrations
     let user_text = "user instructions\r\nwithout final newline";
     fs::write(&instructions, user_text).unwrap();
     let home_arg = home.to_str().unwrap();
-    let install = || invoke(&["install", "grok", "--home", home_arg], &Value::Null);
+    let install = || invoke(&["install", "grok", "--home", home_arg], None);
     success(&install());
     let config_bytes = fs::read(&config_path).unwrap();
     let instructions_bytes = fs::read(&instructions).unwrap();
@@ -280,7 +294,7 @@ fn native_installation_roundtrip_preserves_user_files_and_executes_registrations
     assert_eq!(fs::read(&config_path).unwrap(), config_bytes);
     assert_eq!(fs::read(&instructions).unwrap(), instructions_bytes);
     assert_eq!(instructions_bytes, user_text.as_bytes());
-    let status = invoke(&["status", "grok", "--home", home_arg], &Value::Null);
+    let status = invoke(&["status", "grok", "--home", home_arg], None);
     success(&status);
     assert_eq!(value(&status)["host_trust"], "not_observed");
     let config: Value = serde_json::from_slice(&config_bytes).unwrap();
@@ -304,7 +318,7 @@ fn native_installation_roundtrip_preserves_user_files_and_executes_registrations
         if event == "PostToolUseFailure" {
             input["error"] = json!("dispatch failed");
         }
-        let output = run(shell, &input);
+        let output = run(shell, Some(&input));
         success(&output);
         if event == "PreToolUse" {
             assert_eq!(
@@ -314,27 +328,18 @@ fn native_installation_roundtrip_preserves_user_files_and_executes_registrations
         }
     }
     assert!(!dir.0.join("SHOULD_NOT_EXIST").exists());
-    let status = value(&invoke(
-        &["status", "grok", "--home", home_arg],
-        &Value::Null,
-    ));
+    let status = value(&invoke(&["status", "grok", "--home", home_arg], None));
     assert_eq!(status["last_observation"]["outcome"], "failed");
     fs::write(&instructions, "stale instructions\n").unwrap();
     assert_eq!(
-        invoke(&["status", "grok", "--home", home_arg], &Value::Null)
+        invoke(&["status", "grok", "--home", home_arg], None)
             .status
             .code(),
         Some(0)
     );
     success(&install());
-    success(&invoke(
-        &["status", "grok", "--home", home_arg],
-        &Value::Null,
-    ));
-    success(&invoke(
-        &["uninstall", "grok", "--home", home_arg],
-        &Value::Null,
-    ));
+    success(&invoke(&["status", "grok", "--home", home_arg], None));
+    success(&invoke(&["uninstall", "grok", "--home", home_arg], None));
     assert_eq!(
         fs::read_to_string(&instructions).unwrap(),
         "stale instructions\n"
@@ -353,15 +358,12 @@ fn native_installation_roundtrip_preserves_user_files_and_executes_registrations
     assert!(home.join(".vibeguard/bin/vibeguard-runtime").is_file());
     assert!(!home.join(".vibeguard/state/grok.json").exists());
     assert_eq!(
-        invoke(&["status", "grok", "--home", home_arg], &Value::Null)
+        invoke(&["status", "grok", "--home", home_arg], None)
             .status
             .code(),
         Some(1)
     );
-    success(&invoke(
-        &["uninstall", "grok", "--home", home_arg],
-        &Value::Null,
-    ));
+    success(&invoke(&["uninstall", "grok", "--home", home_arg], None));
 }
 
 #[cfg(unix)]
@@ -375,7 +377,7 @@ fn grok_home_override_is_honored_and_explicit_home_is_isolated() {
         .args(["install", "grok"])
         .env("HOME", &home)
         .env("GROK_HOME", &custom);
-    success(&run(install, &Value::Null));
+    success(&run(install, None));
     assert!(custom.join("hooks/vibeguard.json").exists());
     assert!(!custom.join("rules/vibeguard.md").exists());
     assert!(!home.join(".grok").exists());
@@ -385,7 +387,7 @@ fn grok_home_override_is_honored_and_explicit_home_is_isolated() {
         .args(["install", "grok", "--home"])
         .arg(&isolated)
         .env("GROK_HOME", &custom);
-    success(&run(command, &Value::Null));
+    success(&run(command, None));
     assert!(isolated.join(".grok/hooks/vibeguard.json").exists());
 }
 
@@ -400,7 +402,7 @@ fn corrupt_and_symlink_grok_targets_fail_before_installation() {
         fs::write(&path, original).unwrap();
         let output = invoke(
             &["install", "grok", "--home", dir.0.to_str().unwrap()],
-            &Value::Null,
+            None,
         );
         assert_eq!(output.status.code(), Some(2));
         assert!(!String::from_utf8_lossy(&output.stderr).contains("PRIVATE_SENTINEL"));
@@ -414,7 +416,7 @@ fn corrupt_and_symlink_grok_targets_fail_before_installation() {
     symlink(&target, dir.0.join(".grok/hooks/vibeguard.json")).unwrap();
     let output = invoke(
         &["install", "grok", "--home", dir.0.to_str().unwrap()],
-        &Value::Null,
+        None,
     );
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(fs::read_to_string(target).unwrap(), "{}");
@@ -427,7 +429,7 @@ fn unsupported_grok_native_installation_fails_without_writes() {
     let dir = Temp::new();
     let output = invoke(
         &["install", "grok", "--home", dir.0.to_str().unwrap()],
-        &Value::Null,
+        None,
     );
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 0);
