@@ -1,3 +1,5 @@
+mod grok;
+
 use crate::{Result, hook_checks, logging, print_json, read_stdin};
 use serde_json::{Value, json};
 use std::path::Path;
@@ -6,17 +8,24 @@ pub fn run(args: &[String]) -> Result<u8> {
     let host = args
         .first()
         .map(String::as_str)
-        .ok_or("hook needs claude, codex or dsh")?;
-    if !matches!(host, "claude" | "codex" | "dsh") {
-        return Err("hook host must be claude, codex or dsh".into());
+        .ok_or("hook needs claude, codex, grok or dsh")?;
+    if !matches!(host, "claude" | "codex" | "grok" | "dsh") {
+        return Err("hook host must be claude, codex, grok or dsh".into());
     }
     let state_dir = match &args[1..] {
         [] => None,
         [flag, path] if flag == "--state-dir" => Some(Path::new(path)),
-        _ => return Err("usage: hook <claude|codex|dsh> [--state-dir PATH]".into()),
+        _ => return Err("usage: hook <claude|codex|grok|dsh> [--state-dir PATH]".into()),
     };
-    let input: Value =
+    let mut input: Value =
         serde_json::from_str(&read_stdin()?).map_err(|_| "hook input must be valid JSON")?;
+    // Grok imports Claude registrations but sends its own event envelope.
+    let host = if host == "grok" || (host == "claude" && grok::is_event(&input)) {
+        grok::normalize(&mut input)?;
+        "grok"
+    } else {
+        host
+    };
     let (mut output, outcome, exit_code) = evaluate(host, &input)?;
     if let Some(state_dir) = state_dir
         && let Err(error) = logging::record(state_dir, host, &input, outcome, exit_code)
@@ -50,17 +59,25 @@ fn evaluate(host: &str, input: &Value) -> Result<(Option<Value>, &'static str, O
     }
     let event = required_string(input, "hook_event_name")?;
     required_string(input, "cwd")?;
-    if required_string(input, "tool_name")? != "Bash" {
+    let tool = required_string(input, "tool_name")?;
+    if tool != "Bash" && !(host == "grok" && tool == "run_terminal_command") {
         return Err("this integration accepts Bash hook events only".into());
     }
-    let tool_input = input
-        .get("tool_input")
-        .filter(|v| v.is_object())
-        .ok_or("tool_input must be an object")?;
-    let command = required_string(tool_input, "command")?;
+    // Grok may truncate post-event input; only pre-events evaluate the command.
+    let command = if event == "PreToolUse" || host != "grok" {
+        let tool_input = input
+            .get("tool_input")
+            .filter(|v| v.is_object())
+            .ok_or("tool_input must be an object")?;
+        Some(required_string(tool_input, "command")?)
+    } else {
+        None
+    };
     match event {
         "PreToolUse" => {
-            if let Some(reason) = hook_checks::bash::blocked_reason(command) {
+            if let Some(reason) =
+                hook_checks::bash::blocked_reason(command.expect("pre-event command"))
+            {
                 Ok((
                     Some(json!({
                         "hookSpecificOutput": {
@@ -80,7 +97,14 @@ fn evaluate(host: &str, input: &Value) -> Result<(Option<Value>, &'static str, O
             let response = input
                 .get("tool_response")
                 .ok_or("PostToolUse requires tool_response")?;
-            let exit_code = match response.get("exit_code") {
+            let result_truncated = host == "grok"
+                && input.get("toolResultTruncated").and_then(Value::as_bool) == Some(true);
+            let backgrounded = host == "grok"
+                && input.get("isBackgrounded").and_then(Value::as_bool) == Some(true);
+            let exit_code = match response
+                .get("exit_code")
+                .filter(|_| !result_truncated && !backgrounded)
+            {
                 None | Some(Value::Null) => None,
                 Some(value) => Some(
                     value
@@ -88,7 +112,9 @@ fn evaluate(host: &str, input: &Value) -> Result<(Option<Value>, &'static str, O
                         .ok_or("reported exit_code must be an integer")?,
                 ),
             };
-            let outcome = if response.get("interrupted").and_then(Value::as_bool) == Some(true) {
+            let outcome = if backgrounded {
+                "running"
+            } else if response.get("interrupted").and_then(Value::as_bool) == Some(true) {
                 "interrupted"
             } else if response.get("isError").and_then(Value::as_bool) == Some(true) {
                 "failed"
@@ -105,7 +131,7 @@ fn evaluate(host: &str, input: &Value) -> Result<(Option<Value>, &'static str, O
             };
             Ok((None, outcome, exit_code))
         }
-        "PostToolUseFailure" if host == "claude" => {
+        "PostToolUseFailure" if matches!(host, "claude" | "grok") => {
             required_string(input, "error")?;
             let outcome = if input.get("is_interrupt").and_then(Value::as_bool) == Some(true) {
                 "interrupted"
