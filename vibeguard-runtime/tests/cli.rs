@@ -89,7 +89,7 @@ fn installation_preview_is_read_only_and_matches_host_changes() {
         }
         result
     }
-    for host in ["claude", "codex"] {
+    for host in ["claude", "codex", "grok"] {
         let temp = Temp::new();
         let home = temp.0.join("new-home");
         let args = [
@@ -104,6 +104,14 @@ fn installation_preview_is_read_only_and_matches_host_changes() {
         assert!(!home.exists(), "preview created the home or setup locks");
         let plan = native(&output);
         assert_eq!(plan["dry_run"], true);
+        assert_eq!(
+            plan["details"]["matcher"],
+            if host == "grok" {
+                "run_terminal_command"
+            } else {
+                "Bash"
+            }
+        );
         assert_eq!(plan["host_trust"], "not_observed");
         assert!(
             plan["changes"]
@@ -114,17 +122,19 @@ fn installation_preview_is_read_only_and_matches_host_changes() {
         );
         let dir = home.join(format!(".{host}"));
         fs::create_dir_all(&dir).unwrap();
-        let config_path = dir.join(if host == "codex" {
-            "hooks.json"
-        } else {
-            "settings.json"
+        let config_path = dir.join(match host {
+            "codex" => "hooks.json",
+            "grok" => "hooks/vibeguard.json",
+            _ => "settings.json",
         });
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
         fs::write(&config_path, "{\"disableAllHooks\":true,\"user\":7,\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"echo user\"}]}]}}").unwrap();
-        let instructions = dir.join(if host == "codex" {
-            "AGENTS.md"
-        } else {
-            "CLAUDE.md"
+        let instructions = dir.join(match host {
+            "codex" => "AGENTS.md",
+            "grok" => "rules/vibeguard.md",
+            _ => "CLAUDE.md",
         });
+        fs::create_dir_all(instructions.parent().unwrap()).unwrap();
         fs::write(&instructions, "user note\r\n<!-- vibeguard-core:start -->\r\nold owned text\r\n<!-- vibeguard-core:end -->\r\nkeep me").unwrap();
         if host == "codex" {
             fs::write(

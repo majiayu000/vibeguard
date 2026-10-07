@@ -310,7 +310,7 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
             &options,
             changes,
             &options.host_dir,
-            json!({"hook_command":command,"matcher":"Bash",
+            json!({"hook_command":command,"matcher":if options.host == "grok" { "run_terminal_command" } else { "Bash" },
                 "host_hook_disable_flag":config.get("disableAllHooks"),
                 "observation":"created by a received hook event; installation does not create an observation"}),
         );

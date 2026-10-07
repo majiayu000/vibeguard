@@ -58,7 +58,7 @@ There is no verified-tree flag. A previous result, background ID, command contai
 
 ## Installation
 
-`install <claude|codex|git> --dry-run` reuses installation input validation and content preparation, then prints JSON stdout and a human preview on stderr before acquiring locks or writing files. It lists changed paths, operations, hook commands, and the persistent locks used by a real install. Invalid inputs and a user-owned Git hook still return exit 2. Existing `disableAllHooks` settings and user-owned handlers/guidance are preserved; the preview warns about a disabled host. `status` and `uninstall` reject `--dry-run`. Native Windows installation remains unsupported, including preview.
+`install <claude|codex|grok|git> --dry-run` reuses installation input validation and content preparation, then prints JSON stdout and a human preview on stderr before acquiring locks or writing files. It lists changed paths, operations, hook commands, and the persistent locks used by a real install. Invalid inputs and a user-owned Git hook still return exit 2. Existing `disableAllHooks` settings and user-owned handlers/guidance are preserved; the preview warns about a disabled host. `status` and `uninstall` reject `--dry-run`. Native Windows installation remains unsupported, including preview.
 
 Preview describes current inputs; it does not establish write permissions, metadata-copy success, lock availability, host trust, or actual protection. The source `setup.sh` launcher may build Cargo artifacts before forwarding `--dry-run`; the runtime installer itself writes nothing. Installation into an absent home does not create an instruction file. An existing owned core block is removed while surrounding user text stays intact.
 
