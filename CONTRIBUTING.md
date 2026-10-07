@@ -14,6 +14,14 @@ Blocking checks need real positive and negative examples, precise coverage, and 
 
 Installer tests use temporary homes and repositories. Preserve user content, permissions, and visible errors. Describe concrete changes and actual verification in the PR; document removed capabilities. Review at most twice.
 
+With a Grok CLI installed, run the optional host smoke test after building the release binary:
+
+```bash
+python3 scripts/ci/smoke_grok.py vibeguard-runtime/target/release/vibeguard-runtime ~/.grok/bin/grok
+```
+
+It uses a temporary home/repository and a local scripted model endpoint, without account credentials or a real model. It verifies Grok discovery, allowed/nonzero shell results and policy denial through both native and Claude-imported registrations. The forced-clean fixture targets only that temporary repository, with an untracked sentinel to detect accidental execution. It does not alter the account's hook configuration. This optional check requires the external Grok binary; the standard local gate and platform CI still test the portable Grok protocol and installer without it.
+
 Release publishing is a separate maintainer action. Tagged releases verify the version, build and smoke native binaries, and package only the executable, README, and license. Review the source before creating a tag.
 
 See [AGENTS.md](AGENTS.md), [directory map](docs/directory-map.md), and [security policy](SECURITY.md).

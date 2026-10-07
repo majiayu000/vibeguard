@@ -19,9 +19,12 @@ def smoke(binary):
     catalog = json.loads(run(binary, "rules", "--json"))
     if not catalog or not all(r.get("id") and r.get("body") for r in catalog):
         raise RuntimeError("empty or incomplete embedded catalog")
-    for host in ("claude", "codex"):
+    for host in ("claude", "codex", "grok"):
         event = dict(hook_event_name="PreToolUse", cwd="/smoke", tool_name="Bash",
                      tool_input={"command": "git clean -fd"})
+        if host == "grok":
+            event = dict(hookEventName="pre_tool_use", cwd="/smoke",
+                         toolName="run_terminal_command", toolInput={"command": "git clean -fd"})
         denied = json.loads(run(binary, "hook", host, payload=json.dumps(event)))
         if denied["hookSpecificOutput"]["permissionDecision"] != "deny":
             raise RuntimeError("native denial missing")
@@ -30,7 +33,7 @@ def smoke(binary):
                 run(binary, "install", host, "--home", temp, expected=2)
                 continue
             run(binary, "install", host, "--home", temp)
-            config_path = Path(temp) / f".{host}" / ("hooks.json" if host == "codex" else "settings.json")
+            config_path = Path(temp) / f".{host}" / ({"codex": "hooks.json", "grok": "hooks/vibeguard.json"}.get(host, "settings.json"))
             config = json.loads(config_path.read_text())
             command = config["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
             # Run the registration, never the destructive proposed tool input.

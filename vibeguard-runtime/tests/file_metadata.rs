@@ -121,20 +121,22 @@ fn use_alternate_group(path: &Path) {
 
 #[test]
 fn install_reinstall_and_uninstall_preserve_user_metadata() {
-    for host in ["claude", "codex"] {
+    for host in ["claude", "codex", "grok"] {
         let home = Temp::new();
         let host_dir = home.0.join(format!(".{host}"));
         fs::create_dir(&host_dir).unwrap();
-        let config = host_dir.join(if host == "claude" {
-            "settings.json"
-        } else {
-            "hooks.json"
+        let config = host_dir.join(match host {
+            "claude" => "settings.json",
+            "grok" => "hooks/vibeguard.json",
+            _ => "hooks.json",
         });
-        let instructions = host_dir.join(if host == "claude" {
-            "CLAUDE.md"
-        } else {
-            "AGENTS.md"
+        let instructions = host_dir.join(match host {
+            "claude" => "CLAUDE.md",
+            "grok" => "rules/vibeguard.md",
+            _ => "AGENTS.md",
         });
+        fs::create_dir_all(config.parent().unwrap()).unwrap();
+        fs::create_dir_all(instructions.parent().unwrap()).unwrap();
         fs::write(&config, "{\"user_setting\": true}\n").unwrap();
         fs::write(
             &instructions,
@@ -187,13 +189,13 @@ fn install_reinstall_and_uninstall_preserve_user_metadata() {
 
 #[test]
 fn installation_preserves_empty_instruction_files_and_leaves_missing_files_absent() {
-    for host in ["claude", "codex"] {
+    for host in ["claude", "codex", "grok"] {
         for preexisting in [false, true] {
             let home = Temp::new();
-            let instructions = home.0.join(format!(".{host}")).join(if host == "claude" {
-                "CLAUDE.md"
-            } else {
-                "AGENTS.md"
+            let instructions = home.0.join(format!(".{host}")).join(match host {
+                "claude" => "CLAUDE.md",
+                "grok" => "rules/vibeguard.md",
+                _ => "AGENTS.md",
             });
             success(invoke(&home.0, "uninstall", host));
             assert!(!instructions.exists());

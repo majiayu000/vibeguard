@@ -89,7 +89,7 @@ fn standalone_catalog_and_removed_commands() {
 
 #[test]
 fn native_hook_protocol_and_no_command_rewrites() {
-    for host in ["claude", "codex"] {
+    for host in ["claude", "codex", "dsh"] {
         let denied = invoke(
             &["hook", host],
             &payload("PreToolUse", "rm -rf /").to_string(),
