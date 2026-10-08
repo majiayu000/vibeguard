@@ -1,5 +1,5 @@
 {
-  "name": "@vibeguard/dsh",
+  "name": "@vibeguard-ai/dsh",
   "version": "0.1.0",
   "description": "VibeGuard guardrails for DeepSeek Harness",
   "type": "module",

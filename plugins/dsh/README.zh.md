@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-`@vibeguard/dsh` 把 DSH 的 Bash 调用前、调用后事件交给本机 VibeGuard Rust 可执行文件。命令策略和结果存储仍由 Rust 负责。
+`@vibeguard-ai/dsh` 把 DSH 的 Bash 调用前、调用后事件交给本机 VibeGuard Rust 可执行文件。命令策略和结果存储仍由 Rust 负责。
 
 | DSH 边界 | 行为 |
 |---|---|
@@ -15,7 +15,7 @@ DSH ToolRuntime 自行请求 ApprovalService 审批并记录 `approval/asked`、
 
 ## 环境与本地安装
 
-需要 Node.js `^22.19.0` 或 `>=24`，以及 DSH **0.2.0-rc.2**（`next`）。测试使用已发布 npm 包，不承诺其他预发布版本兼容。VibeGuard 必须使用 **2.0.2** 或从本版本构建并支持 `hook dsh`；旧二进制会拒绝调用。
+需要 Node.js `^22.19.0` 或 `>=24`，以及 DSH **0.2.0-rc.2**（`next`）。测试使用已发布 npm 包，不承诺其他预发布版本兼容。VibeGuard 使用已发布的 **2.0.2** Release 可执行文件，或从本版本构建并支持 `hook dsh`；旧二进制会拒绝调用。
 
 在 VibeGuard 源码目录运行：
 
@@ -27,7 +27,7 @@ npm run check
 npm test
 npm pack --pack-destination dist
 
-dsh plugin --profile demo add ./dist/vibeguard-dsh-0.1.0.tgz
+dsh plugin --profile demo add ./dist/vibeguard-ai-dsh-0.1.0.tgz
 dsh --profile demo --dump-config
 ```
 
@@ -51,6 +51,6 @@ dsh --profile demo --dump-config
 
 `npm test` 组合真实 Cordis、ToolRuntime、ApprovalService、Session、AgentLoop 和本机 subprocess/shell 服务。测试 Bash 工具只记下调度，不执行输入；危险字符串仅作为 stdin 交给真实 Rust 护栏。覆盖原生审批结果与审计事件、缺审批、取消、运行时/协议错误、结构化结果观察和卸载。
 
-此版本以本地可发布 tgz 交付；npm 发布前按上面的本地包路径安装。
+VibeGuard 2.0.2 [已发布](https://github.com/majiayu000/vibeguard/releases/tag/v2.0.2)。适配包已准备使用新的 `@vibeguard-ai` 命名空间，但尚未发布 npm；`@vibeguard-ai/dsh@0.1.0` 公开可用前按上面的本地 tgz 路径安装。
 
 官方接口：[tools](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/core/tools)、[user approval](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/interaction/user-approval)、[shell](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/shell/shell)。官方代码持续变化；上面固定的已发布版本才是实际测试接口。
