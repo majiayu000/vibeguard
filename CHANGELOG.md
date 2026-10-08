@@ -5,6 +5,7 @@
 - Preview installation with `install --dry-run` before writing host or Git integration files; preserve user-owned configuration and report disabled hooks.
 - Integrate #831–#834: original local Git-object inspection, Bash command/redirection/heredoc boundaries, rule/build/evaluation checks, and concurrent setup protection with bounded legacy inventory.
 - Keep host observations and model-effect evidence separate from installation completeness; no task-verification or broad productivity claim.
+- Accept Grok shell hooks, native and imported from Claude settings: Grok matches the `Bash` matcher but sends its own `run_terminal_command` tool name and event envelope, which earlier releases denied for every shell call.
 
 ## 2.0.2 — 2026-10-07
 
