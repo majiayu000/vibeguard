@@ -636,6 +636,39 @@ fn codex_feature_uses_selected_host_directory() {
 }
 
 #[test]
+fn forced_cleanup_denial_explains_the_authorization_limit() {
+    // These are proposed commands on stdin, never commands executed by this test.
+    for host in ["claude", "codex", "grok", "dsh"] {
+        for command in ["git clean -fd", "git clean -fd -- scratch.txt"] {
+            let output = invoke(
+                &["hook", host],
+                &payload("PreToolUse", command).to_string(),
+                None,
+            );
+            success(&output);
+            assert!(output.stderr.is_empty());
+            let response = native(&output);
+            let decision = &response["hookSpecificOutput"];
+            assert_eq!(decision["hookEventName"], "PreToolUse");
+            assert_eq!(decision["permissionDecision"], "deny");
+            assert!(decision.get("updatedInput").is_none());
+            let reason = decision["permissionDecisionReason"].as_str().unwrap();
+            assert!(reason.contains("including explicit paths"));
+            assert!(reason.contains("cannot determine task-level authorization"));
+            assert!(!reason.contains("select the files to remove"));
+        }
+        let dry_run = invoke(
+            &["hook", host],
+            &payload("PreToolUse", "git clean -nfd -- scratch.txt").to_string(),
+            None,
+        );
+        success(&dry_run);
+        assert!(dry_run.stdout.is_empty());
+        assert!(dry_run.stderr.is_empty());
+    }
+}
+
+#[test]
 fn native_hooks_preserve_shell_argument_semantics() {
     // Commands are protocol data only; none is executed by a shell.
     for host in ["claude", "codex"] {

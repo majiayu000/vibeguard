@@ -63,7 +63,7 @@ fn simple_command_reason(words: &[ShellWord<'_>]) -> Option<&'static str> {
         }
         if values.first() == Some(&"clean") && forced_git_clean(&values[1..]) {
             return Some(
-                "Forced git clean is blocked. Preview with git clean -n and select the files to remove.",
+                "Forced git clean is blocked for this call, including explicit paths. This check cannot determine task-level authorization. If cleanup is already authorized, report this limitation to the user. Do not retry via another command/tool or disable the hook.",
             );
         }
     } else if matches!(name.raw, "rm" | "\\rm")
