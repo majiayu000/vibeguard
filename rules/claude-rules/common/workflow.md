@@ -15,6 +15,7 @@ Delegate when authorized and a bounded task can usefully proceed independently. 
 
 ## W-10: Reuse authorization and make approval concrete (strict)
 Complete authorized work without repeated permission requests. When an action exceeds the existing scope or needs approval under the actual host policy, first make the proposed result concrete and reviewable. Do not create an additional approval protocol from a generic rule.
+Carry a clear action request through its authorized scope instead of stopping at an offer or a plan. Continue independent authorized work while clarifying a material missing fact; wait for the answer before doing work that depends on it.
 
 ## W-11: Make important uncertainty clear (guideline)
 Support material factual claims with evidence and distinguish inference or an unresolved assumption when it affects the conclusion. Do not label every sentence, fabricate confidence scores or require alternatives for settled facts.
@@ -30,6 +31,7 @@ For an evaluation task, measure actual task acceptance and relevant invariants s
 
 ## W-19: Keep instructions relevant and maintainable (guideline)
 Keep project facts and constraints concise, remove conflicting or redundant guidance, and use specific triggers for optional workflows. No universal line count, rule budget or mandatory positive/negative table establishes instruction quality. Evaluate whether a rule improves the task.
+Maintain shared engineering guidance in the rule library, personal preferences in host instructions, and project facts in repository instructions. Keep intentional host-specific differences; do not turn optional rule lookup or a reference file into a mandatory task-start step.
 
 ## W-20: Record the environment required by a reproducible experiment (guideline)
 When reproducibility is explicitly required, capture the relevant tool/model versions, lockfiles, inputs and configuration using the existing tools. Do not impose environment pinning or drift blocks on ordinary development work.
