@@ -18,7 +18,7 @@
     "title": "Keep changes within the authorized task",
     "severity": "strict",
     "source": "common/coding-style.md",
-    "body": "Complete the requested work without adding unrelated features, renames, formatting or architectural cleanup. Broad refactoring is appropriate when explicitly requested. Do not turn incidental observations into additional work."
+    "body": "Complete the requested work without adding unrelated features, renames, formatting or architectural cleanup. Broad refactoring is appropriate when explicitly requested. Do not turn incidental observations into additional work.\nTreat follow-up corrections and status questions as steering for the active task. Stop or replace that task when the user clearly asks to do so."
   },
   {
     "id": "U-05",
@@ -74,7 +74,7 @@
     "title": "Select checks for the changed behavior",
     "severity": "strict",
     "source": "common/coding-style.md",
-    "body": "Use the project's commands and the change's risk to select meaningful verification. Cover changed contracts and likely regressions. Do not manufacture tests for low-impact edits, repeat passing checks without new evidence, or impose universal coverage percentages."
+    "body": "Use the project's commands and the change's risk to select meaningful verification. Cover changed contracts and likely regressions. Do not manufacture tests for low-impact edits, repeat passing checks without new evidence, or impose universal coverage percentages.\nFollow the repository's existing build and package-management setup rather than imposing a global tool preference."
   },
   {
     "id": "U-26",
@@ -88,7 +88,7 @@
     "title": "Review conflicting or irrelevant instructions",
     "severity": "guideline",
     "source": "common/coding-style.md",
-    "body": "When instruction problems affect a task, identify conflicting requirements, duplication, broad triggers and outdated facts. A file inventory is not proof of what the model loaded. Do not judge quality by rule counts or create another policy engine."
+    "body": "When instruction problems affect a task, identify conflicting requirements, duplication, broad triggers and outdated facts. A file inventory is not proof of what the model loaded. Do not judge quality by rule counts or create another policy engine.\nReuse relevant guidance already available in the current context or handoff summary. Consult its source again when the needed detail is missing, the source is known to have changed, or the user asks to inspect it; do not reread unchanged instruction files at every follow-up or task transition."
   },
   {
     "id": "U-33",
@@ -249,7 +249,7 @@
     "title": "Reuse authorization and make approval concrete",
     "severity": "strict",
     "source": "common/workflow.md",
-    "body": "Complete authorized work without repeated permission requests. When an action exceeds the existing scope or needs approval under the actual host policy, first make the proposed result concrete and reviewable. Do not create an additional approval protocol from a generic rule."
+    "body": "Complete authorized work without repeated permission requests. When an action exceeds the existing scope or needs approval under the actual host policy, first make the proposed result concrete and reviewable. Do not create an additional approval protocol from a generic rule.\nCarry a clear action request through its authorized scope instead of stopping at an offer or a plan. Continue independent authorized work while clarifying a material missing fact; wait for the answer before doing work that depends on it."
   },
   {
     "id": "W-11",
@@ -284,7 +284,7 @@
     "title": "Keep instructions relevant and maintainable",
     "severity": "guideline",
     "source": "common/workflow.md",
-    "body": "Keep project facts and constraints concise, remove conflicting or redundant guidance, and use specific triggers for optional workflows. No universal line count, rule budget or mandatory positive/negative table establishes instruction quality. Evaluate whether a rule improves the task."
+    "body": "Keep project facts and constraints concise, remove conflicting or redundant guidance, and use specific triggers for optional workflows. No universal line count, rule budget or mandatory positive/negative table establishes instruction quality. Evaluate whether a rule improves the task.\nMaintain shared engineering guidance in the rule library, personal preferences in host instructions, and project facts in repository instructions. Keep intentional host-specific differences; do not turn optional rule lookup or a reference file into a mandatory task-start step."
   },
   {
     "id": "W-20",
