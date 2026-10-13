@@ -268,7 +268,11 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         None
     };
     // Validate inputs and owned regions before writing any installation files.
-    prune_own_hooks(&mut config, &command);
+    let removed_skills_loader = prune_hooks(
+        &mut config,
+        &command,
+        action == "install" && options.host == "claude",
+    );
     if action == "install" {
         let hooks = config
             .as_object_mut()
@@ -294,6 +298,12 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         || remove_observation;
     if options.dry_run {
         let mut changes = binary_changes(&options)?;
+        if removed_skills_loader > 0 {
+            changes.push(
+                json!({"path":config_path,"operation":"remove_retired_skills_loader_hooks",
+                "handler_count":removed_skills_loader}),
+            );
+        }
         if config != original_config {
             changes.push(json!({"path":config_path,"operation":"register_hooks",
                 "events":hook_specs(&options.host, &command).into_iter().map(|(event, _)| event).collect::<Vec<_>>() }));
@@ -607,10 +617,11 @@ fn hook_registrations(config: &Value, selected_command: &str) -> Vec<Value> {
     registrations
 }
 
-fn prune_own_hooks(config: &mut Value, command: &str) {
+fn prune_hooks(config: &mut Value, command: &str, remove_skills_loader: bool) -> usize {
     let Some(hooks) = config.get_mut("hooks") else {
-        return;
+        return 0;
     };
+    let mut removed_skills_loader = 0;
     for groups in hooks.as_object_mut().expect("validated hooks").values_mut() {
         let groups = groups.as_array_mut().expect("validated array");
         groups.retain_mut(|group| {
@@ -619,12 +630,22 @@ fn prune_own_hooks(config: &mut Value, command: &str) {
                 .expect("validated handler array");
             let count = handlers.len();
             handlers.retain(|h| {
-                !(h.get("type").and_then(Value::as_str) == Some("command")
-                    && h.get("command").and_then(Value::as_str) == Some(command))
+                if h.get("type").and_then(Value::as_str) != Some("command") {
+                    return true;
+                }
+                let Some(handler_command) = h.get("command").and_then(Value::as_str) else {
+                    return true;
+                };
+                if remove_skills_loader && legacy::is_retired_skills_loader(handler_command) {
+                    removed_skills_loader += 1;
+                    return false;
+                }
+                handler_command != command
             });
             handlers.len() == count || !handlers.is_empty()
         });
     }
+    removed_skills_loader
 }
 
 fn install_binary(options: &Options) -> Result<()> {
@@ -666,7 +687,7 @@ fn preview(
         );
     }
     eprintln!(
-        "Installation also acquires persistent setup lock files. User-owned handlers and guidance are preserved."
+        "Installation also acquires persistent setup lock files. Unrelated handlers and user guidance are preserved."
     );
     if details["host_hook_disable_flag"] == true {
         eprintln!(
@@ -798,7 +819,7 @@ mod tests {
             {"type":"command","command":ours},user.clone()
         ]}]}});
         validate_config(&config).unwrap();
-        prune_own_hooks(&mut config, ours);
+        prune_hooks(&mut config, ours, false);
         assert_eq!(config["unrelated"], 7);
         assert_eq!(config["hooks"]["PreToolUse"][0]["custom"], "keep");
         assert_eq!(config["hooks"]["PreToolUse"][0]["hooks"], json!([user]));

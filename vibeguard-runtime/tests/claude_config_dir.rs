@@ -100,8 +100,13 @@ fn lifecycle(override_value: Option<&str>, explicit: bool) {
     } else {
         default_dir
     };
+    let retired_hook = json!({"hooks":[{
+        "type":"command", "command":"bash ~/.vibeguard/run-hook.sh skills-loader.sh"
+    }]});
+    let untouched_settings =
+        json!({"untouched":true,"hooks":{"SessionStart":[retired_hook]}}).to_string();
     fs::create_dir_all(&untouched).unwrap();
-    fs::write(untouched.join("settings.json"), "{\"untouched\":true}\n").unwrap();
+    fs::write(untouched.join("settings.json"), &untouched_settings).unwrap();
     fs::write(
         untouched.join("CLAUDE.md"),
         format!("Untouched instructions\n{LEGACY}"),
@@ -112,8 +117,16 @@ fn lifecycle(override_value: Option<&str>, explicit: bool) {
     let instructions_path = selected.join("CLAUDE.md");
     let user_hook =
         json!({"matcher":"Bash","hooks":[{"type":"command","command":"echo user-hook"}]});
-    let initial = json!({"custom":true,"hooks":{"PreToolUse":[user_hook]}});
+    let initial =
+        json!({"custom":true,"hooks":{"PreToolUse":[user_hook],"SessionStart":[retired_hook]}});
     fs::write(&config_path, serde_json::to_string(&initial).unwrap()).unwrap();
+    let (code, _) = run("status", &temp.0, &home, override_dir.as_deref(), explicit);
+    assert_eq!(code, 1);
+    assert_eq!(
+        fs::read_to_string(&config_path).unwrap(),
+        initial.to_string()
+    );
+    assert!(!home.join(".vibeguard").exists());
 
     for action in ["install", "status", "uninstall"] {
         // Both mutating operations must remove only the v2 owned block.
@@ -140,6 +153,7 @@ fn lifecycle(override_value: Option<&str>, explicit: bool) {
             "{action}: {report}"
         );
         let config: Value = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        assert_eq!(config["hooks"]["SessionStart"], json!([]));
         assert_eq!(config["custom"], true);
         assert!(
             config["hooks"]["PreToolUse"]
@@ -153,7 +167,7 @@ fn lifecycle(override_value: Option<&str>, explicit: bool) {
         );
         assert_eq!(
             fs::read_to_string(untouched.join("settings.json")).unwrap(),
-            "{\"untouched\":true}\n"
+            untouched_settings
         );
         assert_eq!(
             fs::read_to_string(untouched.join("CLAUDE.md")).unwrap(),
