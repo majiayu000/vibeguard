@@ -78,7 +78,7 @@ pub(super) fn crontab_findings(text: &str) -> Vec<Value> {
             continue;
         }
         let location = format!("crontab:{index}");
-        match shell_words(trimmed) {
+        match shell_words(trimmed, false) {
             Ok(words) if words.iter().any(|word| owned_word(word)) => findings.push(json!({
                 "evidence":"owned",
                 "category":"scheduler",
@@ -107,7 +107,7 @@ pub(super) fn classify_command(command: &str) -> Option<&'static str> {
     if is_v2_hook_command(command) {
         return None;
     }
-    match shell_words(command) {
+    match shell_words(command, false) {
         Ok(words) if words.iter().any(|word| owned_word(word)) => Some("owned"),
         Ok(_) if mentions_v1(command) => Some("suspected"),
         Err(()) if mentions_v1(command) => Some("suspected"),
@@ -117,7 +117,7 @@ pub(super) fn classify_command(command: &str) -> Option<&'static str> {
 
 pub(super) fn command_detail(command: &str, evidence: &str) -> String {
     if evidence == "owned" {
-        shell_words(command)
+        shell_words(command, false)
             .ok()
             .and_then(|words| words.into_iter().find(|word| owned_word(word)))
             .map(|word| format!("owned v1 command path {word}"))
@@ -128,7 +128,7 @@ pub(super) fn command_detail(command: &str, evidence: &str) -> String {
 }
 
 fn is_v2_hook_command(command: &str) -> bool {
-    let Ok(words) = shell_words(command) else {
+    let Ok(words) = shell_words(command, false) else {
         return false;
     };
     let mut index = 0;
@@ -209,7 +209,7 @@ pub(super) fn v1_hook_body(text: &str) -> bool {
         || text.contains("VibeGuard Pre-Push Hook Wrapper")
 }
 
-pub(super) fn shell_words(input: &str) -> Result<Vec<String>, ()> {
+pub(super) fn shell_words(input: &str, reject_shell_syntax: bool) -> Result<Vec<String>, ()> {
     let mut words = Vec::new();
     let mut current = String::new();
     let mut chars = input.chars().peekable();
@@ -227,10 +227,23 @@ pub(super) fn shell_words(input: &str) -> Result<Vec<String>, ()> {
             }
             Some('"') => {
                 in_word = true;
-                if char == '\\' {
+                if reject_shell_syntax
+                    && (char == '`' || (char == '$' && chars.peek() == Some(&'(')))
+                {
+                    return Err(());
+                } else if char == '\\' {
                     let Some(next) = chars.next() else {
                         return Err(());
                     };
+                    if reject_shell_syntax {
+                        if next == '\n' {
+                            return Err(());
+                        }
+                        // Within double quotes, other backslashes are literal.
+                        if !matches!(next, '$' | '`' | '"' | '\\') {
+                            current.push('\\');
+                        }
+                    }
                     current.push(next);
                 } else if char == '"' {
                     quote = None;
@@ -239,6 +252,14 @@ pub(super) fn shell_words(input: &str) -> Result<Vec<String>, ()> {
                 }
             }
             Some(_) => return Err(()),
+            None if reject_shell_syntax
+                && matches!(
+                    char,
+                    '\n' | '\r' | ';' | '|' | '&' | '<' | '>' | '`' | '(' | ')' | '#' | '\\'
+                ) =>
+            {
+                return Err(());
+            }
             None if char == '\\' => {
                 let Some(next) = chars.next() else {
                     return Err(());

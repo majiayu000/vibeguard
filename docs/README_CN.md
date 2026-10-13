@@ -57,7 +57,7 @@ Grok 安装在 `$GROK_HOME`（默认 `~/.grok`）写入 `hooks/vibeguard.json`�
 
 `uninstall codex`、`uninstall claude` 或 `uninstall grok` 移除所选集成和观察文件，共享二进制仍保留。没有旧命令、旧 ID 或旧数据兼容。已有 v1 安装先按对应旧版说明卸载，新版不做通用旧版清理。
 
-Claude 安装和重装会专项移除已退役的 `skills-loader.sh` 命令注册，包括手动添加的重复项。识别简单直接调用（可经 `bash` 或 `sh`）及旧 `.vibeguard/run-hook.sh skills-loader.sh` 包装调用；保留同组其他 hook 和属性，仅删除因此变空的分组。`--dry-run` 显示移除数量而不写入；不扫描技能或删除旧版文件，`status` 仍只读。匹配边界见 [安装契约](runtime-contract.md#installation)。
+Claude 安装和重装会专项移除已退役的 `skills-loader.sh` 命令注册，包括手动添加的重复项。仅识别 VibeGuard 已知安装/发布路径的简单调用（可经 `bash` 或 `sh`）及旧 `.vibeguard/run-hook.sh skills-loader.sh` 包装调用，保留任意其他路径中的同名脚本；保留同组其他 hook 和属性，仅删除因此变空的分组。`--dry-run` 显示移除数量而不写入；不扫描技能或删除旧版文件，`status` 仍只读。匹配边界见 [安装契约](runtime-contract.md#installation)。
 
 `status`、`install` 和 `uninstall` 会附带只读的 `legacy` 清单：已知 v1 hook 命令、`<!-- vibeguard-start -->` 区域、`~/.vibeguard` 下的 v1 文件、launchd/systemd 单元，以及在所选 home 就是本账户 home 时的账户 crontab。`--repo` 额外查看该仓库根目录说明和 `pre-commit`/`pre-push`。换一个 `--home` 时不读取账户 crontab。`owned` 和 `suspected` 只表示文件在场，不表示这些命令执行过，也不会删除它们。
 

@@ -21,15 +21,9 @@ const READ_LIMIT: u64 = 1024 * 1024;
 const GIT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub(super) fn is_retired_skills_loader(command: &str) -> bool {
-    // Recognize only simple invocations, never shell programs or name mentions.
-    // The inventory's word splitter is not a shell interpreter; do not use its
-    // lossy handling of escapes to authorize removal.
-    if command.contains([
-        '\n', '\r', ';', '|', '&', '<', '>', '`', '(', ')', '\\', '#',
-    ]) {
-        return false;
-    }
-    let Ok(words) = classify::shell_words(command) else {
+    // Removal requires a simple invocation and a known product path. A script
+    // basename in an arbitrary checkout does not establish ownership.
+    let Ok(words) = classify::shell_words(command, true) else {
         return false;
     };
     let invocation = if words
@@ -41,7 +35,10 @@ pub(super) fn is_retired_skills_loader(command: &str) -> bool {
         &words[..]
     };
     match invocation {
-        [script] => script.rsplit('/').next() == Some("skills-loader.sh"),
+        [script] => {
+            script.ends_with("/.vibeguard/installed/hooks/skills-loader.sh")
+                || script.ends_with("/.vibeguard/dist/current/hooks/skills-loader.sh")
+        }
         [wrapper, script] => {
             wrapper.ends_with("/.vibeguard/run-hook.sh") && script == "skills-loader.sh"
         }

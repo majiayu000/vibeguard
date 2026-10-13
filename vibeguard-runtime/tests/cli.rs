@@ -287,14 +287,21 @@ fn claude_install_removes_retired_skills_loader_registrations() {
     ));
     let duplicate = json!({"hooks":[wrapper]});
     let retired = [
-        "skills-loader.sh",
-        "./hooks/skills-loader.sh",
-        "bash /old/vibeguard/hooks/skills-loader.sh",
-        "/bin/bash \"/old checkout/hooks/skills-loader.sh\"",
+        "/home/old/.vibeguard/installed/hooks/skills-loader.sh",
+        "bash ~/.vibeguard/installed/hooks/skills-loader.sh",
+        "/bin/bash \"${HOME}/.vibeguard/installed/hooks/skills-loader.sh\"",
         "\"$HOME/.vibeguard/installed/hooks/skills-loader.sh\"",
         "~/.vibeguard/run-hook.sh skills-loader.sh",
+        "bash '/home/old (1)/.vibeguard/installed/hooks/skills-loader.sh'",
+        "/bin/sh \"/home/old #1/.vibeguard/run-hook.sh\" 'skills-loader.sh'",
+        "bash '/home/a; b/.vibeguard/dist/current/hooks/skills-loader.sh'",
+        "bash '/home/a & b/.vibeguard/run-hook.sh' 'skills-loader.sh'",
     ];
     let kept = vec![
+        command_hook("skills-loader.sh"),
+        command_hook("./hooks/skills-loader.sh"),
+        command_hook("bash /opt/acme/skills-loader.sh"),
+        command_hook("bash '/opt/VibeGuard (old)/hooks/skills-loader.sh'"),
         command_hook("echo skills-loader.sh"),
         command_hook("cat /old/vibeguard/hooks/skills-loader.sh"),
         command_hook("bash /custom/audit.sh skills-loader.sh"),
@@ -305,6 +312,8 @@ fn claude_install_removes_retired_skills_loader_registrations() {
         command_hook("echo keep; bash /old/hooks/skills-loader.sh"),
         command_hook("bash \"/custom/\\skills-loader.sh\""),
         command_hook("bash '/old/hooks/skills-loader.sh"),
+        command_hook("bash ~/.vibeguard/installed/hooks/skills-loader.sh && echo keep"),
+        command_hook("bash \"$(echo /home/old)/.vibeguard/installed/hooks/skills-loader.sh\""),
         json!({"type":"prompt","prompt":"Discuss skills-loader.sh","command":"skills-loader.sh"}),
     ];
     let mut handlers = kept.clone();
