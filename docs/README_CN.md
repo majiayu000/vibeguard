@@ -23,7 +23,7 @@ VibeGuard 继续用 Rust 实现，提供规则查询、原生 Bash hooks、显�
 
 从源码构建则在源码目录运行：
 
-安装前可用 `install codex --dry-run`（或 `claude` / `git`）只读预览将改动的文件、注册命令和持久锁文件。它复用安装校验，不创建目录，不获取锁，不证明写入权限或实际防护。安装会保留用户自有内容和 `disableAllHooks` 设置；已禁用的 hooks 仍需用户检查后启用。
+安装前可用 `install codex --dry-run`（或 `claude` / `git`）只读预览将改动的文件、注册命令和持久锁文件。它复用安装校验，不创建目录，不获取锁，不证明写入权限或实际防护。安装会保留无关的 hook、用户说明和 `disableAllHooks` 设置；已禁用的 hooks 仍需用户检查后启用。
 
 ```bash
 bash setup.sh install codex --dry-run
@@ -55,7 +55,9 @@ Grok 安装在 `$GROK_HOME`（默认 `~/.grok`）写入 `hooks/vibeguard.json`�
 
 已移除弱语义扫描、包管理器改写、Stop 计数与测试关键词判断、自动学习、价值评分及重复工作流。提醒覆盖随之减少，原生宿主不是旧检查的等价替代。
 
-`uninstall codex`、`uninstall claude` 或 `uninstall grok` 移除所选集成和观察文件，共享二进制仍保留。没有旧命令、旧 ID 或旧数据兼容。已有 v1 安装先按对应旧版说明卸载，新版不自动清理旧受管区。
+`uninstall codex`、`uninstall claude` 或 `uninstall grok` 移除所选集成和观察文件，共享二进制仍保留。没有旧命令、旧 ID 或旧数据兼容。已有 v1 安装先按对应旧版说明卸载，新版不做通用旧版清理。
+
+Claude 安装和重装会专项移除已退役的 `skills-loader.sh` 命令注册，包括手动添加的重复项。识别简单直接调用（可经 `bash` 或 `sh`）及旧 `.vibeguard/run-hook.sh skills-loader.sh` 包装调用；保留同组其他 hook 和属性，仅删除因此变空的分组。`--dry-run` 显示移除数量而不写入；不扫描技能或删除旧版文件，`status` 仍只读。匹配边界见 [安装契约](runtime-contract.md#installation)。
 
 `status`、`install` 和 `uninstall` 会附带只读的 `legacy` 清单：已知 v1 hook 命令、`<!-- vibeguard-start -->` 区域、`~/.vibeguard` 下的 v1 文件、launchd/systemd 单元，以及在所选 home 就是本账户 home 时的账户 crontab。`--repo` 额外查看该仓库根目录说明和 `pre-commit`/`pre-push`。换一个 `--home` 时不读取账户 crontab。`owned` 和 `suspected` 只表示文件在场，不表示这些命令执行过，也不会删除它们。
 

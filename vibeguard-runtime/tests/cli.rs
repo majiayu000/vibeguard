@@ -272,6 +272,142 @@ fn native(output: &Output) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+#[cfg(unix)]
+#[test]
+fn claude_install_removes_retired_skills_loader_registrations() {
+    let temp = Temp::new();
+    let home = temp.0.join("home with spaces");
+    let dir = home.join(".claude");
+    fs::create_dir_all(&dir).unwrap();
+    let config_path = dir.join("settings.json");
+    let command_hook = |command: &str| json!({"type":"command","command":command});
+    let wrapper = command_hook(&format!(
+        "bash '{}/.vibeguard/run-hook.sh' skills-loader.sh",
+        home.display()
+    ));
+    let duplicate = json!({"hooks":[wrapper]});
+    let retired = [
+        "skills-loader.sh",
+        "./hooks/skills-loader.sh",
+        "bash /old/vibeguard/hooks/skills-loader.sh",
+        "/bin/bash \"/old checkout/hooks/skills-loader.sh\"",
+        "\"$HOME/.vibeguard/installed/hooks/skills-loader.sh\"",
+        "~/.vibeguard/run-hook.sh skills-loader.sh",
+    ];
+    let kept = vec![
+        command_hook("echo skills-loader.sh"),
+        command_hook("cat /old/vibeguard/hooks/skills-loader.sh"),
+        command_hook("bash /custom/audit.sh skills-loader.sh"),
+        command_hook("bash ~/.vibeguard/run-hook.sh pre-bash-guard.sh"),
+        command_hook("bash /custom/run-hook.sh skills-loader.sh"),
+        command_hook("bash /old/hooks/skills-loader.sh.backup"),
+        command_hook("bash -c 'echo skills-loader.sh'"),
+        command_hook("echo keep; bash /old/hooks/skills-loader.sh"),
+        command_hook("bash \"/custom/\\skills-loader.sh\""),
+        command_hook("bash '/old/hooks/skills-loader.sh"),
+        json!({"type":"prompt","prompt":"Discuss skills-loader.sh","command":"skills-loader.sh"}),
+    ];
+    let mut handlers = kept.clone();
+    handlers.extend(retired.iter().map(|command| command_hook(command)));
+    let empty_group = json!({"matcher":"keep-empty","hooks":[]});
+    let initial = json!({
+        "custom":{"keep":true}, "disableAllHooks":true,
+        "hooks":{
+            "SessionStart":vec![duplicate; 5],
+            "PreToolUse":[{"matcher":"Read","custom":7,"hooks":handlers},empty_group],
+            "Stop":[{"hooks":[command_hook("echo user-stop")]}]
+        }
+    });
+    let initial_bytes = serde_json::to_vec_pretty(&initial).unwrap();
+    fs::write(&config_path, &initial_bytes).unwrap();
+    let home_str = home.to_str().unwrap();
+    let status = invoke(&["status", "claude", "--home", home_str], "", None);
+    assert_eq!(status.status.code(), Some(1));
+    assert_eq!(fs::read(&config_path).unwrap(), initial_bytes);
+    assert!(!home.join(".vibeguard").exists());
+    let preview = invoke(
+        &["install", "claude", "--dry-run", "--home", home_str],
+        "",
+        None,
+    );
+    success(&preview);
+    assert_eq!(fs::read(&config_path).unwrap(), initial_bytes);
+    assert!(!home.join(".vibeguard").exists());
+    assert!(!dir.join(".vibeguard-setup.lock").exists());
+    success(&invoke(
+        &["install", "claude", "--home", home_str],
+        "",
+        None,
+    ));
+    let installed = fs::read(&config_path).unwrap();
+    let config: Value = serde_json::from_slice(&installed).unwrap();
+    assert_eq!(config["hooks"]["SessionStart"], json!([]));
+    assert_eq!(config["custom"], initial["custom"]);
+    assert_eq!(config["disableAllHooks"], true);
+    assert_eq!(config["hooks"]["Stop"], initial["hooks"]["Stop"]);
+    assert_eq!(
+        config["hooks"]["PreToolUse"][0],
+        json!({"matcher":"Read","custom":7,"hooks":kept})
+    );
+    assert_eq!(config["hooks"]["PreToolUse"][1], empty_group);
+    assert_eq!(config["hooks"]["PreToolUse"].as_array().unwrap().len(), 3);
+    assert!(
+        native(&preview)["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|change| {
+                change["operation"] == "remove_retired_skills_loader_hooks"
+                    && change["path"] == json!(config_path)
+                    && change["handler_count"] == 5 + retired.len()
+            })
+    );
+    assert!(
+        String::from_utf8_lossy(&preview.stderr).contains("remove_retired_skills_loader_hooks")
+    );
+    success(&invoke(
+        &["install", "claude", "--home", home_str],
+        "",
+        None,
+    ));
+    assert_eq!(fs::read(&config_path).unwrap(), installed);
+    let preview = invoke(
+        &["install", "claude", "--dry-run", "--home", home_str],
+        "",
+        None,
+    );
+    success(&preview);
+    assert!(native(&preview)["changes"].as_array().unwrap().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn retired_skills_loader_cleanup_is_scoped_to_claude_install() {
+    for (action, host, relative_config) in [
+        ("uninstall", "claude", ".claude/settings.json"),
+        ("install", "codex", ".codex/hooks.json"),
+        ("install", "grok", ".grok/hooks/vibeguard.json"),
+    ] {
+        let temp = Temp::new();
+        let config_path = temp.0.join(relative_config);
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        let initial = json!({"hooks":{"SessionStart":[{"hooks":[{
+            "type":"command","command":"bash ~/.vibeguard/run-hook.sh skills-loader.sh"
+        }]}]}});
+        fs::write(&config_path, initial.to_string()).unwrap();
+        success(&invoke(
+            &[action, host, "--home", temp.0.to_str().unwrap()],
+            "",
+            None,
+        ));
+        let config: Value = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        assert_eq!(
+            config["hooks"]["SessionStart"],
+            initial["hooks"]["SessionStart"]
+        );
+    }
+}
+
 #[test]
 fn standalone_catalog_and_removed_commands() {
     let output = invoke(&["rules", "--json"], "", None);

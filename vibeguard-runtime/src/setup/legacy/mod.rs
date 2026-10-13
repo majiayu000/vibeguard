@@ -20,6 +20,35 @@ use std::time::Duration;
 const READ_LIMIT: u64 = 1024 * 1024;
 const GIT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
+pub(super) fn is_retired_skills_loader(command: &str) -> bool {
+    // Recognize only simple invocations, never shell programs or name mentions.
+    // The inventory's word splitter is not a shell interpreter; do not use its
+    // lossy handling of escapes to authorize removal.
+    if command.contains([
+        '\n', '\r', ';', '|', '&', '<', '>', '`', '(', ')', '\\', '#',
+    ]) {
+        return false;
+    }
+    let Ok(words) = classify::shell_words(command) else {
+        return false;
+    };
+    let invocation = if words
+        .first()
+        .is_some_and(|word| matches!(word.rsplit('/').next(), Some("bash" | "sh")))
+    {
+        &words[1..]
+    } else {
+        &words[..]
+    };
+    match invocation {
+        [script] => script.rsplit('/').next() == Some("skills-loader.sh"),
+        [wrapper, script] => {
+            wrapper.ends_with("/.vibeguard/run-hook.sh") && script == "skills-loader.sh"
+        }
+        _ => false,
+    }
+}
+
 pub fn inventory(options: &Options) -> Value {
     let mut findings = Vec::new();
     for path in [

@@ -209,7 +209,7 @@ pub(super) fn v1_hook_body(text: &str) -> bool {
         || text.contains("VibeGuard Pre-Push Hook Wrapper")
 }
 
-fn shell_words(input: &str) -> Result<Vec<String>, ()> {
+pub(super) fn shell_words(input: &str) -> Result<Vec<String>, ()> {
     let mut words = Vec::new();
     let mut current = String::new();
     let mut chars = input.chars().peekable();
