@@ -63,32 +63,33 @@ fn payload(event: &str, command: &str) -> Value {
 }
 
 #[cfg(unix)]
+fn snapshot(path: &Path) -> std::collections::BTreeMap<PathBuf, (u32, Vec<u8>)> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut result = std::collections::BTreeMap::new();
+    for entry in fs::read_dir(path).unwrap() {
+        let path = entry.unwrap().path();
+        let metadata = fs::metadata(&path).unwrap();
+        result.insert(
+            path.clone(),
+            (
+                metadata.permissions().mode(),
+                if metadata.is_file() {
+                    fs::read(&path).unwrap()
+                } else {
+                    Vec::new()
+                },
+            ),
+        );
+        if metadata.is_dir() {
+            result.extend(snapshot(&path));
+        }
+    }
+    result
+}
+
+#[cfg(unix)]
 #[test]
 fn installation_preview_is_read_only_and_matches_host_changes() {
-    use std::collections::BTreeMap;
-    use std::os::unix::fs::PermissionsExt;
-    fn snapshot(path: &Path) -> BTreeMap<PathBuf, (u32, Vec<u8>)> {
-        let mut result = BTreeMap::new();
-        for entry in fs::read_dir(path).unwrap() {
-            let path = entry.unwrap().path();
-            let metadata = fs::metadata(&path).unwrap();
-            result.insert(
-                path.clone(),
-                (
-                    metadata.permissions().mode(),
-                    if metadata.is_file() {
-                        fs::read(&path).unwrap()
-                    } else {
-                        Vec::new()
-                    },
-                ),
-            );
-            if metadata.is_dir() {
-                result.extend(snapshot(&path));
-            }
-        }
-        result
-    }
     for host in ["claude", "codex", "grok"] {
         let temp = Temp::new();
         let home = temp.0.join("new-home");
@@ -960,6 +961,235 @@ fn observations_record_only_reported_outcomes_and_never_raw_commands() {
             .code(),
         Some(2)
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn status_coverage_is_potential_until_setup_is_complete() {
+    use std::os::unix::fs::PermissionsExt;
+
+    for host in ["claude", "codex", "grok"] {
+        for state in [
+            "fresh",
+            "uninstalled",
+            "disabled",
+            "feature_disabled",
+            "binary_missing",
+            "binary_not_executable",
+            "ready",
+        ] {
+            if state == "feature_disabled" && host != "codex" {
+                continue;
+            }
+            let temp = Temp::new();
+            let home = temp.0.to_str().unwrap();
+            if state != "fresh" {
+                success(&invoke(&["install", host, "--home", home], "", None));
+            }
+            let binary = temp.0.join(".vibeguard/bin/vibeguard-runtime");
+            match state {
+                "uninstalled" => {
+                    success(&invoke(&["uninstall", host, "--home", home], "", None));
+                }
+                "disabled" => {
+                    let config_path = temp.0.join(match host {
+                        "claude" => ".claude/settings.json",
+                        "codex" => ".codex/hooks.json",
+                        _ => ".grok/hooks/vibeguard.json",
+                    });
+                    let mut config: Value =
+                        serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+                    config["disableAllHooks"] = json!(true);
+                    fs::write(config_path, config.to_string()).unwrap();
+                }
+                "feature_disabled" => {
+                    fs::write(
+                        temp.0.join(".codex/config.toml"),
+                        "[features]\nhooks = false\n",
+                    )
+                    .unwrap();
+                }
+                "binary_missing" => fs::remove_file(&binary).unwrap(),
+                "binary_not_executable" => {
+                    fs::set_permissions(&binary, fs::Permissions::from_mode(0o600)).unwrap();
+                }
+                _ => {}
+            }
+            let before = snapshot(&temp.0);
+            let output = invoke(&["status", host, "--home", home], "", None);
+            let ready = state == "ready";
+            assert_eq!(
+                output.status.code(),
+                Some(i32::from(!ready)),
+                "{host}/{state}"
+            );
+            assert_eq!(snapshot(&temp.0), before, "{host}/{state}");
+            let status = native(&output);
+            assert_eq!(
+                status["configured"],
+                !matches!(state, "fresh" | "uninstalled")
+            );
+            assert_eq!(
+                status["binary_executable"],
+                !matches!(state, "fresh" | "binary_missing" | "binary_not_executable")
+            );
+            let tool = if host == "grok" {
+                "run_terminal_command"
+            } else {
+                "Bash"
+            };
+            let coverage = format!(
+                "registered {tool} events only; not a sandbox or task-verification certificate"
+            );
+            assert_eq!(status["coverage"], coverage);
+            assert_eq!(status["host_trust"], "not_observed");
+            let summary = String::from_utf8_lossy(&output.stderr);
+            let prefix = if ready {
+                "Coverage"
+            } else {
+                "Potential coverage once setup is complete"
+            };
+            assert!(
+                summary
+                    .lines()
+                    .any(|line| line == format!("{prefix}: {coverage}")),
+                "{host}/{state}: {summary}"
+            );
+            assert_eq!(
+                summary.lines().any(|line| line.starts_with("Coverage:")),
+                ready
+            );
+            let first_line = summary.lines().next().unwrap();
+            if state == "disabled" {
+                assert!(first_line.contains("review disableAllHooks"));
+            } else if !ready {
+                assert!(first_line.contains(&format!("install {host} --home")));
+            }
+            assert!(summary.contains("No observation recorded."));
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn status_observations_are_read_only_diagnostics_not_protection_claims() {
+    for host in ["claude", "codex", "grok"] {
+        let temp = Temp::new();
+        let home = temp.0.to_str().unwrap();
+        let args = ["status", host, "--home", home];
+        let before = snapshot(&temp.0);
+        let missing = invoke(&args, "", None);
+        assert_eq!(missing.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&missing.stderr).contains("No observation recorded."));
+        assert_eq!(snapshot(&temp.0), before);
+
+        success(&invoke(&["install", host, "--home", home], "", None));
+        let before = snapshot(&temp.0);
+        let empty = invoke(&args, "", None);
+        success(&empty);
+        let baseline = native(&empty);
+        assert_eq!(baseline["last_observation"], Value::Null);
+        assert!(String::from_utf8_lossy(&empty.stderr).contains("No observation recorded."));
+        assert_eq!(snapshot(&temp.0), before);
+
+        let state = temp.0.join(".vibeguard/state");
+        fs::create_dir_all(&state).unwrap();
+        let tool = if host == "grok" {
+            "run_terminal_command"
+        } else {
+            "Bash"
+        };
+        // Synthetic records exercise the display contract, not live host trust or dispatch.
+        for (event, outcome, code) in [
+            ("PreToolUse", "denied", None),
+            ("PostToolUse", "running", None),
+            ("PostToolUse", "exit_status_unavailable", None),
+            ("PostToolUse", "exited_zero", Some(0)),
+            ("PostToolUse", "exited_nonzero", Some(7)),
+        ] {
+            let record = json!({
+                "observed_at_unix_ms": 1, "host": host, "event": event, "tool": tool,
+                "cwd": "/other/project\n\u{1b}[2J", "outcome": outcome, "exit_code": code,
+                "tool_use_id": "fixture"
+            });
+            fs::write(state.join(format!("{host}.json")), record.to_string()).unwrap();
+            let before = snapshot(&temp.0);
+            let output = invoke(&args, "", None);
+            success(&output);
+            assert_eq!(snapshot(&temp.0), before);
+            let mut expected = baseline.clone();
+            expected["last_observation"] = record;
+            assert_eq!(native(&output), expected);
+            let summary = String::from_utf8_lossy(&output.stderr);
+            for text in [
+                format!("{host} setup complete; host trust remains unobserved"),
+                format!("Coverage: {}", baseline["coverage"].as_str().unwrap()),
+                "Latest received event (across sessions; may be old or from another cwd)".into(),
+                "time (Unix ms)=1".into(),
+                "cwd=\"/other/project\\n\\u001b[2J\"".into(),
+                format!("tool=\"{tool}\""),
+                format!("event=\"{event}\""),
+                format!("outcome=\"{outcome}\""),
+                format!("exit_code={}", code.map_or("unavailable".into(), |c| c.to_string())),
+                "Observations do not prove host trust, actual execution, full protection, or task completion for the current project.".into(),
+            ] {
+                assert!(summary.contains(&text), "missing {text:?}: {summary}");
+            }
+            assert!(!summary.contains('\u{1b}'));
+            assert!(!summary.contains("No observation recorded."));
+        }
+
+        let config_path = temp.0.join(match host {
+            "claude" => ".claude/settings.json",
+            "codex" => ".codex/hooks.json",
+            _ => ".grok/hooks/vibeguard.json",
+        });
+        let mut config: Value = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["disableAllHooks"] = json!(true);
+        fs::write(&config_path, config.to_string()).unwrap();
+        let before = snapshot(&temp.0);
+        let disabled = invoke(&args, "", None);
+        assert_eq!(disabled.status.code(), Some(1));
+        let summary = String::from_utf8_lossy(&disabled.stderr);
+        assert!(
+            summary
+                .lines()
+                .next()
+                .unwrap()
+                .contains("review disableAllHooks")
+        );
+        assert!(summary.contains("Latest received event"));
+        assert!(!summary.contains("setup complete"));
+        assert_eq!(snapshot(&temp.0), before);
+
+        let instructions = temp.0.join(".claude/CLAUDE.md");
+        fs::create_dir_all(instructions.parent().unwrap()).unwrap();
+        fs::write(
+            &instructions,
+            "<!-- vibeguard-start -->\nold\n<!-- vibeguard-end -->\n",
+        )
+        .unwrap();
+        let before = snapshot(&temp.0);
+        let legacy = invoke(&args, "", None);
+        assert_eq!(legacy.status.code(), Some(1));
+        let summary = String::from_utf8_lossy(&legacy.stderr);
+        assert!(
+            summary
+                .lines()
+                .next()
+                .unwrap()
+                .contains("known v1 remnants")
+        );
+        assert!(
+            summary
+                .lines()
+                .next()
+                .unwrap()
+                .contains("review legacy.findings")
+        );
+        assert!(summary.contains("Latest received event"));
+        assert_eq!(snapshot(&temp.0), before);
+    }
 }
 
 #[cfg(unix)]
