@@ -23,7 +23,7 @@ Download the archive for your OS and CPU from [Releases](https://github.com/maji
 ./vibeguard-runtime install grok
 ```
 
-The archive contains the executable, this README and LICENSE. `install --dry-run` validates current inputs and shows planned file changes, hook commands and persistent setup locks without writing files. It preserves user-owned handlers and guidance; a disabled host remains disabled. Preview does not prove write access or active protection. Installation copies the executable to `~/.vibeguard/bin/vibeguard-runtime`. Restart the selected host and review its native hook trust settings. Check or remove that integration with:
+The archive contains the executable, this README and LICENSE. `install --dry-run` validates current inputs and shows planned file changes, hook commands and persistent setup locks without writing files. It preserves unrelated handlers and user guidance; a disabled host remains disabled. Preview does not prove write access or active protection. Installation copies the executable to `~/.vibeguard/bin/vibeguard-runtime`. Restart the selected host and review its native hook trust settings. Check or remove that integration with:
 
 ```bash
 ~/.vibeguard/bin/vibeguard-runtime status codex
@@ -89,7 +89,9 @@ questions, see the [website task guide and FAQ](https://majiayu000.github.io/vib
 
 Removed the app-server proxy, package-manager rewriting, semantic grep scanners, Stop/test-keyword gates, profiles, learning/scoring systems, workflow routing, and duplicate scripts. The Rust runtime remains: each hook invocation starts, processes one event, and exits.
 
-There are no old command aliases, rule-ID aliases, data migration, or automatic v1 cleanup. For an existing v1 installation, follow that version's uninstall instructions first. V2 owns only its exact hook command and existing `vibeguard-core` Markdown block. Install and uninstall remove that block without adding replacement guidance. Status no longer reports `core_present`. Uninstall removes the selected integration and observation, but leaves the shared binary for other integrations and direct use.
+There are no old command aliases, rule-ID aliases, data migration, or general automatic v1 cleanup. For an existing v1 installation, follow that version's uninstall instructions first. V2 normally owns only its exact hook command and existing `vibeguard-core` Markdown block. Install and uninstall remove that block without adding replacement guidance. Status no longer reports `core_present`. Uninstall removes the selected integration and observation, but leaves the shared binary for other integrations and direct use.
+
+Claude install/reinstall specifically removes retired `skills-loader.sh` command handlers, including manually added duplicates. It recognizes simple calls through known VibeGuard installed/release paths (optionally through `bash` or `sh`) and the old `.vibeguard/run-hook.sh skills-loader.sh` wrapper. Same-name scripts in arbitrary paths are preserved. Other handlers and group fields are preserved; only groups emptied by removal are dropped. `--dry-run` reports the removal count without writing. This does not scan skills or delete legacy files; `status` remains read-only. See the [installation contract](docs/runtime-contract.md#installation) for the matching boundary.
 
 `status`, `install`, and `uninstall` include a read-only `legacy` inventory. It lists known v1 hook commands, `<!-- vibeguard-start -->` regions, v1 files under `~/.vibeguard`, launchd and systemd unit files, and the account crontab when the selected home is this account's home. `--repo` adds that repository's root instruction files and its `pre-commit` and `pre-push` hooks. A different `--home` leaves the account crontab unread. `owned` and `suspected` record presence; they do not show that those commands ran. The inventory leaves every reported file in place.
 

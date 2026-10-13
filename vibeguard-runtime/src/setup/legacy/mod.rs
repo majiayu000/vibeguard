@@ -20,6 +20,32 @@ use std::time::Duration;
 const READ_LIMIT: u64 = 1024 * 1024;
 const GIT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
+pub(super) fn is_retired_skills_loader(command: &str) -> bool {
+    // Removal requires a simple invocation and a known product path. A script
+    // basename in an arbitrary checkout does not establish ownership.
+    let Ok(words) = classify::shell_words(command, true) else {
+        return false;
+    };
+    let invocation = if words
+        .first()
+        .is_some_and(|word| matches!(word.rsplit('/').next(), Some("bash" | "sh")))
+    {
+        &words[1..]
+    } else {
+        &words[..]
+    };
+    match invocation {
+        [script] => {
+            script.ends_with("/.vibeguard/installed/hooks/skills-loader.sh")
+                || script.ends_with("/.vibeguard/dist/current/hooks/skills-loader.sh")
+        }
+        [wrapper, script] => {
+            wrapper.ends_with("/.vibeguard/run-hook.sh") && script == "skills-loader.sh"
+        }
+        _ => false,
+    }
+}
+
 pub fn inventory(options: &Options) -> Value {
     let mut findings = Vec::new();
     for path in [
