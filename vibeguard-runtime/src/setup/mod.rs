@@ -413,7 +413,12 @@ fn publish(mut value: Value, options: &Options, status_ready: Option<bool>) -> R
         }
         if options.host != "git" {
             eprintln!(
-                "Coverage: {}",
+                "{}: {}",
+                if ready {
+                    "Coverage"
+                } else {
+                    "Potential coverage once setup is complete"
+                },
                 value["coverage"].as_str().unwrap_or_default()
             );
             let observation = &value["last_observation"];

@@ -965,6 +965,113 @@ fn observations_record_only_reported_outcomes_and_never_raw_commands() {
 
 #[cfg(unix)]
 #[test]
+fn status_coverage_is_potential_until_setup_is_complete() {
+    use std::os::unix::fs::PermissionsExt;
+
+    for host in ["claude", "codex", "grok"] {
+        for state in [
+            "fresh",
+            "uninstalled",
+            "disabled",
+            "feature_disabled",
+            "binary_missing",
+            "binary_not_executable",
+            "ready",
+        ] {
+            if state == "feature_disabled" && host != "codex" {
+                continue;
+            }
+            let temp = Temp::new();
+            let home = temp.0.to_str().unwrap();
+            if state != "fresh" {
+                success(&invoke(&["install", host, "--home", home], "", None));
+            }
+            let binary = temp.0.join(".vibeguard/bin/vibeguard-runtime");
+            match state {
+                "uninstalled" => {
+                    success(&invoke(&["uninstall", host, "--home", home], "", None));
+                }
+                "disabled" => {
+                    let config_path = temp.0.join(match host {
+                        "claude" => ".claude/settings.json",
+                        "codex" => ".codex/hooks.json",
+                        _ => ".grok/hooks/vibeguard.json",
+                    });
+                    let mut config: Value =
+                        serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+                    config["disableAllHooks"] = json!(true);
+                    fs::write(config_path, config.to_string()).unwrap();
+                }
+                "feature_disabled" => {
+                    fs::write(
+                        temp.0.join(".codex/config.toml"),
+                        "[features]\nhooks = false\n",
+                    )
+                    .unwrap();
+                }
+                "binary_missing" => fs::remove_file(&binary).unwrap(),
+                "binary_not_executable" => {
+                    fs::set_permissions(&binary, fs::Permissions::from_mode(0o600)).unwrap();
+                }
+                _ => {}
+            }
+            let before = snapshot(&temp.0);
+            let output = invoke(&["status", host, "--home", home], "", None);
+            let ready = state == "ready";
+            assert_eq!(
+                output.status.code(),
+                Some(i32::from(!ready)),
+                "{host}/{state}"
+            );
+            assert_eq!(snapshot(&temp.0), before, "{host}/{state}");
+            let status = native(&output);
+            assert_eq!(
+                status["configured"],
+                !matches!(state, "fresh" | "uninstalled")
+            );
+            assert_eq!(
+                status["binary_executable"],
+                !matches!(state, "fresh" | "binary_missing" | "binary_not_executable")
+            );
+            let tool = if host == "grok" {
+                "run_terminal_command"
+            } else {
+                "Bash"
+            };
+            let coverage = format!(
+                "registered {tool} events only; not a sandbox or task-verification certificate"
+            );
+            assert_eq!(status["coverage"], coverage);
+            assert_eq!(status["host_trust"], "not_observed");
+            let summary = String::from_utf8_lossy(&output.stderr);
+            let prefix = if ready {
+                "Coverage"
+            } else {
+                "Potential coverage once setup is complete"
+            };
+            assert!(
+                summary
+                    .lines()
+                    .any(|line| line == format!("{prefix}: {coverage}")),
+                "{host}/{state}: {summary}"
+            );
+            assert_eq!(
+                summary.lines().any(|line| line.starts_with("Coverage:")),
+                ready
+            );
+            let first_line = summary.lines().next().unwrap();
+            if state == "disabled" {
+                assert!(first_line.contains("review disableAllHooks"));
+            } else if !ready {
+                assert!(first_line.contains(&format!("install {host} --home")));
+            }
+            assert!(summary.contains("No observation recorded."));
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn status_observations_are_read_only_diagnostics_not_protection_claims() {
     for host in ["claude", "codex", "grok"] {
         let temp = Temp::new();
