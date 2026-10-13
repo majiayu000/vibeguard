@@ -297,6 +297,9 @@ fn native_installation_roundtrip_preserves_user_files_and_executes_registrations
     let status = invoke(&["status", "grok", "--home", home_arg], None);
     success(&status);
     assert_eq!(value(&status)["host_trust"], "not_observed");
+    let summary = String::from_utf8_lossy(&status.stderr);
+    assert!(summary.contains("Coverage: registered run_terminal_command events only"));
+    assert!(summary.contains("No observation recorded."));
     let config: Value = serde_json::from_slice(&config_bytes).unwrap();
     assert_eq!(config["custom"], 42);
     assert_eq!(config["hooks"]["PreToolUse"][0], user_hook);
@@ -328,8 +331,14 @@ fn native_installation_roundtrip_preserves_user_files_and_executes_registrations
         }
     }
     assert!(!dir.0.join("SHOULD_NOT_EXIST").exists());
-    let status = value(&invoke(&["status", "grok", "--home", home_arg], None));
-    assert_eq!(status["last_observation"]["outcome"], "failed");
+    let status = invoke(&["status", "grok", "--home", home_arg], None);
+    success(&status);
+    assert_eq!(value(&status)["last_observation"]["outcome"], "failed");
+    let summary = String::from_utf8_lossy(&status.stderr);
+    assert!(summary.contains("tool=\"run_terminal_command\""));
+    assert!(summary.contains("event=\"PostToolUseFailure\""));
+    assert!(summary.contains("outcome=\"failed\"; exit_code=unavailable"));
+    assert!(summary.contains("Observations do not prove host trust, actual execution"));
     fs::write(&instructions, "stale instructions\n").unwrap();
     assert_eq!(
         invoke(&["status", "grok", "--home", home_arg], None)

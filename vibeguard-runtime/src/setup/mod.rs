@@ -401,6 +401,32 @@ fn publish(mut value: Value, options: &Options, status_ready: Option<bool>) -> R
                 options.home.display()
             );
         }
+        if options.host != "git" {
+            eprintln!(
+                "Coverage: {}",
+                value["coverage"].as_str().unwrap_or_default()
+            );
+            let observation = &value["last_observation"];
+            if observation.is_null() {
+                eprintln!("No observation recorded.");
+            } else {
+                // JSON display escapes record text rather than emitting terminal controls.
+                let exit_code = observation["exit_code"]
+                    .as_i64()
+                    .map_or_else(|| "unavailable".into(), |code| code.to_string());
+                eprintln!(
+                    "Latest received event (across sessions; may be old or from another cwd): time (Unix ms)={}; cwd={}; tool={}; event={}; outcome={}; exit_code={exit_code}.",
+                    observation["observed_at_unix_ms"],
+                    observation["cwd"],
+                    observation["tool"],
+                    observation["event"],
+                    observation["outcome"]
+                );
+            }
+            eprintln!(
+                "Observations do not prove host trust, actual execution, full protection, or task completion for the current project."
+            );
+        }
     } else if let Some(message) = legacy::attention_message(&legacy) {
         eprintln!("{message}");
     }
