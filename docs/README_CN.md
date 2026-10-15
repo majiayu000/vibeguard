@@ -6,6 +6,15 @@ VibeGuard 继续用 Rust 实现，提供规则查询、原生 Bash hooks、显�
 
 [英文说明](../README.md) · [运行契约](runtime-contract.md) · [75 个规则主题](rule-reference.md)
 
+一条命令即可安装：自动下载适合系统与 CPU 的最新发布包，按 `SHA256SUMS` 校验后执行 `install`。只需要 `curl`、`tar` 和 `shasum`/`sha256sum`，不需要 Rust 工具链或 Python：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- claude --dry-run
+curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- claude
+```
+
+把 `claude` 换成 `codex` 或 `grok` 即可；在 `bash` 前设置 `VIBEGUARD_VERSION=v2.1.0` 可固定版本。也可以手动完成：
+
 从 [Releases](https://github.com/majiayu000/vibeguard/releases) 下载适合系统与 CPU 的 v2 压缩包，解压后在该目录运行，无需源码或 Rust 工具链：
 
 ```bash
@@ -21,7 +30,7 @@ VibeGuard 继续用 Rust 实现，提供规则查询、原生 Bash hooks、显�
 
 压缩包包含可执行文件、英文 README 和 LICENSE。安装将程序复制到 `~/.vibeguard/bin/vibeguard-runtime`；Claude Code 的状态查询和卸载将上面的 `codex` 换为 `claude`。WSL 使用 Linux 包。旧版本资源应使用对应版本的说明。
 
-从源码构建则在源码目录运行：
+从源码构建则在源码目录运行（需要 `cargo`；没有时 `setup.sh` 会停止并提示改用 `install.sh`）：
 
 安装前可用 `install codex --dry-run`（或 `claude` / `git`）只读预览将改动的文件、注册命令和持久锁文件。它复用安装校验，不创建目录，不获取锁，不证明写入权限或实际防护。安装会保留无关的 hook、用户说明和 `disableAllHooks` 设置；已禁用的 hooks 仍需用户检查后启用。
 

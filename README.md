@@ -12,6 +12,15 @@ DeepSeek Harness users can load the [DSH Bash adapter](plugins/dsh/README.md). I
 
 ## Install from a release archive
 
+One command downloads the latest release for your OS and CPU, verifies it against `SHA256SUMS`, and runs `install`. It needs only `curl`, `tar` and `shasum` or `sha256sum`; no Rust toolchain or Python:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- claude --dry-run
+curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- claude
+```
+
+Replace `claude` with `codex` or `grok`. Set `VIBEGUARD_VERSION=v2.1.0` before `bash` to pin a release. To do the same steps by hand:
+
 Download the archive for your OS and CPU from [Releases](https://github.com/majiayu000/vibeguard/releases), extract it, and open a terminal in the extracted directory. macOS, Linux and WSL are supported; choose a Linux archive for WSL. No Rust toolchain or source checkout is required for this path. Run:
 
 ```bash
@@ -48,7 +57,7 @@ bash setup.sh install claude
 bash setup.sh install grok
 ```
 
-`setup.sh` builds the checked-out source and forwards arguments. Without arguments it prints help; it does not install automatically. Install copies the binary to `~/.vibeguard/bin/vibeguard-runtime` and registers the selected integration. Installation removes an existing owned `vibeguard-core` block while preserving surrounding user instructions; it does not create an instruction file. Restart the host and review its native hook trust settings.
+`setup.sh` builds the checked-out source and forwards arguments. Without `cargo` it stops and points to `install.sh`, which installs the prebuilt release from the checkout. Without arguments it prints help; it does not install automatically. Install copies the binary to `~/.vibeguard/bin/vibeguard-runtime` and registers the selected integration. Installation removes an existing owned `vibeguard-core` block while preserving surrounding user instructions; it does not create an instruction file. Restart the host and review its native hook trust settings.
 
 ```bash
 ~/.vibeguard/bin/vibeguard-runtime rules
