@@ -48,6 +48,15 @@ Branches (`refs/heads/*`) must target commit objects directly; existing branches
 
 Object-type and ancestry inspection use `git --no-replace-objects --no-lazy-fetch`, requiring Git 2.45 or newer. Git install (including dry-run) and status check these capabilities before setup writes or reporting protection; uninstall remains available with older Git. Local `refs/replace` entries cannot substitute object types or commit ancestry for these checks, and missing promisor objects are not downloaded automatically. Each inspection also overrides `GIT_GRAFT_FILE` with the platform null device, so the repository's `info/grafts` and inherited custom graft files cannot alter the checked ancestry. Unsupported Git options produce exit 2 with the minimum-version requirement; the hook does not retry without those flags. If required objects are absent, fetch them separately before retrying the push. Git 2.45 introduced `--no-lazy-fetch`; see its [release notes](https://github.com/git/git/blob/v2.45.0/Documentation/RelNotes/2.45.0.txt).
 
+On Windows only, the parsed Bash path word also recognizes drive-letter absolute
+paths (`C:/Windows`, quoted `C:\Windows`), Git Bash drive mounts (`/c/Windows`),
+and UNC server/share roots. Comparisons ignore ASCII case and normalize `.`/`..`
+inside a volume. Drive/share roots, `Users` and immediate profile roots, `Windows`,
+`Program Files`, `Program Files (x86)` and `ProgramData` are protected; ordinary
+profile subdirectories remain allowed. Unquoted Bash backslashes are escape
+characters, so raw Windows spellings are not interpreted as PowerShell syntax.
+This does not resolve reparse points, symlinks, mount aliases or variables.
+
 ## Observations
 
 Installed commands supply `--state-dir`; direct use without it creates no observation. Each host retains only the latest received event, including `dsh.json` for the DSH adapter. Concurrent sessions can replace each other's last event.
@@ -62,7 +71,7 @@ There is no verified-tree flag. A previous result, background ID, command contai
 
 ## Installation
 
-`install <claude|codex|grok|git> --dry-run` reuses installation input validation and content preparation, then prints JSON stdout and a human preview on stderr before acquiring locks or writing files. It lists changed paths, operations, hook commands, and the persistent locks used by a real install. Invalid inputs and a user-owned Git hook still return exit 2. Existing `disableAllHooks` settings, unrelated handlers and user guidance are preserved; the preview warns about a disabled host. `status` and `uninstall` reject `--dry-run`. Native Windows installation remains unsupported, including preview.
+`install <claude|codex|grok|git> --dry-run` reuses installation input validation and content preparation, then prints JSON stdout and a human preview on stderr before acquiring locks or writing files. It lists changed paths, operations, hook commands, and the persistent locks used by a real install. Invalid inputs and a user-owned Git hook still return exit 2. Existing `disableAllHooks` settings, unrelated handlers and user guidance are preserved; the preview warns about a disabled host. `status` and `uninstall` reject `--dry-run`. Native Windows supports Claude Code installation, preview and removal; other native Windows targets remain unsupported. Windows uses HOME, falling back to USERPROFILE when HOME is missing or empty.
 
 Preview describes current inputs; it does not establish write permissions, metadata-copy success, lock availability, host trust, or actual protection. The source `setup.sh` launcher may build Cargo artifacts before forwarding `--dry-run`; the runtime installer itself writes nothing. Installation into an absent home does not create an instruction file. An existing owned core block is removed while surrounding user text stays intact.
 
@@ -75,7 +84,17 @@ Preview describes current inputs; it does not establish write permissions, metad
 
 Claude install/reinstall removes retired `skills-loader.sh` command handlers from every event in the selected settings file, including manual duplicates. Matching is limited to simple calls to `~/.vibeguard/installed/hooks/skills-loader.sh`, `~/.vibeguard/dist/current/hooks/skills-loader.sh`, or the `.vibeguard/run-hook.sh skills-loader.sh` wrapper, optionally preceded by `bash` or `sh` (including interpreter paths). Other home prefixes and quoted paths are recognized, including literal punctuation inside quotes. Same-name scripts in arbitrary paths do not establish VibeGuard ownership. Unquoted escapes, shell operators, comments, command substitutions, extra arguments and arbitrary shell programs are left alone; a filename mention in another command is not an invocation. Other handlers, group properties and pre-existing empty groups remain; only groups emptied by this removal are dropped. Dry-run lists `remove_retired_skills_loader_hooks` with `handler_count`. Status, uninstall and other host installers do not perform this cleanup. This is a specific retired-feature cleanup, not a v1 migration or filesystem sweep.
 
-Binary: `~/.vibeguard/bin/vibeguard-runtime`. Observations: `~/.vibeguard/state/claude.json`, `codex.json`, and `grok.json`. Grok observations retain the real tool name. `--home PATH` uses an isolated home and ignores ambient `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, and `GEMINI_CLI_HOME`. Nonempty relative host-directory overrides resolve against the current working directory; empty overrides use the defaults. `--repo PATH` applies only to Git. No shell profile/PATH changes.
+Windows Claude handlers use exec form: `command` is the installed `.exe` path,
+and `args` contains `hook`, `claude`, `--state-dir` and the state path. Ownership
+matching includes both `command` and `args`; another invocation of the same
+binary is preserved. This requires Claude Code 2.1.139 or newer, as recorded in
+its [changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21139).
+Windows status explicitly limits coverage to Git Bash tool events and reports
+PowerShell/cmd syntax as uncovered. The native Windows integration remains
+experimental pending real Claude Code session verification. CI directly invokes
+the generated exec registration; it does not establish host trust or dispatch.
+
+Binary: `~/.vibeguard/bin/vibeguard-runtime` (`vibeguard-runtime.exe` on Windows). Observations: `~/.vibeguard/state/claude.json`, `codex.json`, and `grok.json`. Grok observations retain the real tool name. `--home PATH` uses an isolated home and ignores ambient `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, and `GEMINI_CLI_HOME`. Nonempty relative host-directory overrides resolve against the current working directory; empty overrides use the defaults. `--repo PATH` applies only to Git. No shell profile/PATH changes.
 
 Grok installation preserves other hook files and `config.toml`, including `compat.claude.hooks`; it does not register a Python adapter or inject default rules. Status checks its native hook file, executable bits and latest Grok observation. It does not inspect effective Grok config layers, imported Claude hooks, `allow_managed_hooks_only`, folder trust or host reload state, and cannot prove dispatch. Uninstall removes only its exact commands/current block and Grok observation, retaining the shared binary and user material.
 

@@ -189,7 +189,13 @@ pub fn executable(path: &Path) -> Result<bool> {
         // check, not proof against ACLs or a noexec mount.
         Ok(fs::metadata(path)?.permissions().mode() & 0o111 == 0o111)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        Ok(path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe")))
+    }
+    #[cfg(not(any(unix, windows)))]
     Ok(false)
 }
 

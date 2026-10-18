@@ -48,7 +48,12 @@ jobs:
             target: x86_64-unknown-linux-musl
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     env:
       TARGET: ${{ matrix.target }}
     steps:
@@ -62,8 +67,11 @@ jobs:
       - name: Package
         run: |
           mkdir -p package dist
-          cp "vibeguard-runtime/target/$TARGET/release/vibeguard-runtime" package/
+          binary_name=vibeguard-runtime
+          if [[ "$TARGET" == *windows* ]]; then binary_name+=.exe; fi
+          cp "vibeguard-runtime/target/$TARGET/release/$binary_name" package/
           cp LICENSE README.md package/
+          if [[ "$TARGET" == *windows* ]]; then cp install.ps1 package/; fi
           tar -czf "dist/vibeguard-$TARGET.tar.gz" -C package .
       - name: Smoke the extracted release archive
         run: |
@@ -71,7 +79,9 @@ jobs:
           trap 'rm -rf "$archive_dir"' EXIT
           tar -xzf "dist/vibeguard-$TARGET.tar.gz" -C "$archive_dir"
           cd "$archive_dir"
-          python3 "$GITHUB_WORKSPACE/scripts/ci/smoke_binary.py" ./vibeguard-runtime
+          binary_name=vibeguard-runtime
+          if [[ "$TARGET" == *windows* ]]; then binary_name+=.exe; fi
+          python3 "$GITHUB_WORKSPACE/scripts/ci/smoke_binary.py" "./$binary_name"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: vibeguard-${{ matrix.target }}

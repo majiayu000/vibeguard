@@ -238,6 +238,9 @@ fn protected_path(word: &ShellWord) -> bool {
             }
         }
     }
+    if cfg!(windows) && windows_protected_path(&word.value) {
+        return true;
+    }
     if !word.value.starts_with('/') {
         return false;
     }
@@ -252,6 +255,42 @@ fn protected_path(word: &ShellWord) -> bool {
         || (cfg!(target_os = "macos")
             && parts.first() == Some(&"private")
             && matches!(parts.get(1), Some(&"etc" | &"var")))
+}
+
+fn windows_protected_path(path: &str) -> bool {
+    // Inspect the parsed Bash word, not its raw spelling: unquoted backslashes
+    // have already been consumed by Bash quoting rules.
+    let path = path.replace('\\', "/").to_ascii_lowercase();
+    let bytes = path.as_bytes();
+    let drive_path = if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1..3] == *b":/"
+    {
+        &path[2..]
+    } else if bytes.len() >= 2
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_alphabetic()
+        && (bytes.len() == 2 || bytes[2] == b'/')
+    {
+        // Git Bash's /c and /c/... drive mount spelling.
+        &path[2..]
+    } else if let Some(unc) = path.strip_prefix("//") {
+        // The server/share pair is the volume root, not normal path components.
+        let mut parts = unc.splitn(3, '/');
+        if parts.next().is_none_or(str::is_empty) || parts.next().is_none_or(str::is_empty) {
+            return false;
+        }
+        return windows_protected_path(&format!("C:/{}", parts.next().unwrap_or("")));
+    } else if path.starts_with('/') {
+        &path
+    } else {
+        return false;
+    };
+    let parts = normalized_components(drive_path);
+    parts.is_empty()
+        || (parts.first() == Some(&"users") && parts.len() <= 2)
+        || matches!(
+            parts.first(),
+            Some(&"windows" | &"program files" | &"program files (x86)" | &"programdata")
+        )
 }
 
 fn normalized_components(path: &str) -> Vec<&str> {
@@ -488,6 +527,69 @@ impl ContentMask {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn windows_volume_and_system_paths_are_recognized() {
+        for path in [
+            "C:/",
+            "c:/Windows/System32",
+            r"C:\WINDOWS",
+            "/c",
+            "/C/Windows",
+            "D:/Users/name",
+            r"D:\Users\name",
+            "c:/users",
+            "/d/Users/name/Downloads/..",
+            "C:/tmp/../Windows",
+            "C:/Program Files/app",
+            "C:/Program Files (x86)",
+            "C:/ProgramData",
+            r"\\server\share",
+            "//server/share/Users/name",
+            "//server/share/Windows/System32",
+            "C:/..",
+            "/c/../",
+        ] {
+            assert!(super::windows_protected_path(path), "{path}");
+        }
+        for path in [
+            "C:/tmp/build",
+            "C:/Users/name/cache",
+            "/c/Users/name/project",
+            "C:/Windows/../tmp",
+            "C:Windows",
+            "./Windows",
+            "Windows",
+            "/cache/build",
+            "//server/share/projects/build",
+        ] {
+            assert!(!super::windows_protected_path(path), "{path}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_rm_checks_use_bash_quoting_and_preserve_safe_arguments() {
+        for command in [
+            "rm -rf /c/Windows",
+            r"rm -rf 'C:\Users\name'",
+            "rm -r -f C:/Windows",
+            "rm -rf '/c/Program Files'",
+            "rm -rf //server/share",
+        ] {
+            assert!(super::blocked_reason(command).is_some(), "{command}");
+        }
+        for command in [
+            "rm -rf C:/Users/name/cache",
+            r"rm -rf C:\Users\name",
+            "echo 'rm -rf C:/Windows'",
+            "rm -rf ./build > C:/Windows",
+            "rm -r C:/Windows",
+            "rm -rf C:Windows",
+        ] {
+            assert!(super::blocked_reason(command).is_none(), "{command}");
+        }
+    }
+
     use super::*;
 
     #[test]

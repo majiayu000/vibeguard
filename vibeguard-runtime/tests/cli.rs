@@ -1754,3 +1754,132 @@ fn unsupported_native_installation_is_explicit() {
     assert_eq!(output.status.code(), Some(2));
     assert!(!temp.0.join(".codex").exists());
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_claude_installation_uses_exec_and_preserves_user_handlers() {
+    let temp = Temp::new();
+    let home = temp.0.join("用户 space ' $ home");
+    let args = ["install", "claude", "--home", home.to_str().unwrap()];
+    let preview = invoke(&[args.as_slice(), &["--dry-run"]].concat(), "", None);
+    success(&preview);
+    assert!(!home.exists());
+    assert!(native(&preview)["details"]["hook_args"].is_array());
+    fs::create_dir_all(home.join(".claude")).unwrap();
+    let config_path = home.join(".claude/settings.json");
+    fs::write(&config_path, r#"{"user":7,"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo user"}]}]}}"#).unwrap();
+    fs::write(home.join(".claude/CLAUDE.md"), "user text\r\n").unwrap();
+    success(&invoke(&args, "", None));
+    let config: Value = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+    let handler = &config["hooks"]["PreToolUse"][1]["hooks"][0];
+    assert_eq!(handler["args"][0], "hook");
+    assert!(handler["command"].as_str().unwrap().ends_with(".exe"));
+    let mut child = Command::new(handler["command"].as_str().unwrap())
+        .args(
+            handler["args"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap()),
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            payload("PreToolUse", "rm -rf /c/Windows")
+                .to_string()
+                .as_bytes(),
+        )
+        .unwrap();
+    let result = child.wait_with_output().unwrap();
+    success(&result);
+    assert_eq!(
+        native(&result)["hookSpecificOutput"]["permissionDecision"],
+        "deny"
+    );
+    let status = invoke(
+        &["status", "claude", "--home", home.to_str().unwrap()],
+        "",
+        None,
+    );
+    success(&status);
+    assert_eq!(native(&status)["last_observation"]["outcome"], "denied");
+    assert!(
+        native(&status)["coverage"]
+            .as_str()
+            .unwrap()
+            .contains("PowerShell and cmd commands are not protected")
+    );
+    // Reinstall from the installed executable as users do, then from the source binary.
+    success(
+        &Command::new(handler["command"].as_str().unwrap())
+            .args(args)
+            .output()
+            .unwrap(),
+    );
+    success(&invoke(&args, "", None));
+    let after: Value = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+    assert_eq!(config, after);
+    success(&invoke(
+        &["uninstall", "claude", "--home", home.to_str().unwrap()],
+        "",
+        None,
+    ));
+    let after: Value = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+    assert_eq!(after["user"], 7);
+    assert_eq!(
+        after["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+        "echo user"
+    );
+    assert_eq!(
+        fs::read(home.join(".claude/CLAUDE.md")).unwrap(),
+        b"user text\r\n"
+    );
+    assert!(!home.join(".vibeguard/state/claude.json").exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_home_falls_back_to_userprofile_and_bad_json_fails_before_writes() {
+    let temp = Temp::new();
+    for empty_home in [false, true] {
+        let home = temp
+            .0
+            .join(if empty_home { "empty home" } else { "no home" });
+        let mut command = Command::new(BIN);
+        command
+            .env_remove("HOME")
+            .env("USERPROFILE", &home)
+            .env_remove("CLAUDE_CONFIG_DIR");
+        if empty_home {
+            command.env("HOME", "");
+        }
+        let output = command
+            .args(["install", "claude", "--dry-run"])
+            .output()
+            .unwrap();
+        success(&output);
+        assert!(!home.exists());
+        assert!(
+            native(&output)["details"]["hook_command"]
+                .as_str()
+                .unwrap()
+                .starts_with(home.to_str().unwrap())
+        );
+    }
+    fs::create_dir_all(temp.0.join(".claude")).unwrap();
+    fs::write(temp.0.join(".claude/settings.json"), "invalid JSON").unwrap();
+    let output = invoke(
+        &["install", "claude", "--home", temp.0.to_str().unwrap()],
+        "",
+        None,
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(!temp.0.join(".vibeguard").exists());
+}
