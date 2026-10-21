@@ -61,9 +61,9 @@ fn simple_command_reason(words: &[ShellWord<'_>]) -> Option<&'static str> {
                 "Bulk git checkout/restore of the working tree is blocked. Inspect the diff and target the intended files.",
             );
         }
-        if values.first() == Some(&"clean") && forced_git_clean(&values[1..]) {
+        if values.first() == Some(&"clean") && bulk_forced_git_clean(&values[1..]) {
             return Some(
-                "Forced git clean is blocked for this call, including explicit paths. This check cannot determine task-level authorization. If cleanup is already authorized, report this limitation to the user. Do not retry via another command/tool or disable the hook.",
+                "Forced git clean without specific paths is blocked; it removes every untracked file in scope. Preview with `git clean -n`, then name only the files or directories the user authorized, e.g. `git clean -f -- scratch.txt`. Globs, `.`, `..`, absolute paths, pathspec magic and variables count as bulk. Do not retry via another command/tool or disable the hook.",
             );
         }
     } else if matches!(name.raw, "rm" | "\\rm") && forced_recursive_rm(args) {
@@ -457,13 +457,19 @@ fn forced_recursive_rm(args: &[ShellWord]) -> bool {
     recursive && force
 }
 
-fn forced_git_clean(args: &[&str]) -> bool {
+/// A forced, non-dry-run clean is bulk unless every pathspec names a specific
+/// relative path below the current directory.
+fn bulk_forced_git_clean(args: &[&str]) -> bool {
     let mut force = false;
     let mut dry_run = false;
+    let mut pathspecs = Vec::new();
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match *arg {
-            "--" => break,
+            "--" => {
+                pathspecs.extend(args.by_ref());
+                break;
+            }
             "--force" => force = true,
             "--no-force" => force = false,
             "--dry-run" => dry_run = true,
@@ -487,10 +493,18 @@ fn forced_git_clean(args: &[&str]) -> bool {
                     }
                 }
             }
-            _ => {}
+            arg if arg.starts_with("--") => {}
+            arg => pathspecs.push(arg),
         }
     }
-    force && !dry_run
+    force && !dry_run && (pathspecs.is_empty() || pathspecs.iter().any(|path| bulk_pathspec(path)))
+}
+
+fn bulk_pathspec(path: &str) -> bool {
+    path.starts_with([':', '/', '~'])
+        || path.contains(['*', '?', '[', '$', '`', '\\'])
+        || path.split('/').any(|part| part == "..")
+        || normalized_components(path).is_empty()
 }
 
 fn strip_heredoc_bodies(command: &str) -> Result<String, &'static str> {
@@ -895,8 +909,8 @@ mod tests {
     #[test]
     fn git_clean_options_respect_order_boundaries_and_values() {
         for command in [
-            "git clean -fd -- -n",
-            "git clean -fd -- --dry-run",
+            "git clean -fd -- -n .",
+            "git clean -fd -- --dry-run .",
             "git clean --force -d",
             "git clean -d --force",
             "git clean --no-force -fd",
@@ -906,8 +920,8 @@ mod tests {
             "git clean -f --exclude=-n",
             "git clean -fe-n",
             "git clean '-fd'",
-            "git clean -f 'a -n'",
-            "git clean -f -- -n --no-force",
+            "git clean -f 'a -n' .",
+            "git clean -f -- -n --no-force .",
             "git clean -f > '-n'",
             "git clean -f > '--no-force'",
             "git clean -f >'-n'",
@@ -934,6 +948,42 @@ mod tests {
             assert!(blocked_reason(command).is_none(), "{command}");
         }
     }
+    #[test]
+    fn forced_git_clean_allows_specific_paths_only() {
+        for command in [
+            "git clean -fd",
+            "git clean -fdx",
+            "git clean -f -- .",
+            "git clean -f ./",
+            "git clean -f src/..",
+            "git clean -f ../sibling",
+            "git clean -f -- ''",
+            "git clean -f /repo/scratch.txt",
+            "git clean -f ~/scratch.txt",
+            "git clean -f -- ':/'",
+            "git clean -f ':(top)build'",
+            "git clean -f '*.log'",
+            "git clean -f 'build?'",
+            "git clean -f '[ab]'",
+            "git clean -f \"$TARGET\"",
+            "git clean -f \"`pwd`\"",
+            "git clean -f scratch.txt .",
+            "git clean -f -e keep -- .",
+        ] {
+            assert!(blocked_reason(command).is_some(), "{command}");
+        }
+        for command in [
+            "git clean -f scratch.txt",
+            "git clean -fd -- scratch.txt",
+            "git clean -fd ./build",
+            "git clean -fdx -- build/ tmp/cache",
+            "git clean -f --quiet -- 'a b.txt'",
+            "git clean -f -e keep -- build",
+        ] {
+            assert!(blocked_reason(command).is_none(), "{command}");
+        }
+    }
+
     #[test]
     fn rm_options_use_parsed_words_and_stop_at_double_dash() {
         for command in [
