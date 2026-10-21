@@ -1757,6 +1757,125 @@ fn unsupported_native_installation_is_explicit() {
 
 #[cfg(windows)]
 #[test]
+fn windows_short_paths_use_actual_long_names() {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetShortPathNameW(path: *const u16, output: *mut u16, size: u32) -> u32;
+    }
+    let short_path = |path: &Path| {
+        let input: Vec<_> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut output = vec![0u16; 32768];
+        // SAFETY: input is NUL-terminated and output has the declared capacity.
+        let length =
+            unsafe { GetShortPathNameW(input.as_ptr(), output.as_mut_ptr(), output.len() as u32) };
+        assert!(length > 0 && (length as usize) < output.len());
+        let short = String::from_utf16(&output[..length as usize]).unwrap();
+        assert_ne!(
+            short.to_ascii_lowercase(),
+            path.to_string_lossy().to_ascii_lowercase(),
+            "Windows test volume must provide an actual 8.3 alias"
+        );
+        short
+    };
+    let system = PathBuf::from(std::env::var_os("ProgramFiles").unwrap());
+    let system_alias = short_path(&system).replace('\\', "/");
+    let temp = Temp::new();
+    let safe = temp.0.join("safe long directory");
+    fs::create_dir(&safe).unwrap();
+    let safe_alias = short_path(&safe).replace('\\', "/");
+    for (path, blocked) in [
+        (system_alias.clone(), true),
+        (
+            format!("/{}{}", &system_alias[..1], &system_alias[2..]),
+            true,
+        ),
+        (format!("{system_alias}/absent-child"), true),
+        (safe_alias.clone(), false),
+        (format!("{safe_alias}/absent-child"), false),
+    ] {
+        let output = invoke(
+            &["hook", "claude"],
+            &payload("PreToolUse", &format!("rm -rf '{path}'")).to_string(),
+            None,
+        );
+        success(&output);
+        let denied = !output.stdout.is_empty();
+        assert_eq!(denied, blocked, "{path}");
+        if denied {
+            assert_eq!(
+                native(&output)["hookSpecificOutput"]["permissionDecision"],
+                "deny"
+            );
+        }
+    }
+    assert!(
+        system.is_dir() && safe.is_dir(),
+        "hook input must never execute rm"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_replacement_preserves_explicit_dacl_and_reports_locked_targets() {
+    let temp = Temp::new();
+    let script = r#"
+$ErrorActionPreference = 'Stop'
+$binary = $env:VIBEGUARD_TEST_BINARY
+$home_path = $env:VIBEGUARD_TEST_HOME
+$config = Join-Path $home_path '.claude/settings.json'
+$instructions = Join-Path $home_path '.claude/CLAUDE.md'
+$installed = Join-Path $home_path '.vibeguard/bin/vibeguard-runtime.exe'
+New-Item -ItemType Directory -Path (Split-Path $config), (Split-Path $installed) | Out-Null
+$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+foreach ($path in @($config, $instructions, $installed)) {
+    [IO.File]::WriteAllText($path, '')
+    $acl = Get-Acl -LiteralPath $path
+    $acl.SetAccessRuleProtection($true, $false)
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', 'Allow'))
+    Set-Acl -LiteralPath $path -AclObject $acl
+}
+$expected = @{}
+foreach ($path in @($config, $instructions, $installed)) { $expected[$path] = (Get-Acl -LiteralPath $path).Sddl }
+foreach ($phase in @('install', 'reinstall', 'uninstall')) {
+    if ($phase -ne 'uninstall') {
+        [IO.File]::WriteAllText($config, '{}')
+        [IO.File]::WriteAllText($installed, 'old binary fixture')
+    }
+    [IO.File]::WriteAllText($instructions, "user note`n<!-- vibeguard-core:start -->`nowned`n<!-- vibeguard-core:end -->`n")
+    $action = if ($phase -eq 'uninstall') { 'uninstall' } else { 'install' }
+    & $binary $action claude --home $home_path
+    if ($LASTEXITCODE -ne 0) { throw "$phase failed" }
+    foreach ($path in @($config, $instructions, $installed)) {
+        if ((Get-Acl -LiteralPath $path).Sddl -ne $expected[$path]) { throw "$phase changed explicit DACL: $path" }
+    }
+    if ([IO.File]::ReadAllText($instructions) -ne "user note`n") { throw 'Owned block removal failed' }
+    if ((Get-FileHash -LiteralPath $installed).Hash -ne (Get-FileHash -LiteralPath $binary).Hash) { throw 'Binary replacement failed' }
+}
+[IO.File]::WriteAllText($config, '{}')
+$locked = [IO.File]::Open($config, 'Open', 'Read', 'Read')
+try {
+    $ErrorActionPreference = 'Continue'
+    $output = & $binary install claude --home $home_path 2>&1
+    $ErrorActionPreference = 'Stop'
+    if ($LASTEXITCODE -ne 2) { throw 'Locked-target replacement did not preserve exit 2' }
+    if ([string]::IsNullOrWhiteSpace(($output | Out-String))) { throw 'Replacement error was hidden' }
+} finally { $locked.Dispose() }
+if ([IO.File]::ReadAllText($config) -ne '{}') { throw 'Locked target bytes changed' }
+if ((Get-Acl -LiteralPath $config).Sddl -ne $expected[$config]) { throw 'Locked target DACL changed' }
+if (Get-ChildItem -LiteralPath (Split-Path $config) -Force -Filter '*.tmp') { throw 'Staged replacement leaked' }
+"#;
+    let output = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env("VIBEGUARD_TEST_BINARY", BIN)
+        .env("VIBEGUARD_TEST_HOME", &temp.0)
+        .output()
+        .unwrap();
+    success(&output);
+}
+
+#[cfg(windows)]
+#[test]
 fn windows_status_next_actions_execute_in_powershell() {
     let temp = Temp::new();
     let home = temp.0.join("用户 space ' $ home");
