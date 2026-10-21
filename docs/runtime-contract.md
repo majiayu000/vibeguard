@@ -58,6 +58,16 @@ Drive/share roots, `Users` and immediate profile roots, `Windows`,
 `Program Files`, `Program Files (x86)` and `ProgramData` are protected; ordinary
 profile subdirectories remain allowed. Unquoted Bash backslashes are escape
 characters, so raw Windows spellings are not interpreted as PowerShell syntax.
+
+For forced recursive removal, local drive-letter paths and Git Bash drive mounts
+also use Windows `GetFullPathNameW` and `GetLongPathNameW` before an allow decision.
+The OS resolves actual short names, without guessing aliases from a tilde. Missing
+descendants retain their names after resolving the longest existing parent prefix.
+An inaccessible, invalid or otherwise uninspectable local path is denied with a
+resolution-failure explanation. UNC checks remain lexical and perform no network
+lookup: share roots and recognized long-name system/profile paths are checked,
+but remote short-name aliases are not resolved. This is not full path coverage or
+a race-free filesystem boundary.
 This does not resolve reparse points, symlinks, mount aliases or variables.
 
 ## Observations
@@ -112,6 +122,15 @@ Install and uninstall coordinate their write phase with advisory locks at `~/.vi
 Different homes can intentionally share one `CODEX_HOME`. Sequential installs retain both homes' command handlers; the shared lock coordinates writes and does not choose a single installation. Reinstall and uninstall match only the selected home's exact generated command. Uninstalling home A leaves home B and third-party handlers in place; each home keeps its own binary and observation directory. To remove A from a shared directory, use the same `HOME` and `CODEX_HOME` environment as A's installation. Passing `--home A` instead selects the isolated `A/.codex` directory.
 
 On macOS and Linux, replacement of an existing user file preserves its owner, group, mode, ACL, and extended attributes exposed by the operating system to the current user. Metadata is copied onto the temporary file before the atomic rename. A metadata read/copy error aborts that replacement and leaves the original file intact; it does not roll back earlier installation writes. Replacement does not retain an ACL inherited by the temporary file when the original had none. Reinstall restores all execute bits on product-owned executable files. Apart from the Claude install cleanup above, only exact managed hook commands/current blocks are removed; no general legacy migration. Git refuses a user-managed pre-push file. Uninstall retains the shared binary and unrelated configuration. Instruction files remain even when removing the managed block leaves them empty, preserving user-file metadata without tracking file ownership. Uninstall does not create an absent instruction file.
+
+On Windows, existing targets use `ReplaceFileW` with zero flags to preserve the
+target DACL. ACL/metadata merge errors are not ignored and there is no rename
+fallback for failed replacement. New files retain ordinary directory inheritance.
+Replacement failures return exit 2. The documented Windows errors 1176/1177 can
+leave a partial replacement; for those errors the staged content is retained and
+the error names its recovery path. Other failures retain the existing temporary
+cleanup behavior. This does not make installation a transaction or promise that
+every Windows replacement failure leaves the original path intact.
 
 ## Status and platforms
 
