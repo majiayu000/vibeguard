@@ -782,10 +782,19 @@ fn codex_feature_uses_selected_host_directory() {
 }
 
 #[test]
-fn forced_cleanup_denial_explains_the_authorization_limit() {
+fn targeted_cleanup_passes_and_bulk_forced_cleanup_is_denied() {
     // These are proposed commands on stdin, never commands executed by this test.
     for host in ["claude", "codex", "grok", "dsh"] {
-        for command in ["git clean -fd", "git clean -fd -- scratch.txt"] {
+        for command in [
+            "git clean -fd",
+            "git clean -fdx",
+            "git clean -fd -- .",
+            "git clean -f -- '*.log'",
+            "git clean -fd -- :/",
+            "git clean -fd -- ../other",
+            "git clean -f -- /tmp/repo",
+            "git clean -fd scratch.txt .",
+        ] {
             let output = invoke(
                 &["hook", host],
                 &payload("PreToolUse", command).to_string(),
@@ -795,22 +804,29 @@ fn forced_cleanup_denial_explains_the_authorization_limit() {
             assert!(output.stderr.is_empty());
             let response = native(&output);
             let decision = &response["hookSpecificOutput"];
-            assert_eq!(decision["hookEventName"], "PreToolUse");
-            assert_eq!(decision["permissionDecision"], "deny");
+            assert_eq!(decision["hookEventName"], "PreToolUse", "{command}");
+            assert_eq!(decision["permissionDecision"], "deny", "{command}");
             assert!(decision.get("updatedInput").is_none());
             let reason = decision["permissionDecisionReason"].as_str().unwrap();
-            assert!(reason.contains("including explicit paths"));
-            assert!(reason.contains("cannot determine task-level authorization"));
-            assert!(!reason.contains("select the files to remove"));
+            assert!(reason.contains("without specific paths"));
+            assert!(reason.contains("git clean -f -- scratch.txt"));
         }
-        let dry_run = invoke(
-            &["hook", host],
-            &payload("PreToolUse", "git clean -nfd -- scratch.txt").to_string(),
-            None,
-        );
-        success(&dry_run);
-        assert!(dry_run.stdout.is_empty());
-        assert!(dry_run.stderr.is_empty());
+        // An authorized cleanup that names its targets stays quiet.
+        for command in [
+            "git clean -fd -- scratch.txt",
+            "git clean -f scratch.txt",
+            "git clean -fdx -- build/ tmp/cache",
+            "git clean -nfd -- scratch.txt",
+        ] {
+            let output = invoke(
+                &["hook", host],
+                &payload("PreToolUse", command).to_string(),
+                None,
+            );
+            success(&output);
+            assert!(output.stdout.is_empty(), "{host}: {command}");
+            assert!(output.stderr.is_empty());
+        }
     }
 }
 
@@ -876,7 +892,7 @@ fn native_hooks_preserve_shell_argument_semantics() {
             ("rm -rf ~rooted", false),
             ("rm -rf '~/../../etc'", false),
             ("rm -rf '$HOME/../../etc'", false),
-            ("git clean -fd -- -n", true),
+            ("git clean -fd -- -n .", true),
             ("git clean --force -d", true),
             ("git clean -f --no-force", false),
             ("git clean -nf --no-dry-run", true),
