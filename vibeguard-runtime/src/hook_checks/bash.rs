@@ -284,21 +284,17 @@ fn windows_protected_path(path: &str) -> bool {
     } else {
         return false;
     };
-    // Win32 strips trailing spaces and dots from ordinary path components.
-    // Keep dot-navigation components so lexical parent traversal still applies.
-    let drive_path = drive_path
-        .split('/')
-        .map(|part| {
-            let part = part.trim_end_matches(' ');
-            if matches!(part, "." | "..") {
-                part
-            } else {
-                part.trim_end_matches(['.', ' '])
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("/");
-    let parts = normalized_components(&drive_path);
+    // Resolve dot navigation before comparing Win32 component spellings. An
+    // all-dot/space component must still occupy one level when followed by `..`.
+    let mut parts = normalized_components(drive_path)
+        .into_iter()
+        .map(|part| part.trim_end_matches(['.', ' ']))
+        .collect::<Vec<_>>();
+    // Without a trailing separator, Win32 strips all terminal dots/spaces.
+    // A resulting empty final component denotes the containing directory.
+    if !drive_path.ends_with('/') && parts.last() == Some(&"") {
+        parts.pop();
+    }
     parts.is_empty()
         || (parts.first() == Some(&"users") && parts.len() <= 2)
         || matches!(
@@ -563,6 +559,13 @@ mod tests {
             "C:/Program Files.../app",
             "//server/share/ProgramData. /app",
             "C:/tmp. /../Windows...",
+            "C:/Windows/.../../System32",
+            "C:/Windows/   /../System32",
+            "//server/share/Windows/.../../System32",
+            "C:/...",
+            "C:/   ",
+            "C:/Users/name/...",
+            "C:/Users/name/   ",
             r"\\server\share",
             "//server/share/Users/name",
             "//server/share/Windows/System32",
@@ -577,6 +580,13 @@ mod tests {
             "/c/Users/name/project",
             "C:/Windows/../tmp",
             "C:/Windows. /../tmp",
+            "C:/Windows/.../../../tmp",
+            "C:/Users/name/.../../cache",
+            "C:/.../",
+            "C:/   /",
+            "C:/Users/name/.../",
+            "C:/Users/name/   /",
+            "C:/.../...",
             "C:/Users. /name/cache",
             "C:Windows",
             "./Windows",

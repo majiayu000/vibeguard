@@ -65,6 +65,35 @@ def smoke(binary):
             if status["last_observation"]["outcome"] != "denied":
                 raise RuntimeError("installed hook was not observed")
             if os.name == "nt":
+                import ctypes
+                from ctypes import wintypes
+
+                get_full_path = ctypes.WinDLL("kernel32", use_last_error=True).GetFullPathNameW
+                get_full_path.argtypes = [wintypes.LPCWSTR, wintypes.DWORD,
+                                          wintypes.LPWSTR, ctypes.POINTER(wintypes.LPWSTR)]
+                get_full_path.restype = wintypes.DWORD
+                for raw, resolved, blocked in (
+                        ("C:/...", "C:/", True),
+                        ("C:/   ", "C:/", True),
+                        ("C:/Users/name/...", "C:/Users/name", True),
+                        ("C:/Users/name/   ", "C:/Users/name", True),
+                        ("C:/Windows/.../../System32", "C:/Windows/System32", True),
+                        ("C:/Windows/   /../System32", "C:/Windows/System32", True),
+                        ("C:/Users/name/.../../cache", "C:/Users/name/cache", False),
+                        ("C:/.../", "C:/.../", False)):
+                    buffer = ctypes.create_unicode_buffer(32768)
+                    length = get_full_path(raw, len(buffer), buffer, None)
+                    if not length or length >= len(buffer):
+                        raise RuntimeError(f"GetFullPathNameW failed for {raw!r}")
+                    if buffer.value.replace("\\", "/").rstrip("/") != resolved.rstrip("/"):
+                        raise RuntimeError(f"GetFullPathNameW({raw!r}) returned {buffer.value!r}")
+                    # Resolve names and evaluate JSON only; never execute rm.
+                    event["tool_input"]["command"] = f"rm -rf '{raw}'"
+                    result = subprocess.run(command, input=json.dumps(event), encoding="utf-8",
+                                            capture_output=True, check=True)
+                    output = json.loads(result.stdout) if result.stdout.strip() else {}
+                    if (output.get("hookSpecificOutput", {}).get("permissionDecision") == "deny") != blocked:
+                        raise RuntimeError(f"Windows resolved-path policy mismatch for {raw!r}")
                 if "PowerShell and cmd commands are not protected" not in status["coverage"]:
                     raise RuntimeError("Windows coverage boundary missing")
                 for proposed, blocked in (("rm -rf /c/Windows", True),

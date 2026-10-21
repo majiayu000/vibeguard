@@ -51,8 +51,9 @@ Object-type and ancestry inspection use `git --no-replace-objects --no-lazy-fetc
 On Windows only, the parsed Bash path word also recognizes drive-letter absolute
 paths (`C:/Windows`, quoted `C:\Windows`), Git Bash drive mounts (`/c/Windows`),
 and UNC server/share roots. Comparisons ignore ASCII case and normalize `.`/`..`
-inside a volume. Trailing spaces and periods in ordinary components are stripped
-before comparison, while `.` and `..` retain their navigation meaning.
+inside a volume before trimming trailing spaces and periods for comparison.
+Intermediate all-dot/space components retain their path level during navigation;
+without a trailing separator, an all-dot/space final component denotes its parent.
 Drive/share roots, `Users` and immediate profile roots, `Windows`,
 `Program Files`, `Program Files (x86)` and `ProgramData` are protected; ordinary
 profile subdirectories remain allowed. Unquoted Bash backslashes are escape
