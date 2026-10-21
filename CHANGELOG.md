@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.1 — 2026-10-21
+
+- Allow forced `git clean` that names specific relative paths, so a cleanup the user authorized for those files is no longer falsely blocked. Forced clean without a pathspec, or with `.`, `..`, absolute, `~`, glob, pathspec-magic or variable targets, remains denied.
+- Add `install.sh` to download, checksum-verify and install the prebuilt release; `setup.sh` without Cargo now points to it.
+- Remove retired Claude skills-loader hook registrations on Claude install.
+- Show registered event scope and the latest observation in `status`.
+- Avoid repeated rule reads when guidance is already available; include the license in the DSH npm package.
+
 ## 2.1.0 — 2026-10-08
 
 - Preview installation with `install --dry-run` before writing host or Git integration files; preserve user-owned configuration and report disabled hooks.
