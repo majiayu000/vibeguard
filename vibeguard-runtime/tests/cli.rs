@@ -1757,6 +1757,46 @@ fn unsupported_native_installation_is_explicit() {
 
 #[cfg(windows)]
 #[test]
+fn windows_status_next_actions_execute_in_powershell() {
+    let temp = Temp::new();
+    let home = temp.0.join("用户 space ' $ home");
+    let args = ["status", "claude", "--home", home.to_str().unwrap()];
+    let incomplete = invoke(&args, "", None);
+    assert_eq!(incomplete.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&incomplete.stderr);
+    let install = stderr
+        .lines()
+        .find_map(|line| line.split_once("Next: run "))
+        .unwrap()
+        .1
+        .strip_suffix('.')
+        .unwrap();
+    let installed = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", install])
+        .output()
+        .unwrap();
+    success(&installed);
+    assert!(home.join(".vibeguard/bin/vibeguard-runtime.exe").is_file());
+    let ready = invoke(&args, "", None);
+    success(&ready);
+    let stderr = String::from_utf8_lossy(&ready.stderr);
+    let status = stderr
+        .split_once("then rerun ")
+        .unwrap()
+        .1
+        .split_once(" and inspect last_observation.")
+        .unwrap()
+        .0;
+    success(
+        &Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", status])
+            .output()
+            .unwrap(),
+    );
+}
+
+#[cfg(windows)]
+#[test]
 fn windows_claude_installation_uses_exec_and_preserves_user_handlers() {
     let temp = Temp::new();
     let home = temp.0.join("用户 space ' $ home");
@@ -1769,7 +1809,9 @@ fn windows_claude_installation_uses_exec_and_preserves_user_handlers() {
     let config_path = home.join(".claude/settings.json");
     fs::write(&config_path, r#"{"user":7,"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo user"}]}]}}"#).unwrap();
     fs::write(home.join(".claude/CLAUDE.md"), "user text\r\n").unwrap();
-    success(&invoke(&args, "", None));
+    let installed = invoke(&args, "", None);
+    success(&installed);
+    assert_eq!(native(&installed)["legacy"]["findings"], json!([]));
     let config: Value = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
     let handler = &config["hooks"]["PreToolUse"][1]["hooks"][0];
     assert_eq!(handler["args"][0], "hook");
@@ -1809,6 +1851,10 @@ fn windows_claude_installation_uses_exec_and_preserves_user_handlers() {
         None,
     );
     success(&status);
+    assert_eq!(native(&status)["legacy"]["findings"], json!([]));
+    let summary = String::from_utf8_lossy(&status.stderr);
+    assert!(summary.contains("then rerun & '"), "{summary}");
+    assert!(summary.contains("space '' $ home'"), "{summary}");
     assert_eq!(native(&status)["last_observation"]["outcome"], "denied");
     assert!(
         native(&status)["coverage"]

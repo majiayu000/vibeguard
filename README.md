@@ -79,7 +79,7 @@ Use `claude` or `grok` instead of `codex` for those hosts. Uninstall retains the
 
 ## Build and install from source
 
-Source builds require Git and the Rust toolchain pinned in `rust-toolchain.toml`. Native installation supports macOS, Linux, and WSL. Native Windows installation is not implemented; the portable CLI and JSON protocol are tested in Windows CI.
+Source builds require Git and the Rust toolchain pinned in `rust-toolchain.toml`. Native installation supports macOS, Linux, and WSL. Native Windows installation supports Claude Code with Git Bash experimentally; native Windows Codex/Grok/Git installation remains unsupported. Windows CI tests the portable CLI, JSON protocol and Claude installation.
 
 ```bash
 git clone https://github.com/majiayu000/vibeguard.git

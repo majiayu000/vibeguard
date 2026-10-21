@@ -504,9 +504,17 @@ fn status_summary(options: &Options, ready: bool, legacy: &Value, status: &Value
             options.config().display()
         );
     }
+    let quote = |value: &str| {
+        if cfg!(windows) {
+            format!("'{}'", value.replace('\'', "''"))
+        } else {
+            shell_quote(value)
+        }
+    };
     let mut command = format!(
-        "{} {} {}",
-        shell_quote(
+        "{}{} {} {}",
+        if cfg!(windows) { "& " } else { "" },
+        quote(
             &std::env::args()
                 .next()
                 .unwrap_or_else(|| "vibeguard-runtime".into())
@@ -517,13 +525,13 @@ fn status_summary(options: &Options, ready: bool, legacy: &Value, status: &Value
     if options.explicit_home {
         command.push_str(&format!(
             " --home {}",
-            shell_quote(&options.home.to_string_lossy())
+            quote(&options.home.to_string_lossy())
         ));
     }
     if options.inspect_repo {
         command.push_str(&format!(
             " --repo {}",
-            shell_quote(&options.repo.to_string_lossy())
+            quote(&options.repo.to_string_lossy())
         ));
     }
     if ready {

@@ -284,7 +284,21 @@ fn windows_protected_path(path: &str) -> bool {
     } else {
         return false;
     };
-    let parts = normalized_components(drive_path);
+    // Win32 strips trailing spaces and dots from ordinary path components.
+    // Keep dot-navigation components so lexical parent traversal still applies.
+    let drive_path = drive_path
+        .split('/')
+        .map(|part| {
+            let part = part.trim_end_matches(' ');
+            if matches!(part, "." | "..") {
+                part
+            } else {
+                part.trim_end_matches(['.', ' '])
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    let parts = normalized_components(&drive_path);
     parts.is_empty()
         || (parts.first() == Some(&"users") && parts.len() <= 2)
         || matches!(
@@ -543,6 +557,12 @@ mod tests {
             "C:/Program Files/app",
             "C:/Program Files (x86)",
             "C:/ProgramData",
+            r"C:\Windows.\System32",
+            "C:/Windows /System32",
+            "/c/Users. /name",
+            "C:/Program Files.../app",
+            "//server/share/ProgramData. /app",
+            "C:/tmp. /../Windows...",
             r"\\server\share",
             "//server/share/Users/name",
             "//server/share/Windows/System32",
@@ -556,6 +576,8 @@ mod tests {
             "C:/Users/name/cache",
             "/c/Users/name/project",
             "C:/Windows/../tmp",
+            "C:/Windows. /../tmp",
+            "C:/Users. /name/cache",
             "C:Windows",
             "./Windows",
             "Windows",
@@ -575,11 +597,14 @@ mod tests {
             "rm -r -f C:/Windows",
             "rm -rf '/c/Program Files'",
             "rm -rf //server/share",
+            r"rm -rf 'C:\Windows.\System32'",
+            "rm -rf '/c/Users. /name'",
         ] {
             assert!(super::blocked_reason(command).is_some(), "{command}");
         }
         for command in [
             "rm -rf C:/Users/name/cache",
+            "rm -rf 'C:/Users. /name/cache'",
             r"rm -rf C:\Users\name",
             "echo 'rm -rf C:/Windows'",
             "rm -rf ./build > C:/Windows",

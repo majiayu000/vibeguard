@@ -51,7 +51,9 @@ Object-type and ancestry inspection use `git --no-replace-objects --no-lazy-fetc
 On Windows only, the parsed Bash path word also recognizes drive-letter absolute
 paths (`C:/Windows`, quoted `C:\Windows`), Git Bash drive mounts (`/c/Windows`),
 and UNC server/share roots. Comparisons ignore ASCII case and normalize `.`/`..`
-inside a volume. Drive/share roots, `Users` and immediate profile roots, `Windows`,
+inside a volume. Trailing spaces and periods in ordinary components are stripped
+before comparison, while `.` and `..` retain their navigation meaning.
+Drive/share roots, `Users` and immediate profile roots, `Windows`,
 `Program Files`, `Program Files (x86)` and `ProgramData` are protected; ordinary
 profile subdirectories remain allowed. Unquoted Bash backslashes are escape
 characters, so raw Windows spellings are not interpreted as PowerShell syntax.
@@ -128,6 +130,6 @@ Migration commands are in `legacy.migration`: v1 source `bash setup.sh --clean`,
 
 Advisory Git inventory queries use a 2-second timeout followed by up to 2 seconds waiting for termination. A timed-out query is reported as `not_checked`; the primary install, uninstall or status result remains available. Each query has its own timeout, so multiple unavailable locations can add to the inventory's latency.
 
-Native installation supports macOS, Linux, and WSL. Windows install/uninstall errors without writes; portable CLI/protocol tests run in Windows CI.
+Native installation supports macOS, Linux, and WSL. Native Windows experimentally supports Claude Code with Git Bash, including install, preview, status and uninstall. Other native Windows install/uninstall targets fail without writes. Windows CI tests the portable CLI/protocol and Claude installation; real Windows Claude Code trust and dispatch remain unverified.
 
 Verified against [Codex hooks](https://learn.chatgpt.com/docs/hooks) and [Claude Code hooks](https://code.claude.com/docs/en/hooks), accessed 2026-09-17. Grok was checked against [Grok hooks](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md) and [event serialization](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-hooks/src/event.rs), accessed 2026-10-07. Host support is broader than VibeGuard's selected shell registration.

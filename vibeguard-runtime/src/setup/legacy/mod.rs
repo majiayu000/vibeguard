@@ -1,4 +1,5 @@
 use super::Options;
+use super::support::shell_quote;
 mod classify;
 mod process;
 
@@ -173,6 +174,20 @@ fn walk_commands(path: &Path, value: &Value, findings: &mut Vec<Value>) {
                 let Some(command) = handler.get("command").and_then(Value::as_str) else {
                     continue;
                 };
+                // Exec-form handlers keep arguments separate from the executable.
+                // Quote each word only for classification; never run the command.
+                let invocation = handler
+                    .get("args")
+                    .and_then(Value::as_array)
+                    .and_then(|args| args.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
+                    .map(|args| {
+                        std::iter::once(command)
+                            .chain(args)
+                            .map(shell_quote)
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    });
+                let command = invocation.as_deref().unwrap_or(command);
                 if let Some(evidence) = classify_command(command) {
                     findings.push(finding(
                         evidence,
@@ -609,6 +624,22 @@ fn read_bounded(reader: impl Read, path: &Path) -> Record {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exec_hook_arguments_distinguish_current_hooks_from_legacy_mentions() {
+        let binary = r"C:\Users\用户 space ' $ home\.vibeguard\bin\vibeguard-runtime.exe";
+        let config = json!({"hooks":{"PreToolUse":[{"hooks":[
+            {"type":"command","command":binary,"args":["hook","claude","--state-dir",r"C:\state"]},
+            {"type":"command","command":binary,"args":["rules"]},
+            {"type":"command","command":binary,"args":["hook","claude","--state-dir",7]},
+            {"type":"command","command":binary},
+            {"type":"command","command":"bash","args":["/home/user/.vibeguard/run-hook.sh","pre-bash-guard.sh"]}
+        ]}]}});
+        let mut findings = Vec::new();
+        walk_commands(Path::new("settings.json"), &config, &mut findings);
+        assert_eq!(findings.len(), 4, "{findings:?}");
+        assert_eq!(findings[3]["evidence"], "owned");
+    }
 
     #[test]
     fn content_read_is_bounded_even_without_a_size_hint() {
