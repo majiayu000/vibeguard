@@ -66,15 +66,136 @@ fn simple_command_reason(words: &[ShellWord<'_>]) -> Option<&'static str> {
                 "Forced git clean is blocked for this call, including explicit paths. This check cannot determine task-level authorization. If cleanup is already authorized, report this limitation to the user. Do not retry via another command/tool or disable the hook.",
             );
         }
-    } else if matches!(name.raw, "rm" | "\\rm")
-        && forced_recursive_rm(args)
-        && args.iter().any(protected_path)
-    {
-        return Some(
-            "Recursive forced deletion of a root, home or system path is blocked. Inspect the target and use the specific intended directory.",
-        );
+    } else if matches!(name.raw, "rm" | "\\rm") && forced_recursive_rm(args) {
+        let protected = "Recursive forced deletion of a root, home or system path is blocked. Inspect the target and use the specific intended directory.";
+        if args.iter().any(protected_path) {
+            return Some(protected);
+        }
+        #[cfg(windows)]
+        for arg in args {
+            if let Some(path) = windows_local_path(&arg.value) {
+                match windows_long_path(&path) {
+                    Ok(path) if windows_protected_path(&path) => return Some(protected),
+                    Ok(_) => {}
+                    Err(_) => {
+                        return Some(
+                            "Windows local path resolution failed. Recursive forced deletion is blocked because the target could not be inspected; check its existence and access permissions.",
+                        );
+                    }
+                }
+            }
+        }
     }
     None
+}
+
+#[cfg(windows)]
+fn windows_local_path(path: &str) -> Option<String> {
+    let path = path.replace('\\', "/");
+    let bytes = path.as_bytes();
+    if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1..3] == *b":/" {
+        Some(path)
+    } else if bytes.len() >= 2
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_alphabetic()
+        && (bytes.len() == 2 || bytes[2] == b'/')
+    {
+        Some(format!(
+            "{}:/{}",
+            &path[1..2],
+            path[2..].trim_start_matches('/')
+        ))
+    } else {
+        // UNC remains lexical: do not introduce network I/O into this hook.
+        None
+    }
+}
+
+#[cfg(windows)]
+fn windows_long_path(path: &str) -> std::io::Result<String> {
+    use std::io::{Error, ErrorKind};
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::PathBuf;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetFullPathNameW(
+            path: *const u16,
+            size: u32,
+            output: *mut u16,
+            part: *mut *mut u16,
+        ) -> u32;
+        fn GetLongPathNameW(path: *const u16, output: *mut u16, size: u32) -> u32;
+    }
+    if path.contains('\0') {
+        return Err(Error::new(ErrorKind::InvalidInput, "path contains NUL"));
+    }
+    let input: Vec<_> = path.encode_utf16().chain(Some(0)).collect();
+    let mut output = vec![0u16; 32768];
+    // SAFETY: input is NUL-terminated; output has the declared capacity. The
+    // optional filename pointer is unused. Both APIs only inspect path names.
+    let length = unsafe {
+        GetFullPathNameW(
+            input.as_ptr(),
+            output.len() as u32,
+            output.as_mut_ptr(),
+            std::ptr::null_mut(),
+        )
+    } as usize;
+    if length == 0 {
+        return Err(Error::last_os_error());
+    }
+    if length >= output.len() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "Windows path is too long",
+        ));
+    }
+    let normalized = String::from_utf16(&output[..length])
+        .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
+    let trailing_separator = normalized.ends_with(['/', '\\']);
+    let mut prefix = PathBuf::from(normalized);
+    let mut suffix = Vec::new();
+    loop {
+        let input: Vec<_> = prefix.as_os_str().encode_wide().chain(Some(0)).collect();
+        // SAFETY: each prefix is NUL-terminated and output retains its capacity.
+        let length =
+            unsafe { GetLongPathNameW(input.as_ptr(), output.as_mut_ptr(), output.len() as u32) }
+                as usize;
+        if length >= output.len() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "Windows path is too long",
+            ));
+        }
+        if length > 0 {
+            let mut path = PathBuf::from(
+                String::from_utf16(&output[..length])
+                    .map_err(|error| Error::new(ErrorKind::InvalidData, error))?,
+            );
+            path.extend(suffix.into_iter().rev());
+            let mut path = path
+                .into_os_string()
+                .into_string()
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Windows path is not UTF-8"))?;
+            if trailing_separator && !path.ends_with(['/', '\\']) {
+                path.push('/');
+            }
+            return Ok(path);
+        }
+        let error = Error::last_os_error();
+        if error.kind() != ErrorKind::NotFound {
+            return Err(error);
+        }
+        // Missing descendants cannot hide an existing protected alias above
+        // them. Resolve the longest existing prefix, retaining their names.
+        let Some(name) = prefix.file_name() else {
+            return Err(error);
+        };
+        suffix.push(name.to_os_string());
+        if !prefix.pop() {
+            return Err(error);
+        }
+    }
 }
 
 struct ShellWord<'a> {
