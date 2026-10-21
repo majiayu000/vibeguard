@@ -794,6 +794,8 @@ fn targeted_cleanup_passes_and_bulk_forced_cleanup_is_denied() {
             "git clean -fd -- ../other",
             "git clean -f -- /tmp/repo",
             "git clean -fd scratch.txt .",
+            "git clean -fd --excl keep",
+            "git clean -fd -- {.,scratch.txt}",
         ] {
             let output = invoke(
                 &["hook", host],
@@ -817,6 +819,7 @@ fn targeted_cleanup_passes_and_bulk_forced_cleanup_is_denied() {
             "git clean -f scratch.txt",
             "git clean -fdx -- build/ tmp/cache",
             "git clean -nfd -- scratch.txt",
+            "git clean -fd --excl keep -- scratch.txt",
         ] {
             let output = invoke(
                 &["hook", host],

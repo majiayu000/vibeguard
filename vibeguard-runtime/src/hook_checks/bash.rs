@@ -470,13 +470,6 @@ fn bulk_forced_git_clean(args: &[&str]) -> bool {
                 pathspecs.extend(args.by_ref());
                 break;
             }
-            "--force" => force = true,
-            "--no-force" => force = false,
-            "--dry-run" => dry_run = true,
-            "--no-dry-run" => dry_run = false,
-            "--exclude" => {
-                args.next();
-            }
             arg if arg.starts_with('-') && !arg.starts_with("--") => {
                 let mut flags = arg[1..].chars();
                 while let Some(flag) = flags.next() {
@@ -493,7 +486,23 @@ fn bulk_forced_git_clean(args: &[&str]) -> bool {
                     }
                 }
             }
-            arg if arg.starts_with("--") => {}
+            arg if arg.starts_with("--") => {
+                let (name, value) = arg
+                    .split_once('=')
+                    .map_or((arg, None), |(name, value)| (name, Some(value)));
+                // Git accepts unique long-option prefixes. In particular,
+                // --excl consumes its next word; that word is not a pathspec.
+                match name {
+                    name if "--force".starts_with(name) => force = true,
+                    name if "--no-force".starts_with(name) => force = false,
+                    name if "--dry-run".starts_with(name) => dry_run = true,
+                    name if "--no-dry-run".starts_with(name) => dry_run = false,
+                    name if "--exclude".starts_with(name) && value.is_none() => {
+                        args.next();
+                    }
+                    _ => {}
+                }
+            }
             arg => pathspecs.push(arg),
         }
     }
@@ -502,7 +511,7 @@ fn bulk_forced_git_clean(args: &[&str]) -> bool {
 
 fn bulk_pathspec(path: &str) -> bool {
     path.starts_with([':', '/', '~'])
-        || path.contains(['*', '?', '[', '$', '`', '\\'])
+        || path.contains(['*', '?', '[', '{', '}', '$', '`', '\\'])
         || path.split('/').any(|part| part == "..")
         || normalized_components(path).is_empty()
 }
@@ -982,6 +991,29 @@ mod tests {
         ] {
             assert!(blocked_reason(command).is_none(), "{command}");
         }
+    }
+
+    #[test]
+    fn forced_git_clean_consumes_abbreviated_options() {
+        for command in [
+            "git clean -fd --excl keep",
+            "git clean -fd --e keep",
+            "git clean --for -d --excl keep",
+        ] {
+            assert!(blocked_reason(command).is_some(), "{command}");
+        }
+        for command in [
+            "git clean -fd --excl keep -- scratch.txt",
+            "git clean -fd --excl=keep -- scratch.txt",
+            "git clean --for --dry-r",
+        ] {
+            assert!(blocked_reason(command).is_none(), "{command}");
+        }
+    }
+
+    #[test]
+    fn forced_git_clean_rejects_brace_pathspecs() {
+        assert!(blocked_reason("git clean -fd -- {.,scratch.txt}").is_some());
     }
 
     #[test]
