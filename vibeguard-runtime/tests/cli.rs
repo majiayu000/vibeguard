@@ -1754,3 +1754,297 @@ fn unsupported_native_installation_is_explicit() {
     assert_eq!(output.status.code(), Some(2));
     assert!(!temp.0.join(".codex").exists());
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_short_paths_use_actual_long_names() {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetShortPathNameW(path: *const u16, output: *mut u16, size: u32) -> u32;
+    }
+    let short_path = |path: &Path| {
+        let input: Vec<_> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut output = vec![0u16; 32768];
+        // SAFETY: input is NUL-terminated and output has the declared capacity.
+        let length =
+            unsafe { GetShortPathNameW(input.as_ptr(), output.as_mut_ptr(), output.len() as u32) };
+        assert!(length > 0 && (length as usize) < output.len());
+        let short = String::from_utf16(&output[..length as usize]).unwrap();
+        assert_ne!(
+            short.to_ascii_lowercase(),
+            path.to_string_lossy().to_ascii_lowercase(),
+            "Windows test volume must provide an actual 8.3 alias"
+        );
+        short
+    };
+    let system = PathBuf::from(std::env::var_os("ProgramFiles").unwrap());
+    let system_alias = short_path(&system).replace('\\', "/");
+    let temp = Temp::new();
+    let safe = temp.0.join("safe long directory");
+    fs::create_dir(&safe).unwrap();
+    let safe_alias = short_path(&safe).replace('\\', "/");
+    for (path, blocked) in [
+        (system_alias.clone(), true),
+        (
+            format!("/{}{}", &system_alias[..1], &system_alias[2..]),
+            true,
+        ),
+        (format!("{system_alias}/absent-child"), true),
+        (safe_alias.clone(), false),
+        (format!("{safe_alias}/absent-child"), false),
+    ] {
+        let output = invoke(
+            &["hook", "claude"],
+            &payload("PreToolUse", &format!("rm -rf '{path}'")).to_string(),
+            None,
+        );
+        success(&output);
+        let denied = !output.stdout.is_empty();
+        assert_eq!(denied, blocked, "{path}");
+        if denied {
+            assert_eq!(
+                native(&output)["hookSpecificOutput"]["permissionDecision"],
+                "deny"
+            );
+        }
+    }
+    assert!(
+        system.is_dir() && safe.is_dir(),
+        "hook input must never execute rm"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_replacement_preserves_explicit_dacl_and_reports_locked_targets() {
+    let temp = Temp::new();
+    let script = r#"
+$ErrorActionPreference = 'Stop'
+$binary = $env:VIBEGUARD_TEST_BINARY
+$home_path = $env:VIBEGUARD_TEST_HOME
+$config = Join-Path $home_path '.claude/settings.json'
+$instructions = Join-Path $home_path '.claude/CLAUDE.md'
+$installed = Join-Path $home_path '.vibeguard/bin/vibeguard-runtime.exe'
+New-Item -ItemType Directory -Path (Split-Path $config), (Split-Path $installed) | Out-Null
+$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+foreach ($path in @($config, $instructions, $installed)) {
+    [IO.File]::WriteAllText($path, '')
+    $acl = Get-Acl -LiteralPath $path
+    $acl.SetAccessRuleProtection($true, $false)
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', 'Allow'))
+    Set-Acl -LiteralPath $path -AclObject $acl
+}
+$expected = @{}
+foreach ($path in @($config, $instructions, $installed)) { $expected[$path] = (Get-Acl -LiteralPath $path).Sddl }
+foreach ($phase in @('install', 'reinstall', 'uninstall')) {
+    if ($phase -ne 'uninstall') {
+        [IO.File]::WriteAllText($config, '{}')
+        [IO.File]::WriteAllText($installed, 'old binary fixture')
+    }
+    [IO.File]::WriteAllText($instructions, "user note`n<!-- vibeguard-core:start -->`nowned`n<!-- vibeguard-core:end -->`n")
+    $action = if ($phase -eq 'uninstall') { 'uninstall' } else { 'install' }
+    & $binary $action claude --home $home_path
+    if ($LASTEXITCODE -ne 0) { throw "$phase failed" }
+    foreach ($path in @($config, $instructions, $installed)) {
+        if ((Get-Acl -LiteralPath $path).Sddl -ne $expected[$path]) { throw "$phase changed explicit DACL: $path" }
+    }
+    if ([IO.File]::ReadAllText($instructions) -ne "user note`n") { throw 'Owned block removal failed' }
+    if ((Get-FileHash -LiteralPath $installed).Hash -ne (Get-FileHash -LiteralPath $binary).Hash) { throw 'Binary replacement failed' }
+}
+[IO.File]::WriteAllText($config, '{}')
+$locked = [IO.File]::Open($config, 'Open', 'Read', 'Read')
+try {
+    $ErrorActionPreference = 'Continue'
+    $output = & $binary install claude --home $home_path 2>&1
+    $ErrorActionPreference = 'Stop'
+    if ($LASTEXITCODE -ne 2) { throw 'Locked-target replacement did not preserve exit 2' }
+    if ([string]::IsNullOrWhiteSpace(($output | Out-String))) { throw 'Replacement error was hidden' }
+} finally { $locked.Dispose() }
+if ([IO.File]::ReadAllText($config) -ne '{}') { throw 'Locked target bytes changed' }
+if ((Get-Acl -LiteralPath $config).Sddl -ne $expected[$config]) { throw 'Locked target DACL changed' }
+if (Get-ChildItem -LiteralPath (Split-Path $config) -Force -Filter '*.tmp') { throw 'Staged replacement leaked' }
+"#;
+    let output = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env("VIBEGUARD_TEST_BINARY", BIN)
+        .env("VIBEGUARD_TEST_HOME", &temp.0)
+        .output()
+        .unwrap();
+    success(&output);
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_status_next_actions_execute_in_powershell() {
+    let temp = Temp::new();
+    let home = temp.0.join("用户 space ' $ home");
+    let args = ["status", "claude", "--home", home.to_str().unwrap()];
+    let incomplete = invoke(&args, "", None);
+    assert_eq!(incomplete.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&incomplete.stderr);
+    let install = stderr
+        .lines()
+        .find_map(|line| line.split_once("Next: run "))
+        .unwrap()
+        .1
+        .strip_suffix('.')
+        .unwrap();
+    let installed = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", install])
+        .output()
+        .unwrap();
+    success(&installed);
+    assert!(home.join(".vibeguard/bin/vibeguard-runtime.exe").is_file());
+    let ready = invoke(&args, "", None);
+    success(&ready);
+    let stderr = String::from_utf8_lossy(&ready.stderr);
+    let status = stderr
+        .split_once("then rerun ")
+        .unwrap()
+        .1
+        .split_once(" and inspect last_observation.")
+        .unwrap()
+        .0;
+    success(
+        &Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", status])
+            .output()
+            .unwrap(),
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_claude_installation_uses_exec_and_preserves_user_handlers() {
+    let temp = Temp::new();
+    let home = temp.0.join("用户 space ' $ home");
+    let args = ["install", "claude", "--home", home.to_str().unwrap()];
+    let preview = invoke(&[args.as_slice(), &["--dry-run"]].concat(), "", None);
+    success(&preview);
+    assert!(!home.exists());
+    assert!(native(&preview)["details"]["hook_args"].is_array());
+    fs::create_dir_all(home.join(".claude")).unwrap();
+    let config_path = home.join(".claude/settings.json");
+    fs::write(&config_path, r#"{"user":7,"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo user"}]}]}}"#).unwrap();
+    fs::write(home.join(".claude/CLAUDE.md"), "user text\r\n").unwrap();
+    let installed = invoke(&args, "", None);
+    success(&installed);
+    assert_eq!(native(&installed)["legacy"]["findings"], json!([]));
+    let config: Value = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+    let handler = &config["hooks"]["PreToolUse"][1]["hooks"][0];
+    assert_eq!(handler["args"][0], "hook");
+    assert!(handler["command"].as_str().unwrap().ends_with(".exe"));
+    let mut child = Command::new(handler["command"].as_str().unwrap())
+        .args(
+            handler["args"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap()),
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            payload("PreToolUse", "rm -rf /c/Windows")
+                .to_string()
+                .as_bytes(),
+        )
+        .unwrap();
+    let result = child.wait_with_output().unwrap();
+    success(&result);
+    assert_eq!(
+        native(&result)["hookSpecificOutput"]["permissionDecision"],
+        "deny"
+    );
+    let status = invoke(
+        &["status", "claude", "--home", home.to_str().unwrap()],
+        "",
+        None,
+    );
+    success(&status);
+    assert_eq!(native(&status)["legacy"]["findings"], json!([]));
+    let summary = String::from_utf8_lossy(&status.stderr);
+    assert!(summary.contains("then rerun & '"), "{summary}");
+    assert!(summary.contains("space '' $ home'"), "{summary}");
+    assert_eq!(native(&status)["last_observation"]["outcome"], "denied");
+    assert!(
+        native(&status)["coverage"]
+            .as_str()
+            .unwrap()
+            .contains("PowerShell and cmd commands are not protected")
+    );
+    // Reinstall from the installed executable as users do, then from the source binary.
+    success(
+        &Command::new(handler["command"].as_str().unwrap())
+            .args(args)
+            .output()
+            .unwrap(),
+    );
+    success(&invoke(&args, "", None));
+    let after: Value = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+    assert_eq!(config, after);
+    success(&invoke(
+        &["uninstall", "claude", "--home", home.to_str().unwrap()],
+        "",
+        None,
+    ));
+    let after: Value = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+    assert_eq!(after["user"], 7);
+    assert_eq!(
+        after["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+        "echo user"
+    );
+    assert_eq!(
+        fs::read(home.join(".claude/CLAUDE.md")).unwrap(),
+        b"user text\r\n"
+    );
+    assert!(!home.join(".vibeguard/state/claude.json").exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_home_falls_back_to_userprofile_and_bad_json_fails_before_writes() {
+    let temp = Temp::new();
+    for empty_home in [false, true] {
+        let home = temp
+            .0
+            .join(if empty_home { "empty home" } else { "no home" });
+        let mut command = Command::new(BIN);
+        command
+            .env_remove("HOME")
+            .env("USERPROFILE", &home)
+            .env_remove("CLAUDE_CONFIG_DIR");
+        if empty_home {
+            command.env("HOME", "");
+        }
+        let output = command
+            .args(["install", "claude", "--dry-run"])
+            .output()
+            .unwrap();
+        success(&output);
+        assert!(!home.exists());
+        assert!(
+            native(&output)["details"]["hook_command"]
+                .as_str()
+                .unwrap()
+                .starts_with(home.to_str().unwrap())
+        );
+    }
+    fs::create_dir_all(temp.0.join(".claude")).unwrap();
+    fs::write(temp.0.join(".claude/settings.json"), "invalid JSON").unwrap();
+    let output = invoke(
+        &["install", "claude", "--home", temp.0.to_str().unwrap()],
+        "",
+        None,
+    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(!temp.0.join(".vibeguard").exists());
+}

@@ -110,6 +110,28 @@ fn write_atomic_inner(
         if let Some(expected) = expected {
             check_unchanged(path, expected)?;
         }
+        #[cfg(windows)]
+        if original.is_some() {
+            if let Err(error) = replace_windows(&temp, path) {
+                // These documented ReplaceFile failures can leave the original
+                // name removed or changed. Retain staged content for recovery.
+                if matches!(error.raw_os_error(), Some(1176 | 1177)) {
+                    created = false;
+                    return Err(format!(
+                        "could not replace {} preserving its Windows DACL: {error}; Windows may have partially replaced the target. Staged content was retained at {} for recovery",
+                        path.display(), temp.display()
+                    ).into());
+                }
+                return Err(format!(
+                    "could not replace {} preserving its Windows DACL: {error}",
+                    path.display()
+                )
+                .into());
+            }
+        } else {
+            fs::rename(&temp, path)?;
+        }
+        #[cfg(not(windows))]
         fs::rename(&temp, path)?;
         #[cfg(unix)]
         fs::File::open(parent)?.sync_all()?;
@@ -125,6 +147,46 @@ fn write_atomic_inner(
         return Err(error);
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn replace_windows(replacement: &Path, target: &Path) -> io::Result<()> {
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn ReplaceFileW(
+            target: *const u16,
+            replacement: *const u16,
+            backup: *const u16,
+            flags: u32,
+            exclude: *mut c_void,
+            reserved: *mut c_void,
+        ) -> i32;
+    }
+    let target: Vec<_> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+    let replacement: Vec<_> = replacement
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    // SAFETY: both file names are live NUL-terminated buffers. Zero flags demand
+    // preservation of the target DACL; no IGNORE_ACL/MERGE_ERRORS downgrade.
+    if unsafe {
+        ReplaceFileW(
+            target.as_ptr(),
+            replacement.as_ptr(),
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 pub fn lock_setup(home: &Path, resource_dir: &Path) -> Result<Vec<fs::File>> {
@@ -189,7 +251,13 @@ pub fn executable(path: &Path) -> Result<bool> {
         // check, not proof against ACLs or a noexec mount.
         Ok(fs::metadata(path)?.permissions().mode() & 0o111 == 0o111)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        Ok(path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe")))
+    }
+    #[cfg(not(any(unix, windows)))]
     Ok(false)
 }
 

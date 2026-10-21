@@ -32,6 +32,42 @@ Download the archive for your OS and CPU from [Releases](https://github.com/maji
 ./vibeguard-runtime install grok
 ```
 
+### Native Windows (experimental, Claude Code + Git Bash)
+
+Use Windows x64, Git Bash, and Claude Code **2.1.139 or later**. Exec-form
+hooks were introduced in [Claude Code 2.1.139](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21139).
+Download `vibeguard-x86_64-pc-windows-msvc.tar.gz` from Releases, extract it,
+and run in PowerShell. The Windows archive will first be available in a tagged
+release containing this change:
+
+```powershell
+.\install.ps1 -DryRun
+.\install.ps1
+& "$env:USERPROFILE/.vibeguard/bin/vibeguard-runtime.exe" status claude
+```
+
+Or download [install.ps1](install.ps1) alone and run it with the same commands.
+Without an adjacent executable it downloads the latest Windows release and
+checks its archive against that release's `SHA256SUMS`; `-Version vX.Y.Z`
+selects a particular release. If the selected release has no Windows archive,
+installation fails. `-HomeDirectory PATH` selects an isolated home. Preview
+can download/extract into a temporary directory but does not write installation
+files. Windows PowerShell 5.1 or PowerShell 7 and `tar.exe` are required.
+
+The installer registers an `.exe` path plus `args` directly, with no shell
+quoting. Only Claude Code's **Bash** tool is covered; PowerShell and cmd command
+syntax, and native Windows Codex/Grok/Git installation, are outside this phase.
+Windows paths include drive roots, user-profile roots and system directories,
+using drive-letter, Git Bash `/c/...`, or UNC spelling. Backslashes must survive
+Bash parsing, for example `rm -rf 'C:\Users\name'`.
+
+Windows CI exercises installation, exact configured hook invocation and removal.
+This is experimental until a real Windows Claude Code session verifies dispatch:
+restart Claude Code, review `/hooks`, run a harmless Bash command, and check
+`status claude` for its observation. Neither a direct hook test nor status proves
+that the host trusts and dispatches hooks. Use the installed `.exe` with
+`uninstall claude` to remove this integration.
+
 The archive contains the executable, this README and LICENSE. `install --dry-run` validates current inputs and shows planned file changes, hook commands and persistent setup locks without writing files. It preserves unrelated handlers and user guidance; a disabled host remains disabled. Preview does not prove write access or active protection. Installation copies the executable to `~/.vibeguard/bin/vibeguard-runtime`. Restart the selected host and review its native hook trust settings. Check or remove that integration with:
 
 ```bash
@@ -43,7 +79,7 @@ Use `claude` or `grok` instead of `codex` for those hosts. Uninstall retains the
 
 ## Build and install from source
 
-Source builds require Git and the Rust toolchain pinned in `rust-toolchain.toml`. Native installation supports macOS, Linux, and WSL. Native Windows installation is not implemented; the portable CLI and JSON protocol are tested in Windows CI.
+Source builds require Git and the Rust toolchain pinned in `rust-toolchain.toml`. Native installation supports macOS, Linux, and WSL. Native Windows installation supports Claude Code with Git Bash experimentally; native Windows Codex/Grok/Git installation remains unsupported. Windows CI tests the portable CLI, JSON protocol and Claude installation.
 
 ```bash
 git clone https://github.com/majiayu000/vibeguard.git

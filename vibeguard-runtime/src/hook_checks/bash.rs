@@ -66,15 +66,136 @@ fn simple_command_reason(words: &[ShellWord<'_>]) -> Option<&'static str> {
                 "Forced git clean is blocked for this call, including explicit paths. This check cannot determine task-level authorization. If cleanup is already authorized, report this limitation to the user. Do not retry via another command/tool or disable the hook.",
             );
         }
-    } else if matches!(name.raw, "rm" | "\\rm")
-        && forced_recursive_rm(args)
-        && args.iter().any(protected_path)
-    {
-        return Some(
-            "Recursive forced deletion of a root, home or system path is blocked. Inspect the target and use the specific intended directory.",
-        );
+    } else if matches!(name.raw, "rm" | "\\rm") && forced_recursive_rm(args) {
+        let protected = "Recursive forced deletion of a root, home or system path is blocked. Inspect the target and use the specific intended directory.";
+        if args.iter().any(protected_path) {
+            return Some(protected);
+        }
+        #[cfg(windows)]
+        for arg in args {
+            if let Some(path) = windows_local_path(&arg.value) {
+                match windows_long_path(&path) {
+                    Ok(path) if windows_protected_path(&path) => return Some(protected),
+                    Ok(_) => {}
+                    Err(_) => {
+                        return Some(
+                            "Windows local path resolution failed. Recursive forced deletion is blocked because the target could not be inspected; check its existence and access permissions.",
+                        );
+                    }
+                }
+            }
+        }
     }
     None
+}
+
+#[cfg(windows)]
+fn windows_local_path(path: &str) -> Option<String> {
+    let path = path.replace('\\', "/");
+    let bytes = path.as_bytes();
+    if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1..3] == *b":/" {
+        Some(path)
+    } else if bytes.len() >= 2
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_alphabetic()
+        && (bytes.len() == 2 || bytes[2] == b'/')
+    {
+        Some(format!(
+            "{}:/{}",
+            &path[1..2],
+            path[2..].trim_start_matches('/')
+        ))
+    } else {
+        // UNC remains lexical: do not introduce network I/O into this hook.
+        None
+    }
+}
+
+#[cfg(windows)]
+fn windows_long_path(path: &str) -> std::io::Result<String> {
+    use std::io::{Error, ErrorKind};
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::PathBuf;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetFullPathNameW(
+            path: *const u16,
+            size: u32,
+            output: *mut u16,
+            part: *mut *mut u16,
+        ) -> u32;
+        fn GetLongPathNameW(path: *const u16, output: *mut u16, size: u32) -> u32;
+    }
+    if path.contains('\0') {
+        return Err(Error::new(ErrorKind::InvalidInput, "path contains NUL"));
+    }
+    let input: Vec<_> = path.encode_utf16().chain(Some(0)).collect();
+    let mut output = vec![0u16; 32768];
+    // SAFETY: input is NUL-terminated; output has the declared capacity. The
+    // optional filename pointer is unused. Both APIs only inspect path names.
+    let length = unsafe {
+        GetFullPathNameW(
+            input.as_ptr(),
+            output.len() as u32,
+            output.as_mut_ptr(),
+            std::ptr::null_mut(),
+        )
+    } as usize;
+    if length == 0 {
+        return Err(Error::last_os_error());
+    }
+    if length >= output.len() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "Windows path is too long",
+        ));
+    }
+    let normalized = String::from_utf16(&output[..length])
+        .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
+    let trailing_separator = normalized.ends_with(['/', '\\']);
+    let mut prefix = PathBuf::from(normalized);
+    let mut suffix = Vec::new();
+    loop {
+        let input: Vec<_> = prefix.as_os_str().encode_wide().chain(Some(0)).collect();
+        // SAFETY: each prefix is NUL-terminated and output retains its capacity.
+        let length =
+            unsafe { GetLongPathNameW(input.as_ptr(), output.as_mut_ptr(), output.len() as u32) }
+                as usize;
+        if length >= output.len() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "Windows path is too long",
+            ));
+        }
+        if length > 0 {
+            let mut path = PathBuf::from(
+                String::from_utf16(&output[..length])
+                    .map_err(|error| Error::new(ErrorKind::InvalidData, error))?,
+            );
+            path.extend(suffix.into_iter().rev());
+            let mut path = path
+                .into_os_string()
+                .into_string()
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "Windows path is not UTF-8"))?;
+            if trailing_separator && !path.ends_with(['/', '\\']) {
+                path.push('/');
+            }
+            return Ok(path);
+        }
+        let error = Error::last_os_error();
+        if error.kind() != ErrorKind::NotFound {
+            return Err(error);
+        }
+        // Missing descendants cannot hide an existing protected alias above
+        // them. Resolve the longest existing prefix, retaining their names.
+        let Some(name) = prefix.file_name() else {
+            return Err(error);
+        };
+        suffix.push(name.to_os_string());
+        if !prefix.pop() {
+            return Err(error);
+        }
+    }
 }
 
 struct ShellWord<'a> {
@@ -238,6 +359,9 @@ fn protected_path(word: &ShellWord) -> bool {
             }
         }
     }
+    if cfg!(windows) && windows_protected_path(&word.value) {
+        return true;
+    }
     if !word.value.starts_with('/') {
         return false;
     }
@@ -252,6 +376,52 @@ fn protected_path(word: &ShellWord) -> bool {
         || (cfg!(target_os = "macos")
             && parts.first() == Some(&"private")
             && matches!(parts.get(1), Some(&"etc" | &"var")))
+}
+
+fn windows_protected_path(path: &str) -> bool {
+    // Inspect the parsed Bash word, not its raw spelling: unquoted backslashes
+    // have already been consumed by Bash quoting rules.
+    let path = path.replace('\\', "/").to_ascii_lowercase();
+    let bytes = path.as_bytes();
+    let drive_path = if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1..3] == *b":/"
+    {
+        &path[2..]
+    } else if bytes.len() >= 2
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_alphabetic()
+        && (bytes.len() == 2 || bytes[2] == b'/')
+    {
+        // Git Bash's /c and /c/... drive mount spelling.
+        &path[2..]
+    } else if let Some(unc) = path.strip_prefix("//") {
+        // The server/share pair is the volume root, not normal path components.
+        let mut parts = unc.splitn(3, '/');
+        if parts.next().is_none_or(str::is_empty) || parts.next().is_none_or(str::is_empty) {
+            return false;
+        }
+        return windows_protected_path(&format!("C:/{}", parts.next().unwrap_or("")));
+    } else if path.starts_with('/') {
+        &path
+    } else {
+        return false;
+    };
+    // Resolve dot navigation before comparing Win32 component spellings. An
+    // all-dot/space component must still occupy one level when followed by `..`.
+    let mut parts = normalized_components(drive_path)
+        .into_iter()
+        .map(|part| part.trim_end_matches(['.', ' ']))
+        .collect::<Vec<_>>();
+    // Without a trailing separator, Win32 strips all terminal dots/spaces.
+    // A resulting empty final component denotes the containing directory.
+    if !drive_path.ends_with('/') && parts.last() == Some(&"") {
+        parts.pop();
+    }
+    parts.is_empty()
+        || (parts.first() == Some(&"users") && parts.len() <= 2)
+        || matches!(
+            parts.first(),
+            Some(&"windows" | &"program files" | &"program files (x86)" | &"programdata")
+        )
 }
 
 fn normalized_components(path: &str) -> Vec<&str> {
@@ -488,6 +658,94 @@ impl ContentMask {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn windows_volume_and_system_paths_are_recognized() {
+        for path in [
+            "C:/",
+            "c:/Windows/System32",
+            r"C:\WINDOWS",
+            "/c",
+            "/C/Windows",
+            "D:/Users/name",
+            r"D:\Users\name",
+            "c:/users",
+            "/d/Users/name/Downloads/..",
+            "C:/tmp/../Windows",
+            "C:/Program Files/app",
+            "C:/Program Files (x86)",
+            "C:/ProgramData",
+            r"C:\Windows.\System32",
+            "C:/Windows /System32",
+            "/c/Users. /name",
+            "C:/Program Files.../app",
+            "//server/share/ProgramData. /app",
+            "C:/tmp. /../Windows...",
+            "C:/Windows/.../../System32",
+            "C:/Windows/   /../System32",
+            "//server/share/Windows/.../../System32",
+            "C:/...",
+            "C:/   ",
+            "C:/Users/name/...",
+            "C:/Users/name/   ",
+            r"\\server\share",
+            "//server/share/Users/name",
+            "//server/share/Windows/System32",
+            "C:/..",
+            "/c/../",
+        ] {
+            assert!(super::windows_protected_path(path), "{path}");
+        }
+        for path in [
+            "C:/tmp/build",
+            "C:/Users/name/cache",
+            "/c/Users/name/project",
+            "C:/Windows/../tmp",
+            "C:/Windows. /../tmp",
+            "C:/Windows/.../../../tmp",
+            "C:/Users/name/.../../cache",
+            "C:/.../",
+            "C:/   /",
+            "C:/Users/name/.../",
+            "C:/Users/name/   /",
+            "C:/.../...",
+            "C:/Users. /name/cache",
+            "C:Windows",
+            "./Windows",
+            "Windows",
+            "/cache/build",
+            "//server/share/projects/build",
+        ] {
+            assert!(!super::windows_protected_path(path), "{path}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_rm_checks_use_bash_quoting_and_preserve_safe_arguments() {
+        for command in [
+            "rm -rf /c/Windows",
+            r"rm -rf 'C:\Users\name'",
+            "rm -r -f C:/Windows",
+            "rm -rf '/c/Program Files'",
+            "rm -rf //server/share",
+            r"rm -rf 'C:\Windows.\System32'",
+            "rm -rf '/c/Users. /name'",
+        ] {
+            assert!(super::blocked_reason(command).is_some(), "{command}");
+        }
+        for command in [
+            "rm -rf C:/Users/name/cache",
+            "rm -rf 'C:/Users. /name/cache'",
+            r"rm -rf C:\Users\name",
+            "echo 'rm -rf C:/Windows'",
+            "rm -rf ./build > C:/Windows",
+            "rm -r C:/Windows",
+            "rm -rf C:Windows",
+        ] {
+            assert!(super::blocked_reason(command).is_none(), "{command}");
+        }
+    }
+
     use super::*;
 
     #[test]

@@ -26,6 +26,29 @@ jobs:
       - run: cargo check --locked --manifest-path vibeguard-runtime/Cargo.toml
       - run: cargo clippy --locked --manifest-path vibeguard-runtime/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --locked --manifest-path vibeguard-runtime/Cargo.toml
+      - name: Windows installed hook and PowerShell installer smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build --locked --manifest-path vibeguard-runtime/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo build failed.' }
+          python scripts/ci/smoke_binary.py vibeguard-runtime/target/debug/vibeguard-runtime.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Installed hook smoke failed.' }
+          $package_dir = Join-Path $env:RUNNER_TEMP 'vibeguard package 用户'
+          $test_home = Join-Path $env:RUNNER_TEMP 'vibeguard home 用户'
+          New-Item -ItemType Directory -Path $package_dir | Out-Null
+          Copy-Item vibeguard-runtime/target/debug/vibeguard-runtime.exe, install.ps1 -Destination $package_dir
+          & "$package_dir/install.ps1" -HomeDirectory $test_home -DryRun
+          if (Test-Path -LiteralPath $test_home) { throw 'Preview wrote the installation home.' }
+          & "$package_dir/install.ps1" -HomeDirectory $test_home
+          & "$test_home/.vibeguard/bin/vibeguard-runtime.exe" status claude --home $test_home
+          if ($LASTEXITCODE -ne 0) { throw 'Installer status failed.' }
+          & "$test_home/.vibeguard/bin/vibeguard-runtime.exe" uninstall claude --home $test_home
+          if ($LASTEXITCODE -ne 0) { throw 'Uninstall failed.' }
+      - name: Windows PowerShell 5.1 installer and download failures
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./tests/test_windows_install.ps1 -BinaryPath vibeguard-runtime/target/debug/vibeguard-runtime.exe
   self_application:
     name: Self-Application CI
     runs-on: ubuntu-latest

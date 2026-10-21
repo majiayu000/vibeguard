@@ -51,9 +51,14 @@ impl Options {
         let is_explicit = explicit_home.is_some();
         let inspect_repo = host == "git" || repo.is_some();
         let home = explicit_home
-            .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .filter(|p| !p.is_empty())
+                    .or_else(|| cfg!(windows).then(|| std::env::var_os("USERPROFILE")).flatten())
+                    .map(PathBuf::from)
+            })
             .filter(|p| !p.as_os_str().is_empty())
-            .ok_or("HOME is unavailable; pass --home PATH")?;
+            .ok_or("user home is unavailable; set HOME (or USERPROFILE on Windows), or pass --home PATH")?;
         let home = absolute(home)?;
         // An explicit --home is an isolated installation. Ambient host directories
         // belong to the account, not to that home.
@@ -141,12 +146,26 @@ impl Options {
         })
     }
     fn command(&self) -> Result<String> {
+        if cfg!(windows) && self.host == "claude" {
+            return Ok(self
+                .binary()
+                .to_str()
+                .ok_or("installation paths must be valid UTF-8")?
+                .into());
+        }
         Ok(format!(
             "{} hook {} --state-dir {}",
             quote_path(&self.binary())?,
             self.host,
             quote_path(&self.state())?
         ))
+    }
+    fn handler(&self) -> Result<Value> {
+        let mut handler = json!({"type":"command","command":self.command()?,"timeout":10});
+        if cfg!(windows) && self.host == "claude" {
+            handler["args"] = json!(["hook", "claude", "--state-dir", self.state()]);
+        }
+        Ok(handler)
     }
 }
 
@@ -173,8 +192,8 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
     if options.dry_run && action != "install" {
         return Err("--dry-run is supported only by install".into());
     }
-    if action != "status" && !cfg!(unix) {
-        return Err("native installation currently supports macOS, Linux and WSL; no configuration was changed".into());
+    if action != "status" && !cfg!(unix) && !(cfg!(windows) && options.host == "claude") {
+        return Err("native Windows installation supports Claude Code only; use WSL for other targets; no configuration was changed".into());
     }
     if options.host == "git" {
         return git_integration(action, &options);
@@ -207,7 +226,8 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
     };
     let feature_enabled = feature_doc.as_ref().map(codex_hooks_enabled).transpose()?;
     let command = options.command()?;
-    let specs = hook_specs(&options.host, &command);
+    let handler = options.handler()?;
+    let specs = hook_specs(&options.host, &handler);
     if action == "status" {
         let configured = specs.iter().all(|(event, spec)| {
             config
@@ -228,13 +248,15 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
                 "host": options.host, "config": config_path, "configured": configured,
                 "installation_home": options.home,
                 "binary": options.binary(), "state_dir": options.state(),
-                "hook_registrations": hook_registrations(&config, &command),
+                "hook_registrations": hook_registrations(&config, &handler),
                 "binary_present": binary_present,
                 "binary_executable": binary_executable,
                 "host_hooks_feature_enabled": feature_enabled,
                 "host_hook_disable_flag": disabled, "host_trust": "not_observed",
                 "last_observation": logging::latest(&options.state(), &options.host)?,
-                "coverage": if options.host == "grok" {
+                "coverage": if cfg!(windows) && options.host == "claude" {
+                    "registered Bash events only (Git Bash); PowerShell and cmd commands are not protected; requires Claude Code 2.1.139 or later; Windows host execution is experimental until verified"
+                } else if options.host == "grok" {
                     "registered run_terminal_command events only; not a sandbox or task-verification certificate"
                 } else {
                     "registered Bash events only; not a sandbox or task-verification certificate"
@@ -270,7 +292,7 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
     // Validate inputs and owned regions before writing any installation files.
     let removed_skills_loader = prune_hooks(
         &mut config,
-        &command,
+        &handler,
         action == "install" && options.host == "claude",
     );
     if action == "install" {
@@ -306,7 +328,7 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         }
         if config != original_config {
             changes.push(json!({"path":config_path,"operation":"register_hooks",
-                "events":hook_specs(&options.host, &command).into_iter().map(|(event, _)| event).collect::<Vec<_>>() }));
+                "events":hook_specs(&options.host, &handler).into_iter().map(|(event, _)| event).collect::<Vec<_>>() }));
         }
         if let Some(text) = &new_features
             && old_features.as_deref() != Some(text)
@@ -320,7 +342,7 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
             &options,
             changes,
             &options.host_dir,
-            json!({"hook_command":command,"matcher":if options.host == "grok" { "run_terminal_command" } else { "Bash" },
+            json!({"hook_command":command,"hook_args":handler.get("args"),"matcher":if options.host == "grok" { "run_terminal_command" } else { "Bash" },
                 "host_hook_disable_flag":config.get("disableAllHooks"),
                 "observation":"created by a received hook event; installation does not create an observation"}),
         );
@@ -482,9 +504,17 @@ fn status_summary(options: &Options, ready: bool, legacy: &Value, status: &Value
             options.config().display()
         );
     }
+    let quote = |value: &str| {
+        if cfg!(windows) {
+            format!("'{}'", value.replace('\'', "''"))
+        } else {
+            shell_quote(value)
+        }
+    };
     let mut command = format!(
-        "{} {} {}",
-        shell_quote(
+        "{}{} {} {}",
+        if cfg!(windows) { "& " } else { "" },
+        quote(
             &std::env::args()
                 .next()
                 .unwrap_or_else(|| "vibeguard-runtime".into())
@@ -495,13 +525,13 @@ fn status_summary(options: &Options, ready: bool, legacy: &Value, status: &Value
     if options.explicit_home {
         command.push_str(&format!(
             " --home {}",
-            shell_quote(&options.home.to_string_lossy())
+            quote(&options.home.to_string_lossy())
         ));
     }
     if options.inspect_repo {
         command.push_str(&format!(
             " --repo {}",
-            shell_quote(&options.repo.to_string_lossy())
+            quote(&options.repo.to_string_lossy())
         ));
     }
     if ready {
@@ -567,7 +597,7 @@ fn validate_config(config: &Value) -> Result<()> {
     Ok(())
 }
 
-fn hook_specs(host: &str, command: &str) -> Vec<(String, Value)> {
+fn hook_specs(host: &str, handler: &Value) -> Vec<(String, Value)> {
     let events: &[&str] = if matches!(host, "claude" | "grok") {
         &["PreToolUse", "PostToolUse", "PostToolUseFailure"]
     } else {
@@ -580,14 +610,14 @@ fn hook_specs(host: &str, command: &str) -> Vec<(String, Value)> {
                 (*event).to_string(),
                 json!({
                     "matcher": if host == "grok" { "run_terminal_command" } else { "Bash" },
-                    "hooks":[{"type":"command","command":command,"timeout":10}]
+                    "hooks":[handler]
                 }),
             )
         })
         .collect()
 }
 
-fn hook_registrations(config: &Value, selected_command: &str) -> Vec<Value> {
+fn hook_registrations(config: &Value, selected_handler: &Value) -> Vec<Value> {
     let mut registrations = Vec::new();
     let Some(events) = config.get("hooks").and_then(Value::as_object) else {
         return registrations;
@@ -613,8 +643,8 @@ fn hook_registrations(config: &Value, selected_command: &str) -> Vec<Value> {
                 };
                 registrations.push(json!({
                     "event": event, "group_index": group_index, "hook_index": hook_index,
-                    "matcher": group.get("matcher"), "command": command,
-                    "selected_instance": command == selected_command
+                    "matcher": group.get("matcher"), "command": command, "args": handler.get("args"),
+                    "selected_instance": same_invocation(handler, selected_handler)
                 }));
             }
         }
@@ -622,7 +652,12 @@ fn hook_registrations(config: &Value, selected_command: &str) -> Vec<Value> {
     registrations
 }
 
-fn prune_hooks(config: &mut Value, command: &str, remove_skills_loader: bool) -> usize {
+fn same_invocation(handler: &Value, selected_handler: &Value) -> bool {
+    handler.get("command") == selected_handler.get("command")
+        && handler.get("args") == selected_handler.get("args")
+}
+
+fn prune_hooks(config: &mut Value, selected_handler: &Value, remove_skills_loader: bool) -> usize {
     let Some(hooks) = config.get_mut("hooks") else {
         return 0;
     };
@@ -645,7 +680,7 @@ fn prune_hooks(config: &mut Value, command: &str, remove_skills_loader: bool) ->
                     removed_skills_loader += 1;
                     return false;
                 }
-                handler_command != command
+                !same_invocation(h, selected_handler)
             });
             handlers.len() == count || !handlers.is_empty()
         });
@@ -816,6 +851,16 @@ fn git_integration(action: &str, options: &Options) -> Result<u8> {
 mod tests {
     use super::*;
     #[test]
+    fn exec_handler_ownership_includes_arguments() {
+        let ours = json!({"type":"command","command":"C:/runtime.exe","args":["hook","claude"],"timeout":10});
+        let user = json!({"type":"command","command":"C:/runtime.exe","args":["rules"]});
+        let mut config = json!({"hooks":{"PreToolUse":[{"hooks":[ours.clone(),user.clone()]}]}});
+        assert!(hook_registrations(&config, &ours)[0]["selected_instance"] == true);
+        assert!(hook_registrations(&config, &ours)[1]["selected_instance"] == false);
+        prune_hooks(&mut config, &ours, false);
+        assert_eq!(config["hooks"]["PreToolUse"][0]["hooks"], json!([user]));
+    }
+    #[test]
     fn removal_preserves_unrelated_handlers_even_in_the_same_group() {
         let ours = "/path/to/runtime hook codex";
         let user =
@@ -824,7 +869,7 @@ mod tests {
             {"type":"command","command":ours},user.clone()
         ]}]}});
         validate_config(&config).unwrap();
-        prune_hooks(&mut config, ours, false);
+        prune_hooks(&mut config, &json!({"command":ours}), false);
         assert_eq!(config["unrelated"], 7);
         assert_eq!(config["hooks"]["PreToolUse"][0]["custom"], "keep");
         assert_eq!(config["hooks"]["PreToolUse"][0]["hooks"], json!([user]));

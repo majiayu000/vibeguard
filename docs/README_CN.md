@@ -45,7 +45,7 @@ bash setup.sh install grok
 ~/.vibeguard/bin/vibeguard-runtime status codex
 ```
 
-需要仓库指定的 Rust 工具链。原生安装支持 macOS、Linux、WSL；Windows 原生安装未实现，会明确报错。安装注册所选宿主的 hooks，并移除已有的 `vibeguard-core` 受管说明块，保留周围用户内容；不会创建说明文件。重启宿主并检查 hook 信任设置。
+需要仓库指定的 Rust 工具链。原生安装支持 macOS、Linux、WSL。Windows x64 新增实验性 Claude Code + Git Bash 支持，要求 Claude Code 2.1.139 或更新版本；从 Windows 发布包解压后在 PowerShell 运行 `./install.ps1 -DryRun` 预览，再运行 `./install.ps1` 安装。也可单独下载脚本，它会下载最新 Windows 发布包并核对 SHA256SUMS。发布包缺失时会报错，不会退回安装其他平台版本。PowerShell/cmd 命令语法和 Windows 原生 Codex/Grok/Git 安装暂不覆盖。Windows 真实 Claude Code 会话的 hook 触发仍待验证，详见 [Windows 安装说明](../README.md#native-windows-experimental-claude-code--git-bash)。安装注册所选宿主的 hooks，并移除已有的 `vibeguard-core` 受管说明块，保留周围用户内容；不会创建说明文件。重启宿主并检查 hook 信任设置。
 
 安装不再向全局说明注入通用原则或规则查询指令。
 
