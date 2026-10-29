@@ -1,5 +1,7 @@
 # VibeGuard
 
+Upgrading Claude Code from v1? Preview `vibeguard-runtime install claude --migrate-v1-hooks --dry-run`, then repeat without `--dry-run`. This backs up settings, removes recognized old hook calls (including duplicates), and installs v2 hooks while preserving unrelated integrations. Other v1 remnants still require the legacy inventory. See [installation details](docs/runtime-contract.md#installation).
+
 A Rust CLI for coding-agent rules, native hooks, and installation diagnostics.
 
 [Website](https://majiayu000.github.io/vibeguard/) · [中文](docs/README_CN.md) · [Runtime contract](docs/runtime-contract.md) · [Rule reference](docs/rule-reference.md) · [Contributing](CONTRIBUTING.md)

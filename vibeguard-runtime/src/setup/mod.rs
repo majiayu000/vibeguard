@@ -23,6 +23,7 @@ struct Options {
     repo: PathBuf,
     inspect_repo: bool,
     dry_run: bool,
+    migrate_v1_hooks: bool,
 }
 
 impl Options {
@@ -35,8 +36,13 @@ impl Options {
         let mut explicit_home = None;
         let mut repo = None;
         let mut dry_run = false;
+        let mut migrate_v1_hooks = false;
         let mut rest = args[1..].iter();
         while let Some(flag) = rest.next() {
+            if flag == "--migrate-v1-hooks" && !migrate_v1_hooks {
+                migrate_v1_hooks = true;
+                continue;
+            }
             if flag == "--dry-run" && !dry_run {
                 dry_run = true;
                 continue;
@@ -119,6 +125,7 @@ impl Options {
             repo: absolute(repo.unwrap_or(std::env::current_dir()?))?,
             inspect_repo,
             dry_run,
+            migrate_v1_hooks,
         })
     }
     fn binary(&self) -> PathBuf {
@@ -189,6 +196,9 @@ fn quote_path(path: &Path) -> Result<String> {
 
 pub fn run(action: &str, args: &[String]) -> Result<u8> {
     let options = Options::parse(args)?;
+    if options.migrate_v1_hooks && (action != "install" || options.host != "claude") {
+        return Err("--migrate-v1-hooks requires install claude".into());
+    }
     if options.dry_run && action != "install" {
         return Err("--dry-run is supported only by install".into());
     }
@@ -290,6 +300,23 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         None
     };
     // Validate inputs and owned regions before writing any installation files.
+    let removed_v1_hooks = if options.migrate_v1_hooks {
+        prune_v1_claude_hooks(&mut config)
+    } else {
+        0
+    };
+    let migration_backup = if removed_v1_hooks > 0 {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos();
+        Some(
+            options
+                .host_dir
+                .join(format!("settings.json.vibeguard-v1-{timestamp}.bak")),
+        )
+    } else {
+        None
+    };
     let removed_skills_loader = prune_hooks(
         &mut config,
         &handler,
@@ -320,6 +347,10 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         || remove_observation;
     if options.dry_run {
         let mut changes = binary_changes(&options)?;
+        if let Some(backup) = &migration_backup {
+            changes.push(json!({"path":backup,"operation":"backup_original_settings"}));
+            changes.push(json!({"path":config_path,"operation":"remove_v1_hooks","handler_count":removed_v1_hooks}));
+        }
         if removed_skills_loader > 0 {
             changes.push(
                 json!({"path":config_path,"operation":"remove_retired_skills_loader_hooks",
@@ -366,6 +397,17 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         None
     };
     if action == "install" {
+        if let Some(backup) = &migration_backup {
+            write_atomic_if_unchanged(
+                backup,
+                old_config
+                    .as_deref()
+                    .ok_or("migration requires existing settings")?
+                    .as_bytes(),
+                0o600,
+                None,
+            )?;
+        }
         install_binary(&options)?;
     }
     if config != original_config {
@@ -403,6 +445,7 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         json!({
             "action":action,"host":options.host,"config":config_path,"instructions":instructions_path,
             "binary":options.binary(),
+            "removed_v1_hooks":removed_v1_hooks,"migration_backup":migration_backup,
             "note": if action == "install" {
                 "Registered. Restart the host and review its hook trust settings; configuration alone does not prove execution."
             } else {
@@ -686,6 +729,33 @@ fn prune_hooks(config: &mut Value, selected_handler: &Value, remove_skills_loade
         });
     }
     removed_skills_loader
+}
+
+fn prune_v1_claude_hooks(config: &mut Value) -> usize {
+    let Some(events) = config.get_mut("hooks").and_then(Value::as_object_mut) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for groups in events.values_mut() {
+        groups
+            .as_array_mut()
+            .expect("validated events")
+            .retain_mut(|group| {
+                let handlers = group["hooks"].as_array_mut().expect("validated handlers");
+                let before = handlers.len();
+                handlers.retain(|handler| {
+                    let owned = handler["type"] == "command"
+                        && handler.get("args").is_none()
+                        && handler["command"]
+                            .as_str()
+                            .is_some_and(legacy::is_v1_claude_hook);
+                    removed += usize::from(owned);
+                    !owned
+                });
+                handlers.len() == before || !handlers.is_empty()
+            });
+    }
+    removed
 }
 
 fn install_binary(options: &Options) -> Result<()> {

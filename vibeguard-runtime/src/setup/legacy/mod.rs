@@ -21,6 +21,78 @@ use std::time::Duration;
 const READ_LIMIT: u64 = 1024 * 1024;
 const GIT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
+pub(super) fn is_v1_claude_hook(command: &str) -> bool {
+    let Ok(words) = classify::shell_words(command, true) else {
+        return false;
+    };
+    let mut invocation = words.as_slice();
+    if invocation.first().is_some_and(|word| word == "env") {
+        invocation = &invocation[1..];
+    }
+    while invocation.first().is_some_and(|word| {
+        word.split_once('=')
+            .is_some_and(|(key, _)| key.starts_with("VIBEGUARD_"))
+    }) {
+        invocation = &invocation[1..];
+    }
+    if invocation
+        .first()
+        .is_some_and(|word| matches!(word.rsplit('/').next(), Some("bash" | "sh")))
+    {
+        invocation = &invocation[1..];
+    }
+    let known = |name: &str| {
+        matches!(
+            name,
+            "pre-bash-guard.sh"
+                | "pre-edit-guard.sh"
+                | "pre-write-guard.sh"
+                | "post-build-check.sh"
+                | "post-edit-guard.sh"
+                | "post-write-guard.sh"
+                | "analysis-paralysis-guard.sh"
+                | "skills-loader.sh"
+        )
+    };
+    match invocation {
+        [wrapper, script] => wrapper.ends_with("/.vibeguard/run-hook.sh") && known(script),
+        [script] => {
+            (script.contains("/.vibeguard/installed/hooks/")
+                || script.contains("/.vibeguard/dist/current/hooks/"))
+                && known(script.rsplit('/').next().unwrap_or_default())
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::is_v1_claude_hook;
+
+    #[test]
+    fn migration_requires_simple_owned_invocations() {
+        for command in [
+            "bash /u/.vibeguard/run-hook.sh pre-bash-guard.sh",
+            "env VIBEGUARD_FOO=1 /u/.vibeguard/run-hook.sh pre-bash-guard.sh",
+            "sh '/u space/.vibeguard/installed/hooks/post-write-guard.sh'",
+        ] {
+            assert!(is_v1_claude_hook(command), "{command}");
+        }
+        for command in [
+            "echo /u/.vibeguard/run-hook.sh pre-bash-guard.sh",
+            "bash /u/.vibeguard/run-hook.sh pre-bash-guard.sh && remem observe",
+            "bash /u/.vibeguard/run-hook.sh pre-bash-guard.sh --custom",
+            "bash /u/run-hook.sh pre-bash-guard.sh",
+            "bash /u/.vibeguard/run-hook.sh custom.sh",
+            "bash /u/.vibeguard/run-hook.sh $(echo pre-bash-guard.sh)",
+            "/u/.vibeguard/bin/vibeguard-runtime hook claude --state-dir /state",
+            "env OTHER=1 /u/.vibeguard/run-hook.sh pre-bash-guard.sh",
+        ] {
+            assert!(!is_v1_claude_hook(command), "{command}");
+        }
+    }
+}
+
 pub(super) fn is_retired_skills_loader(command: &str) -> bool {
     // Removal requires a simple invocation and a known product path. A script
     // basename in an arbitrary checkout does not establish ownership.
