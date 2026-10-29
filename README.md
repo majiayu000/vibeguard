@@ -2,6 +2,8 @@
 
 A Rust CLI for native coding-agent hooks and installation diagnostics.
 
+Upgrading Claude Code from v1? Preview `vibeguard-runtime install claude --migrate-v1-hooks --dry-run`, then repeat without `--dry-run`. This backs up settings, removes recognized old hook calls (including duplicates), and installs v2 hooks while preserving unrelated integrations. Other v1 remnants still require the legacy inventory. See [installation details](docs/runtime-contract.md#installation).
+
 [Website](https://majiayu000.github.io/vibeguard/) · [中文](docs/README_CN.md) · [Runtime contract](docs/runtime-contract.md) · [Contributing](CONTRIBUTING.md)
 
 VibeGuard does two jobs. Native Bash hooks reject a small set of destructive command spellings and record the latest observed outcome. [The 800-line limit](#the-800-line-limit) keeps source files from growing past 800 lines: new files stay under it, and existing large files can shrink but not grow. An optional Git pre-push hook checks actual commit ancestry. The host owns permissions, sandboxing, tool execution, and the agent loop.
