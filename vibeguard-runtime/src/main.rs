@@ -15,6 +15,7 @@ Usage:
   vibeguard-runtime rules [ID|category|--json|--core|--search TEXT]
   vibeguard-runtime hook <claude|codex|grok|dsh> [--state-dir PATH]
   vibeguard-runtime install <claude|codex|grok|git> [--dry-run] [--home PATH] [--repo PATH]
+  vibeguard-runtime install claude --migrate-v1-hooks [--dry-run] [--home PATH]
   vibeguard-runtime uninstall <claude|codex|grok|git> [--home PATH] [--repo PATH]
   vibeguard-runtime status <claude|codex|grok|git> [--home PATH] [--repo PATH]
   vibeguard-runtime pre-push
@@ -25,7 +26,8 @@ Install --dry-run previews the planned changes without writing any files.
 Rules remain available for explicit lookup. Git integration is
 explicit and never overwrites an existing user hook. Status reports observed
 facts and a read-only v1 inventory. It does not certify trust, complete
-coverage, or task verification, and it does not remove old hooks or edit crontab.
+coverage, or task verification. Explicit --migrate-v1-hooks backs up Claude
+settings and removes recognized v1 hook invocations; it does not edit crontab.
 Pass --repo to include that repository's root instructions and Git hooks.
 ";
 
