@@ -1,7 +1,7 @@
 {
   "name": "vibeguard",
   "version": "2.1.1",
-  "description": "Rust-backed rule lookup and native-hook diagnostics.",
+  "description": "Rust-backed native-hook diagnostics.",
   "author": {
     "name": "majiayu000"
   },
@@ -10,7 +10,7 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "VibeGuard",
-    "shortDescription": "Look up scoped rules and inspect native hooks.",
+    "shortDescription": "Inspect native hooks.",
     "longDescription": "An explicit help entry point for the VibeGuard Rust CLI. Native installation and hook registration remain separate.",
     "developerName": "majiayu000",
     "category": "Productivity",

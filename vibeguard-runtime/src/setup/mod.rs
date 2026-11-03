@@ -258,6 +258,8 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
                     "registered Bash events only (Git Bash); PowerShell and cmd commands are not protected; requires Claude Code 2.1.139 or later; Windows host execution is experimental until verified"
                 } else if options.host == "grok" {
                     "registered run_terminal_command events only; not a sandbox or task-verification certificate"
+                } else if options.host == "claude" {
+                    "registered Bash events and Write/Edit/MultiEdit source-file line limit only; not a sandbox or task-verification certificate"
                 } else {
                     "registered Bash events only; not a sandbox or task-verification certificate"
                 }
@@ -603,7 +605,7 @@ fn hook_specs(host: &str, handler: &Value) -> Vec<(String, Value)> {
     } else {
         &["PreToolUse", "PostToolUse"]
     };
-    events
+    let mut specs: Vec<_> = events
         .iter()
         .map(|event| {
             (
@@ -614,8 +616,17 @@ fn hook_specs(host: &str, handler: &Value) -> Vec<(String, Value)> {
                 }),
             )
         })
-        .collect()
+        .collect();
+    if host == "claude" {
+        specs.push((
+            "PreToolUse".into(),
+            json!({"matcher": EDIT_MATCHER, "hooks":[handler]}),
+        ));
+    }
+    specs
 }
+
+const EDIT_MATCHER: &str = "Write|Edit|MultiEdit";
 
 fn hook_registrations(config: &Value, selected_handler: &Value) -> Vec<Value> {
     let mut registrations = Vec::new();

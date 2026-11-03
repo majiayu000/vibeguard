@@ -1,7 +1,6 @@
 mod hook_checks;
 mod hook_orchestrator;
 mod logging;
-mod rules;
 mod setup;
 
 use std::io::{self, Read, Write};
@@ -9,10 +8,9 @@ use std::process::ExitCode;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-const USAGE: &str = "VibeGuard — native hooks and a curated rule library
+const USAGE: &str = "VibeGuard — native coding-agent hooks
 
 Usage:
-  vibeguard-runtime rules [ID|category|--json|--core|--search TEXT]
   vibeguard-runtime hook <claude|codex|grok|dsh> [--state-dir PATH]
   vibeguard-runtime install <claude|codex|grok|git> [--dry-run] [--home PATH] [--repo PATH]
   vibeguard-runtime uninstall <claude|codex|grok|git> [--home PATH] [--repo PATH]
@@ -22,8 +20,8 @@ Usage:
 
 Install registers hooks and removes its existing core instruction block.
 Install --dry-run previews the planned changes without writing any files.
-Rules remain available for explicit lookup. Git integration is
-explicit and never overwrites an existing user hook. Status reports observed
+Claude Code edits that would grow a source file past 800 lines are
+refused. Git integration is explicit and never overwrites an existing user hook. Status reports observed
 facts and a read-only v1 inventory. It does not certify trust, complete
 coverage, or task verification, and it does not remove old hooks or edit crontab.
 Pass --repo to include that repository's root instructions and Git hooks.
@@ -51,7 +49,6 @@ fn run(args: &[String]) -> Result<u8> {
             println!("vibeguard-runtime {}", env!("CARGO_PKG_VERSION"));
             Ok(0)
         }
-        Some("rules") => rules::run(&args[1..]),
         Some("hook") => hook_orchestrator::run(&args[1..]),
         Some("install" | "uninstall" | "status") => setup::run(&args[0], &args[1..]),
         Some("pre-push") if args.len() == 1 => hook_checks::pre_push(&read_stdin()?),

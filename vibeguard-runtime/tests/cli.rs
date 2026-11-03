@@ -360,7 +360,11 @@ fn claude_install_removes_retired_skills_loader_registrations() {
         json!({"matcher":"Read","custom":7,"hooks":kept})
     );
     assert_eq!(config["hooks"]["PreToolUse"][1], empty_group);
-    assert_eq!(config["hooks"]["PreToolUse"].as_array().unwrap().len(), 3);
+    assert_eq!(config["hooks"]["PreToolUse"].as_array().unwrap().len(), 4);
+    assert_eq!(
+        config["hooks"]["PreToolUse"][3]["matcher"],
+        "Write|Edit|MultiEdit"
+    );
     assert!(
         native(&preview)["changes"]
             .as_array()
@@ -419,23 +423,8 @@ fn retired_skills_loader_cleanup_is_scoped_to_claude_install() {
 }
 
 #[test]
-fn standalone_catalog_and_removed_commands() {
-    let output = invoke(&["rules", "--json"], "", None);
-    success(&output);
-    let rules = native(&output);
-    assert!(
-        rules
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|r| r["id"] == "TS-02"
-                && r["body"].as_str().unwrap().contains("Returning a Promise"))
-    );
-    success(&invoke(&["rules", "rust"], "", None));
-    for old in ["RS-06", "RS-14", "W-16", "TASTE-ANSI", "NO-SUCH-RULE"] {
-        assert_eq!(invoke(&["rules", old], "", None).status.code(), Some(2));
-    }
-    for command in ["scan", "codex-app-server", "pkg-rewrite"] {
+fn removed_commands() {
+    for command in ["rules", "scan", "codex-app-server", "pkg-rewrite"] {
         assert_eq!(invoke(&[command], "", None).status.code(), Some(2));
     }
 }
@@ -1057,9 +1046,13 @@ fn status_coverage_is_potential_until_setup_is_complete() {
             } else {
                 "Bash"
             };
-            let coverage = format!(
-                "registered {tool} events only; not a sandbox or task-verification certificate"
-            );
+            let coverage = if host == "claude" {
+                "registered Bash events and Write/Edit/MultiEdit source-file line limit only; not a sandbox or task-verification certificate".to_string()
+            } else {
+                format!(
+                    "registered {tool} events only; not a sandbox or task-verification certificate"
+                )
+            };
             assert_eq!(status["coverage"], coverage);
             assert_eq!(status["host_trust"], "not_observed");
             let summary = String::from_utf8_lossy(&output.stderr);

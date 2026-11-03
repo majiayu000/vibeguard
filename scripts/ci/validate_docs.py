@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def errors(mode):
     failures = []
     paths = list(ROOT.glob("*.md"))
-    for folder in ("docs", "plan", "plugins", "rules", "eval", "claude-md"):
+    for folder in ("docs", "plan", "plugins", "eval"):
         paths.extend(path for path in (ROOT / folder).rglob("*.md") if "node_modules" not in path.parts)
     for path in sorted(paths):
         text = path.read_text(encoding="utf-8")

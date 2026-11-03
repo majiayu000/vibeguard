@@ -1,4 +1,5 @@
 pub mod bash;
+pub mod file_size;
 
 use crate::Result;
 use std::process::{Command, Output};
