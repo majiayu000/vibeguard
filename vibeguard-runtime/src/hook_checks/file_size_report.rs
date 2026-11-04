@@ -325,7 +325,7 @@ mod tests {
             format!("cd {dir}; python3 - <<'E'"),
             format!("cd '{dir}' && sh x"),
             format!("git -C {dir} status"),
-            format!("p='{dir}/big.rs'; python3 x"),
+            format!("p='{}'; python3 x", repo.dir.join("big.rs").display()),
         ] {
             std::fs::remove_file(other.state.join(STATE_FILE)).ok();
             let text = notice(&other.dir, Some(&command), Some(&other.state));
