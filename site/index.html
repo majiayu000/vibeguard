@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>VibeGuard — native hooks for Claude Code and Codex</title>
-  <meta name="description" content="VibeGuard is a Rust CLI with native Bash and Git hooks, a source-file line limit, and installation diagnostics for Claude Code and Codex.">
+  <title>VibeGuard — native hooks for Claude Code, Codex and Grok</title>
+  <meta name="description" content="VibeGuard is a Rust CLI with native Bash and Git hooks, an 800-line source-file limit, and installation diagnostics for Claude Code, Codex and Grok.">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://majiayu000.github.io/vibeguard/">
   <link rel="sitemap" type="application/xml" href="sitemap.xml">
   <meta property="og:title" content="VibeGuard — native coding-agent hooks">
-  <meta property="og:description" content="Scoped review guidance, selected destructive-command checks, Git ancestry protection, and installation diagnostics for Claude Code and Codex.">
+  <meta property="og:description" content="Selected destructive-command checks, an 800-line source-file limit, Git ancestry protection, and installation diagnostics for Claude Code, Codex and Grok.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://majiayu000.github.io/vibeguard/">
   <meta property="og:image" content="https://majiayu000.github.io/vibeguard/assets/logo-mark.png">
@@ -18,7 +18,7 @@
   <meta property="og:image:alt" content="VibeGuard guardian logo">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="VibeGuard — native coding-agent hooks">
-  <meta name="twitter:description" content="Native Bash and Git hooks, a source-file line limit, and installation diagnostics for Claude Code and Codex.">
+  <meta name="twitter:description" content="Native Bash and Git hooks, an 800-line source-file limit, and installation diagnostics for Claude Code, Codex and Grok.">
   <meta name="twitter:image" content="https://majiayu000.github.io/vibeguard/assets/logo-mark.png">
   <meta name="twitter:image:alt" content="VibeGuard guardian logo">
   <link rel="icon" href="assets/logo-mark.png" type="image/png">
@@ -44,21 +44,26 @@
   <main>
     <header>
       <p>VibeGuard v2 · Rust CLI · MIT licensed</p>
-      <h1>Native hooks for Claude Code and Codex.</h1>
-      <p>VibeGuard packages selected Bash command checks, a source-file line
-        limit, explicit Git ancestry checks, and installation diagnostics
-        in one Rust executable. It helps make risky actions and missing evidence
-        visible during coding work.</p>
+      <h1>Native hooks for Claude Code, Codex and Grok.</h1>
+      <p>VibeGuard rejects selected destructive Bash commands and keeps source
+        files from growing past 800 lines. Optional Git ancestry checks and
+        installation diagnostics come in the same Rust executable.</p>
     </header>
     <section id="behavior">
       <h2>What the current runtime checks</h2>
       <ul>
-        <li><strong>Source-file line limit (Claude Code):</strong> refuses a
-          Write, Edit or MultiEdit that would leave a source file above 800 lines
-          and longer than before. Existing large files may shrink but not grow.</li>
         <li><strong>Native Bash hooks:</strong> reject selected bulk Git restore,
           forced Git clean, and recursive forced deletion spellings. Results
           record only the latest observed outcome.</li>
+        <li><strong>800-line limit, before an edit (Claude Code):</strong> refuses a
+          Write, Edit or MultiEdit that would leave a source file above 800 lines
+          and longer than before. Existing large files may shrink but not grow.</li>
+        <li><strong>800-line limit, after a Bash call (Claude Code, Codex):</strong>
+          tells the Agent which source files grew past the limit. Nothing is
+          blocked.</li>
+        <li><strong>800-line limit, at commit (optional, once per machine):</strong>
+          <code>install git-size</code> refuses the growth in every repository,
+          however the file was written, from any tool.</li>
         <li><strong>Optional Git pre-push hook:</strong> checks commit ancestry,
           rejects remote ref deletion and replacement of existing tags, and
           requires fast-forward branch updates.</li>
@@ -74,21 +79,32 @@
         for the exact enforcement and evidence boundaries.</p>
     </section>
     <section id="install">
-      <h2>Install from a release archive</h2>
-      <p>Download your OS and CPU archive from
+      <h2>Install</h2>
+      <p>One command downloads the latest release for your OS and CPU, verifies
+        its checksum, and runs <code>install</code>. Preview first with
+        <code>--dry-run</code>:</p>
+      <pre><code>curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- claude --dry-run
+curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- claude</code></pre>
+      <p>Replace <code>claude</code> with <code>codex</code> or <code>grok</code>.
+        To add the commit-time line limit for every repository on this machine:</p>
+      <pre><code>~/.vibeguard/bin/vibeguard-runtime install git-size</code></pre>
+      <p>Or download your OS and CPU archive from
         <a href="https://github.com/majiayu000/vibeguard/releases">GitHub Releases</a>,
         extract it, and open a terminal in that directory. macOS, Linux, and WSL
         are supported; choose a Linux archive for WSL. This path does not require
         a Rust toolchain.</p>
       <pre><code>./vibeguard-runtime install codex
 # Or select Claude Code:
-./vibeguard-runtime install claude</code></pre>
+./vibeguard-runtime install claude
+# Or select Grok:
+./vibeguard-runtime install grok</code></pre>
       <p>Restart the selected host and review its native hook trust settings.</p>
       <pre><code>~/.vibeguard/bin/vibeguard-runtime status codex</code></pre>
-      <p>Use <code>claude</code> instead of <code>codex</code> for Claude Code.
-        Native Windows installation is not implemented; the portable CLI and
-        JSON protocol are tested in Windows CI.</p>
-      <p>For source builds, optional Git protection, v1 upgrade instructions, or
+      <p>Use <code>claude</code> or <code>grok</code> instead of <code>codex</code>
+        for those hosts. Native Windows installation is experimental and covers
+        Claude Code with Git Bash; see the
+        <a href="https://github.com/majiayu000/vibeguard#native-windows-experimental-claude-code--git-bash">Windows instructions</a>.</p>
+      <p>For source builds, optional Git push protection, v1 upgrade instructions, or
         uninstall, follow the
         <a href="https://github.com/majiayu000/vibeguard#readme">current README</a>.
         V2 removes the rule library, the earlier static scanners, learning metrics, workflow
@@ -102,7 +118,7 @@
         or checking a command.</p>
       <h3 id="status">Hooks are installed. Why is protection still uncertain?</h3>
       <pre><code>~/.vibeguard/bin/vibeguard-runtime status codex</code></pre>
-      <p>Use <code>status claude</code> for Claude Code. An incomplete result points
+      <p>Use <code>status claude</code> or <code>status grok</code> for those hosts. An incomplete result points
         to registration, executable mode bits, or local hook settings. Prompt
         text is not an installation-health requirement. Check the reported paths and the
         <a href="https://github.com/majiayu000/vibeguard/blob/main/docs/runtime-contract.md#status-and-platforms">status contract</a>.
@@ -110,12 +126,19 @@
         restart the host and review its native hook settings. The last observation
         is a diagnostic, not proof that the current code passed tests.</p>
       <h3 id="rules-and-hooks">Does VibeGuard block every risky action?</h3>
-      <p>No. The runtime enforces selected Bash spellings, the source-file line
-        limit for Claude Code edits, and the optional Git pre-push policy; other tools
-        and arbitrary shell programs are outside those checks. Keep host
+      <p>No. The runtime enforces selected Bash spellings, the line limit, and
+        the optional Git pre-push policy; other tools and arbitrary shell programs
+        are outside the Bash checks. Keep host
         permissions and repository protection in place. See
         <a href="#behavior">what is checked</a> and the
         <a href="https://github.com/majiayu000/vibeguard/blob/main/docs/runtime-contract.md#protocol">protocol boundaries</a>.</p>
+      <h3 id="line-limit">Why did a file still grow past 800 lines?</h3>
+      <p>The edit check only sees Claude Code's Write, Edit and MultiEdit. A script
+        run from the shell goes around it, and gets a notice after the fact instead.
+        Only the commit hook stops every way of writing a file, and it is installed
+        separately, once per machine; <code>--no-verify</code> skips it, and rebases and
+        fast-forward merges don't run it. See
+        <a href="https://github.com/majiayu000/vibeguard#the-800-line-limit">the 800-line limit</a>.</p>
       <h3 id="versions">Why do older instructions mention different commands?</h3>
       <p>V2 removed the earlier scanners, proxy, and workflow systems. Use the
         README bundled with your exact release archive. For an existing v1

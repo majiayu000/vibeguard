@@ -9,6 +9,6 @@ Use `~/.vibeguard/bin/vibeguard-runtime`. If absent, explain that the Rust CLI m
 
 For diagnostics, run `status codex`, `status claude` or `status grok` for the requested host. Distinguish registration, executable mode bits, last observation, and unknown host trust. A tool result does not prove the current task is verified.
 
-For explicitly requested installation/removal, use `install <codex|claude|grok>` or `uninstall <codex|claude|grok>`. Existing authorization is sufficient. Git protection is separate and requires the requested repository. Do not edit host configuration by hand.
+For explicitly requested installation/removal, use `install <codex|claude|grok>` or `uninstall <codex|claude|grok>`. Existing authorization is sufficient. Git protection (`install git`, pre-push) is separate and requires the requested repository. The commit-time line limit (`install git-size`) covers the whole machine and takes no repository. Do not edit host configuration by hand.
 
 Respect scope and host permissions. VibeGuard is not a sandbox, agent-loop replacement, or mandatory workflow for unrelated work.

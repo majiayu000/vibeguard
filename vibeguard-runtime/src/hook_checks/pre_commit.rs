@@ -73,7 +73,21 @@ fn staged(base: &str) -> Result<Vec<(char, String, String)>> {
     Ok(files)
 }
 
+/// Every commit on the machine comes through here, so a failure of this check warns
+/// instead of stopping them all.
 pub fn run() -> Result<u8> {
+    check().or_else(|error| {
+        eprintln!("VibeGuard: line limit not checked for this commit: {error}");
+        Ok(0)
+    })
+}
+
+fn check() -> Result<u8> {
+    // Someone else's project has its own conventions: `git config vibeguard.sizeLimit false`.
+    let enabled = inspect_git(&["config", "--type=bool", "--get", "vibeguard.sizeLimit"])?;
+    if enabled.stdout.trim_ascii() == b"false" {
+        return Ok(0);
+    }
     let base = base()?;
     // Concluding a merge: what either side already had isn't this commit's growth.
     let mut parents = vec![base.clone()];

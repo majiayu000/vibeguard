@@ -1,6 +1,6 @@
 # Agent instructions
 
-VibeGuard v2 is a Rust CLI with a curated rule library and native integrations. This file applies to the repository.
+VibeGuard is a Rust CLI with native hook integrations. This file applies to the repository.
 
 - Check `git status --short --branch` and preserve unrelated work. Search before adding code or files.
 - Read [the directory map](docs/directory-map.md) before moving public paths and [the runtime contract](docs/runtime-contract.md) before changing hooks or installation.
@@ -27,6 +27,6 @@ From the repository root:
 | Python tooling | `python3 -m unittest discover -s tests -p 'test_*.py'` |
 | Multiple surfaces / submission | `bash scripts/local-contract-check.sh` |
 
-The broad gate runs formatting, Clippy, Cargo check/tests, rule generation, Python tests, docs checks, and a release-binary smoke test. Platform CI runs Rust checks on Linux, macOS, and Windows. Windows native installation must fail clearly until implemented.
+The broad gate runs formatting, Clippy, Cargo check/tests, Python tests, docs checks, and a release-binary smoke test. Platform CI runs Rust checks on Linux, macOS, and Windows. Windows native installation must fail clearly until implemented.
 
 [Plans](plan/README.md) record decisions; they are not an automatic backlog. Report actual checks and limitations.
