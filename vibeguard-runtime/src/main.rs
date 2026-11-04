@@ -12,10 +12,11 @@ const USAGE: &str = "VibeGuard — native coding-agent hooks
 
 Usage:
   vibeguard-runtime hook <claude|codex|grok|dsh> [--state-dir PATH]
-  vibeguard-runtime install <claude|codex|grok|git> [--dry-run] [--home PATH] [--repo PATH]
-  vibeguard-runtime uninstall <claude|codex|grok|git> [--home PATH] [--repo PATH]
-  vibeguard-runtime status <claude|codex|grok|git> [--home PATH] [--repo PATH]
+  vibeguard-runtime install <claude|codex|grok|git|git-size> [--dry-run] [--home PATH] [--repo PATH]
+  vibeguard-runtime uninstall <claude|codex|grok|git|git-size> [--home PATH] [--repo PATH]
+  vibeguard-runtime status <claude|codex|grok|git|git-size> [--home PATH] [--repo PATH]
   vibeguard-runtime pre-push
+  vibeguard-runtime pre-commit
   vibeguard-runtime --version
 
 Install registers hooks and removes its existing core instruction block.
@@ -52,6 +53,7 @@ fn run(args: &[String]) -> Result<u8> {
         Some("hook") => hook_orchestrator::run(&args[1..]),
         Some("install" | "uninstall" | "status") => setup::run(&args[0], &args[1..]),
         Some("pre-push") if args.len() == 1 => hook_checks::pre_push(&read_stdin()?),
+        Some("pre-commit") if args.len() == 1 => hook_checks::pre_commit::run(),
         _ => Err("unknown command or arguments; run vibeguard-runtime --help".into()),
     }
 }

@@ -104,6 +104,8 @@ Grok installation writes `$GROK_HOME/hooks/vibeguard.json` (default `~/.grok`). 
 
 Git protection is explicit: `~/.vibeguard/bin/vibeguard-runtime install git --repo /absolute/path/to/repository`. It refuses to replace a user-managed pre-push hook. Use `status git` or `uninstall git` with the same `--repo`.
 
+The line limit at commit time is separate: `~/.vibeguard/bin/vibeguard-runtime install git-size --repo /absolute/path/to/repository` adds a pre-commit hook that refuses a commit leaving a source file above 800 lines and longer than it was, however the file was written. It goes in the repository's own hooks directory; if `core.hooksPath` points elsewhere, `status git-size` reports `hooks_path_override` and the hook runs only if that directory chains to it. It also refuses to replace a user-managed hook, and `git commit --no-verify` skips it.
+
 ## What is enforced
 
 | Surface | Behavior |
