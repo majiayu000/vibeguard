@@ -431,7 +431,10 @@ fn inspect_git_hook(path: &Path, findings: &mut Vec<Value>) {
                         "v1 hook wrapper text",
                         None,
                     ));
-                } else if mentions_v1(&text) && !text.contains("# VibeGuard native pre-push hook") {
+                } else if mentions_v1(&text)
+                    && !text.contains("# VibeGuard native pre-push hook")
+                    && !text.contains("# VibeGuard native pre-commit hook")
+                {
                     findings.push(suspected(
                         path,
                         "repository_hook",

@@ -2,13 +2,9 @@
 
 | Path | Ownership |
 |---|---|
-| `vibeguard-runtime/src/` | Rust CLI, native protocol, Bash/Git checks, observations, installer |
+| `vibeguard-runtime/src/` | Rust CLI, native protocol, Bash/Git checks, source-file line limit, observations, installer |
 | `vibeguard-runtime/tests/` | Executable regression tests with temporary homes/repositories |
-| `rules/claude-rules/` | Canonical rule text for supported hosts; the path does not imply a Claude dependency |
-| `rules/rule-descriptions.json` | Generated catalog embedded at compile time |
-| `claude-md/vibeguard-rules.md` | Generated compact core embedded at compile time |
-| `scripts/generate_rule_docs.py` | Sole rule generator |
-| `scripts/ci/` | Current rule, documentation, and binary checks |
+| `scripts/ci/` | Current documentation and binary checks |
 | `tests/` | Python tooling regression tests |
 | `plugins/vibeguard/` | Optional Codex help skill, no second runtime or installer |
 | `plugins/dsh/` | DSH Bash pre/post adapter; policy stays in the Rust runtime |

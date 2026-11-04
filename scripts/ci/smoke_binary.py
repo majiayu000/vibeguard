@@ -34,9 +34,7 @@ def run(binary, *args, payload="", expected=0):
 def smoke(binary):
     if not run(binary, "--version").startswith("vibeguard-runtime "):
         raise RuntimeError("unexpected binary")
-    catalog = json.loads(run(binary, "rules", "--json"))
-    if not catalog or not all(r.get("id") and r.get("body") for r in catalog):
-        raise RuntimeError("empty or incomplete embedded catalog")
+    run(binary, "rules", expected=2)
     for host in ("claude", "codex", "grok"):
         event = dict(hook_event_name="PreToolUse", cwd="/smoke", tool_name="Bash",
                      tool_input={"command": "git clean -fd"})
@@ -109,7 +107,7 @@ def smoke(binary):
             run(binary, "install", host, "--home", temp)
             run(binary, "uninstall", host, "--home", temp)
             run(binary, "status", host, "--home", temp, expected=1)
-    print("OK: supplied binary, catalog, native protocol and temporary installation")
+    print("OK: supplied binary, native protocol and temporary installation")
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

@@ -1,10 +1,10 @@
 # VibeGuard v2
 
-VibeGuard 继续用 Rust 实现，提供规则查询、原生 Bash hooks、显式 Git pre-push 检查，以及安装和诊断。
+VibeGuard 继续用 Rust 实现，提供原生 Bash hooks、Claude Code 源文件 800 行上限、显式 Git pre-push 检查，以及安装和诊断。
 
 这里的 runtime 是本地命令行程序。宿主调用 hook 时启动它，处理一个事件后退出；这指“一次调用结束”，与退出 Rust 技术路线无关。新版删除了长期代理工具调用的 app-server wrapper。
 
-[英文说明](../README.md) · [运行契约](runtime-contract.md) · [75 个规则主题](rule-reference.md)
+[英文说明](../README.md) · [运行契约](runtime-contract.md)
 
 一条命令即可安装：自动下载适合系统与 CPU 的最新发布包，按 `SHA256SUMS` 校验后执行 `install`。只需要 `curl`、`tar` 和 `shasum`/`sha256sum`，不需要 Rust 工具链或 Python：
 
@@ -41,7 +41,6 @@ bash setup.sh install codex
 bash setup.sh install claude
 # 或 Grok：
 bash setup.sh install grok
-~/.vibeguard/bin/vibeguard-runtime rules rust
 ~/.vibeguard/bin/vibeguard-runtime status codex
 ```
 
@@ -51,18 +50,18 @@ bash setup.sh install grok
 
 Grok 安装在 `$GROK_HOME`（默认 `~/.grok`）写入 `hooks/vibeguard.json`，支持 shell 执行前、执行后与调用失败事件，不创建默认指令文件。更新共享二进制后，Grok 从 Claude 继承的 VibeGuard hooks 也能直接处理 Grok 格式，观察写入独立的 `grok.json`；不需要 Python 脚本，也不修改 `compat.claude.hooks`。两套注册同时存在时可能重复检查，使用相同策略与最近观察。`status grok` 检查原生注册，不认证继承的 hooks 或宿主最终策略；卸载使用 `uninstall grok`。
 
-完整规则嵌入二进制，按需主动查询；`rules --core` 仍可输出简短参考。规则查询不是开工前置步骤。编译器、Clippy、Ruff、ESLint、Go 工具负责各自专业检查。
+编译器、Clippy、Ruff、ESLint、Go 工具负责各自专业检查。
 
-通用工程指导维护在规则库，个人偏好直接放进宿主全局指令，项目事实放进仓库指令。当前上下文或交接摘要已有相关指导时直接沿用；只有细节缺失、来源已变更或用户要求核对时才重读，不在每次追问或任务转场时重新读取一份契约。VibeGuard 不改写周围的用户自有指令。
+个人偏好直接放进宿主全局指令，项目事实放进仓库指令。当前上下文或交接摘要已有相关指导时直接沿用；只有细节缺失、来源已变更或用户要求核对时才重读，不在每次追问或任务转场时重新读取一份契约。VibeGuard 不改写周围的用户自有指令。
 
 | 能力 | 边界 |
 |---|---|
 | Bash 事前检查 | 拒绝有限几类破坏性命令写法，不是完整 shell 解析器或沙箱。 |
+| 源文件行数（Claude Code） | `Write`/`Edit`/`MultiEdit` 会让源文件（`.rs`、`.py`、`.ts`、`.go`、`.swift` 等）超过 800 行且比现在更长时拒绝；新文件不能超限，已超限的旧文件只能变短或持平。文档、数据和标记文件不计；无法预测结果的编辑（文件不存在、原文不匹配）交给宿主工具自己报错。 |
 | Git pre-push | 拒绝远端 ref 删除和已有 tag 替换；分支须直接指向 commit 并满足快进关系，其他已有 ref 解引用 tag 后检查提交祖先关系。不支持的非提交目标明确拒绝，缺失对象单独报错。需单独安装，详见 [runtime contract](runtime-contract.md)。 |
 | 状态与结果 | 区分已配置、执行位完整、最近事件和宿主信任未知；规则文字不参与安装完整性判断，不认证“任务已验证”。 |
-| 规则 | 保留适用条件与例外，辅助判断，不按等级触发通用硬门禁。 |
 
-已移除弱语义扫描、包管理器改写、Stop 计数与测试关键词判断、自动学习、价值评分及重复工作流。提醒覆盖随之减少，原生宿主不是旧检查的等价替代。
+已移除规则库与 `rules` 命令、弱语义扫描、包管理器改写、Stop 计数与测试关键词判断、自动学习、价值评分及重复工作流。提醒覆盖随之减少，原生宿主不是旧检查的等价替代。
 
 `uninstall codex`、`uninstall claude` 或 `uninstall grok` 移除所选集成和观察文件，共享二进制仍保留。没有旧命令、旧 ID 或旧数据兼容。已有 v1 安装先按对应旧版说明卸载，新版不做通用旧版清理。
 

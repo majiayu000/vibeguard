@@ -1,6 +1,6 @@
 # Runtime contract
 
-One local Rust executable handles hooks, rules, and installation. It does not run an agent loop, proxy a model API, execute proposed Bash commands, or select project checks.
+One local Rust executable handles hooks and installation. It does not run an agent loop, proxy a model API, execute proposed Bash commands, or select project checks.
 
 ## Protocol
 
@@ -13,8 +13,9 @@ When Grok imports the Claude registration, `hook claude` recognizes its native e
 | Event | Claude | Codex | Behavior |
 |---|---|---|---|
 | PreToolUse / Bash | Yes | Yes | Native `hookSpecificOutput.permissionDecision: "deny"` for recognized forbidden spelling; otherwise quiet |
-| PostToolUse / Bash | Yes | Yes | Optional latest outcome observation |
-| PostToolUseFailure / Bash | Yes | No | Failed/interrupted observation; Claude error field required |
+| PostToolUse / Bash | Yes | Yes | Optional latest outcome observation; `additionalContext` notice for source files above 800 lines that grew (see below) |
+| PostToolUseFailure / Bash | Yes | No | Failed/interrupted observation; Claude error field required; same notice, since a failing command may have written first |
+| PreToolUse / Write, Edit, MultiEdit | Yes | No | Deny when the predicted result leaves a source file above 800 lines and longer than the current file; otherwise quiet |
 
 Grok registers the same three events for `run_terminal_command`. These selected shell checks do not add hooks for every tool or lifecycle event.
 
@@ -23,6 +24,10 @@ Policy denial uses native JSON with exit 0. Exit 2 denotes runtime/protocol erro
 Forced `git clean` is denied when it has no pathspec or when any pathspec is bulk: `.`/empty after lexical normalization, any `..` component, absolute or `~` paths, pathspec magic (`:`), globs (`*`, `?`, `[`), or `$`, backtick and backslash characters. A clean that names only specific relative paths, such as `git clean -fd -- scratch.txt`, stays quiet. The recognizer receives no verified task-level authorization; it limits forced cleanup to named targets so an agent can carry out cleanup the user authorized for specific files. The [installation pilot's authorized-cleanup false block](../eval/2026-10-07-installation-pilot.md) used bare `git clean -fd`, which remains denied; the denial message directs the agent to preview and name the authorized paths. A dry run does not authorize a later bulk deletion.
 
 For Codex, [`PreToolUse` does not support `permissionDecision: "ask"`](https://learn.chatgpt.com/docs/hooks#pretooluse): that response fails the hook and continues the tool call. `PermissionRequest` only handles an approval the host is already requesting; it cannot turn this denial into a per-call approval. When an already-authorized whole-tree cleanup is blocked, the agent may name the specific authorized paths or report the limitation. The user can perform the exact reviewed operation themselves in their own terminal. The agent must not substitute a command/tool or disable hooks to work around the denial. This manual user action is outside VibeGuard's hook coverage, not a completed agent task or a verified host-trust journey.
+
+The line-limit notice reads the repository, not the command's effect: Git-changed and untracked source files above 800 lines and longer than in `HEAD` (or `HEAD~1` when the command text contains `git commit`), in the hook's cwd and in directories the command names with `cd`, `-C` or an absolute source path. It therefore also reports another session's uncommitted growth in the same repository. Each file is told once per line count, recorded in `file-size-reports.json` under the state directory. It never changes a decision, and any Git or state failure means no notice. It misses a directory held in a shell variable. Grok and DSH do not receive it.
+
+`pre-commit` compares staged content with `HEAD` (the empty tree in a new repository): a source file above 800 lines and longer than before is refused with exit 1. A rename compares with the old name. Concluding a merge also accepts what `MERGE_HEAD` already held. A file Git can't read is skipped rather than counted as growth. It does not run on rebases or fast-forward merges, and `--no-verify` skips it.
 
 The [DSH adapter](../plugins/dsh/README.md) maps a pre-call policy denial to DSH's `ask` decision. DSH's ToolRuntime owns the approval request and records `approval/asked` and `approval/decided`; a grant applies once, and refusal, cancellation, absent approval service/channel, or an agent-less call denies dispatch. A runtime/process/protocol failure is a hard pre-call denial, never an approval request. Post-call observation failures are notices and preserve the completed tool result. DSH installation uses its profile plugin command; the Rust install/status commands target Claude, Codex, Grok and Git only.
 
@@ -113,7 +118,7 @@ Binary: `~/.vibeguard/bin/vibeguard-runtime` (`vibeguard-runtime.exe` on Windows
 
 Grok installation preserves other hook files and `config.toml`, including `compat.claude.hooks`; it does not register a Python adapter or inject default rules. Status checks its native hook file, executable bits and latest Grok observation. It does not inspect effective Grok config layers, imported Claude hooks, `allow_managed_hooks_only`, folder trust or host reload state, and cannot prove dispatch. Uninstall removes only its exact commands/current block and Grok observation, retaining the shared binary and user material.
 
-Unrelated JSON fields/handlers are preserved semantically; formatting may change. Install and uninstall remove an existing standalone `vibeguard-core:start/end` block without injecting replacement rules or lookup instructions. They do not create an instruction file. Markdown bytes outside those markers are preserved, including CRLF and no final newline. Fenced examples are ignored. Incomplete/duplicate blocks fail before mutation. The rule catalog and `rules --core` remain available for explicit reference.
+Unrelated JSON fields/handlers are preserved semantically; formatting may change. Install and uninstall remove an existing standalone `vibeguard-core:start/end` block without injecting replacement rules or lookup instructions. They do not create an instruction file. Markdown bytes outside those markers are preserved, including CRLF and no final newline. Fenced examples are ignored. Incomplete/duplicate blocks fail before mutation.
 
 Codex installation also sets `[features].hooks = true` in the selected Codex directory's `config.toml`, preserving unrelated TOML settings and comments. Invalid TOML or a non-boolean hooks flag fails before installation writes. Uninstall leaves this shared host feature enabled for other hooks. Status reads the local feature setting (including the host's `codex_hooks` alias); absent settings use Codex's current enabled default. An explicit false setting makes status incomplete. This does not inspect higher-priority configuration or administrator requirements and cannot establish effective host permission or trust. See [Codex hooks](https://learn.chatgpt.com/docs/hooks#turn-hooks-off).
 

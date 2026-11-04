@@ -1,3 +1,4 @@
+mod git_hook;
 mod legacy;
 mod markdown;
 pub mod support;
@@ -29,8 +30,8 @@ impl Options {
     fn parse(args: &[String]) -> Result<Self> {
         let host = args
             .first()
-            .filter(|v| matches!(v.as_str(), "claude" | "codex" | "grok" | "git"))
-            .ok_or("target must be claude, codex, grok or git")?
+            .filter(|v| matches!(v.as_str(), "claude" | "codex" | "grok" | "git" | "git-size"))
+            .ok_or("target must be claude, codex, grok, git or git-size")?
             .clone();
         let mut explicit_home = None;
         let mut repo = None;
@@ -49,7 +50,7 @@ impl Options {
             }
         }
         let is_explicit = explicit_home.is_some();
-        let inspect_repo = host == "git" || repo.is_some();
+        let inspect_repo = host.starts_with("git") || repo.is_some();
         let home = explicit_home
             .or_else(|| {
                 std::env::var_os("HOME")
@@ -195,8 +196,8 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
     if action != "status" && !cfg!(unix) && !(cfg!(windows) && options.host == "claude") {
         return Err("native Windows installation supports Claude Code only; use WSL for other targets; no configuration was changed".into());
     }
-    if options.host == "git" {
-        return git_integration(action, &options);
+    if options.host.starts_with("git") {
+        return git_hook::git_integration(action, &options);
     }
     let config_path = options.config();
     let old_config = read_text(&config_path)?;
@@ -258,6 +259,8 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
                     "registered Bash events only (Git Bash); PowerShell and cmd commands are not protected; requires Claude Code 2.1.139 or later; Windows host execution is experimental until verified"
                 } else if options.host == "grok" {
                     "registered run_terminal_command events only; not a sandbox or task-verification certificate"
+                } else if options.host == "claude" {
+                    "registered Bash events and Write/Edit/MultiEdit source-file line limit only; not a sandbox or task-verification certificate"
                 } else {
                     "registered Bash events only; not a sandbox or task-verification certificate"
                 }
@@ -433,7 +436,7 @@ fn publish(mut value: Value, options: &Options, status_ready: Option<bool>) -> R
                 options.home.display()
             );
         }
-        if options.host != "git" {
+        if !options.host.starts_with("git") {
             eprintln!(
                 "{}: {}",
                 if ready {
@@ -491,11 +494,21 @@ fn status_summary(options: &Options, ready: bool, legacy: &Value, status: &Value
             options.host
         );
     }
-    if ready && options.host == "git" {
-        return "VibeGuard git setup complete; actual pre-push execution is unobserved. Next: verify the hook during your next normal push.".into();
+    let (hook, moment) = match options.host.as_str() {
+        "git-size" => ("pre-commit", "commit"),
+        _ => ("pre-push", "push"),
+    };
+    if ready && options.host.starts_with("git") {
+        return format!(
+            "VibeGuard {} setup complete; actual {hook} execution is unobserved. Next: verify the hook during your next normal {moment}.",
+            options.host
+        );
     }
     if status["user_managed_hook"] == true {
-        return "VibeGuard git setup incomplete; the existing pre-push hook is user-managed. Next: inspect the hook path in the status JSON before deciding how to integrate VibeGuard.".into();
+        return format!(
+            "VibeGuard {} setup incomplete; the existing {hook} hook is user-managed. Next: inspect the hook path in the status JSON before deciding how to integrate VibeGuard.",
+            options.host
+        );
     }
     if status["host_hook_disable_flag"] == true {
         return format!(
@@ -603,7 +616,7 @@ fn hook_specs(host: &str, handler: &Value) -> Vec<(String, Value)> {
     } else {
         &["PreToolUse", "PostToolUse"]
     };
-    events
+    let mut specs: Vec<_> = events
         .iter()
         .map(|event| {
             (
@@ -614,8 +627,17 @@ fn hook_specs(host: &str, handler: &Value) -> Vec<(String, Value)> {
                 }),
             )
         })
-        .collect()
+        .collect();
+    if host == "claude" {
+        specs.push((
+            "PreToolUse".into(),
+            json!({"matcher": EDIT_MATCHER, "hooks":[handler]}),
+        ));
+    }
+    specs
 }
+
+const EDIT_MATCHER: &str = "Write|Edit|MultiEdit";
 
 fn hook_registrations(config: &Value, selected_handler: &Value) -> Vec<Value> {
     let mut registrations = Vec::new();
@@ -742,105 +764,6 @@ fn preview(
         "changes":changes,"setup_locks":[options.home.join(".vibeguard/setup.lock"),resource_dir.join(".vibeguard-setup.lock")],
         "details":details,"host_trust":"not_observed",
         "note":"Read-only preview of current inputs; concurrent edits and write/metadata errors can still make installation fail."}),
-        options,
-        None,
-    )?;
-    Ok(0)
-}
-
-fn git_hook_path(options: &Options) -> Result<PathBuf> {
-    let result = Command::new("git")
-        .arg("-C")
-        .arg(&options.repo)
-        .args([
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-path",
-            "hooks/pre-push",
-        ])
-        .output()?;
-    if !result.status.success() {
-        return Err("cannot resolve pre-push hook in the requested Git repository".into());
-    }
-    Ok(PathBuf::from(String::from_utf8(result.stdout)?.trim()))
-}
-
-fn git_integration(action: &str, options: &Options) -> Result<u8> {
-    if matches!(action, "install" | "status")
-        && !crate::hook_checks::inspect_git(&["--version"])?
-            .status
-            .success()
-    {
-        return Err("cannot verify Git object inspection support".into());
-    }
-    let path = git_hook_path(options)?;
-    let expected = format!(
-        "#!/bin/sh\n# VibeGuard native pre-push hook\nexec {} pre-push\n",
-        quote_path(&options.binary())?
-    );
-    let existing = read_text(&path)?;
-    let owned = existing.as_deref() == Some(expected.as_str());
-    if action == "status" {
-        let binary_present = read_optional(&options.binary())?.is_some();
-        let binary_executable = executable(&options.binary())?;
-        let hook_executable = executable(&path)?;
-        publish(
-            json!({"host":"git","hook":path,"configured":owned,"binary_present":binary_present,
-                "binary_executable":binary_executable,"hook_executable":hook_executable,
-                "user_managed_hook":existing.is_some() && !owned}),
-            options,
-            Some(owned && binary_executable && hook_executable),
-        )?;
-        return Ok(u8::from(!owned || !binary_executable || !hook_executable));
-    }
-    if existing.is_some() && !owned {
-        return Err("existing pre-push hook is user-managed; no files were changed".into());
-    }
-    if options.dry_run {
-        let mut changes = binary_changes(options)?;
-        if !owned {
-            changes.push(json!({"path":path,"operation":"register_pre_push"}));
-        } else if !executable(&path)? {
-            changes.push(json!({"path":path,"operation":"restore_execute_bits"}));
-        }
-        return preview(
-            options,
-            changes,
-            path.parent()
-                .ok_or("pre-push hook has no parent directory")?,
-            json!({"hook":path,"hook_command":format!("{} pre-push",quote_path(&options.binary())?)}),
-        );
-    }
-    let locks = if action == "install" || owned {
-        let locks = lock_setup(
-            &options.home,
-            path.parent()
-                .ok_or("pre-push hook has no parent directory")?,
-        )?;
-        check_unchanged(&path, existing.as_deref().map(str::as_bytes))?;
-        Some(locks)
-    } else {
-        None
-    };
-    if action == "install" {
-        install_binary(options)?;
-        if !owned {
-            write_atomic_if_unchanged(
-                &path,
-                expected.as_bytes(),
-                0o755,
-                existing.as_deref().map(str::as_bytes),
-            )?;
-        }
-        check_unchanged(&path, Some(expected.as_bytes()))?;
-        make_executable(&path)?;
-    } else if owned {
-        check_unchanged(&path, existing.as_deref().map(str::as_bytes))?;
-        fs::remove_file(&path)?;
-    }
-    drop(locks);
-    publish(
-        json!({"action":action,"host":"git","hook":path}),
         options,
         None,
     )?;

@@ -23,7 +23,6 @@ From the repository root:
 | Change | Focused verification |
 |---|---|
 | Rust | `cargo check --locked --manifest-path vibeguard-runtime/Cargo.toml` and `cargo test --locked --manifest-path vibeguard-runtime/Cargo.toml` |
-| Rules | `python3 scripts/generate_rule_docs.py` then `bash scripts/ci/validate-rules.sh` |
 | Docs | `bash scripts/ci/validate-doc-paths.sh` and `bash scripts/ci/validate-doc-command-paths.sh` |
 | Python tooling | `python3 -m unittest discover -s tests -p 'test_*.py'` |
 | Multiple surfaces / submission | `bash scripts/local-contract-check.sh` |

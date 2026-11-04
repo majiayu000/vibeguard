@@ -27,6 +27,9 @@ pub fn run(args: &[String]) -> Result<u8> {
         host
     };
     let (mut output, outcome, exit_code) = evaluate(host, &input)?;
+    if output.is_none() {
+        output = size_notice(host, &input, state_dir);
+    }
     if let Some(state_dir) = state_dir
         && let Err(error) = logging::record(state_dir, host, &input, outcome, exit_code)
     {
@@ -53,6 +56,55 @@ fn required_string<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
         .ok_or_else(|| format!("hook field {key} must be a nonempty string").into())
 }
 
+fn deny(reason: String) -> Value {
+    json!({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason
+        }
+    })
+}
+
+/// The line limit for what a shell command wrote, told after the fact to the hosts
+/// that read `additionalContext` from these events.
+fn size_notice(host: &str, input: &Value, state_dir: Option<&Path>) -> Option<Value> {
+    let event = input.get("hook_event_name")?.as_str()?;
+    let supported = matches!(
+        (host, event),
+        ("claude" | "codex", "PostToolUse") | ("claude", "PostToolUseFailure")
+    );
+    if !supported || input.get("tool_name")?.as_str()? != "Bash" {
+        return None;
+    }
+    let cwd = Path::new(input.get("cwd")?.as_str()?);
+    let command = input["tool_input"]["command"].as_str();
+    let text = hook_checks::file_size_report::notice(cwd, command, state_dir)?;
+    Some(json!({
+        "hookSpecificOutput": {"hookEventName": event, "additionalContext": text}
+    }))
+}
+
+fn evaluate_edit(
+    event: &str,
+    tool: &str,
+    input: &Value,
+) -> Result<(Option<Value>, &'static str, Option<i64>)> {
+    if event != "PreToolUse" {
+        return Err("edit hooks are registered for PreToolUse only".into());
+    }
+    let tool_input = input
+        .get("tool_input")
+        .filter(|v| v.is_object())
+        .ok_or("tool_input must be an object")?;
+    Ok(
+        match hook_checks::file_size::blocked_reason(tool, tool_input) {
+            Some(reason) => (Some(deny(reason)), "denied", None),
+            None => (None, "requested", None),
+        },
+    )
+}
+
 fn evaluate(host: &str, input: &Value) -> Result<(Option<Value>, &'static str, Option<i64>)> {
     if !input.is_object() {
         return Err("hook input must be a JSON object".into());
@@ -60,8 +112,11 @@ fn evaluate(host: &str, input: &Value) -> Result<(Option<Value>, &'static str, O
     let event = required_string(input, "hook_event_name")?;
     required_string(input, "cwd")?;
     let tool = required_string(input, "tool_name")?;
+    if host == "claude" && hook_checks::file_size::is_edit_tool(tool) {
+        return evaluate_edit(event, tool, input);
+    }
     if tool != "Bash" && !(host == "grok" && tool == "run_terminal_command") {
-        return Err("this integration accepts Bash hook events only".into());
+        return Err("this integration accepts Bash and Claude edit hook events only".into());
     }
     // Grok may truncate post-event input; only pre-events evaluate the command.
     let command = if event == "PreToolUse" || host != "grok" {
@@ -78,17 +133,7 @@ fn evaluate(host: &str, input: &Value) -> Result<(Option<Value>, &'static str, O
             if let Some(reason) =
                 hook_checks::bash::blocked_reason(command.expect("pre-event command"))
             {
-                Ok((
-                    Some(json!({
-                        "hookSpecificOutput": {
-                            "hookEventName": "PreToolUse",
-                            "permissionDecision": "deny",
-                            "permissionDecisionReason": reason
-                        }
-                    })),
-                    "denied",
-                    None,
-                ))
+                Ok((Some(deny(reason.into())), "denied", None))
             } else {
                 Ok((None, "requested", None))
             }
@@ -191,6 +236,21 @@ mod tests {
                 .1,
             "requested"
         );
+    }
+    #[test]
+    fn size_notice_stays_away_from_other_hosts_events_and_tools() {
+        let mut input = payload("PostToolUse", "ls");
+        input["cwd"] = json!("/nowhere/at/all");
+        assert_eq!(size_notice("claude", &input, None), None);
+        for (host, event) in [
+            ("grok", "PostToolUse"),
+            ("dsh", "PostToolUse"),
+            ("codex", "PostToolUseFailure"),
+            ("claude", "PreToolUse"),
+        ] {
+            input["hook_event_name"] = json!(event);
+            assert_eq!(size_notice(host, &input, None), None, "{host} {event}");
+        }
     }
     #[test]
     fn malformed_protocol_is_not_a_pass() {

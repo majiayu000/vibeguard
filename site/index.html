@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>VibeGuard — Rust rules and native hooks for Claude Code and Codex</title>
-  <meta name="description" content="VibeGuard is a Rust CLI with scoped review rules, native Bash and Git hooks, and installation diagnostics for Claude Code and Codex.">
+  <title>VibeGuard — native hooks for Claude Code and Codex</title>
+  <meta name="description" content="VibeGuard is a Rust CLI with native Bash and Git hooks, a source-file line limit, and installation diagnostics for Claude Code and Codex.">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://majiayu000.github.io/vibeguard/">
   <link rel="sitemap" type="application/xml" href="sitemap.xml">
-  <meta property="og:title" content="VibeGuard — Rust rules and native coding-agent hooks">
+  <meta property="og:title" content="VibeGuard — native coding-agent hooks">
   <meta property="og:description" content="Scoped review guidance, selected destructive-command checks, Git ancestry protection, and installation diagnostics for Claude Code and Codex.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://majiayu000.github.io/vibeguard/">
@@ -17,8 +17,8 @@
   <meta property="og:image:height" content="240">
   <meta property="og:image:alt" content="VibeGuard guardian logo">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="VibeGuard — Rust rules and native coding-agent hooks">
-  <meta name="twitter:description" content="Scoped review rules, native Bash and Git hooks, and installation diagnostics for Claude Code and Codex.">
+  <meta name="twitter:title" content="VibeGuard — native coding-agent hooks">
+  <meta name="twitter:description" content="Native Bash and Git hooks, a source-file line limit, and installation diagnostics for Claude Code and Codex.">
   <meta name="twitter:image" content="https://majiayu000.github.io/vibeguard/assets/logo-mark.png">
   <meta name="twitter:image:alt" content="VibeGuard guardian logo">
   <link rel="icon" href="assets/logo-mark.png" type="image/png">
@@ -39,24 +39,23 @@
     <a href="#install">Install</a>
     <a href="#behavior">What it checks</a>
     <a href="#faq">Tasks and FAQ</a>
-    <a href="https://github.com/majiayu000/vibeguard/blob/main/docs/rule-reference.md">Rule reference</a>
     <a href="https://github.com/majiayu000/vibeguard">GitHub</a>
   </nav>
   <main>
     <header>
       <p>VibeGuard v2 · Rust CLI · MIT licensed</p>
-      <h1>Rules and native hooks for Claude Code and Codex.</h1>
-      <p>VibeGuard packages scoped coding-agent review guidance, selected Bash
-        command checks, explicit Git ancestry checks, and installation diagnostics
+      <h1>Native hooks for Claude Code and Codex.</h1>
+      <p>VibeGuard packages selected Bash command checks, a source-file line
+        limit, explicit Git ancestry checks, and installation diagnostics
         in one Rust executable. It helps make risky actions and missing evidence
         visible during coding work.</p>
     </header>
     <section id="behavior">
       <h2>What the current runtime checks</h2>
       <ul>
-        <li><strong>Review rules:</strong> 75 scoped topics covering scope, facts,
-          errors, security, workflow, Rust, Python, Go, and TypeScript. Rule
-          severity is guidance, not an automatic blocking level.</li>
+        <li><strong>Source-file line limit (Claude Code):</strong> refuses a
+          Write, Edit or MultiEdit that would leave a source file above 800 lines
+          and longer than before. Existing large files may shrink but not grow.</li>
         <li><strong>Native Bash hooks:</strong> reject selected bulk Git restore,
           forced Git clean, and recursive forced deletion spellings. Results
           record only the latest observed outcome.</li>
@@ -85,16 +84,14 @@
 # Or select Claude Code:
 ./vibeguard-runtime install claude</code></pre>
       <p>Restart the selected host and review its native hook trust settings.</p>
-      <pre><code>~/.vibeguard/bin/vibeguard-runtime status codex
-~/.vibeguard/bin/vibeguard-runtime rules
-~/.vibeguard/bin/vibeguard-runtime rules RS-01</code></pre>
+      <pre><code>~/.vibeguard/bin/vibeguard-runtime status codex</code></pre>
       <p>Use <code>claude</code> instead of <code>codex</code> for Claude Code.
         Native Windows installation is not implemented; the portable CLI and
         JSON protocol are tested in Windows CI.</p>
       <p>For source builds, optional Git protection, v1 upgrade instructions, or
         uninstall, follow the
         <a href="https://github.com/majiayu000/vibeguard#readme">current README</a>.
-        V2 removes the earlier static scanners, learning metrics, workflow
+        V2 removes the rule library, the earlier static scanners, learning metrics, workflow
         routing, and Stop/test-keyword gates.</p>
     </section>
     <section id="faq">
@@ -103,14 +100,6 @@
         <a href="https://github.com/majiayu000/vibeguard">majiayu000/vibeguard</a>.
         Use that repository's releases and documentation when choosing an archive
         or checking a command.</p>
-      <h3 id="lookup">How do I find a rule for the code I am reviewing?</h3>
-      <p>Start with the category, then open the relevant topic. For example:</p>
-      <pre><code>~/.vibeguard/bin/vibeguard-runtime rules rust
-~/.vibeguard/bin/vibeguard-runtime rules RS-01</code></pre>
-      <p>Read the topic's scope and exceptions before applying it. These commands
-        print guidance; they do not scan your source or decide whether a change
-        passes review. The <a href="https://github.com/majiayu000/vibeguard/blob/main/docs/rule-reference.md">rule reference</a>
-        lists the other categories and identifiers.</p>
       <h3 id="status">Hooks are installed. Why is protection still uncertain?</h3>
       <pre><code>~/.vibeguard/bin/vibeguard-runtime status codex</code></pre>
       <p>Use <code>status claude</code> for Claude Code. An incomplete result points
@@ -120,9 +109,9 @@
         Even a complete result cannot establish host trust or reload state;
         restart the host and review its native hook settings. The last observation
         is a diagnostic, not proof that the current code passed tests.</p>
-      <h3 id="rules-and-hooks">Do review rules block every violation?</h3>
-      <p>No. The rule library guides the agent and reviewer. The runtime enforces
-        selected Bash spellings and the optional Git pre-push policy; other tools
+      <h3 id="rules-and-hooks">Does VibeGuard block every risky action?</h3>
+      <p>No. The runtime enforces selected Bash spellings, the source-file line
+        limit for Claude Code edits, and the optional Git pre-push policy; other tools
         and arbitrary shell programs are outside those checks. Keep host
         permissions and repository protection in place. See
         <a href="#behavior">what is checked</a> and the

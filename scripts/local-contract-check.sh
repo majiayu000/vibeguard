@@ -6,7 +6,6 @@ if (($#)); then
   echo "Usage: bash scripts/local-contract-check.sh" >&2
   exit 2
 fi
-python3 scripts/generate_rule_docs.py --check
 python3 -m unittest discover -s tests -p 'test_*.py'
 bash scripts/ci/validate-doc-paths.sh
 bash scripts/ci/validate-doc-command-paths.sh
