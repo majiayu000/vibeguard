@@ -13,7 +13,7 @@ curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.s
 curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- claude
 ```
 
-把 `claude` 换成 `codex` 或 `grok` 即可；在 `bash` 前设置 `VIBEGUARD_VERSION=v2.2.0` 可固定版本。也可以手动完成：
+把 `claude` 换成 `codex` 或 `grok` 即可；在 `bash` 前设置 `VIBEGUARD_VERSION=v2.3.0` 可固定版本。也可以手动完成：
 
 从 [Releases](https://github.com/majiayu000/vibeguard/releases) 下载适合系统与 CPU 的 v2 压缩包，解压后在该目录运行，无需源码或 Rust 工具链：
 
