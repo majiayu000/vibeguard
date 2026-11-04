@@ -61,9 +61,9 @@
         <li><strong>800-line limit, after a Bash call (Claude Code, Codex):</strong>
           tells the Agent which source files grew past the limit. Nothing is
           blocked.</li>
-        <li><strong>800-line limit, at commit (optional, per repository):</strong>
-          <code>install git-size</code> adds a pre-commit hook that refuses the
-          growth however the file was written, from any tool.</li>
+        <li><strong>800-line limit, at commit (optional, once per machine):</strong>
+          <code>install git-size</code> refuses the growth in every repository,
+          however the file was written, from any tool.</li>
         <li><strong>Optional Git pre-push hook:</strong> checks commit ancestry,
           rejects remote ref deletion and replacement of existing tags, and
           requires fast-forward branch updates.</li>
@@ -86,8 +86,8 @@
       <pre><code>curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- claude --dry-run
 curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- claude</code></pre>
       <p>Replace <code>claude</code> with <code>codex</code> or <code>grok</code>.
-        To add the commit-time line limit to a repository:</p>
-      <pre><code>~/.vibeguard/bin/vibeguard-runtime install git-size --repo /absolute/path/to/repository</code></pre>
+        To add the commit-time line limit for every repository on this machine:</p>
+      <pre><code>~/.vibeguard/bin/vibeguard-runtime install git-size</code></pre>
       <p>Or download your OS and CPU archive from
         <a href="https://github.com/majiayu000/vibeguard/releases">GitHub Releases</a>,
         extract it, and open a terminal in that directory. macOS, Linux, and WSL
@@ -135,8 +135,8 @@ curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.s
       <h3 id="line-limit">Why did a file still grow past 800 lines?</h3>
       <p>The edit check only sees Claude Code's Write, Edit and MultiEdit. A script
         run from the shell goes around it, and gets a notice after the fact instead.
-        Only the commit hook stops every way of writing a file, and it has to be
-        installed per repository; <code>--no-verify</code> skips it, and rebases and
+        Only the commit hook stops every way of writing a file, and it is installed
+        separately, once per machine; <code>--no-verify</code> skips it, and rebases and
         fast-forward merges don't run it. See
         <a href="https://github.com/majiayu000/vibeguard#the-800-line-limit">the 800-line limit</a>.</p>
       <h3 id="versions">Why do older instructions mention different commands?</h3>

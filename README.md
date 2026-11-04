@@ -111,22 +111,34 @@ A source file (`.rs`, `.py`, `.ts`, `.go`, `.swift` and similar) may not end abo
 |---|---|---|---|---|
 | Before an edit | `Write`, `Edit`, `MultiEdit` | Claude Code | The edit is refused | `install claude` |
 | After a Bash call | Files the repository shows as changed | Claude Code, Codex | The Agent is told; nothing is blocked | `install claude`, `install codex` |
-| At commit | Staged content, however it was written | Anything that commits | The commit is refused | `install git-size --repo PATH`, per repository |
+| At commit | Staged content, however it was written | Anything that commits | The commit is refused | `install git-size`, once for the whole machine |
 
-Only the commit hook covers every way of writing a file. It is opt-in because it can stop a repository's existing workflow:
+Only the commit hook covers every way of writing a file. Install it once and it applies to every repository on the machine, including ones created later:
 
 ```bash
-~/.vibeguard/bin/vibeguard-runtime install git-size --repo /absolute/path/to/repository --dry-run
-~/.vibeguard/bin/vibeguard-runtime install git-size --repo /absolute/path/to/repository
-~/.vibeguard/bin/vibeguard-runtime status git-size --repo /absolute/path/to/repository
-~/.vibeguard/bin/vibeguard-runtime uninstall git-size --repo /absolute/path/to/repository
+~/.vibeguard/bin/vibeguard-runtime install git-size --dry-run
+~/.vibeguard/bin/vibeguard-runtime install git-size
+~/.vibeguard/bin/vibeguard-runtime status git-size
+~/.vibeguard/bin/vibeguard-runtime uninstall git-size
 ```
 
-It compares staged content with `HEAD`, so no list of known large files is needed. It goes in the repository's own hooks directory, which linked worktrees share, and is separate from `install git`, so it brings no push rules. If `core.hooksPath` points elsewhere, `status git-size` reports `hooks_path_override`, and the hook runs only if that directory chains to it. It refuses to replace a user-managed hook.
+Nothing is added to your repositories. To turn it off in one, such as someone else's project with large files:
+
+```bash
+git -C /absolute/path/to/repository config vibeguard.sizeLimit false
+```
+
+It compares staged content with `HEAD`, so no list of known large files is needed. It is separate from `install git`, so it brings no push rules. How it installs depends on the global `core.hooksPath`:
+
+- **Not set:** Git is pointed at `~/.vibeguard/git-hooks`, whose hooks also run each repository's own hooks, so those keep working. Uninstall unsets it again.
+- **Set by another tool:** a marked block goes at the top of that tool's pre-commit script, and uninstall restores its exact text. If that tool rewrites the script, `status git-size` shows the block is gone; run install again. A hook that isn't a shell script is left alone and install fails with a message.
+
+If the binary is missing, or the check itself fails, the commit goes through with a warning at most: a problem here must not stop every commit on the machine.
 
 Known gaps:
 
 - `git commit --no-verify` skips the commit hook. Rebases and fast-forward merges don't run it.
+- A repository that sets its own `core.hooksPath`, as Husky does, doesn't run it.
 - The Bash notice reads the whole repository, so it can also report another session's uncommitted growth. It misses a directory held in a shell variable.
 - Grok and DSH receive no notice, and Codex `apply_patch` is seen only at commit.
 

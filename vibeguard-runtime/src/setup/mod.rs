@@ -1,4 +1,5 @@
 mod git_hook;
+mod git_size;
 mod legacy;
 mod markdown;
 pub mod support;
@@ -50,7 +51,8 @@ impl Options {
             }
         }
         let is_explicit = explicit_home.is_some();
-        let inspect_repo = host.starts_with("git") || repo.is_some();
+        git_size::check_arguments(&host, repo.as_ref())?;
+        let inspect_repo = host == "git" || repo.is_some();
         let home = explicit_home
             .or_else(|| {
                 std::env::var_os("HOME")
@@ -196,8 +198,11 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
     if action != "status" && !cfg!(unix) && !(cfg!(windows) && options.host == "claude") {
         return Err("native Windows installation supports Claude Code only; use WSL for other targets; no configuration was changed".into());
     }
-    if options.host.starts_with("git") {
+    if options.host == "git" {
         return git_hook::git_integration(action, &options);
+    }
+    if options.host == "git-size" {
+        return git_size::run(action, &options);
     }
     let config_path = options.config();
     let old_config = read_text(&config_path)?;
@@ -494,21 +499,14 @@ fn status_summary(options: &Options, ready: bool, legacy: &Value, status: &Value
             options.host
         );
     }
-    let (hook, moment) = match options.host.as_str() {
-        "git-size" => ("pre-commit", "commit"),
-        _ => ("pre-push", "push"),
-    };
-    if ready && options.host.starts_with("git") {
-        return format!(
-            "VibeGuard {} setup complete; actual {hook} execution is unobserved. Next: verify the hook during your next normal {moment}.",
-            options.host
-        );
+    if options.host == "git-size" {
+        return git_size::summary(ready).into();
+    }
+    if ready && options.host == "git" {
+        return "VibeGuard git setup complete; actual pre-push execution is unobserved. Next: verify the hook during your next normal push.".into();
     }
     if status["user_managed_hook"] == true {
-        return format!(
-            "VibeGuard {} setup incomplete; the existing {hook} hook is user-managed. Next: inspect the hook path in the status JSON before deciding how to integrate VibeGuard.",
-            options.host
-        );
+        return "VibeGuard git setup incomplete; the existing pre-push hook is user-managed. Next: inspect the hook path in the status JSON before deciding how to integrate VibeGuard.".into();
     }
     if status["host_hook_disable_flag"] == true {
         return format!(

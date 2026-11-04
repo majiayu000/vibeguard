@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Breaking:** `install git-size` now covers every repository on the machine and takes no `--repo`. A repository can opt out with `git config vibeguard.sizeLimit false`. A hook left by 2.2.0 in `.git/hooks/pre-commit` keeps working; delete it to avoid checking twice.
+- A failure of the commit check warns instead of refusing the commit.
+
 ## 2.2.0 — 2026-11-04
 
 - **Breaking:** remove the rule library: the 75-rule catalog, the `rules` command (it now exits 2), the generator and generated docs. Install still strips an old `vibeguard-core` block.

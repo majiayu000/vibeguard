@@ -1,43 +1,22 @@
-//! Installing, checking and removing the Git hooks: `git` (pre-push) and `git-size`
-//! (pre-commit).
+//! Installing, checking and removing the pre-push hook for one repository.
 
 use super::*;
 
-/// `git` guards pushes; `git-size` guards commits and can be had without the push rules.
-fn hook_name(options: &Options) -> &'static str {
-    if options.host == "git-size" {
-        "pre-commit"
-    } else {
-        "pre-push"
-    }
-}
-
-fn rev_parse(options: &Options, args: &[&str], name: &str) -> Result<PathBuf> {
+fn git_hook_path(options: &Options) -> Result<PathBuf> {
     let result = Command::new("git")
         .arg("-C")
         .arg(&options.repo)
-        .args(["rev-parse", "--path-format=absolute"])
-        .args(args)
+        .args([
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "hooks/pre-push",
+        ])
         .output()?;
     if !result.status.success() {
-        return Err(format!("cannot resolve {name} hook in the requested Git repository").into());
+        return Err("cannot resolve pre-push hook in the requested Git repository".into());
     }
     Ok(PathBuf::from(String::from_utf8(result.stdout)?.trim()))
-}
-
-/// The hook Git itself would run, which `core.hooksPath` can move out of the repository.
-fn effective_hook(options: &Options, name: &str) -> Result<PathBuf> {
-    rev_parse(options, &["--git-path", &format!("hooks/{name}")], name)
-}
-
-fn git_hook_path(options: &Options) -> Result<PathBuf> {
-    let name = hook_name(options);
-    if name == "pre-commit" {
-        // The repository's own hook, shared by its worktrees. A global hooks directory
-        // belongs to another tool, and many such tools chain to this file.
-        return Ok(rev_parse(options, &["--git-common-dir"], name)?.join("hooks/pre-commit"));
-    }
-    effective_hook(options, name)
 }
 
 pub(super) fn git_integration(action: &str, options: &Options) -> Result<u8> {
@@ -48,13 +27,9 @@ pub(super) fn git_integration(action: &str, options: &Options) -> Result<u8> {
     {
         return Err("cannot verify Git object inspection support".into());
     }
-    let name = hook_name(options);
     let path = git_hook_path(options)?;
-    let elsewhere = effective_hook(options, name)?;
-    // Git runs another file here; ours only runs if that one chains to it.
-    let hooks_path_override = (elsewhere != path).then(|| elsewhere.clone());
     let expected = format!(
-        "#!/bin/sh\n# VibeGuard native {name} hook\nexec {} {name}\n",
+        "#!/bin/sh\n# VibeGuard native pre-push hook\nexec {} pre-push\n",
         quote_path(&options.binary())?
     );
     let existing = read_text(&path)?;
@@ -64,7 +39,7 @@ pub(super) fn git_integration(action: &str, options: &Options) -> Result<u8> {
         let binary_executable = executable(&options.binary())?;
         let hook_executable = executable(&path)?;
         publish(
-            json!({"host":options.host,"hook":path,"hooks_path_override":hooks_path_override,"configured":owned,"binary_present":binary_present,
+            json!({"host":"git","hook":path,"configured":owned,"binary_present":binary_present,
                 "binary_executable":binary_executable,"hook_executable":hook_executable,
                 "user_managed_hook":existing.is_some() && !owned}),
             options,
@@ -73,14 +48,12 @@ pub(super) fn git_integration(action: &str, options: &Options) -> Result<u8> {
         return Ok(u8::from(!owned || !binary_executable || !hook_executable));
     }
     if existing.is_some() && !owned {
-        return Err(format!("existing {name} hook is user-managed; no files were changed").into());
+        return Err("existing pre-push hook is user-managed; no files were changed".into());
     }
     if options.dry_run {
         let mut changes = binary_changes(options)?;
         if !owned {
-            changes.push(
-                json!({"path":path,"operation":format!("register_{}", name.replace('-', "_"))}),
-            );
+            changes.push(json!({"path":path,"operation":"register_pre_push"}));
         } else if !executable(&path)? {
             changes.push(json!({"path":path,"operation":"restore_execute_bits"}));
         }
@@ -88,7 +61,7 @@ pub(super) fn git_integration(action: &str, options: &Options) -> Result<u8> {
             options,
             changes,
             path.parent().ok_or("Git hook has no parent directory")?,
-            json!({"hook":path,"hook_command":format!("{} {name}",quote_path(&options.binary())?),"hooks_path_override":hooks_path_override}),
+            json!({"hook":path,"hook_command":format!("{} pre-push",quote_path(&options.binary())?)}),
         );
     }
     let locks = if action == "install" || owned {
@@ -119,7 +92,7 @@ pub(super) fn git_integration(action: &str, options: &Options) -> Result<u8> {
     }
     drop(locks);
     publish(
-        json!({"action":action,"host":options.host,"hook":path,"hooks_path_override":hooks_path_override}),
+        json!({"action":action,"host":"git","hook":path}),
         options,
         None,
     )?;

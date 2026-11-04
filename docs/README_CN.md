@@ -58,22 +58,34 @@ Grok 安装在 `$GROK_HOME`（默认 `~/.grok`）写入 `hooks/vibeguard.json`�
 |---|---|---|---|---|
 | 编辑前 | `Write`、`Edit`、`MultiEdit` | Claude Code | 拒绝这次编辑 | `install claude` |
 | Bash 执行后 | 仓库里显示有改动的文件 | Claude Code、Codex | 提醒 Agent，不拦截 | `install claude`、`install codex` |
-| 提交时 | 暂存的内容，不管怎么写进去的 | 所有会提交的工具 | 拒绝这次提交 | 逐个仓库 `install git-size --repo 路径` |
+| 提交时 | 暂存的内容，不管怎么写进去的 | 所有会提交的工具 | 拒绝这次提交 | `install git-size`，整台机器装一次 |
 
-只有提交时这一层能覆盖所有写法。它可能打断仓库现有的工作流，所以需要单独安装：
+只有提交时这一层能覆盖所有写法。装一次，这台机器上的所有仓库都生效，包括以后新建的：
 
 ```bash
-~/.vibeguard/bin/vibeguard-runtime install git-size --repo /absolute/path/to/repository --dry-run
-~/.vibeguard/bin/vibeguard-runtime install git-size --repo /absolute/path/to/repository
-~/.vibeguard/bin/vibeguard-runtime status git-size --repo /absolute/path/to/repository
-~/.vibeguard/bin/vibeguard-runtime uninstall git-size --repo /absolute/path/to/repository
+~/.vibeguard/bin/vibeguard-runtime install git-size --dry-run
+~/.vibeguard/bin/vibeguard-runtime install git-size
+~/.vibeguard/bin/vibeguard-runtime status git-size
+~/.vibeguard/bin/vibeguard-runtime uninstall git-size
 ```
 
-它拿暂存内容和 `HEAD` 比，不需要维护大文件清单。hook 装在仓库自己的 hooks 目录，linked worktree 共用；和 `install git` 分开，不会带上 push 规则。如果 `core.hooksPath` 指向别处，`status git-size` 会报告 `hooks_path_override`，这时只有那个目录串联到这个 hook 才会运行。已有用户自己的 hook 时拒绝覆盖。
+它不会往你的仓库里加任何东西。想在某个仓库关掉（比如别人的项目本来就有大文件）：
+
+```bash
+git -C /absolute/path/to/repository config vibeguard.sizeLimit false
+```
+
+它拿暂存内容和 `HEAD` 比，不需要维护大文件清单；和 `install git` 分开，不会带上 push 规则。安装方式取决于全局 `core.hooksPath`：
+
+- **没有设置：** 让 Git 指向 `~/.vibeguard/git-hooks`，里面的 hook 会接着运行每个仓库自己的 hook，所以它们照常工作。卸载时会取消这个设置。
+- **已被其他工具设置：** 在那个工具的 pre-commit 脚本开头加一段带标记的内容，卸载时恢复原文。如果那个工具重写了脚本，`status git-size` 能看出这段没了，再运行一次 install 即可。不是 shell 脚本的 hook 不会被改动，安装会报错说明。
+
+程序丢失或检查本身出错时，提交照常进行，最多给一条警告：这里出问题不能卡住整台机器的提交。
 
 已知缺口：
 
 - `git commit --no-verify` 能跳过提交检查；rebase 和 fast-forward 合并不触发。
+- 仓库自己设置了 `core.hooksPath`（比如 Husky）时不会运行。
 - Bash 提醒看的是整个仓库，可能报告其他会话未提交的增长；目录放在 shell 变量里时跟不过去。
 - Grok 和 DSH 收不到提醒，Codex 的 `apply_patch` 要到提交时才会被发现。
 
