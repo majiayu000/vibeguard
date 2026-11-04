@@ -4,7 +4,7 @@ One local Rust executable handles hooks and installation. It does not run an age
 
 ## Protocol
 
-`hook claude`, `hook codex`, `hook grok`, and `hook dsh` consume one JSON object on stdin, capped at 4 MiB. Claude/Codex/DSH required fields are event name, nonempty cwd, tool name `Bash`, and `tool_input.command`. Malformed input/unsupported events return exit 2; payload contents are not echoed. DSH accepts PreToolUse/PostToolUse and records its own `dsh` host attribution; the npm adapter translates DSH tool values to this protocol.
+`hook claude`, `hook codex`, `hook grok`, and `hook dsh` consume one JSON object on stdin, capped at 4 MiB. Claude/Codex/DSH required fields are event name, nonempty cwd, tool name `Bash`, and `tool_input.command`; Claude's edit events carry `Write`, `Edit` or `MultiEdit` and their own `tool_input`. Malformed input/unsupported events return exit 2; payload contents are not echoed. DSH accepts PreToolUse/PostToolUse and records its own `dsh` host attribution; the npm adapter translates DSH tool values to this protocol.
 
 Grok accepts `run_terminal_command` (and its matcher spelling `Bash`), native `hookEventName` values `pre_tool_use`, `post_tool_use`, `post_tool_use_failure`, and the documented Claude-style aliases. `toolName`, `toolInput`, `toolResult`, `toolUseId`, and `isInterrupt` map to the corresponding common fields; native camelCase values take precedence. Only `toolInput.command` is evaluated; no `cmd`/`script` guesses or other shell tools are accepted. Pre-use input marked `toolInputTruncated: true` is an error. Post-use input may be truncated because it is not evaluated. A string/truncated result has no inferred exit code; `isBackgrounded: true` records `running` without a completed exit code. Failure events require `error` and honor `isInterrupt`.
 
@@ -19,7 +19,7 @@ When Grok imports the Claude registration, `hook claude` recognizes its native e
 
 Grok registers the same three events for `run_terminal_command`. These selected shell checks do not add hooks for every tool or lifecycle event.
 
-Policy denial uses native JSON with exit 0. Exit 2 denotes runtime/protocol error; host error handling is not a universal fail-closed guarantee. No `ask` decision is emitted. No Stop, Read, search, apply_patch, Edit, MCP, or hosted-tool hooks are registered.
+Policy denial uses native JSON with exit 0. Exit 2 denotes runtime/protocol error; host error handling is not a universal fail-closed guarantee. No `ask` decision is emitted. Edit hooks exist only for Claude's line limit. No Stop, Read, search, apply_patch, MCP, or hosted-tool hooks are registered.
 
 Forced `git clean` is denied when it has no pathspec or when any pathspec is bulk: `.`/empty after lexical normalization, any `..` component, absolute or `~` paths, pathspec magic (`:`), globs (`*`, `?`, `[`), or `$`, backtick and backslash characters. A clean that names only specific relative paths, such as `git clean -fd -- scratch.txt`, stays quiet. The recognizer receives no verified task-level authorization; it limits forced cleanup to named targets so an agent can carry out cleanup the user authorized for specific files. The [installation pilot's authorized-cleanup false block](../eval/2026-10-07-installation-pilot.md) used bare `git clean -fd`, which remains denied; the denial message directs the agent to preview and name the authorized paths. A dry run does not authorize a later bulk deletion.
 
@@ -85,13 +85,15 @@ Observation writes are best-effort diagnostics. If a write returns an error, the
 
 Fields are timestamp, host, event, tool, tool-use ID, cwd, outcome, optional exit code. Raw commands, stdout, stderr, error strings, and prompts are not retained.
 
+`file-size-reports.json` in the same directory is separate: it holds the path and line count of each file the line-limit notice has told about, shared across hosts, so a file isn't told twice at one size. `uninstall` leaves it in place. Entries for files that no longer exist are dropped on the next notice.
+
 Outcomes distinguish requested, denied, exited_zero, exited_nonzero, running, interrupted, failed, and exit_status_unavailable. Only structured exit codes are recorded. Claude's normal Bash result can omit a code. Printed success and failure display strings do not become guessed exit codes.
 
 There is no verified-tree flag. A previous result, background ID, command containing "test", or absence of observed edits cannot establish task completion.
 
 ## Installation
 
-`install <claude|codex|grok|git> --dry-run` reuses installation input validation and content preparation, then prints JSON stdout and a human preview on stderr before acquiring locks or writing files. It lists changed paths, operations, hook commands, and the persistent locks used by a real install. Invalid inputs and a user-owned Git hook still return exit 2. Existing `disableAllHooks` settings, unrelated handlers and user guidance are preserved; the preview warns about a disabled host. `status` and `uninstall` reject `--dry-run`. Native Windows supports Claude Code installation, preview and removal; other native Windows targets remain unsupported. Windows uses HOME, falling back to USERPROFILE when HOME is missing or empty.
+`install <claude|codex|grok|git|git-size> --dry-run` reuses installation input validation and content preparation, then prints JSON stdout and a human preview on stderr before acquiring locks or writing files. It lists changed paths, operations, hook commands, and the persistent locks used by a real install. Invalid inputs and a user-owned Git hook still return exit 2. Existing `disableAllHooks` settings, unrelated handlers and user guidance are preserved; the preview warns about a disabled host. `status` and `uninstall` reject `--dry-run`. Native Windows supports Claude Code installation, preview and removal; other native Windows targets remain unsupported. Windows uses HOME, falling back to USERPROFILE when HOME is missing or empty.
 
 Preview describes current inputs; it does not establish write permissions, metadata-copy success, lock availability, host trust, or actual protection. The source `setup.sh` launcher may build Cargo artifacts before forwarding `--dry-run`; the runtime installer itself writes nothing. Installation into an absent home does not create an instruction file. An existing owned core block is removed while surrounding user text stays intact.
 
@@ -101,6 +103,7 @@ Preview describes current inputs; it does not establish write permissions, metad
 | Codex | `$CODEX_HOME/hooks.json`, default `~/.codex/hooks.json` | Same directory's `AGENTS.md` |
 | Grok | `$GROK_HOME/hooks/vibeguard.json`, default `~/.grok/hooks/vibeguard.json` | Same Grok directory's existing `rules/vibeguard.md` |
 | Git | Resolved `git --git-path hooks/pre-push`, honoring core.hooksPath | None |
+| Git size | `<git-common-dir>/hooks/pre-commit`, whatever core.hooksPath says; `hooks_path_override` names the file Git runs instead | None |
 
 Claude install/reinstall removes retired `skills-loader.sh` command handlers from every event in the selected settings file, including manual duplicates. Matching is limited to simple calls to `~/.vibeguard/installed/hooks/skills-loader.sh`, `~/.vibeguard/dist/current/hooks/skills-loader.sh`, or the `.vibeguard/run-hook.sh skills-loader.sh` wrapper, optionally preceded by `bash` or `sh` (including interpreter paths). Other home prefixes and quoted paths are recognized, including literal punctuation inside quotes. Same-name scripts in arbitrary paths do not establish VibeGuard ownership. Unquoted escapes, shell operators, comments, command substitutions, extra arguments and arbitrary shell programs are left alone; a filename mention in another command is not an invocation. Other handlers, group properties and pre-existing empty groups remain; only groups emptied by this removal are dropped. Dry-run lists `remove_retired_skills_loader_hooks` with `handler_count`. Status, uninstall and other host installers do not perform this cleanup. This is a specific retired-feature cleanup, not a v1 migration or filesystem sweep.
 

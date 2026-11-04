@@ -1,6 +1,6 @@
 # Contributing
 
-Favor a small Rust implementation, scoped rule text, and observable behavior. Explain a reproducible problem before proposing a new subsystem.
+Favor a small Rust implementation and observable behavior. Explain a reproducible problem before proposing a new subsystem.
 
 ```bash
 cargo check --locked --manifest-path vibeguard-runtime/Cargo.toml

@@ -1,6 +1,6 @@
-# VibeGuard v2
+# VibeGuard
 
-VibeGuard 继续用 Rust 实现，提供原生 Bash hooks、Claude Code 源文件 800 行上限、显式 Git pre-push 检查，以及安装和诊断。
+VibeGuard 是一个 Rust 命令行程序，做两件事：拒绝有限几类破坏性 Bash 命令，以及不让源文件涨过 800 行（见[行数上限](#行数上限)）。另外提供可选的 Git pre-push 检查和安装诊断。
 
 这里的 runtime 是本地命令行程序。宿主调用 hook 时启动它，处理一个事件后退出；这指“一次调用结束”，与退出 Rust 技术路线无关。新版删除了长期代理工具调用的 app-server wrapper。
 
@@ -13,7 +13,7 @@ curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.s
 curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- claude
 ```
 
-把 `claude` 换成 `codex` 或 `grok` 即可；在 `bash` 前设置 `VIBEGUARD_VERSION=v2.1.0` 可固定版本。也可以手动完成：
+把 `claude` 换成 `codex` 或 `grok` 即可；在 `bash` 前设置 `VIBEGUARD_VERSION=v2.2.0` 可固定版本。也可以手动完成：
 
 从 [Releases](https://github.com/majiayu000/vibeguard/releases) 下载适合系统与 CPU 的 v2 压缩包，解压后在该目录运行，无需源码或 Rust 工具链：
 
@@ -30,9 +30,9 @@ curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.s
 
 压缩包包含可执行文件、英文 README 和 LICENSE。安装将程序复制到 `~/.vibeguard/bin/vibeguard-runtime`；Claude Code 的状态查询和卸载将上面的 `codex` 换为 `claude`。WSL 使用 Linux 包。旧版本资源应使用对应版本的说明。
 
-从源码构建则在源码目录运行（需要 `cargo`；没有时 `setup.sh` 会停止并提示改用 `install.sh`）：
+安装前可用 `install codex --dry-run`（或 `claude` / `grok` / `git` / `git-size`）只读预览将改动的文件、注册命令和持久锁文件。它复用安装校验，不创建目录，不获取锁，不证明写入权限或实际防护。安装会保留无关的 hook、用户说明和 `disableAllHooks` 设置；已禁用的 hooks 仍需用户检查后启用。
 
-安装前可用 `install codex --dry-run`（或 `claude` / `git`）只读预览将改动的文件、注册命令和持久锁文件。它复用安装校验，不创建目录，不获取锁，不证明写入权限或实际防护。安装会保留无关的 hook、用户说明和 `disableAllHooks` 设置；已禁用的 hooks 仍需用户检查后启用。
+从源码构建则在源码目录运行（需要 `cargo`；没有时 `setup.sh` 会停止并提示改用 `install.sh`）：
 
 ```bash
 bash setup.sh install codex --dry-run
@@ -44,11 +44,42 @@ bash setup.sh install grok
 ~/.vibeguard/bin/vibeguard-runtime status codex
 ```
 
-需要仓库指定的 Rust 工具链。原生安装支持 macOS、Linux、WSL。Windows x64 新增实验性 Claude Code + Git Bash 支持，要求 Claude Code 2.1.139 或更新版本；从 Windows 发布包解压后在 PowerShell 运行 `./install.ps1 -DryRun` 预览，再运行 `./install.ps1` 安装。也可单独下载脚本，它会下载最新 Windows 发布包并核对 SHA256SUMS。发布包缺失时会报错，不会退回安装其他平台版本。PowerShell/cmd 命令语法和 Windows 原生 Codex/Grok/Git 安装暂不覆盖。Windows 真实 Claude Code 会话的 hook 触发仍待验证，详见 [Windows 安装说明](../README.md#native-windows-experimental-claude-code--git-bash)。安装注册所选宿主的 hooks，并移除已有的 `vibeguard-core` 受管说明块，保留周围用户内容；不会创建说明文件。重启宿主并检查 hook 信任设置。
+需要仓库指定的 Rust 工具链。原生安装支持 macOS、Linux、WSL。Windows x64 新增实验性 Claude Code + Git Bash 支持，要求 Claude Code 2.1.139 或更新版本；从 Windows 发布包解压后在 PowerShell 运行 `./install.ps1 -DryRun` 预览，再运行 `./install.ps1` 安装。也可单独下载脚本，它会下载最新 Windows 发布包并核对 SHA256SUMS。发布包缺失时会报错，不会退回安装其他平台版本。PowerShell/cmd 命令语法和 Windows 原生 Codex、Grok、Git hook 安装暂不覆盖。Windows 真实 Claude Code 会话的 hook 触发仍待验证，详见 [Windows 安装说明](../README.md#native-windows-experimental-claude-code--git-bash)。安装注册所选宿主的 hooks，并移除已有的 `vibeguard-core` 受管说明块，保留周围用户内容；不会创建说明文件。重启宿主并检查 hook 信任设置。
 
 安装不再向全局说明注入通用原则或规则查询指令。
 
 Grok 安装在 `$GROK_HOME`（默认 `~/.grok`）写入 `hooks/vibeguard.json`，支持 shell 执行前、执行后与调用失败事件，不创建默认指令文件。更新共享二进制后，Grok 从 Claude 继承的 VibeGuard hooks 也能直接处理 Grok 格式，观察写入独立的 `grok.json`；不需要 Python 脚本，也不修改 `compat.claude.hooks`。两套注册同时存在时可能重复检查，使用相同策略与最近观察。`status grok` 检查原生注册，不认证继承的 hooks 或宿主最终策略；卸载使用 `uninstall grok`。
+
+## 行数上限
+
+源文件（`.rs`、`.py`、`.ts`、`.go`、`.swift` 等）不能超过 800 行且比原来更长；文档、数据和标记文件不计。Agent 写文件的方式不止一种，所以分三处检查：
+
+| 时机 | 看什么 | 宿主 | 结果 | 怎么启用 |
+|---|---|---|---|---|
+| 编辑前 | `Write`、`Edit`、`MultiEdit` | Claude Code | 拒绝这次编辑 | `install claude` |
+| Bash 执行后 | 仓库里显示有改动的文件 | Claude Code、Codex | 提醒 Agent，不拦截 | `install claude`、`install codex` |
+| 提交时 | 暂存的内容，不管怎么写进去的 | 所有会提交的工具 | 拒绝这次提交 | 逐个仓库 `install git-size --repo 路径` |
+
+只有提交时这一层能覆盖所有写法。它可能打断仓库现有的工作流，所以需要单独安装：
+
+```bash
+~/.vibeguard/bin/vibeguard-runtime install git-size --repo /absolute/path/to/repository --dry-run
+~/.vibeguard/bin/vibeguard-runtime install git-size --repo /absolute/path/to/repository
+~/.vibeguard/bin/vibeguard-runtime status git-size --repo /absolute/path/to/repository
+~/.vibeguard/bin/vibeguard-runtime uninstall git-size --repo /absolute/path/to/repository
+```
+
+它拿暂存内容和 `HEAD` 比，不需要维护大文件清单。hook 装在仓库自己的 hooks 目录，linked worktree 共用；和 `install git` 分开，不会带上 push 规则。如果 `core.hooksPath` 指向别处，`status git-size` 会报告 `hooks_path_override`，这时只有那个目录串联到这个 hook 才会运行。已有用户自己的 hook 时拒绝覆盖。
+
+已知缺口：
+
+- `git commit --no-verify` 能跳过提交检查；rebase 和 fast-forward 合并不触发。
+- Bash 提醒看的是整个仓库，可能报告其他会话未提交的增长；目录放在 shell 变量里时跟不过去。
+- Grok 和 DSH 收不到提醒，Codex 的 `apply_patch` 要到提交时才会被发现。
+
+从 2.1 升级：重新运行 `install claude` 才会启用编辑前检查。已经超限的文件不会自动变短，要有人去拆。
+
+## 能力与边界
 
 编译器、Clippy、Ruff、ESLint、Go 工具负责各自专业检查。
 
@@ -57,11 +88,13 @@ Grok 安装在 `$GROK_HOME`（默认 `~/.grok`）写入 `hooks/vibeguard.json`�
 | 能力 | 边界 |
 |---|---|
 | Bash 事前检查 | 拒绝有限几类破坏性命令写法，不是完整 shell 解析器或沙箱。 |
-| 源文件行数（Claude Code） | `Write`/`Edit`/`MultiEdit` 会让源文件（`.rs`、`.py`、`.ts`、`.go`、`.swift` 等）超过 800 行且比现在更长时拒绝；新文件不能超限，已超限的旧文件只能变短或持平。文档、数据和标记文件不计；无法预测结果的编辑（文件不存在、原文不匹配）交给宿主工具自己报错。 |
+| 编辑前（Claude Code） | `Write`/`Edit`/`MultiEdit` 会让源文件超过 800 行且比现在更长时拒绝；新文件不能超限，已超限的旧文件只能变短或持平。无法预测结果的编辑（文件不存在、原文不匹配）交给宿主工具自己报错。 |
+| Bash 执行后（Claude Code、Codex） | 告诉 Agent 哪些源文件涨过了 800 行，同一文件同一行数只提醒一次，不改变任何决定。 |
+| Git pre-commit（`install git-size`） | 提交会让源文件超过 800 行且比原来更长时拒绝。详见[行数上限](#行数上限)。 |
 | Git pre-push | 拒绝远端 ref 删除和已有 tag 替换；分支须直接指向 commit 并满足快进关系，其他已有 ref 解引用 tag 后检查提交祖先关系。不支持的非提交目标明确拒绝，缺失对象单独报错。需单独安装，详见 [runtime contract](runtime-contract.md)。 |
 | 状态与结果 | 区分已配置、执行位完整、最近事件和宿主信任未知；规则文字不参与安装完整性判断，不认证“任务已验证”。 |
 
-已移除规则库与 `rules` 命令、弱语义扫描、包管理器改写、Stop 计数与测试关键词判断、自动学习、价值评分及重复工作流。提醒覆盖随之减少，原生宿主不是旧检查的等价替代。
+已移除规则库与 `rules` 命令（2.2.0）、弱语义扫描、包管理器改写、Stop 计数与测试关键词判断、自动学习、价值评分及重复工作流。提醒覆盖随之减少，原生宿主不是旧检查的等价替代。
 
 `uninstall codex`、`uninstall claude` 或 `uninstall grok` 移除所选集成和观察文件，共享二进制仍保留。没有旧命令、旧 ID 或旧数据兼容。已有 v1 安装先按对应旧版说明卸载，新版不做通用旧版清理。
 
