@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.0 — 2026-11-04
+
+- **Breaking:** remove the rule library: the 75-rule catalog, the `rules` command (it now exits 2), the generator and generated docs. Install still strips an old `vibeguard-core` block.
+- **Breaking for Claude installs:** Claude installs gain a `Write|Edit|MultiEdit` PreToolUse group that denies an edit leaving a source file above 800 lines and longer than it is now; run `install claude` again to get it.
+- After a Bash call, tell Claude and Codex through `additionalContext` when a source file grew past 800 lines. It reads the repository, follows `cd`, `-C` and absolute source paths, and tells each file once per line count; it never changes a decision.
+- Add `install git-size --repo PATH`: a pre-commit hook refusing a commit that leaves a source file above 800 lines and longer than it was, however the file was written. It installs apart from `install git`, and `status git-size` reports `hooks_path_override` when `core.hooksPath` points elsewhere.
+
 ## 2.1.1 — 2026-10-21
 
 - Allow forced `git clean` that names specific relative paths, so a cleanup the user authorized for those files is no longer falsely blocked. Forced clean without a pathspec, or with `.`, `..`, absolute, `~`, glob, pathspec-magic or variable targets, remains denied.
