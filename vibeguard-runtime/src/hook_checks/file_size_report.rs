@@ -36,8 +36,7 @@ pub fn notice(cwd: &Path, command: Option<&str>, state_dir: Option<&Path>) -> Op
     for root in &roots {
         let grown = scan(root, command);
         // A file fixed or committed leaves the record, so growing it again is news.
-        let prefix = format!("{}/", root.display());
-        seen.retain(|path, _| !path.starts_with(&prefix));
+        seen.retain(|path, _| !Path::new(path).starts_with(root));
         for file in grown {
             seen.insert(file.path.clone(), file.after);
             fresh.push(file);
@@ -104,7 +103,7 @@ fn candidate_dirs(cwd: &Path, command: &str) -> Vec<PathBuf> {
             .trim_matches(|c| c == '\'' || c == '"');
         if after_cd {
             dirs.extend(resolve(cwd, word));
-        } else if value.starts_with(['/', '~'])
+        } else if (value.starts_with('~') || Path::new(value).is_absolute())
             && is_source(value)
             && let Some(file) = resolve(cwd, value)
             && let Some(parent) = file.parent()
