@@ -236,6 +236,12 @@ mod tests {
         }
         fn run(&self, args: &[&str]) {
             let ok = Command::new("git")
+                // This machine's own hooks, the line limit among them, mustn't judge a fixture.
+                .env(
+                    "GIT_CONFIG_GLOBAL",
+                    if cfg!(windows) { "NUL" } else { "/dev/null" },
+                )
+                .env("GIT_CONFIG_NOSYSTEM", "1")
                 .arg("-C")
                 .arg(&self.dir)
                 .args(args)
