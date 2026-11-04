@@ -17,7 +17,7 @@ curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.s
 curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- claude
 ```
 
-Replace `claude` with `codex` or `grok`. Set `VIBEGUARD_VERSION=v2.2.0` before `bash` to pin a release. To do the same steps by hand:
+Replace `claude` with `codex` or `grok`. Set `VIBEGUARD_VERSION=v2.3.0` before `bash` to pin a release. To do the same steps by hand:
 
 Download the archive for your OS and CPU from [Releases](https://github.com/majiayu000/vibeguard/releases), extract it, and open a terminal in the extracted directory. macOS, Linux and WSL are supported; choose a Linux archive for WSL. No Rust toolchain or source checkout is required for this path. Run:
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.3.0 — 2026-11-04
 
 - **Breaking:** `install git-size` now covers every repository on the machine and takes no `--repo`. A repository can opt out with `git config vibeguard.sizeLimit false`. A hook left by 2.2.0 in `.git/hooks/pre-commit` keeps working; delete it to avoid checking twice.
 - A failure of the commit check warns instead of refusing the commit.

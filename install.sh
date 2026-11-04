@@ -10,7 +10,7 @@ Usage: install.sh <claude|codex|grok|git|git-size> [install options]
   curl -fsSL https://raw.githubusercontent.com/majiayu000/vibeguard/main/install.sh | bash -s -- claude --dry-run
 
 Arguments are forwarded to `vibeguard-runtime install`.
-Set VIBEGUARD_VERSION to a release tag (for example v2.2.0) to pin a version; the default is the latest release.
+Set VIBEGUARD_VERSION to a release tag (for example v2.3.0) to pin a version; the default is the latest release.
 EOF
 }
 
