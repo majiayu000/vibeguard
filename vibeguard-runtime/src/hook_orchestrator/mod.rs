@@ -27,6 +27,9 @@ pub fn run(args: &[String]) -> Result<u8> {
         host
     };
     let (mut output, outcome, exit_code) = evaluate(host, &input)?;
+    if output.is_none() {
+        output = size_notice(host, &input, state_dir);
+    }
     if let Some(state_dir) = state_dir
         && let Err(error) = logging::record(state_dir, host, &input, outcome, exit_code)
     {
@@ -61,6 +64,25 @@ fn deny(reason: String) -> Value {
             "permissionDecisionReason": reason
         }
     })
+}
+
+/// The line limit for what a shell command wrote, told after the fact to the hosts
+/// that read `additionalContext` from these events.
+fn size_notice(host: &str, input: &Value, state_dir: Option<&Path>) -> Option<Value> {
+    let event = input.get("hook_event_name")?.as_str()?;
+    let supported = matches!(
+        (host, event),
+        ("claude" | "codex", "PostToolUse") | ("claude", "PostToolUseFailure")
+    );
+    if !supported || input.get("tool_name")?.as_str()? != "Bash" {
+        return None;
+    }
+    let cwd = Path::new(input.get("cwd")?.as_str()?);
+    let command = input["tool_input"]["command"].as_str();
+    let text = hook_checks::file_size_report::notice(cwd, command, state_dir)?;
+    Some(json!({
+        "hookSpecificOutput": {"hookEventName": event, "additionalContext": text}
+    }))
 }
 
 fn evaluate_edit(
@@ -214,6 +236,21 @@ mod tests {
                 .1,
             "requested"
         );
+    }
+    #[test]
+    fn size_notice_stays_away_from_other_hosts_events_and_tools() {
+        let mut input = payload("PostToolUse", "ls");
+        input["cwd"] = json!("/nowhere/at/all");
+        assert_eq!(size_notice("claude", &input, None), None);
+        for (host, event) in [
+            ("grok", "PostToolUse"),
+            ("dsh", "PostToolUse"),
+            ("codex", "PostToolUseFailure"),
+            ("claude", "PreToolUse"),
+        ] {
+            input["hook_event_name"] = json!(event);
+            assert_eq!(size_notice(host, &input, None), None, "{host} {event}");
+        }
     }
     #[test]
     fn malformed_protocol_is_not_a_pass() {

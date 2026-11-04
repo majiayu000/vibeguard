@@ -53,7 +53,7 @@ pub fn blocked_reason(tool: &str, input: &Value) -> Option<String> {
     })
 }
 
-fn is_source(path: &str) -> bool {
+pub(super) fn is_source(path: &str) -> bool {
     Path::new(path)
         .extension()
         .and_then(|ext| ext.to_str())
@@ -73,7 +73,7 @@ fn apply(text: &str, edit: &Value) -> Option<String> {
     }
 }
 
-fn count_lines(text: &str) -> usize {
+pub(super) fn count_lines(text: &str) -> usize {
     text.lines().count()
 }
 

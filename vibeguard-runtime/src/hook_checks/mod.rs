@@ -1,5 +1,6 @@
 pub mod bash;
 pub mod file_size;
+pub mod file_size_report;
 
 use crate::Result;
 use std::process::{Command, Output};
