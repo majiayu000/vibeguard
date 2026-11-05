@@ -3,6 +3,7 @@ mod git_size;
 mod legacy;
 mod markdown;
 pub mod support;
+mod v1_migration;
 
 use crate::{Result, logging, print_json};
 use serde_json::{Value, json};
@@ -25,6 +26,7 @@ struct Options {
     repo: PathBuf,
     inspect_repo: bool,
     dry_run: bool,
+    migrate_v1_hooks: bool,
 }
 
 impl Options {
@@ -37,8 +39,13 @@ impl Options {
         let mut explicit_home = None;
         let mut repo = None;
         let mut dry_run = false;
+        let mut migrate_v1_hooks = false;
         let mut rest = args[1..].iter();
         while let Some(flag) = rest.next() {
+            if flag == "--migrate-v1-hooks" && !migrate_v1_hooks {
+                migrate_v1_hooks = true;
+                continue;
+            }
             if flag == "--dry-run" && !dry_run {
                 dry_run = true;
                 continue;
@@ -122,6 +129,7 @@ impl Options {
             repo: absolute(repo.unwrap_or(std::env::current_dir()?))?,
             inspect_repo,
             dry_run,
+            migrate_v1_hooks,
         })
     }
     fn binary(&self) -> PathBuf {
@@ -192,6 +200,9 @@ fn quote_path(path: &Path) -> Result<String> {
 
 pub fn run(action: &str, args: &[String]) -> Result<u8> {
     let options = Options::parse(args)?;
+    if options.migrate_v1_hooks && (action != "install" || options.host != "claude") {
+        return Err("--migrate-v1-hooks requires install claude".into());
+    }
     if options.dry_run && action != "install" {
         return Err("--dry-run is supported only by install".into());
     }
@@ -298,6 +309,7 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         None
     };
     // Validate inputs and owned regions before writing any installation files.
+    let v1 = v1_migration::plan(&mut config, &options.host_dir, options.migrate_v1_hooks)?;
     let removed_skills_loader = prune_hooks(
         &mut config,
         &handler,
@@ -328,6 +340,7 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         || remove_observation;
     if options.dry_run {
         let mut changes = binary_changes(&options)?;
+        v1.preview(&config_path, &mut changes);
         if removed_skills_loader > 0 {
             changes.push(
                 json!({"path":config_path,"operation":"remove_retired_skills_loader_hooks",
@@ -374,6 +387,7 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         None
     };
     if action == "install" {
+        v1.write_backup(old_config.as_deref())?;
         install_binary(&options)?;
     }
     if config != original_config {
@@ -411,6 +425,7 @@ pub fn run(action: &str, args: &[String]) -> Result<u8> {
         json!({
             "action":action,"host":options.host,"config":config_path,"instructions":instructions_path,
             "binary":options.binary(),
+            "removed_v1_hooks":v1.removed,"migration_backup":v1.backup,
             "note": if action == "install" {
                 "Registered. Restart the host and review its hook trust settings; configuration alone does not prove execution."
             } else {
@@ -769,41 +784,4 @@ fn preview(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn exec_handler_ownership_includes_arguments() {
-        let ours = json!({"type":"command","command":"C:/runtime.exe","args":["hook","claude"],"timeout":10});
-        let user = json!({"type":"command","command":"C:/runtime.exe","args":["rules"]});
-        let mut config = json!({"hooks":{"PreToolUse":[{"hooks":[ours.clone(),user.clone()]}]}});
-        assert!(hook_registrations(&config, &ours)[0]["selected_instance"] == true);
-        assert!(hook_registrations(&config, &ours)[1]["selected_instance"] == false);
-        prune_hooks(&mut config, &ours, false);
-        assert_eq!(config["hooks"]["PreToolUse"][0]["hooks"], json!([user]));
-    }
-    #[test]
-    fn removal_preserves_unrelated_handlers_even_in_the_same_group() {
-        let ours = "/path/to/runtime hook codex";
-        let user =
-            json!({"type":"command","command":"echo '/path/to/runtime hook codex'","custom":true});
-        let mut config = json!({"unrelated":7,"hooks":{"PreToolUse":[{"matcher":"Bash","custom":"keep","hooks":[
-            {"type":"command","command":ours},user.clone()
-        ]}]}});
-        validate_config(&config).unwrap();
-        prune_hooks(&mut config, &json!({"command":ours}), false);
-        assert_eq!(config["unrelated"], 7);
-        assert_eq!(config["hooks"]["PreToolUse"][0]["custom"], "keep");
-        assert_eq!(config["hooks"]["PreToolUse"][0]["hooks"], json!([user]));
-    }
-    #[test]
-    fn malformed_user_configuration_is_not_normalized_away() {
-        for config in [
-            json!([]),
-            json!({"hooks":[]}),
-            json!({"hooks":{"PreToolUse":{}}}),
-            json!({"hooks":{"PreToolUse":[{"hooks":false}]}}),
-        ] {
-            assert!(validate_config(&config).is_err());
-        }
-    }
-}
+mod tests;
