@@ -31,7 +31,11 @@ pub fn blocked_reason(tool: &str, input: &Value, cwd: &str, temp_dir: &Path) -> 
         return None;
     }
     let path = input.get("file_path")?.as_str()?;
-    if !is_page(path) || !is_temporary(&resolve(path, cwd), temp_dir) {
+    if !is_page(path)
+        || !destinations(path, cwd)
+            .iter()
+            .any(|dest| is_temporary(dest, temp_dir))
+    {
         return None;
     }
     Some(format!(
@@ -46,14 +50,25 @@ fn is_page(path: &str) -> bool {
         .is_some_and(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm"))
 }
 
-/// The absolute path the file would have: `..` collapsed, and the parent's symlinks
-/// followed when the parent exists yet.
-fn resolve(path: &str, cwd: &str) -> PathBuf {
-    let path = normalize(&Path::new(cwd).join(path));
-    let real_parent = path.parent().and_then(|p| p.canonicalize().ok());
-    match (real_parent, path.file_name()) {
-        (Some(parent), Some(name)) => parent.join(name),
-        _ => path,
+/// Where the file could land. `link/../x` has two answers: Claude's Write collapses `..`
+/// first (measured), the operating system follows `link` first. Either being temporary
+/// refuses the write, so the check doesn't depend on which one a tool uses.
+fn destinations(path: &str, cwd: &str) -> [PathBuf; 2] {
+    let path = Path::new(cwd).join(path);
+    [real_path(&normalize(&path)), real_path(&path)]
+}
+
+/// Follows symlinks through the deepest ancestor that exists, because Write creates the
+/// missing directories below it; what remains is collapsed by its spelling.
+fn real_path(path: &Path) -> PathBuf {
+    let existing = path
+        .parent()
+        .into_iter()
+        .flat_map(Path::ancestors)
+        .find_map(|dir| Some((dir, dir.canonicalize().ok()?)));
+    match existing {
+        Some((dir, real)) => normalize(&real.join(path.strip_prefix(dir).unwrap_or(path))),
+        None => normalize(path),
     }
 }
 
@@ -146,6 +161,37 @@ mod tests {
         assert!(blocked(to_temp.join("x.html").to_str().unwrap(), "/repo"));
         assert!(!blocked(to_kept.join("x.html").to_str().unwrap(), "/repo"));
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_then_parent_counts_where_it_leads_and_where_it_is_spelled() {
+        let id = std::process::id();
+        let root = std::env::current_dir()
+            .unwrap()
+            .join(format!("target/temp-page-dotdot-{id}"));
+        let temp = PathBuf::from(format!("/tmp/vibeguard-temp-page-test-{id}"));
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(root.join("pages")).unwrap();
+        std::fs::create_dir_all(root.join("kept/child")).unwrap();
+        std::fs::create_dir_all(temp.join("child")).unwrap();
+        std::os::unix::fs::symlink(temp.join("child"), root.join("pages/to-temp")).unwrap();
+        std::os::unix::fs::symlink(root.join("kept/child"), root.join("pages/to-kept")).unwrap();
+        let in_pages =
+            |path: &str| blocked(root.join("pages").join(path).to_str().unwrap(), "/repo");
+        assert!(in_pages("to-temp/../x.html"));
+        assert!(!in_pages("to-kept/../x.html"));
+        assert!(in_pages("to-temp/new/dir/x.html"));
+        assert!(!in_pages("to-kept/new/dir/x.html"));
+        std::fs::remove_dir_all(&root).unwrap();
+        std::fs::remove_dir_all(&temp).unwrap();
+    }
+
+    #[test]
+    fn a_parent_that_does_not_exist_yet_is_still_temporary() {
+        assert!(blocked("/tmp/vibeguard-absent/new/dir/x.html", "/repo"));
+        assert!(!blocked("/nowhere/new/dir/x.html", "/repo"));
     }
 
     #[test]
