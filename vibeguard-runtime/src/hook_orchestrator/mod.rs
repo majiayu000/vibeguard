@@ -97,12 +97,27 @@ fn evaluate_edit(
         .get("tool_input")
         .filter(|v| v.is_object())
         .ok_or("tool_input must be an object")?;
-    Ok(
-        match hook_checks::file_size::blocked_reason(tool, tool_input) {
-            Some(reason) => (Some(deny(reason)), "denied", None),
-            None => (None, "requested", None),
-        },
-    )
+    let reason = temp_page_reason(tool, tool_input, input)?
+        .or_else(|| hook_checks::file_size::blocked_reason(tool, tool_input));
+    Ok(match reason {
+        Some(reason) => (Some(deny(reason)), "denied", None),
+        None => (None, "requested", None),
+    })
+}
+
+fn temp_page_reason(tool: &str, tool_input: &Value, input: &Value) -> Result<Option<String>> {
+    use hook_checks::temp_page;
+    let switch = std::env::var(temp_page::SWITCH).ok();
+    if !temp_page::enabled(switch.as_deref())? {
+        return Ok(None);
+    }
+    let cwd = required_string(input, "cwd")?;
+    Ok(temp_page::blocked_reason(
+        tool,
+        tool_input,
+        cwd,
+        &std::env::temp_dir(),
+    ))
 }
 
 fn evaluate(host: &str, input: &Value) -> Result<(Option<Value>, &'static str, Option<i64>)> {
