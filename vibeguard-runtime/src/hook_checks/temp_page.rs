@@ -59,12 +59,14 @@ fn destinations(path: &str, cwd: &str) -> [PathBuf; 2] {
 }
 
 /// Follows symlinks through the deepest ancestor that exists, because Write creates the
-/// missing directories below it; what remains is collapsed by its spelling.
+/// missing directories below it; what remains is collapsed by its spelling. A root is
+/// never a symlink, and on Windows canonicalizing it would turn `/tmp` into `\\?\D:\tmp`.
 fn real_path(path: &Path) -> PathBuf {
     let existing = path
         .parent()
         .into_iter()
         .flat_map(Path::ancestors)
+        .filter(|dir| dir.parent().is_some())
         .find_map(|dir| Some((dir, dir.canonicalize().ok()?)));
     match existing {
         Some((dir, real)) => normalize(&real.join(path.strip_prefix(dir).unwrap_or(path))),
