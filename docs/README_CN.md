@@ -101,6 +101,7 @@ git -C /absolute/path/to/repository config vibeguard.sizeLimit false
 |---|---|
 | Bash 事前检查 | 拒绝有限几类破坏性命令写法，不是完整 shell 解析器或沙箱。 |
 | 编辑前（Claude Code） | `Write`/`Edit`/`MultiEdit` 会让源文件超过 800 行且比现在更长时拒绝；新文件不能超限，已超限的旧文件只能变短或持平。无法预测结果的编辑（文件不存在、原文不匹配）交给宿主工具自己报错。 |
+| Write 前，需手动开启（Claude Code） | 钩子环境里设 `VIBEGUARD_TEMP_PAGES=deny` 后，拒绝用 `Write` 把 `.html`、`.htm` 文件写进临时目录，因为系统之后会删掉。默认关闭。通过 Bash 写的页面看不到。 |
 | Bash 执行后（Claude Code、Codex） | 告诉 Agent 哪些源文件涨过了 800 行，同一文件同一行数只提醒一次，不改变任何决定。 |
 | Git pre-commit（`install git-size`） | 提交会让源文件超过 800 行且比原来更长时拒绝。详见[行数上限](#行数上限)。 |
 | Git pre-push | 拒绝远端 ref 删除和已有 tag 替换；分支须直接指向 commit 并满足快进关系，其他已有 ref 解引用 tag 后检查提交祖先关系。不支持的非提交目标明确拒绝，缺失对象单独报错。需单独安装，详见 [runtime contract](runtime-contract.md)。 |

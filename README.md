@@ -154,6 +154,7 @@ Upgrading from 2.1: run `install claude` again to add the edit check. Files that
 | Bash results | Records only the latest reported outcome, optional exit code, timestamp, cwd, and tool-use ID. No raw command or output. |
 | Git pre-push | Rejects remote ref deletion and existing tag replacement. Branches require direct commit targets and fast-forward updates; other existing refs require commit ancestry after peeling tags. Missing required objects are an explicit error. See the [runtime contract](docs/runtime-contract.md). |
 | Write/Edit/MultiEdit PreToolUse (Claude Code) | Refuses an edit that would leave a source file above 800 lines and longer than before. Edits whose result cannot be predicted (missing file, unmatched text) are left to the host tool. |
+| Write PreToolUse, opt-in (Claude Code) | With `VIBEGUARD_TEMP_PAGES=deny` in the hook's environment, refuses a `Write` of an `.html` or `.htm` file under a temporary directory, where the system deletes it later. Off by default. Pages written through Bash are not seen. |
 | Bash PostToolUse (Claude Code, Codex) and PostToolUseFailure (Claude Code) | Tells the Agent which source files grew past 800 lines, once per file and line count. It never changes a decision. |
 | Git pre-commit (`install git-size`) | Refuses a commit that leaves a source file above 800 lines and longer than before. See [the 800-line limit](#the-800-line-limit). |
 

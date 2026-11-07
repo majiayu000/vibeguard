@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add an opt-in check for Claude: `VIBEGUARD_TEMP_PAGES=deny` refuses a `Write` of an HTML page under a temporary directory, where the system deletes it later.
+
 ## 2.3.0 — 2026-11-04
 
 - **Breaking:** `install git-size` now covers every repository on the machine and takes no `--repo`. A repository can opt out with `git config vibeguard.sizeLimit false`. A hook left by 2.2.0 in `.git/hooks/pre-commit` keeps working; delete it to avoid checking twice.

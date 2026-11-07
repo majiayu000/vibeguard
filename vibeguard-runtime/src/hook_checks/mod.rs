@@ -2,6 +2,7 @@ pub mod bash;
 pub mod file_size;
 pub mod file_size_report;
 pub mod pre_commit;
+pub mod temp_page;
 
 use crate::Result;
 use std::process::{Command, Output};
