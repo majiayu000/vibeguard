@@ -184,3 +184,5 @@ The optional [Codex plugin](plugins/vibeguard/README.md) provides one explicit h
 Run `bash scripts/local-contract-check.sh` for the local gate. Tests use temporary homes and repositories, including execution of generated hook commands. See the [evaluation protocol](eval/README.md): code tests do not establish an Astra/Fable productivity improvement.
 
 The [reconstruction design](plan/2026-09-17-frontier-model-reconstruction.md) and [125-rule audit](plan/2026-09-17-rule-by-rule-audit.md) explain decisions and official sources. See [directory ownership](docs/directory-map.md) and [tagged releases](https://github.com/majiayu000/vibeguard/releases).
+
+Running several agents at once? [Fibo](https://github.com/majiayu000/fibo) is a separate macOS workbench that keeps their terminals running and shows which session needs you. It does not depend on VibeGuard.
