@@ -37,6 +37,12 @@ const HOOKS: &[&str] = &[
 ];
 const CHAIN_HOOK: &str = "#!/bin/sh\n# Runs the repository's own hook, which core.hooksPath would otherwise switch off.\nown=\"$(git rev-parse --git-common-dir 2>/dev/null)/hooks/$(basename \"$0\")\"\nif [ -x \"$own\" ]; then exec \"$own\" \"$@\"; fi\nexit 0\n";
 
+/// Whether `text` is a hook from our own directory. It only passes the call on, so the
+/// hook in effect is the repository's own, under its common directory's `hooks`.
+pub(super) fn runs_repository_hook(text: &str) -> bool {
+    without_block(text).is_ok_and(|hook| hook == CHAIN_HOOK)
+}
+
 pub(super) fn check_arguments(host: &str, repo: Option<&PathBuf>) -> Result<()> {
     if host == "git-size" && repo.is_some() {
         return Err("git-size covers every repository on this machine, so it takes no --repo. To turn it off in one repository: git -C PATH config vibeguard.sizeLimit false".into());

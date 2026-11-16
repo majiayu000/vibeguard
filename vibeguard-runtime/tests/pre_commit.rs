@@ -2,6 +2,7 @@
 //! installed for a temporary machine: its own home and global Git configuration.
 #![cfg(unix)]
 
+use serde_json::Value;
 use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
@@ -68,6 +69,20 @@ impl Machine {
             .env("GIT_CONFIG_GLOBAL", self.gitconfig())
             .args([action, "git-size", "--home"])
             .arg(self.base.join("home"))
+            .args(extra)
+            .output()
+            .unwrap()
+    }
+    /// `install git` and its companions: the pre-push hook of one repository.
+    fn push_hook(&self, action: &str, repo: &Repo, extra: &[&str]) -> Output {
+        Command::new(BIN)
+            .current_dir(&self.base)
+            .env("GIT_CONFIG_GLOBAL", self.gitconfig())
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args([action, "git", "--home"])
+            .arg(self.base.join("home"))
+            .arg("--repo")
+            .arg(&repo.dir)
             .args(extra)
             .output()
             .unwrap()
@@ -224,6 +239,73 @@ fn uninstall_gives_the_machine_back_when_nothing_owned_the_hooks_path() {
     let repo = machine.repo("free");
     repo.write("big.rs", 950);
     repo.commit().unwrap();
+}
+
+#[test]
+fn the_push_hook_stays_each_repositorys_own_when_nothing_owned_the_hooks_path() {
+    let machine = Machine::new();
+    let hook = |repo: &Repo| repo.dir.join(".git/hooks/pre-push");
+    let before = machine.repo("before");
+    assert!(machine.push_hook("install", &before, &[]).status.success());
+    machine.install();
+    let ours = machine.base.join("home/.vibeguard/git-hooks/pre-push");
+    let passes_on = fs::read_to_string(&ours).unwrap();
+
+    let status = machine.push_hook("status", &before, &[]);
+    let report: Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert!(status.status.success(), "{report}");
+    assert_eq!(report["hook"], hook(&before).to_str().unwrap());
+
+    let after = machine.repo("after");
+    for extra in [&["--dry-run"][..], &[]] {
+        let output = machine.push_hook("install", &after, extra);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    assert_eq!(fs::read_to_string(&ours).unwrap(), passes_on);
+    // The hook that was written is the one a push runs.
+    let remote = machine.base.join("remote.git");
+    let remote = remote.to_str().unwrap();
+    after.ok(&["init", "-q", "--bare", remote]);
+    after.ok(&["push", "-q", remote, "main"]);
+    let refused = after.git(&["push", remote, ":main"]);
+    let words = String::from_utf8_lossy(&refused.stderr);
+    assert!(words.contains("deletion of remote ref"), "{words}");
+
+    for repo in [&before, &after] {
+        assert!(machine.push_hook("uninstall", repo, &[]).status.success());
+        assert!(!hook(repo).exists());
+        let status = machine.push_hook("status", repo, &[]);
+        assert_eq!(status.status.code(), Some(1));
+    }
+    let mine = "#!/bin/sh\necho mine\n";
+    fs::write(hook(&after), mine).unwrap();
+    let refused = machine.push_hook("install", &after, &[]);
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("user-managed"));
+    assert_eq!(fs::read_to_string(hook(&after)).unwrap(), mine);
+}
+
+#[test]
+fn the_inventory_reads_a_repositorys_own_hooks_when_nothing_owned_the_hooks_path() {
+    let machine = Machine::new();
+    machine.install();
+    let repo = machine.repo("old");
+    let findings = |repo: &Repo| {
+        let status = machine.push_hook("status", repo, &[]);
+        let report: Value = serde_json::from_slice(&status.stdout).unwrap();
+        report["legacy"]["findings"].clone()
+    };
+    assert_eq!(findings(&repo), serde_json::json!([]), "ours aren't v1");
+    let v1 = repo.dir.join(".git/hooks/pre-commit");
+    fs::write(&v1, "#!/bin/sh\n# VibeGuard Pre-Commit Hook Wrapper\n").unwrap();
+    let found = findings(&repo);
+    assert_eq!(found.as_array().unwrap().len(), 1, "{found}");
+    assert_eq!(found[0]["evidence"], "owned");
+    assert_eq!(found[0]["location"], v1.to_str().unwrap());
 }
 
 #[test]

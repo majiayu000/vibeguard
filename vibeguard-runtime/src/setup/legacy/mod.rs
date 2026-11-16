@@ -547,11 +547,24 @@ fn git_hook_path(repo: &Path, hook: &str) -> Result<PathBuf, String> {
         return Err("git returned an empty hook path".into());
     }
     let path = PathBuf::from(path);
-    Ok(if path.is_absolute() {
+    let path = if path.is_absolute() {
         path
     } else {
         repo.join(path)
-    })
+    };
+    // Our own hooks directory only passes the call on to the repository's hook.
+    if let Record::Text(text) = read_record(&path)
+        && super::git_size::runs_repository_hook(&text)
+    {
+        let args = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
+        let output = git_probe(repo, &args)?;
+        let common = String::from_utf8_lossy(&output.stdout);
+        if !output.status.success() || common.trim().is_empty() {
+            return Err("cannot resolve the repository's own hooks".into());
+        }
+        return Ok(Path::new(common.trim()).join("hooks").join(hook));
+    }
+    Ok(path)
 }
 
 fn crontab_report(home: &Path) -> (Value, Vec<Value>) {
