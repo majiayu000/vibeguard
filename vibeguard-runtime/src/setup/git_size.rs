@@ -59,11 +59,15 @@ pub(super) fn summary(ready: bool) -> &'static str {
 }
 
 fn global_config(options: &Options, args: &[&str]) -> Result<std::process::Output> {
-    Ok(Command::new("git")
-        .env("HOME", &options.home)
-        .args(["config", "--global"])
-        .args(args)
-        .output()?)
+    let mut git = Command::new("git");
+    git.env("HOME", &options.home);
+    // An explicit --home is an isolated installation. Where the environment moves the
+    // global configuration to belongs to the account, and Git would follow it past HOME.
+    if options.explicit_home {
+        git.env_remove("GIT_CONFIG_GLOBAL")
+            .env_remove("XDG_CONFIG_HOME");
+    }
+    Ok(git.args(["config", "--global"]).args(args).output()?)
 }
 
 /// The global `core.hooksPath`, if one is set.

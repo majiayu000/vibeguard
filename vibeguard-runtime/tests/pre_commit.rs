@@ -29,7 +29,7 @@ impl Machine {
             std::process::id(),
             SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
-        fs::create_dir_all(&base).unwrap();
+        fs::create_dir_all(base.join("home")).unwrap();
         let machine = Machine {
             base: base.canonicalize().unwrap(),
         };
@@ -37,8 +37,9 @@ impl Machine {
         machine.config(&["user.name", "t"]);
         machine
     }
+    /// Where Git keeps the global configuration of the home that `setup` names.
     fn gitconfig(&self) -> PathBuf {
-        self.base.join("gitconfig")
+        self.base.join("home/.gitconfig")
     }
     fn git(&self, dir: &Path, args: &[&str]) -> Output {
         Command::new("git")
@@ -66,7 +67,6 @@ impl Machine {
     fn setup(&self, action: &str, extra: &[&str]) -> Output {
         Command::new(BIN)
             .current_dir(&self.base)
-            .env("GIT_CONFIG_GLOBAL", self.gitconfig())
             .args([action, "git-size", "--home"])
             .arg(self.base.join("home"))
             .args(extra)
@@ -397,7 +397,53 @@ fn a_dry_run_changes_nothing() {
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).contains("set_global_git_config"));
     assert_eq!(machine.hooks_path(), None);
-    assert!(!machine.base.join("home").exists());
+    let left: Vec<_> = fs::read_dir(machine.base.join("home"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(left, [".gitconfig"], "the fixture's own file and no more");
+}
+
+#[test]
+fn a_named_home_keeps_out_of_the_accounts_global_git_configuration() {
+    let machine = Machine::new();
+    let account = machine.base.join("account");
+    let theirs = account.join("hooks");
+    // The two places an account's environment can move its global configuration to.
+    // Git reads and writes them whatever HOME says.
+    let xdg = account.join("xdg/git/config");
+    let named = account.join("named");
+    fs::create_dir_all(xdg.parent().unwrap()).unwrap();
+    let plain = "[user]\n\tname = account\n".to_owned();
+    let hooked = format!("{plain}[core]\n\thooksPath = {}\n", theirs.display());
+    let cases = [
+        ("XDG_CONFIG_HOME", account.join("xdg"), &xdg),
+        ("GIT_CONFIG_GLOBAL", named.clone(), &named),
+    ];
+    for (variable, value, file) in cases {
+        for (text, kind) in [(&plain, "plain"), (&hooked, "hooked")] {
+            fs::write(file, text).unwrap();
+            let home = machine.base.join(format!("{variable}-{kind}"));
+            let output = Command::new(BIN)
+                .current_dir(&machine.base)
+                .env_remove("XDG_CONFIG_HOME")
+                .env_remove("GIT_CONFIG_GLOBAL")
+                .env("HOME", &account)
+                .env(variable, &value)
+                .args(["install", "git-size", "--home"])
+                .arg(&home)
+                .output()
+                .unwrap();
+            let case = format!("{variable}, {kind}");
+            let words = String::from_utf8_lossy(&output.stderr);
+            assert!(output.status.success(), "{case}: {words}");
+            assert_eq!(&fs::read_to_string(file).unwrap(), text, "{case}");
+            assert!(!theirs.exists(), "{case}: the account's hooks");
+            let own = fs::read_to_string(home.join(".gitconfig")).unwrap();
+            let hooks = home.join(".vibeguard/git-hooks");
+            assert!(own.contains(hooks.to_str().unwrap()), "{case}: {own}");
+        }
+    }
 }
 
 #[test]
