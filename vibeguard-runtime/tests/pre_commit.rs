@@ -41,11 +41,16 @@ impl Machine {
     fn gitconfig(&self) -> PathBuf {
         self.base.join("home/.gitconfig")
     }
+    /// The system configuration of this machine: no file unless a test writes one.
+    fn system_gitconfig(&self) -> PathBuf {
+        self.base.join("system.gitconfig")
+    }
     fn git(&self, dir: &Path, args: &[&str]) -> Output {
         Command::new("git")
             .current_dir(dir)
             .env("GIT_CONFIG_GLOBAL", self.gitconfig())
-            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_SYSTEM", self.system_gitconfig())
+            .env_remove("GIT_CONFIG_NOSYSTEM")
             .args(args)
             .output()
             .unwrap()
@@ -67,6 +72,8 @@ impl Machine {
     fn setup(&self, action: &str, extra: &[&str]) -> Output {
         Command::new(BIN)
             .current_dir(&self.base)
+            .env("GIT_CONFIG_SYSTEM", self.system_gitconfig())
+            .env_remove("GIT_CONFIG_NOSYSTEM")
             .args([action, "git-size", "--home"])
             .arg(self.base.join("home"))
             .args(extra)
@@ -78,7 +85,8 @@ impl Machine {
         Command::new(BIN)
             .current_dir(&self.base)
             .env("GIT_CONFIG_GLOBAL", self.gitconfig())
-            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_SYSTEM", self.system_gitconfig())
+            .env_remove("GIT_CONFIG_NOSYSTEM")
             .args([action, "git", "--home"])
             .arg(self.base.join("home"))
             .arg("--repo")
@@ -110,6 +118,13 @@ impl Machine {
     /// A directory owned by another tool, shaped like a chain script hooks link to. It
     /// logs next to itself, so its work can be seen from a test.
     fn other_tools_hooks(&self) -> (PathBuf, String) {
+        let (chain, text) = self.other_tools_scripts();
+        let dir = chain.parent().unwrap();
+        self.config(&["core.hooksPath", dir.to_str().unwrap()]);
+        (chain, text)
+    }
+    /// That directory before any configuration names it.
+    fn other_tools_scripts(&self) -> (PathBuf, String) {
         let dir = self.base.join("other-tool");
         fs::create_dir_all(&dir).unwrap();
         let chain = dir.join("_chain");
@@ -123,7 +138,6 @@ impl Machine {
         for hook in ["pre-commit", "commit-msg"] {
             symlink("_chain", dir.join(hook)).unwrap();
         }
-        self.config(&["core.hooksPath", dir.to_str().unwrap()]);
         (chain, text)
     }
 }
@@ -339,6 +353,57 @@ fn another_tools_hooks_keep_working_and_get_back_their_exact_text() {
     assert!(machine.hooks_path().is_some(), "not ours to unset");
 }
 
+/// Installs where a `core.hooksPath` is in effect that the main global file doesn't
+/// hold, so `git config --global` alone reports none.
+fn hooks_path_set_elsewhere(layout: &str) {
+    let machine = Machine::new();
+    let (chain, text) = machine.other_tools_scripts();
+    let dir = chain.parent().unwrap();
+    let setting = format!("[core]\n\thooksPath = {}\n", dir.display());
+    if layout == "system" {
+        fs::write(machine.system_gitconfig(), setting).unwrap();
+    } else {
+        let included = machine.base.join("included.gitconfig");
+        fs::write(&included, setting).unwrap();
+        if layout == "included after core" {
+            // Git would add a `core.hooksPath` to this section, ahead of the included
+            // one, which then stays the one in effect.
+            machine.config(&["core.autocrlf", "false"]);
+        }
+        machine.config(&["include.path", included.to_str().unwrap()]);
+    }
+    let global = fs::read_to_string(machine.gitconfig()).unwrap();
+    machine.install();
+    assert!(machine.setup("status", &[]).status.success());
+    let repo = machine.repo("r");
+    repo.write("big.rs", 950);
+    let refused = repo.commit();
+    assert!(refused.is_err_and(|words| words.contains("grew")));
+    repo.write("big.rs", 900);
+    repo.write("small.rs", 11);
+    repo.commit().unwrap();
+    let ran = fs::read_to_string(chain.with_file_name("log")).unwrap_or_default();
+    assert!(ran.contains("ran pre-commit"), "the other tool's: {ran}");
+    assert!(machine.setup("uninstall", &[]).status.success());
+    assert_eq!(fs::read_to_string(&chain).unwrap(), text);
+    assert_eq!(fs::read_to_string(machine.gitconfig()).unwrap(), global);
+}
+
+#[test]
+fn a_hooks_path_from_an_included_file_is_another_tools_too() {
+    hooks_path_set_elsewhere("included");
+}
+
+#[test]
+fn a_hooks_path_included_after_the_core_section_is_another_tools_too() {
+    hooks_path_set_elsewhere("included after core");
+}
+
+#[test]
+fn a_hooks_path_from_the_system_configuration_is_another_tools_too() {
+    hooks_path_set_elsewhere("system");
+}
+
 #[test]
 fn a_hook_vibeguard_cant_edit_is_left_alone() {
     let machine = Machine::new();
@@ -428,6 +493,7 @@ fn a_named_home_keeps_out_of_the_accounts_global_git_configuration() {
                 .current_dir(&machine.base)
                 .env_remove("XDG_CONFIG_HOME")
                 .env_remove("GIT_CONFIG_GLOBAL")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
                 .env("HOME", &account)
                 .env(variable, &value)
                 .args(["install", "git-size", "--home"])

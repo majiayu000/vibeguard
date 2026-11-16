@@ -75,7 +75,7 @@ Grok 安装在 `$GROK_HOME`（默认 `~/.grok`）写入 `hooks/vibeguard.json`�
 git -C /absolute/path/to/repository config vibeguard.sizeLimit false
 ```
 
-它拿暂存内容和 `HEAD` 比，不需要维护大文件清单；和 `install git` 分开，不会带上 push 规则。安装方式取决于全局 `core.hooksPath`：
+它拿暂存内容和 `HEAD` 比，不需要维护大文件清单；和 `install git` 分开，不会带上 push 规则。安装方式取决于全局或系统级 Git 配置里的 `core.hooksPath`（它们 include 的文件也算）：
 
 - **没有设置：** 让 Git 指向 `~/.vibeguard/git-hooks`，里面的 hook 会接着运行每个仓库自己的 hook，所以它们照常工作。卸载时会取消这个设置。
 - **已被其他工具设置：** 在那个工具的 pre-commit 脚本开头加一段带标记的内容，卸载时恢复原文。如果那个工具重写了脚本，`status git-size` 能看出这段没了，再运行一次 install 即可。不是 shell 脚本的 hook 不会被改动，安装会报错说明。

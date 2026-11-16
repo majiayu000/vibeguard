@@ -58,7 +58,7 @@ pub(super) fn summary(ready: bool) -> &'static str {
     }
 }
 
-fn global_config(options: &Options, args: &[&str]) -> Result<std::process::Output> {
+fn config(options: &Options, args: &[&str]) -> Result<std::process::Output> {
     let mut git = Command::new("git");
     git.env("HOME", &options.home);
     // An explicit --home is an isolated installation. Where the environment moves the
@@ -67,18 +67,41 @@ fn global_config(options: &Options, args: &[&str]) -> Result<std::process::Outpu
         git.env_remove("GIT_CONFIG_GLOBAL")
             .env_remove("XDG_CONFIG_HOME");
     }
-    Ok(git.args(["config", "--global"]).args(args).output()?)
+    Ok(git.arg("config").args(args).output()?)
 }
 
-/// The global `core.hooksPath`, if one is set.
+/// The `core.hooksPath` a repository gets when it sets none of its own, if there is
+/// one: the last in the system and global configuration and the files they include.
+/// `git config --global` reads the main global file only.
 fn hooks_path(options: &Options) -> Result<Option<PathBuf>> {
-    let output = global_config(options, &["--type=path", "--get", "core.hooksPath"])?;
+    let output = config(
+        options,
+        &[
+            "--show-scope",
+            "--null",
+            "--type=path",
+            "--get-all",
+            "core.hooksPath",
+        ],
+    )?;
     match output.status.code() {
         Some(0) => {}
         Some(1) => return Ok(None),
         _ => return Err("cannot read the global core.hooksPath".into()),
     }
-    let path = PathBuf::from(String::from_utf8(output.stdout)?.trim());
+    // Scope and value by turns, in the order Git applies them. The repository this
+    // runs in and the command line have scopes of their own, which aren't the machine's.
+    let text = String::from_utf8(output.stdout)?;
+    let mut fields = text.split('\0');
+    let mut last = None;
+    while let (Some(scope), Some(value)) = (fields.next(), fields.next()) {
+        if matches!(scope, "system" | "global") {
+            last = Some(value);
+        }
+    }
+    let Some(path) = last.map(PathBuf::from) else {
+        return Ok(None);
+    };
     if !path.is_absolute() {
         return Err(format!(
             "the global core.hooksPath {} is relative, so it names a different directory in each repository; no files were changed",
@@ -204,7 +227,7 @@ pub(super) fn run(action: &str, options: &Options) -> Result<u8> {
         make_executable(&file)?;
         if configured_dir.is_none() {
             let value = own_dir.to_str().ok_or("hook paths must be valid UTF-8")?;
-            if !global_config(options, &["core.hooksPath", value])?
+            if !config(options, &["--global", "core.hooksPath", value])?
                 .status
                 .success()
             {
@@ -212,7 +235,7 @@ pub(super) fn run(action: &str, options: &Options) -> Result<u8> {
             }
         }
     } else if ours && configured_dir.is_some() {
-        if !global_config(options, &["--unset", "core.hooksPath"])?
+        if !config(options, &["--global", "--unset", "core.hooksPath"])?
             .status
             .success()
         {
