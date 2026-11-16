@@ -108,6 +108,47 @@ fn native_and_claude_imported_hooks_allow_and_deny_without_executing_input() {
     );
 }
 
+// Grok runs Claude's `Write|Edit|MultiEdit` registration for these names: its own tools
+// (xai-grok-tools' claude_alias.rs) and the matcher's spellings. It reads exit 2 from a
+// pre-use hook as a denial.
+#[test]
+fn imported_claude_edit_registration_lets_grok_edits_through_quietly() {
+    let dir = Temp::new();
+    let state = dir.0.to_str().unwrap();
+    for host in ["grok", "claude"] {
+        for tool in [
+            "search_replace",
+            "write",
+            "hashline_edit",
+            "Write",
+            "Edit",
+            "MultiEdit",
+        ] {
+            for truncated in [false, true] {
+                let mut input = payload("pre_tool_use", "unused");
+                input["toolName"] = json!(tool);
+                input["toolInput"] = if truncated {
+                    json!("{\"file_path\":\"/fixture/big.rs\",\"content\":\"PRIVATE [truncated]")
+                } else {
+                    json!({"file_path":"/fixture/big.rs","old_string":"a","new_string":"b"})
+                };
+                input["toolInputTruncated"] = json!(truncated);
+                let output = invoke(&["hook", host, "--state-dir", state], Some(&input));
+                success(&output);
+                assert!(output.stdout.is_empty(), "{host} {tool}");
+                assert!(output.stderr.is_empty(), "{host} {tool}");
+                let text = fs::read_to_string(dir.0.join("grok.json")).unwrap();
+                let observed: Value = serde_json::from_str(&text).unwrap();
+                assert_eq!(observed["tool"], tool);
+                assert_eq!(observed["event"], "PreToolUse");
+                assert_eq!(observed["outcome"], "requested");
+                assert!(!text.contains("PRIVATE"));
+                assert!(!dir.0.join("claude.json").exists());
+            }
+        }
+    }
+}
+
 #[test]
 fn documented_aliases_and_canonical_precedence_do_not_bypass_policy() {
     let alias = json!({"hook_event_name":"PreToolUse","cwd":"/fixture",
