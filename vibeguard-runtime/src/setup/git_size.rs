@@ -36,6 +36,39 @@ const HOOKS: &[&str] = &[
     "update",
 ];
 const CHAIN_HOOK: &str = "#!/bin/sh\n# Runs the repository's own hook, which core.hooksPath would otherwise switch off.\nown=\"$(git rev-parse --git-common-dir 2>/dev/null)/hooks/$(basename \"$0\")\"\nif [ -x \"$own\" ]; then exec \"$own\" \"$@\"; fi\nexit 0\n";
+/// Git updates the work tree of a pushed-to branch itself, unless a push-to-checkout hook
+/// exists: then that is left to the hook. So where the repository has none of its own
+/// to run, ours does what Git does without one, `push_to_deploy` in its receive-pack.
+const PUSH_TO_CHECKOUT_HOOK: &str = r#"#!/bin/sh
+# Runs the repository's own hook, which core.hooksPath would otherwise switch off.
+own="$(git rev-parse --git-common-dir 2>/dev/null)/hooks/push-to-checkout"
+if [ -x "$own" ]; then exec "$own" "$@"; fi
+# Git leaves the work tree to this hook because it exists. This is Git's own update.
+refuse() { echo "$1" >&2; exit 1; }
+git update-index -q --ignore-submodules --refresh || refuse "Up-to-date check failed"
+git diff-files --quiet --ignore-submodules -- || refuse "Working directory has unstaged changes"
+head=HEAD
+git rev-parse -q --verify HEAD >/dev/null || head=$(git hash-object -t tree /dev/null)
+git diff-index --quiet --cached --ignore-submodules "$head" -- || refuse "Working directory has staged changes"
+git read-tree -u -m "$1" || refuse "Could not update working tree to new HEAD"
+"#;
+
+/// The hook our own directory holds under `name`.
+fn chain_hook(name: &str) -> &'static str {
+    if name == "push-to-checkout" {
+        PUSH_TO_CHECKOUT_HOOK
+    } else {
+        CHAIN_HOOK
+    }
+}
+
+/// The push-to-checkout hook 2.3.0 wrote into our directory, if it is still there. It
+/// only passed the call on, so a push Git would have checked out left the work tree
+/// behind. A hook another tool has put in its place is not ours to replace.
+fn outdated_push_to_checkout(own_dir: &Path) -> Result<Option<PathBuf>> {
+    let path = own_dir.join("push-to-checkout");
+    Ok((read_text(&path)?.as_deref() == Some(CHAIN_HOOK)).then_some(path))
+}
 
 /// Whether `text` is a hook from our own directory. It only passes the call on, so the
 /// hook in effect is the repository's own, under its common directory's `hooks`.
@@ -158,6 +191,7 @@ pub(super) fn run(action: &str, options: &Options) -> Result<u8> {
     let wanted = block(options)?;
     let has_block = existing.as_deref().is_some_and(|t| t.contains(&wanted));
     let configured = configured_dir.is_some() && has_block;
+    let ours = dir == own_dir;
     if action == "status" {
         let binary_present = read_optional(&options.binary())?.is_some();
         let binary_executable = executable(&options.binary())?;
@@ -189,6 +223,8 @@ pub(super) fn run(action: &str, options: &Options) -> Result<u8> {
                 json!({"path":own_dir,"operation":"create_hooks_that_run_each_repository_hook"}),
             );
             changes.push(json!({"path":"core.hooksPath","operation":"set_global_git_config"}));
+        } else if ours && let Some(path) = outdated_push_to_checkout(&dir)? {
+            changes.push(json!({"path":path,"operation":"update_push_to_checkout_hook"}));
         }
         return preview(
             options,
@@ -199,16 +235,18 @@ pub(super) fn run(action: &str, options: &Options) -> Result<u8> {
     }
     let locks = lock_setup(&options.home, &dir)?;
     check_unchanged(&file, existing.as_deref().map(str::as_bytes))?;
-    let ours = dir == own_dir;
     if action == "install" {
         install_binary(options)?;
         let next = next.ok_or("no hook content to install")?;
         if configured_dir.is_none() {
             for name in HOOKS.iter().filter(|name| **name != "pre-commit") {
                 let path = dir.join(name);
-                write_atomic(&path, CHAIN_HOOK.as_bytes(), 0o755)?;
+                write_atomic(&path, chain_hook(name).as_bytes(), 0o755)?;
                 make_executable(&path)?;
             }
+        } else if ours && let Some(path) = outdated_push_to_checkout(&dir)? {
+            write_atomic(&path, PUSH_TO_CHECKOUT_HOOK.as_bytes(), 0o755)?;
+            make_executable(&path)?;
         }
         // Our own pre-commit also chains; another tool's keeps its own behavior.
         let content = if ours {

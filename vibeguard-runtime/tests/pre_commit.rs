@@ -242,6 +242,64 @@ fn a_repositorys_own_hooks_still_run_when_nothing_owned_the_hooks_path() {
 }
 
 #[test]
+fn a_push_into_a_checked_out_branch_still_updates_its_work_tree() {
+    let machine = Machine::new();
+    machine.install();
+    let source = machine.repo("source");
+    let target = Repo {
+        machine: &machine,
+        dir: machine.base.join("target"),
+    };
+    let path = target.dir.to_str().unwrap();
+    source.ok(&["clone", "-q", ".", path]);
+    target.ok(&["config", "receive.denyCurrentBranch", "updateInstead"]);
+    let push = |lines: usize| {
+        source.write("small.rs", lines);
+        source.commit().unwrap();
+        source.git(&["push", "-q", path, "main"])
+    };
+    let arrived = || {
+        let pushed = fs::read_to_string(target.dir.join("small.rs")).unwrap();
+        let changes = target.git(&["status", "--porcelain"]).stdout;
+        (pushed.lines().count(), String::from_utf8(changes).unwrap())
+    };
+    // Git updates the work tree itself, but not once a push-to-checkout hook exists.
+    assert!(push(11).status.success());
+    assert_eq!(arrived(), (11, String::new()));
+
+    // The hook 2.3.0 put there only passed the call on. Installing again replaces it.
+    let hooks = machine.base.join("home/.vibeguard/git-hooks");
+    let passes_on = fs::read_to_string(hooks.join("post-update")).unwrap();
+    fs::write(hooks.join("push-to-checkout"), passes_on).unwrap();
+    machine.install();
+    assert!(push(12).status.success());
+    assert_eq!(arrived(), (12, String::new()));
+
+    // Git's refusal when the work tree has changes of its own is kept.
+    target.write("big.rs", 899);
+    let refused = push(13);
+    let words = String::from_utf8_lossy(&refused.stderr);
+    assert!(!refused.status.success(), "{words}");
+    assert!(words.contains("unstaged changes"), "{words}");
+    assert_eq!(arrived(), (12, " M big.rs\n".to_owned()));
+    target.write("big.rs", 900);
+
+    // And a repository's own hook still decides instead.
+    let own = target.dir.join(".git/hooks/push-to-checkout");
+    let marker = machine.base.join("own-hook-ran");
+    fs::write(
+        &own,
+        format!("#!/bin/sh\necho \"$1\" > '{}'\n", marker.display()),
+    )
+    .unwrap();
+    fs::set_permissions(&own, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(push(14).status.success());
+    let head = String::from_utf8(source.git(&["rev-parse", "HEAD"]).stdout).unwrap();
+    assert_eq!(fs::read_to_string(&marker).unwrap(), head);
+    assert_eq!(arrived().0, 12, "its hook left the work tree alone");
+}
+
+#[test]
 fn uninstall_gives_the_machine_back_when_nothing_owned_the_hooks_path() {
     let machine = Machine::new();
     machine.install();
