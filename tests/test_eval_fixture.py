@@ -28,8 +28,10 @@ class EvalFixtureTests(unittest.TestCase):
                                 project / "tests/propagation.rs")
                 environment = os.environ.copy()
                 environment["CARGO_TARGET_DIR"] = str(project / "target")
+                # The limit is for a hang. This can be the first cargo call on a cold CI
+                # runner, where it has taken more than a minute.
                 result = subprocess.run(["cargo", "test", "--offline", "--quiet"], cwd=project,
-                                        env=environment, text=True, capture_output=True, timeout=60)
+                                        env=environment, text=True, capture_output=True, timeout=300)
                 self.assertEqual(result.returncode == 0, accepted, result.stdout + result.stderr)
                 if not accepted:
                     self.assertIn("caller_preserves_valid_values_and_errors", result.stdout)
