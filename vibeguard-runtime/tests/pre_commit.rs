@@ -464,17 +464,21 @@ fn a_hooks_path_from_the_system_configuration_is_another_tools_too() {
 
 #[test]
 fn a_hook_vibeguard_cant_edit_is_left_alone() {
-    let machine = Machine::new();
-    let dir = machine.base.join("other-tool");
-    fs::create_dir_all(&dir).unwrap();
-    machine.config(&["core.hooksPath", dir.to_str().unwrap()]);
-    let hook = dir.join("pre-commit");
-    let text = "#!/usr/bin/env python3\nprint('mine')\n";
-    fs::write(&hook, text).unwrap();
-    let refused = machine.setup("install", &[]);
-    assert!(!refused.status.success());
-    assert!(String::from_utf8_lossy(&refused.stderr).contains("not a shell script"));
-    assert_eq!(fs::read_to_string(&hook).unwrap(), text);
+    // Python both times. The first path to it has the letters "sh" in it.
+    for interpreter in ["/Users/josh/.pyenv/shims/python", "/usr/bin/env python3"] {
+        let machine = Machine::new();
+        let dir = machine.base.join("other-tool");
+        fs::create_dir_all(&dir).unwrap();
+        machine.config(&["core.hooksPath", dir.to_str().unwrap()]);
+        let hook = dir.join("pre-commit");
+        let text = format!("#!{interpreter}\nprint('mine')\n");
+        fs::write(&hook, &text).unwrap();
+        let refused = machine.setup("install", &[]);
+        assert!(!refused.status.success(), "{interpreter}");
+        let words = String::from_utf8_lossy(&refused.stderr);
+        assert!(words.contains("not a POSIX shell script"), "{words}");
+        assert_eq!(fs::read_to_string(&hook).unwrap(), text, "{interpreter}");
+    }
 }
 
 #[test]

@@ -166,13 +166,36 @@ fn without_block(text: &str) -> Result<String> {
     Ok(format!("{}{after}", &text[..start]))
 }
 
+/// Whether a script's first line names a shell that reads the block as written: POSIX
+/// `if`, `[` and `$(...)`. The name is what counts, straight or after `env`, not the
+/// letters "sh" somewhere in the line: `.pyenv/shims/python` has them, and so do fish
+/// and tcsh, which read `if` another way.
+fn posix_shell_runs(first_line: &str) -> bool {
+    let name = |word: &str| word.rsplit('/').next().unwrap_or(word).to_owned();
+    let mut words = first_line
+        .strip_prefix("#!")
+        .unwrap_or("")
+        .split_whitespace();
+    let mut interpreter = words.next().map(name);
+    if interpreter.as_deref() == Some("env") {
+        // `env -S bash -e`, `env LC_ALL=C sh`: past env's options and assignments.
+        interpreter = words
+            .find(|word| !word.starts_with('-') && !word.contains('='))
+            .map(name);
+    }
+    matches!(
+        interpreter.as_deref(),
+        Some("sh" | "bash" | "dash" | "zsh" | "ksh" | "ash")
+    )
+}
+
 /// `text` with the block right after its first line, replacing an older one.
 fn with_block(text: &str, block: &str, file: &Path) -> Result<String> {
     let text = without_block(text)?;
     let (first, rest) = text.split_once('\n').unwrap_or((&text, ""));
-    if !(first.starts_with("#!") && first.contains("sh")) {
+    if !posix_shell_runs(first) {
         return Err(format!(
-            "{} is not a shell script, so VibeGuard can't add to it; no files were changed. Call `vibeguard-runtime pre-commit` from it yourself",
+            "{} is not a POSIX shell script, so VibeGuard can't add to it; no files were changed. Call `vibeguard-runtime pre-commit` from it yourself",
             file.display()
         )
         .into());
@@ -304,4 +327,39 @@ pub(super) fn run(action: &str, options: &Options) -> Result<u8> {
         None,
     )?;
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_block_goes_only_into_a_script_a_posix_shell_runs() {
+        let add = |first: &str| {
+            let hook = format!("{first}\nmine\n");
+            with_block(&hook, "block\n", Path::new("pre-commit"))
+        };
+        for first in [
+            "#!/bin/sh",
+            "#! /bin/bash -e",
+            "#!/opt/homebrew/bin/zsh",
+            "#!/usr/bin/env dash",
+            "#!/usr/bin/env -S ksh -e",
+        ] {
+            assert_eq!(add(first).unwrap(), format!("{first}\nblock\nmine\n"));
+        }
+        // The letters "sh" in a path or a name, and shells that read `if` another way.
+        for first in [
+            "#!/home/josh/.pyenv/shims/python",
+            "#!/usr/share/tool/bin/node",
+            "#!/usr/bin/env python3",
+            "#!/usr/bin/env fish",
+            "#!/bin/tcsh -f",
+            "#!/usr/bin/pwsh",
+            "#!/usr/bin/tclsh",
+            "echo no interpreter line",
+        ] {
+            assert!(add(first).is_err(), "{first}");
+        }
+    }
 }
