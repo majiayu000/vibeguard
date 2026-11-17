@@ -41,6 +41,8 @@ pub(super) fn is_v1_claude_hook(command: &str) -> bool {
     {
         invocation = &invocation[1..];
     }
+    // Every script v1's hooks/manifest.json registered for Claude, plus the retired
+    // skills loader.
     let known = |name: &str| {
         matches!(
             name,
@@ -51,6 +53,9 @@ pub(super) fn is_v1_claude_hook(command: &str) -> bool {
                 | "post-edit-guard.sh"
                 | "post-write-guard.sh"
                 | "analysis-paralysis-guard.sh"
+                | "count_active_constraints.sh"
+                | "stop-guard.sh"
+                | "learn-evaluator.sh"
                 | "skills-loader.sh"
         )
     };
