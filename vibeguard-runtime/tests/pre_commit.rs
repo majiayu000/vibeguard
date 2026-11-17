@@ -381,6 +381,34 @@ fn the_inventory_reads_a_repositorys_own_hooks_when_nothing_owned_the_hooks_path
 }
 
 #[test]
+fn the_inventory_doesnt_take_our_block_in_another_tools_hook_for_v1() {
+    let machine = Machine::new();
+    // Not other_tools_hooks(): its log path is under this fixture's "vibeguard-" directory.
+    let dir = machine.base.join("other");
+    fs::create_dir_all(&dir).unwrap();
+    machine.config(&["core.hooksPath", dir.to_str().unwrap()]);
+    let chain = dir.join("pre-commit");
+    fs::write(&chain, "#!/bin/sh\nexit 0\n").unwrap();
+    machine.install();
+    let repo = machine.repo("r");
+    let status = machine.push_hook("status", &repo, &[]);
+    let report: Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(report["legacy"]["findings"], serde_json::json!([]));
+    let words = String::from_utf8_lossy(&status.stderr);
+    assert!(!words.contains("v1 remnants"), "{words}");
+    // What the other tool wrote itself is still read.
+    let text = fs::read_to_string(&chain).unwrap();
+    fs::write(
+        &chain,
+        text.replace("exit 0", "bash ~/.vibeguard/run-hook.sh x\nexit 0"),
+    )
+    .unwrap();
+    let status = machine.push_hook("status", &repo, &[]);
+    let report: Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(report["legacy"]["findings"][0]["evidence"], "suspected");
+}
+
+#[test]
 fn another_tools_hooks_keep_working_and_get_back_their_exact_text() {
     let machine = Machine::new();
     let (chain, text) = machine.other_tools_hooks();

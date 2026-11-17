@@ -507,6 +507,9 @@ fn inspect_git_hook(path: &Path, findings: &mut Vec<Value>) {
         },
         Ok(metadata) if metadata.is_file() => match read_record(path) {
             Record::Text(text) => {
+                // install git-size puts its block into another tool's hook; the rest of
+                // the text is that tool's.
+                let theirs = super::git_size::without_block(&text).unwrap_or_else(|_| text.clone());
                 if v1_hook_body(&text) {
                     findings.push(finding(
                         "owned",
@@ -515,7 +518,7 @@ fn inspect_git_hook(path: &Path, findings: &mut Vec<Value>) {
                         "v1 hook wrapper text",
                         None,
                     ));
-                } else if mentions_v1(&text)
+                } else if mentions_v1(&theirs)
                     && !text.contains("# VibeGuard native pre-push hook")
                     && !text.contains("# VibeGuard native pre-commit hook")
                 {

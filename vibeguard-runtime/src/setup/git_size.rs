@@ -153,7 +153,7 @@ fn block(options: &Options) -> Result<String> {
     ))
 }
 
-fn without_block(text: &str) -> Result<String> {
+pub(super) fn without_block(text: &str) -> Result<String> {
     let Some(start) = text.find(BEGIN) else {
         return Ok(text.to_owned());
     };
