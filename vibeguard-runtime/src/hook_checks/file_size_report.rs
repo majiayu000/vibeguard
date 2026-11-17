@@ -154,7 +154,9 @@ fn scan(root: &Path, command: &str) -> Vec<Grown> {
     } else {
         "HEAD"
     };
-    let mut changed = BTreeSet::new();
+    // Path now -> path in the base. A rename is compared with its old name, as the
+    // pre-commit check does, so moving a large file isn't taken for writing a new one.
+    let mut changed = BTreeMap::new();
     if let Some(out) = git(
         root,
         &["status", "--porcelain", "-z", "--untracked-files=all"],
@@ -163,24 +165,37 @@ fn scan(root: &Path, command: &str) -> Vec<Grown> {
         let mut entries = text.split('\0');
         while let Some(entry) = entries.next() {
             // `XY path`; a rename or copy is followed by its old path as its own entry.
-            if entry.starts_with(['R', 'C']) {
-                entries.next();
+            let Some(now) = entry.get(3..) else {
+                continue;
+            };
+            let old = if entry.starts_with(['R', 'C']) {
+                entries.next().unwrap_or(now)
+            } else {
+                now
+            };
+            if is_source(now) {
+                changed.insert(now.to_owned(), old.to_owned());
             }
-            changed.extend(entry.get(3..).filter(|p| is_source(p)).map(str::to_owned));
         }
     }
     if base != "HEAD"
-        && let Some(out) = git(root, &["diff", "--name-only", "-z", base, "HEAD"])
+        && let Some(out) = git(root, &["diff", "--name-status", "-z", "-M", base, "HEAD"])
     {
-        changed.extend(
-            String::from_utf8_lossy(&out)
-                .split('\0')
-                .filter(|p| is_source(p))
-                .map(str::to_owned),
-        );
+        let text = String::from_utf8_lossy(&out);
+        let mut fields = text.split('\0').filter(|f| !f.is_empty());
+        while let (Some(status), Some(first)) = (fields.next(), fields.next()) {
+            let now = if status.starts_with(['R', 'C']) {
+                fields.next().unwrap_or(first)
+            } else {
+                first
+            };
+            if is_source(now) {
+                changed.insert(now.to_owned(), first.to_owned());
+            }
+        }
     }
     let mut grown = vec![];
-    for rel in changed {
+    for (rel, old) in changed {
         let path = root.join(&rel);
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
@@ -189,7 +204,7 @@ fn scan(root: &Path, command: &str) -> Vec<Grown> {
         if after <= MAX_LINES {
             continue;
         }
-        let before = git(root, &["show", &format!("{base}:{rel}")])
+        let before = git(root, &["show", &format!("{base}:{old}")])
             .map_or(0, |old| count_lines(&String::from_utf8_lossy(&old)));
         if after > before {
             grown.push(Grown {
@@ -304,8 +319,25 @@ mod tests {
         repo.run(&["mv", "big.rs", "moved.rs"]);
         repo.write("moved.rs", 950);
         let text = repo.notice("sh x").unwrap();
-        assert!(text.contains("moved.rs now has 950 lines"), "{text}");
+        assert!(
+            text.contains("moved.rs grew from 900 to 950 lines"),
+            "{text}"
+        );
         assert!(!text.contains("big.rs"), "{text}");
+    }
+
+    #[test]
+    fn moving_a_large_file_is_not_growing_it() {
+        let repo = Repo::new();
+        repo.run(&["mv", "big.rs", "moved.rs"]);
+        assert_eq!(repo.notice("git mv big.rs moved.rs"), None);
+        repo.commit();
+        let repo = Repo::new();
+        repo.run(&["mv", "big.rs", "moved.rs"]);
+        assert_eq!(
+            repo.notice("git mv big.rs moved.rs && git commit -m x"),
+            None
+        );
     }
 
     #[test]
