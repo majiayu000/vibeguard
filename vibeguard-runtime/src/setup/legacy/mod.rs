@@ -61,11 +61,13 @@ pub(super) fn is_v1_claude_hook(command: &str) -> bool {
     };
     match invocation {
         [wrapper, script] => wrapper.ends_with("/.vibeguard/run-hook.sh") && known(script),
-        [script] => {
-            (script.contains("/.vibeguard/installed/hooks/")
-                || script.contains("/.vibeguard/dist/current/hooks/"))
-                && known(script.rsplit('/').next().unwrap_or_default())
-        }
+        // v1 put its scripts straight in the hooks directory; one further down, or
+        // reached through `..`, is someone else's.
+        [script] => script.rsplit_once('/').is_some_and(|(dir, name)| {
+            (dir.ends_with("/.vibeguard/installed/hooks")
+                || dir.ends_with("/.vibeguard/dist/current/hooks"))
+                && known(name)
+        }),
         _ => false,
     }
 }
@@ -92,6 +94,11 @@ mod migration_tests {
             "bash /u/.vibeguard/run-hook.sh $(echo pre-bash-guard.sh)",
             "/u/.vibeguard/bin/vibeguard-runtime hook claude --state-dir /state",
             "env OTHER=1 /u/.vibeguard/run-hook.sh pre-bash-guard.sh",
+            // v1 put its scripts straight in the hooks directory.
+            "bash /u/.vibeguard/installed/hooks/custom/pre-bash-guard.sh",
+            "bash /u/.vibeguard/installed/hooks/../../../mine/pre-bash-guard.sh",
+            "bash /u/.vibeguard/dist/current/hooks/./x/post-edit-guard.sh",
+            "bash /u/.vibeguard/installed/hooks/pre-bash-guard.sh/extra",
         ] {
             assert!(!is_v1_claude_hook(command), "{command}");
         }
