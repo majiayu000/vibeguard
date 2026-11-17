@@ -36,7 +36,7 @@ pub fn notice(cwd: &Path, command: Option<&str>, state_dir: Option<&Path>) -> Op
     for root in &roots {
         let grown = scan(root, command);
         // A file fixed or committed leaves the record, so growing it again is news.
-        seen.retain(|path, _| !Path::new(path).starts_with(root));
+        seen.retain(|path, _| !belongs_to(Path::new(path), root));
         for file in grown {
             seen.insert(file.path.clone(), file.after);
             fresh.push(file);
@@ -74,6 +74,19 @@ pub fn notice(cwd: &Path, command: Option<&str>, state_dir: Option<&Path>) -> Op
         "VibeGuard: {} Move the new code out by responsibility instead of adding to these files.",
         lines.join(" ")
     ))
+}
+
+/// Whether `root`'s status covers `path`. A worktree or repository nested in the
+/// checkout (`<repo>/.claude/worktrees/x`) has its own `.git` and status of its own, so
+/// its files are not this root's to clear.
+fn belongs_to(path: &Path, root: &Path) -> bool {
+    path.starts_with(root)
+        && !path
+            .parent()
+            .into_iter()
+            .flat_map(Path::ancestors)
+            .take_while(|dir| *dir != root)
+            .any(|dir| dir.join(".git").exists())
 }
 
 fn load(state_dir: &Path) -> BTreeMap<String, usize> {
@@ -382,6 +395,19 @@ mod tests {
         repo.commit();
         repo.write("big.rs", 950);
         assert!(repo.notice("x").is_some());
+    }
+
+    #[test]
+    fn a_worktree_inside_the_checkout_keeps_its_record() {
+        let repo = Repo::new();
+        repo.run(&["worktree", "add", "-q", ".claude/worktrees/x"]);
+        let worktree = repo.dir.join(".claude/worktrees/x");
+        std::fs::write(worktree.join("big.rs"), "x\n".repeat(950)).unwrap();
+        let in_worktree = || notice(&worktree, Some("ls"), Some(&repo.state));
+        assert!(in_worktree().unwrap().contains("grew from 900 to 950"));
+        assert_eq!(in_worktree(), None);
+        assert_eq!(repo.notice("ls"), None);
+        assert_eq!(in_worktree(), None, "the checkout around it was looked at");
     }
 
     #[test]
