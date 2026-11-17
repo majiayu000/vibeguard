@@ -204,6 +204,15 @@ fn with_block(text: &str, block: &str, file: &Path) -> Result<String> {
 }
 
 pub(super) fn run(action: &str, options: &Options) -> Result<u8> {
+    // The commit-time check lets commits through when Git can't run its inspections, so
+    // install and status make sure it can, as `install git` does; uninstall still works.
+    if matches!(action, "install" | "status")
+        && !crate::hook_checks::inspect_git(&["--version"])?
+            .status
+            .success()
+    {
+        return Err("cannot verify Git object inspection support".into());
+    }
     let own_dir = options.home.join(".vibeguard/git-hooks");
     let configured_dir = hooks_path(options)?;
     let dir = configured_dir.clone().unwrap_or_else(|| own_dir.clone());

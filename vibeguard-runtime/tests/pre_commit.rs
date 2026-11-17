@@ -518,6 +518,61 @@ fn losing_the_binary_or_failing_inside_doesnt_stop_commits() {
 }
 
 #[test]
+fn a_git_the_check_cant_use_is_refused_before_setup_reports_protection() {
+    // Git before 2.45 has no --no-lazy-fetch, which every inspection in the check uses.
+    let machine = Machine::new();
+    let bin = machine.base.join("old-git");
+    fs::create_dir_all(&bin).unwrap();
+    let real = Command::new("sh")
+        .args(["-c", "command -v git"])
+        .output()
+        .unwrap();
+    let real = String::from_utf8(real.stdout).unwrap();
+    fs::write(
+        bin.join("git"),
+        format!(
+            "#!/bin/sh\nfor a; do [ \"$a\" = --no-lazy-fetch ] && exit 129; done\nexec {} \"$@\"\n",
+            real.trim()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(bin.join("git"), fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+    let run = |action: &str, extra: &[&str]| {
+        Command::new(BIN)
+            .current_dir(&machine.base)
+            .env("PATH", &path)
+            .env("GIT_CONFIG_SYSTEM", machine.system_gitconfig())
+            .env_remove("GIT_CONFIG_NOSYSTEM")
+            .args([action, "git-size", "--home"])
+            .arg(machine.base.join("home"))
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    for (action, extra) in [
+        ("install", &["--dry-run"][..]),
+        ("install", &[]),
+        ("status", &[]),
+    ] {
+        let output = run(action, extra);
+        let words = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{action} {extra:?}: {words}");
+        assert!(words.contains("Git 2.45"), "{action} {extra:?}: {words}");
+    }
+    assert_eq!(machine.hooks_path(), None);
+    assert!(!machine.base.join("home/.vibeguard").exists());
+    machine.install();
+    let output = run("uninstall", &[]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(machine.hooks_path(), None);
+}
+
+#[test]
 fn a_dry_run_changes_nothing() {
     let machine = Machine::new();
     let output = machine.setup("install", &["--dry-run"]);
