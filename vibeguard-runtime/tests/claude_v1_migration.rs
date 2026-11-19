@@ -130,3 +130,26 @@ fn claude_v1_migration_is_opt_in_and_rejects_other_actions() {
         old["hooks"]["PreToolUse"][0]
     );
 }
+
+#[test]
+fn claude_v1_migration_removes_the_session_start_and_stop_hooks_v1_installed() {
+    // v1's manifest also registered these for Claude: SessionStart from the core
+    // profile up, the two Stop hooks from full.
+    let temp = Temp::new();
+    let home = temp.0.to_str().unwrap();
+    fs::create_dir(temp.0.join(".claude")).unwrap();
+    let settings = temp.0.join(".claude/settings.json");
+    let call = |script: &str| json!({"type":"command","command":format!("bash /u/.vibeguard/run-hook.sh {script}")});
+    let old = json!({"hooks":{
+        "SessionStart":[{"hooks":[call("count_active_constraints.sh")]}],
+        "Stop":[{"hooks":[call("stop-guard.sh"), call("learn-evaluator.sh")]}]
+    }});
+    fs::write(&settings, old.to_string()).unwrap();
+    let output = invoke(&["install", "claude", "--home", home, "--migrate-v1-hooks"]);
+    success(&output);
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["removed_v1_hooks"], 3);
+    let migrated: Value = serde_json::from_str(&fs::read_to_string(&settings).unwrap()).unwrap();
+    assert_eq!(migrated["hooks"]["SessionStart"], json!([]));
+    assert_eq!(migrated["hooks"]["Stop"], json!([]));
+}

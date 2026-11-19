@@ -8,6 +8,16 @@ pub(super) fn is_event(input: &Value) -> bool {
         || input.get("tool_name").and_then(Value::as_str) == Some("run_terminal_command")
 }
 
+/// Every name Grok's matcher takes `Write|Edit|MultiEdit` to: its own tools for those
+/// Claude names, and the names as spelled. An imported Claude edit registration runs
+/// for these.
+pub(super) fn is_edit_tool(tool: &str) -> bool {
+    matches!(
+        tool,
+        "search_replace" | "write" | "hashline_edit" | "Write" | "Edit" | "MultiEdit"
+    )
+}
+
 pub(super) fn normalize(input: &mut Value) -> Result<()> {
     let fields = input
         .as_object_mut()
@@ -35,7 +45,10 @@ pub(super) fn normalize(input: &mut Value) -> Result<()> {
         "post_tool_use_failure" | "PostToolUseFailure" => "PostToolUseFailure",
         _ => return Err("unsupported hook event for this host".into()),
     };
+    // An edit's input is not evaluated, so a truncated one is not an error.
+    let edit = input["tool_name"].as_str().is_some_and(is_edit_tool);
     if event == "PreToolUse"
+        && !edit
         && input.get("toolInputTruncated").and_then(Value::as_bool) == Some(true)
     {
         return Err("cannot evaluate truncated Grok tool input".into());

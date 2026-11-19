@@ -2,21 +2,27 @@
 
 use super::*;
 
-fn git_hook_path(options: &Options) -> Result<PathBuf> {
+fn rev_parse(options: &Options, what: &[&str]) -> Result<PathBuf> {
     let result = Command::new("git")
         .arg("-C")
         .arg(&options.repo)
-        .args([
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-path",
-            "hooks/pre-push",
-        ])
+        .args(["rev-parse", "--path-format=absolute"])
+        .args(what)
         .output()?;
     if !result.status.success() {
         return Err("cannot resolve pre-push hook in the requested Git repository".into());
     }
     Ok(PathBuf::from(String::from_utf8(result.stdout)?.trim()))
+}
+
+fn git_hook_path(options: &Options) -> Result<PathBuf> {
+    let path = rev_parse(options, &["--git-path", "hooks/pre-push"])?;
+    // After `install git-size`, core.hooksPath can lead to our own directory, shared by
+    // every repository. Its hook runs this repository's, which is the one to manage.
+    if read_text(&path)?.is_some_and(|text| git_size::runs_repository_hook(&text)) {
+        return Ok(rev_parse(options, &["--git-common-dir"])?.join("hooks/pre-push"));
+    }
+    Ok(path)
 }
 
 pub(super) fn git_integration(action: &str, options: &Options) -> Result<u8> {

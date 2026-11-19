@@ -130,6 +130,14 @@ fn evaluate(host: &str, input: &Value) -> Result<(Option<Value>, &'static str, O
     if host == "claude" && hook_checks::file_size::is_edit_tool(tool) {
         return evaluate_edit(event, tool, input);
     }
+    // Grok has no edit check. Its edits arrive through the imported Claude registration
+    // and must pass quietly: an error exits 2, which Grok reads as denying the edit.
+    if host == "grok" && grok::is_edit_tool(tool) {
+        if event != "PreToolUse" {
+            return Err("edit hooks are registered for PreToolUse only".into());
+        }
+        return Ok((None, "requested", None));
+    }
     if tool != "Bash" && !(host == "grok" && tool == "run_terminal_command") {
         return Err("this integration accepts Bash and Claude edit hook events only".into());
     }

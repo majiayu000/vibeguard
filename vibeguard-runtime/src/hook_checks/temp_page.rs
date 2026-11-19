@@ -89,10 +89,25 @@ fn normalize(path: &Path) -> PathBuf {
 }
 
 fn is_temporary(path: &Path, temp_dir: &Path) -> bool {
-    let real_temp = temp_dir.canonicalize().ok();
     TEMP_ROOTS.iter().any(|root| path.starts_with(root))
-        || path.starts_with(normalize(temp_dir))
-        || real_temp.is_some_and(|dir| path.starts_with(dir))
+        || named_temp_dirs(temp_dir)
+            .iter()
+            .any(|dir| path.starts_with(dir))
+}
+
+/// The environment's temporary directory as spelled and as resolved. An empty or relative
+/// one (`TMPDIR=` or `.`) names no fixed place, and a root would hold every path, so
+/// neither counts; the fixed roots above still do. `has_root` rather than `is_absolute`:
+/// on Windows `\temp` has no drive letter yet still names one place.
+fn named_temp_dirs(temp_dir: &Path) -> Vec<PathBuf> {
+    if !temp_dir.has_root() {
+        return Vec::new();
+    }
+    [Some(normalize(temp_dir)), temp_dir.canonicalize().ok()]
+        .into_iter()
+        .flatten()
+        .filter(|dir| dir.parent().is_some())
+        .collect()
 }
 
 #[cfg(test)]
@@ -133,6 +148,17 @@ mod tests {
         }
         assert!(!blocked("x.html", "/repo"));
         assert!(!blocked("../x.html", "/tmp"));
+    }
+
+    #[test]
+    fn a_temporary_directory_that_names_no_place_adds_nothing() {
+        let input = json!({"file_path": "/nowhere/pages/demo.html", "content": "x"});
+        for dir in ["", ".", "tmp", "/"] {
+            let reason = blocked_reason("Write", &input, "/repo", Path::new(dir));
+            assert_eq!(reason, None, "{dir:?}");
+        }
+        let input = json!({"file_path": "/tmp/demo.html", "content": "x"});
+        assert!(blocked_reason("Write", &input, "/repo", Path::new("")).is_some());
     }
 
     #[test]

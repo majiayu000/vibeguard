@@ -41,6 +41,8 @@ pub(super) fn is_v1_claude_hook(command: &str) -> bool {
     {
         invocation = &invocation[1..];
     }
+    // Every script v1's hooks/manifest.json registered for Claude, plus the retired
+    // skills loader.
     let known = |name: &str| {
         matches!(
             name,
@@ -51,16 +53,21 @@ pub(super) fn is_v1_claude_hook(command: &str) -> bool {
                 | "post-edit-guard.sh"
                 | "post-write-guard.sh"
                 | "analysis-paralysis-guard.sh"
+                | "count_active_constraints.sh"
+                | "stop-guard.sh"
+                | "learn-evaluator.sh"
                 | "skills-loader.sh"
         )
     };
     match invocation {
         [wrapper, script] => wrapper.ends_with("/.vibeguard/run-hook.sh") && known(script),
-        [script] => {
-            (script.contains("/.vibeguard/installed/hooks/")
-                || script.contains("/.vibeguard/dist/current/hooks/"))
-                && known(script.rsplit('/').next().unwrap_or_default())
-        }
+        // v1 put its scripts straight in the hooks directory; one further down, or
+        // reached through `..`, is someone else's.
+        [script] => script.rsplit_once('/').is_some_and(|(dir, name)| {
+            (dir.ends_with("/.vibeguard/installed/hooks")
+                || dir.ends_with("/.vibeguard/dist/current/hooks"))
+                && known(name)
+        }),
         _ => false,
     }
 }
@@ -87,6 +94,11 @@ mod migration_tests {
             "bash /u/.vibeguard/run-hook.sh $(echo pre-bash-guard.sh)",
             "/u/.vibeguard/bin/vibeguard-runtime hook claude --state-dir /state",
             "env OTHER=1 /u/.vibeguard/run-hook.sh pre-bash-guard.sh",
+            // v1 put its scripts straight in the hooks directory.
+            "bash /u/.vibeguard/installed/hooks/custom/pre-bash-guard.sh",
+            "bash /u/.vibeguard/installed/hooks/../../../mine/pre-bash-guard.sh",
+            "bash /u/.vibeguard/dist/current/hooks/./x/post-edit-guard.sh",
+            "bash /u/.vibeguard/installed/hooks/pre-bash-guard.sh/extra",
         ] {
             assert!(!is_v1_claude_hook(command), "{command}");
         }
@@ -495,6 +507,9 @@ fn inspect_git_hook(path: &Path, findings: &mut Vec<Value>) {
         },
         Ok(metadata) if metadata.is_file() => match read_record(path) {
             Record::Text(text) => {
+                // install git-size puts its block into another tool's hook; the rest of
+                // the text is that tool's.
+                let theirs = super::git_size::without_block(&text).unwrap_or_else(|_| text.clone());
                 if v1_hook_body(&text) {
                     findings.push(finding(
                         "owned",
@@ -503,7 +518,7 @@ fn inspect_git_hook(path: &Path, findings: &mut Vec<Value>) {
                         "v1 hook wrapper text",
                         None,
                     ));
-                } else if mentions_v1(&text)
+                } else if mentions_v1(&theirs)
                     && !text.contains("# VibeGuard native pre-push hook")
                     && !text.contains("# VibeGuard native pre-commit hook")
                 {
@@ -547,11 +562,24 @@ fn git_hook_path(repo: &Path, hook: &str) -> Result<PathBuf, String> {
         return Err("git returned an empty hook path".into());
     }
     let path = PathBuf::from(path);
-    Ok(if path.is_absolute() {
+    let path = if path.is_absolute() {
         path
     } else {
         repo.join(path)
-    })
+    };
+    // Our own hooks directory only passes the call on to the repository's hook.
+    if let Record::Text(text) = read_record(&path)
+        && super::git_size::runs_repository_hook(&text)
+    {
+        let args = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
+        let output = git_probe(repo, &args)?;
+        let common = String::from_utf8_lossy(&output.stdout);
+        if !output.status.success() || common.trim().is_empty() {
+            return Err("cannot resolve the repository's own hooks".into());
+        }
+        return Ok(Path::new(common.trim()).join("hooks").join(hook));
+    }
+    Ok(path)
 }
 
 fn crontab_report(home: &Path) -> (Value, Vec<Value>) {

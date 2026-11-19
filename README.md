@@ -130,7 +130,7 @@ Nothing is added to your repositories. To turn it off in one, such as someone el
 git -C /absolute/path/to/repository config vibeguard.sizeLimit false
 ```
 
-It compares staged content with `HEAD`, so no list of known large files is needed. It is separate from `install git`, so it brings no push rules. How it installs depends on the global `core.hooksPath`:
+It compares staged content with `HEAD`, so no list of known large files is needed. It is separate from `install git`, so it brings no push rules. How it installs depends on the `core.hooksPath` of your global or system Git configuration, files they include counted:
 
 - **Not set:** Git is pointed at `~/.vibeguard/git-hooks`, whose hooks also run each repository's own hooks, so those keep working. Uninstall unsets it again.
 - **Set by another tool:** a marked block goes at the top of that tool's pre-commit script, and uninstall restores its exact text. If that tool rewrites the script, `status git-size` shows the block is gone; run install again. A hook that isn't a shell script is left alone and install fails with a message.
