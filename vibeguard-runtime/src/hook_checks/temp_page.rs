@@ -97,9 +97,10 @@ fn is_temporary(path: &Path, temp_dir: &Path) -> bool {
 
 /// The environment's temporary directory as spelled and as resolved. An empty or relative
 /// one (`TMPDIR=` or `.`) names no fixed place, and a root would hold every path, so
-/// neither counts; the fixed roots above still do.
+/// neither counts; the fixed roots above still do. `has_root` rather than `is_absolute`:
+/// on Windows `\temp` has no drive letter yet still names one place.
 fn named_temp_dirs(temp_dir: &Path) -> Vec<PathBuf> {
-    if !temp_dir.is_absolute() {
+    if !temp_dir.has_root() {
         return Vec::new();
     }
     [Some(normalize(temp_dir)), temp_dir.canonicalize().ok()]
