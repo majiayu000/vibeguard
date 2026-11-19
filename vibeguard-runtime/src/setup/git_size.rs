@@ -330,6 +330,11 @@ pub(super) fn run(action: &str, options: &Options) -> Result<u8> {
     if action == "uninstall" && ours && own_dir.exists() {
         fs::remove_dir_all(&own_dir)?;
     }
+    if action == "install" && ours {
+        eprintln!(
+            "Third-party tools can refuse to install hooks under VibeGuard's shared Git hooks path. In a standard clone, run `git -c core.hooksPath=.git/hooks lfs install --local` before pushing Git LFS files."
+        );
+    }
     publish(
         json!({"action":action,"host":options.host,"scope":"machine","hooks_path":dir,"hook":file}),
         options,
