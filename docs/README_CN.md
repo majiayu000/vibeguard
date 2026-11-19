@@ -86,6 +86,7 @@ git -C /absolute/path/to/repository config vibeguard.sizeLimit false
 
 - `git commit --no-verify` 能跳过提交检查；rebase 和 fast-forward 合并不触发。
 - 仓库自己设置了 `core.hooksPath`（比如 Husky）时不会运行。
+- VibeGuard 管理全局 `core.hooksPath` 时，Git LFS 和 pre-commit 等工具可能拒绝给新仓库安装 hook。推送 LFS 文件前，在有 `.git` 目录的普通克隆里执行 `git -c core.hooksPath=.git/hooks lfs install --local`，把 hook 装到 VibeGuard 会查找的位置。避免使用 `git lfs update --force`，它可能覆盖全局 hook。
 - Bash 提醒看的是整个仓库，可能报告其他会话未提交的增长；目录放在 shell 变量里时跟不过去。
 - Grok 和 DSH 收不到提醒，Codex 的 `apply_patch` 要到提交时才会被发现。
 
@@ -101,7 +102,7 @@ git -C /absolute/path/to/repository config vibeguard.sizeLimit false
 |---|---|
 | Bash 事前检查 | 拒绝有限几类破坏性命令写法，不是完整 shell 解析器或沙箱。 |
 | 编辑前（Claude Code） | `Write`/`Edit`/`MultiEdit` 会让源文件超过 800 行且比现在更长时拒绝；新文件不能超限，已超限的旧文件只能变短或持平。无法预测结果的编辑（文件不存在、原文不匹配）交给宿主工具自己报错。 |
-| Write 前，需手动开启（Claude Code） | 钩子环境里设 `VIBEGUARD_TEMP_PAGES=deny` 后，拒绝用 `Write` 把 `.html`、`.htm` 文件写进临时目录，因为系统之后会删掉。默认关闭。通过 Bash 写的页面看不到。 |
+| Write 前，需手动开启（Claude Code，当前源码构建） | 钩子环境里设 `VIBEGUARD_TEMP_PAGES=deny` 后，拒绝用 `Write` 把 `.html`、`.htm` 文件写进临时目录。默认关闭。发布版 v2.3.0 不识别该设置。通过 Bash 写的页面看不到。 |
 | Bash 执行后（Claude Code、Codex） | 告诉 Agent 哪些源文件涨过了 800 行，同一文件同一行数只提醒一次，不改变任何决定。 |
 | Git pre-commit（`install git-size`） | 提交会让源文件超过 800 行且比原来更长时拒绝。详见[行数上限](#行数上限)。 |
 | Git pre-push | 拒绝远端 ref 删除和已有 tag 替换；分支须直接指向 commit 并满足快进关系，其他已有 ref 解引用 tag 后检查提交祖先关系。不支持的非提交目标明确拒绝，缺失对象单独报错。需单独安装，详见 [runtime contract](runtime-contract.md)。 |
